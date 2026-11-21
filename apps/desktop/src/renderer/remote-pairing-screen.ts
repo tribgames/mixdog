@@ -15,10 +15,6 @@ import { isInstalledMobileWebAppSurface, isIOSWebSurface, markDirectBrowserSurfa
 import { browserProfile } from './remote-browser-identity';
 import { isRemoteClientCredential } from './remote-pairing-recovery';
 
-// The one-time ticket a 6-digit code was redeemed for (`#pair=<ticket>` on the
-// route the code page or the phone app sent us to). It rides the first claim so
-// the main PC's approval dialog can say "6-digit code"; the relay, not this
-// page, decides whether it is genuine. Taken off the address bar at once.
 let pairTicket = '';
 // This pairing began from a 6-digit code, so a claim sent without its (spent)
 // ticket is a retry of that pairing, not a QR scan.
@@ -137,9 +133,6 @@ interface RemotePairingScreenDeps {
   verifyConnection: () => Promise<void>;
 }
 
-// The request already waiting on the desktop, kept across reloads: a phone OS
-// discards a backgrounded web app freely, and a forgotten request would mean
-// asking again — one more prompt on the desktop for the same connection.
 const savePendingClaim = async (storageKey: string, claimId: string, keyPair: RelayClaimKeyPair): Promise<void> => {
   try {
     localStorage.setItem(
@@ -180,12 +173,6 @@ const clearPendingClaim = (storageKey: string): void => {
   }
 };
 
-// Approval instead of a scan. This container holds no credential and cannot
-// inherit one, so it asks the desktop its own entry route names, and the
-// answer comes back sealed to a key generated right here — the relay routes
-// the request and can open none of it.
-// The in-flight requests of each layer's current run, so a cancel or retry
-// aborts them instead of only ignoring their answers.
 const runAborters = new WeakMap<HTMLElement, AbortController>();
 const abortRun = (layer: HTMLElement): void => {
   runAborters.get(layer)?.abort();
@@ -202,6 +189,60 @@ const runSignal = (run: AbortSignal, ms: number): AbortSignal => {
   const timer = window.setTimeout(abort, ms);
   joined.signal.addEventListener('abort', () => window.clearTimeout(timer), { once: true });
   return joined.signal;
+};
+
+/** The relay answered the claim with a refusal (not a network failure). */
+class ClaimRefusedError extends Error {
+  constructor(status: number) {
+    super(`claim refused (${status})`);
+  }
+}
+
+const wait = (ms: number): Promise<void> =>
+  new Promise((done) => {
+    window.setTimeout(done, ms);
+  });
+
+type ClaimPayload = { status?: unknown; token?: unknown; sealed?: unknown };
+type ClaimPoll =
+  | { kind: 'approved'; payload: ClaimPayload }
+  | { kind: 'ended'; outcome: string; reachable: boolean }
+  | { kind: 'stale' };
+
+/** Polls a claim every two seconds until the relay decides it or five minutes pass. */
+const pollClaim = async (base: string, claimId: string, run: AbortSignal, stale: () => boolean): Promise<ClaimPoll> => {
+  const deadline = Date.now() + 300_000;
+  let outcome = 'expired';
+  let reachable = true;
+  // A page frozen in the background thaws with the deadline already gone:
+  // the loop still owes that wake one poll, which may well be the approval.
+  for (let last = false; !last; ) {
+    await wait(2_000);
+    if (stale()) return { kind: 'stale' };
+    last = Date.now() >= deadline;
+    let payload: ClaimPayload;
+    try {
+      const response = await fetch(new URL(`/claim/${encodeURIComponent(claimId)}`, base).toString(), {
+        headers: { Accept: 'application/json' },
+        signal: runSignal(run, last ? 10_000 : Math.max(1, Math.min(10_000, deadline - Date.now()))),
+      });
+      if (!response.ok) {
+        reachable = false;
+        continue;
+      }
+      payload = (await response.json()) as ClaimPayload;
+      reachable = true;
+    } catch {
+      reachable = false;
+      continue;
+    }
+    const status = String(payload?.status || 'pending');
+    if (status === 'pending') continue;
+    if (status === 'approved') return { kind: 'approved', payload };
+    outcome = status;
+    break;
+  }
+  return { kind: 'ended', outcome, reachable };
 };
 
 const requestApproval = async (
@@ -230,10 +271,6 @@ const requestApproval = async (
   const keyPair = resumed?.keyPair ?? (await generateRelayClaimKeyPair());
   let claimId = resumed?.claimId ?? '';
   const profile = await browserProfile();
-  const wait = (ms: number): Promise<void> =>
-    new Promise((done) => {
-      window.setTimeout(done, ms);
-    });
   const open = async (): Promise<string> => {
     let ticketFields: { ticket?: string; retry?: boolean } = {};
     if (pairTicket) ticketFields = { ticket: pairTicket };
@@ -252,7 +289,7 @@ const requestApproval = async (
     });
     // 503 is the desktop being asleep or offline, which resolves itself.
     if (response.status === 503) return '';
-    if (!response.ok) throw new Error(`claim refused (${response.status})`);
+    if (!response.ok) throw new ClaimRefusedError(response.status);
     // A ticket is single use: once the claim exists it is spent.
     pairTicket = '';
     const body = (await response.json()) as { claimId?: unknown };
@@ -264,7 +301,7 @@ const requestApproval = async (
         claimId = await open();
       } catch (error) {
         // Only a refusal means "scan again"; an unreachable relay is a network error.
-        const refused = error instanceof Error && error.message.startsWith('claim refused');
+        const refused = error instanceof ClaimRefusedError;
         report(
           refused
             ? failure(earlyUiT('Your PC no longer recognizes this device. Scan the QR code again.'))
@@ -288,43 +325,10 @@ const requestApproval = async (
       }
     }
     report({ kind: 'waiting' });
-    const deadline = Date.now() + 300_000;
-    let outcome = 'expired';
-    let reachable = true;
-    // A page frozen in the background thaws with the deadline already gone:
-    // the loop still owes that wake one poll, which may well be the approval.
-    for (let last = false; !last; ) {
-      await wait(2_000);
-      if (stale()) return;
-      last = Date.now() >= deadline;
-      let payload: { status?: unknown; token?: unknown; sealed?: unknown };
-      try {
-        const response = await fetch(new URL(`/claim/${encodeURIComponent(claimId)}`, base).toString(), {
-          headers: { Accept: 'application/json' },
-          // A stalled poll ends with the deadline, not after it; the final
-          // poll gets the ordinary bound.
-          signal: runSignal(aborter.signal, last ? 10_000 : Math.max(1, Math.min(10_000, deadline - Date.now()))),
-        });
-        if (!response.ok) {
-          reachable = false;
-          continue;
-        }
-        payload = (await response.json()) as typeof payload;
-        reachable = true;
-      } catch {
-        reachable = false;
-        continue;
-      }
-      const status = String(payload?.status || 'pending');
-      if (status === 'pending') continue;
-      if (status === 'unknown') {
-        outcome = status;
-        break;
-      }
-      if (status !== 'approved') {
-        outcome = status;
-        break;
-      }
+    const polled = await pollClaim(base, claimId, aborter.signal, stale);
+    if (polled.kind === 'stale') return;
+    if (polled.kind === 'approved') {
+      const { payload } = polled;
       const material = await openSealedRelayE2EEPairingMaterial(payload.sealed, keyPair);
       const credential = String(payload.token || '');
       // Every side effect below re-checks: a cancel while the answer was in
@@ -363,30 +367,77 @@ const requestApproval = async (
       return;
     }
     if (stale()) return;
-    if (outcome === 'unknown') {
-      // The relay no longer knows this claim (it restarted, or dropped it):
-      // nothing was decided, so the same key asks again on its own.
+    if (polled.outcome === 'unknown') {
       clearPendingClaim(deps.claimStorageKey);
       claimId = '';
       continue;
     }
-    if (outcome === 'expired' && !reachable) {
-      // The deadline passed while the relay was unreachable: not an expiry.
+    if (polled.outcome === 'expired' && !polled.reachable) {
       report(networkEvent());
       return;
     }
     clearPendingClaim(deps.claimStorageKey);
-    report(outcome === 'denied' ? declinedEvent() : expiredEvent());
+    report(polled.outcome === 'denied' ? declinedEvent() : expiredEvent());
     return;
   }
 };
 
-/**
- * Entry screen, vanilla DOM so it works before React mounts and with no
- * socket at all. Every container asks this desktop for approval: an installed
- * app, and a plain browser tab too (which then keeps running as the app). A
- * browser tab that knows no desktop goes to the code entry page instead.
- */
+const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text) node.textContent = text;
+  return node;
+};
+
+const paintPairingView = (
+  layer: HTMLElement,
+  style: HTMLStyleElement,
+  view: PairingView,
+  onAction: (role: PairingAction['role']) => void
+): void => {
+  const col = el('div', 'mxp-col');
+  const main = el('main', 'mxp-main');
+  const block = el('div', view.steps.length ? 'mxp-block steps' : 'mxp-block');
+  const vis = el('div', 'mxp-vis');
+  const logo = el('img', 'mxp-logo');
+  logo.src = '/mixdog-logo-titanium.svg';
+  logo.alt = '';
+  logo.draggable = false;
+  vis.append(logo);
+  const sub = el('p', 'mxp-sub');
+  const at = view.subBold ? view.sub.indexOf(view.subBold) : -1;
+  if (at < 0) sub.textContent = view.sub;
+  else sub.append(view.sub.slice(0, at), el('b', '', view.subBold), view.sub.slice(at + (view.subBold?.length ?? 0)));
+  block.append(vis, el('h1', 'mxp-title', view.title), sub);
+  const extra = el('div', 'mxp-extra');
+  view.steps.forEach((text, index) => {
+    const step = el('div', 'mxp-step');
+    step.append(el('b', '', String(index + 1)), el('span', '', text));
+    extra.append(step);
+  });
+  if (view.wait) {
+    const row = el('p', 'mxp-wait');
+    row.append(el('i', 'mxp-spinner'), earlyUiT('Waiting…'));
+    extra.append(row);
+  }
+  if (view.fine) extra.append(el('p', 'mxp-fine', view.fine));
+  block.append(extra);
+  main.append(block);
+  const actions = el('footer', 'mxp-actions');
+  for (const action of view.actions) {
+    const button = el('button', `mxp-btn${action.primary ? '' : ' sec'}`, action.label);
+    button.type = 'button';
+    button.dataset.role = action.role;
+    if (action.hidden) button.hidden = true;
+    button.addEventListener('click', () => onAction(action.role));
+    actions.append(button);
+  }
+  col.append(main, actions);
+  layer.replaceChildren(style, col);
+};
+
+/** Entry screen, vanilla DOM so it works before React mounts and with no
+ *  socket at all. A browser tab that knows no desktop goes to the code entry page. */
 export const createRemotePairingScreen = (
   deps: RemotePairingScreenDeps
 ): ((message: string, autoAsk?: boolean, title?: string, recovery?: 'reload') => void) => {
@@ -463,64 +514,7 @@ export const createRemotePairingScreen = (
       };
       const endedView = (): PairingView =>
         retryView(title || earlyUiT('You were disconnected'), message || earlyUiT('Your PC disconnected this device.'));
-      const el = <K extends keyof HTMLElementTagNameMap>(
-        tag: K,
-        className = '',
-        text = ''
-      ): HTMLElementTagNameMap[K] => {
-        const node = document.createElement(tag);
-        if (className) node.className = className;
-        if (text) node.textContent = text;
-        return node;
-      };
-      // Catalog text enters only textContent, never HTML.
-      const paint = (view: PairingView): void => {
-        const col = el('div', 'mxp-col');
-        const main = el('main', 'mxp-main');
-        const block = el('div', view.steps.length ? 'mxp-block steps' : 'mxp-block');
-        const vis = el('div', 'mxp-vis');
-        const logo = el('img', 'mxp-logo');
-        logo.src = '/mixdog-logo-titanium.svg';
-        logo.alt = '';
-        logo.draggable = false;
-        vis.append(logo);
-        const sub = el('p', 'mxp-sub');
-        const at = view.subBold ? view.sub.indexOf(view.subBold) : -1;
-        if (at < 0) sub.textContent = view.sub;
-        else
-          sub.append(
-            view.sub.slice(0, at),
-            el('b', '', view.subBold),
-            view.sub.slice(at + (view.subBold?.length ?? 0))
-          );
-        block.append(vis, el('h1', 'mxp-title', view.title), sub);
-        const extra = el('div', 'mxp-extra');
-        view.steps.forEach((text, index) => {
-          const step = el('div', 'mxp-step');
-          step.append(el('b', '', String(index + 1)), el('span', '', text));
-          extra.append(step);
-        });
-        if (view.wait) {
-          const row = el('p', 'mxp-wait');
-          row.append(el('i', 'mxp-spinner'), earlyUiT('Waiting…'));
-          extra.append(row);
-        }
-        if (view.fine) extra.append(el('p', 'mxp-fine', view.fine));
-        block.append(extra);
-        main.append(block);
-        const actions = el('footer', 'mxp-actions');
-        for (const action of view.actions) {
-          const button = el('button', `mxp-btn${action.primary ? '' : ' sec'}`, action.label);
-          button.type = 'button';
-          button.dataset.role = action.role;
-          if (action.hidden) button.hidden = true;
-          button.addEventListener('click', () => onAction(action.role));
-          actions.append(button);
-        }
-        col.append(main, actions);
-        layer.replaceChildren(style, col);
-      };
-
+      const paint = (view: PairingView): void => paintPairingView(layer, style, view, onAction);
       const report: PairingReport = (event) => paint(eventView(event));
       const start = (): void => {
         abortRun(layer);

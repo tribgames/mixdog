@@ -26,6 +26,20 @@ function evictOldest(map: Map<string, unknown>, keep?: string): void {
   }
 }
 
+type SubmitFn = (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
+
+/** The stable submit function for `key`, created once so memoised pane trees
+ *  do not re-render from a fresh closure on every App commit. */
+function cachedSubmit(cache: Map<string, SubmitFn>, key: string, make: SubmitFn): SubmitFn {
+  let fn = cache.get(key);
+  if (!fn) {
+    fn = make;
+    cache.set(key, fn);
+    evictOldest(cache);
+  }
+  return fn;
+}
+
 export function useAppSubmitRouting({
   selectionRef,
   focusedLeafIdRef,
@@ -59,11 +73,6 @@ export function useAppSubmitRouting({
     selection: NavigationSelection;
     leafId: string;
   };
-  // One draft mints exactly one session. Until the first submit's
-  // acknowledgement promotes the tab, the route still reads as a draft, so a
-  // prompt sent in that window called submitNewTask() again and opened a
-  // duplicate session. This registry — not composer-local submit state, which resets
-  // whenever that composer remounts — is the authority on that single mint.
   const draftSubmissions = useRef(new Map<string, Promise<string>>());
   /** Claims the draft's creation slot before the first await, so a same-tick
    *  second submit already observes it. The claim settles with the created
@@ -169,10 +178,6 @@ export function useAppSubmitRouting({
             const sessionSelection = { kind: 'session', id: startedSessionId } as const;
             const submittedAt = Number(options?.submittedAt);
             const activityAt = Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : Date.now();
-            // One commit owns both visible changes: the draft pane promotes and
-            // its keyed Recent row appears. The host catalog later reconciles
-            // metadata onto this row instead of inserting/removing it around the
-            // first prompt acknowledgement.
             stageCreatedSession({
               id: startedSessionId,
               preview: title,
@@ -199,13 +204,6 @@ export function useAppSubmitRouting({
           }
         }
       }
-      // The draft ends here: promoted to its session, or closed in flight.
-      // `new:default` recurs (every emptied workspace reopens it), so a later
-      // draft under the same key must mint its own session instead of joining
-      // this one.
-      // The mapping stays while the draft tab is still on screen, so a retained
-      // draft callback keeps routing to its session; it is retired once the tab
-      // is gone (immediately if already closed, else by the effect above).
       if (startedSessionId) {
         if (draftRouteStillExists()) endedDrafts.current.add(draftKey);
         else draftSubmissions.current.delete(draftKey);
@@ -237,57 +235,19 @@ export function useAppSubmitRouting({
       ),
     []
   );
-  // Split panes: a session pane's prompt path is addressed by ITS sessionId,
-  // never by the globally active selection. Snapshot lanes are already
-  // pane-local; routing every submit through the active route made a focused
-  // pane's Enter land in — or promote onto — another pane's session, or stall
-  // silently when selection and focus disagreed.
-  const submitToPaneSession = useCallback(
-    async (sessionId: string, content: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<unknown> => {
+  const paneSessionSubmitCache = useRef(new Map<string, SubmitFn>());
+  const paneSubmitFor = (sessionId: string) =>
+    cachedSubmit(paneSessionSubmitCache.current, sessionId, async (content, options) => {
       const host = window.mixdogDesktop;
       if (!host) return false;
-      // The service transport owns the authoritative request deadline. A shorter
-      // renderer watchdog raced valid auto-clear/session-recovery intake: it
-      // restored the draft while the same submission was accepted moments later,
-      // inviting a duplicate retry.
       return await host.submitToSession(sessionId, content, options);
-    },
-    []
-  );
-  // Stable per-session submit identity so memoised pane trees do not
-  // re-render from a fresh closure on every App commit.
-  const paneSessionSubmitCache = useRef(
-    new Map<string, (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>>()
-  );
-  const paneSubmitFor = (sessionId: string) => {
-    let fn = paneSessionSubmitCache.current.get(sessionId);
-    if (!fn) {
-      fn = (content, options) => submitToPaneSession(sessionId, content, options);
-      paneSessionSubmitCache.current.set(sessionId, fn);
-      evictOldest(paneSessionSubmitCache.current);
-    }
-    return fn;
-  };
-  const paneDraftSubmitCache = useRef(
-    new Map<string, (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>>()
-  );
+    });
+  const paneDraftSubmitCache = useRef(new Map<string, SubmitFn>());
   const paneDraftSubmitFor = (draftSelection: Extract<NavigationSelection, { kind: 'new' }>, leafId: string) => {
     const key = `${leafId}\u0000${navigationKey(draftSelection)}`;
-    let fn = paneDraftSubmitCache.current.get(key);
-    if (!fn) {
-      fn = (content, options) =>
-        submitFromRouteRef.current(
-          {
-            selection: draftSelection,
-            leafId,
-          },
-          content,
-          options
-        );
-      paneDraftSubmitCache.current.set(key, fn);
-      evictOldest(paneDraftSubmitCache.current);
-    }
-    return fn;
+    return cachedSubmit(paneDraftSubmitCache.current, key, (content, options) =>
+      submitFromRouteRef.current({ selection: draftSelection, leafId }, content, options)
+    );
   };
 
   return { paneDraftSubmitFor, paneSubmitFor, submit };

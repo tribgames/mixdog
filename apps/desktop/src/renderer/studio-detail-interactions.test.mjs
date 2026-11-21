@@ -89,13 +89,9 @@ const lane = {
 const { writeStudioAssetReferences, writeStudioDraftReferences } = await import('./studio-draft-cache.ts');
 const { StudioPane } = await import('./StudioView.tsx');
 
-test('Studio detail opens media, reveals its folder, and navigates with plain arrow keys', async () => {
+async function renderDetailStudio() {
   window.localStorage.clear();
-  const opened = [];
-  const openedReferences = [];
-  const revealed = [];
-  const generations = [];
-  const rememberedDefaults = [];
+  const record = { opened: [], openedReferences: [], revealed: [], generations: [], rememberedDefaults: [] };
   const referenceStore = memoryReferenceStore();
   await writeStudioAssetReferences('asset-older', [{ base64: 'cmVmZXJlbmNl', mime: 'image/png' }], referenceStore);
   await writeStudioDraftReferences(
@@ -105,29 +101,22 @@ test('Studio detail opens media, reveals its folder, and navigates with plain ar
     ],
     referenceStore
   );
+  const base = detailApi();
   const api = {
-    mediaUrl: () => PIXEL,
+    ...base,
     openAttachmentImage: async (url, name) => {
-      openedReferences.push({ url, name });
+      record.openedReferences.push({ url, name });
     },
     openMediaAsset: async (id) => {
-      opened.push(id);
+      record.opened.push(id);
     },
     openMediaFolder: async (id) => {
-      revealed.push(id);
+      record.revealed.push(id);
     },
-    invokeCapability: async ({ capability, args = [] }) => {
-      if (capability === 'listMediaLanes') return { value: [lane], snapshot: null };
-      if (capability === 'listMediaAssets') {
-        const kind = args[0]?.kind;
-        const rows = kind === 'image' ? assets : [];
-        return { value: { assets: rows, total: rows.length }, snapshot: null };
-      }
-      if (capability === 'readMediaAsset') {
-        return { value: { base64: PIXEL.split(',')[1], mime: 'image/png' }, snapshot: null };
-      }
+    invokeCapability: async (request) => {
+      const { capability, args = [] } = request;
       if (capability === 'startMediaJob') {
-        generations.push(args[0]);
+        record.generations.push(args[0]);
         return {
           value: {
             id: 'regenerated-job',
@@ -144,40 +133,64 @@ test('Studio detail opens media, reveals its folder, and navigates with plain ar
         };
       }
       if (capability === 'getMediaJob') return { value: null, snapshot: null };
-      if (capability === 'setMediaDefault') {
-        rememberedDefaults.push(args[0]);
-        return { value: args[0], snapshot: null };
-      }
-      throw new Error(`unexpected capability: ${capability}`);
+      if (capability === 'setMediaDefault') record.rememberedDefaults.push(args[0]);
+      return base.invokeCapability(request);
     },
   };
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
+  await act(async () => {
+    root.render(React.createElement(StudioPane, { api, referenceStore }));
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  });
+  return {
+    host,
+    record,
+    render: (props) => act(async () => root.render(React.createElement(StudioPane, { api, referenceStore, ...props }))),
+    async unmount() {
+      await act(async () => root.unmount());
+      host.remove();
+    },
+  };
+}
 
+const pressArrow = (key, target = window) =>
+  act(async () => {
+    target.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true }));
+  });
+
+test('Studio pushes its settled selection to the runtime once as the media default', async () => {
+  const studio = await renderDetailStudio();
   try {
-    await act(async () => {
-      root.render(React.createElement(StudioPane, { api, referenceStore }));
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    });
-    const tiles = [...host.querySelectorAll('.studio-tile-open')];
-    assert.equal(tiles.length, 2);
-    assert.deepEqual(
-      rememberedDefaults,
-      [{ kind: 'image', lane: 'gemini', model: 'image-model' }],
-      'the settled Studio selection is pushed to the runtime once as the media default'
-    );
-    const referenceButtons = [...host.querySelectorAll('.studio-ref-open')];
+    assert.equal(studio.host.querySelectorAll('.studio-tile-open').length, 2);
+    assert.deepEqual(studio.record.rememberedDefaults, [{ kind: 'image', lane: 'gemini', model: 'image-model' }]);
+  } finally {
+    await studio.unmount();
+  }
+});
+
+test('a reference chip opens its image', async () => {
+  const studio = await renderDetailStudio();
+  try {
+    const referenceButtons = [...studio.host.querySelectorAll('.studio-ref-open')];
     assert.equal(referenceButtons.length, 2);
     await act(async () => referenceButtons[0].click());
-    assert.deepEqual(openedReferences, [
+    assert.deepEqual(studio.record.openedReferences, [
       {
         url: 'data:image/png;base64,Zmlyc3Q=',
         name: 'reference-1.png',
       },
     ]);
+  } finally {
+    await studio.unmount();
+  }
+});
 
-    const referenceTiles = [...host.querySelectorAll('.studio-ref')];
+test('dragging a reference chip reorders the references', async () => {
+  const studio = await renderDetailStudio();
+  try {
+    const referenceTiles = [...studio.host.querySelectorAll('.studio-ref')];
     const dataTransfer = {
       effectAllowed: '',
       dropEffect: '',
@@ -211,65 +224,58 @@ test('Studio detail opens media, reveals its folder, and navigates with plain ar
       drag('dragover', referenceTiles[1], 40);
       drag('drop', referenceTiles[1], 40);
     });
-    assert.equal(host.querySelector('.studio-ref-open img')?.src, 'data:image/jpeg;base64,c2Vjb25k');
+    assert.equal(studio.host.querySelector('.studio-ref-open img')?.src, 'data:image/jpeg;base64,c2Vjb25k');
+  } finally {
+    await studio.unmount();
+  }
+});
 
+test('Studio detail navigates with plain arrow keys and leaves typing controls their own', async () => {
+  const studio = await renderDetailStudio();
+  const { host } = studio;
+  try {
     await act(async () => host.querySelectorAll('.studio-tile-open')[0].click());
     assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'Newer image');
-
-    await act(async () => {
-      window.dispatchEvent(
-        new window.KeyboardEvent('keydown', {
-          key: 'ArrowRight',
-          bubbles: true,
-        })
-      );
-    });
+    await pressArrow('ArrowRight');
     assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'Older image');
 
-    await act(async () => host.querySelector('.studio-detail-media-open').click());
-    assert.deepEqual(opened, ['asset-older']);
-
-    const folder = [...host.querySelectorAll('.studio-detail-actions button')].find((button) =>
-      button.textContent.includes('Open Folder')
-    );
-    assert.ok(folder);
-    await act(async () => folder.click());
-    assert.deepEqual(revealed, ['asset-older']);
-
-    const prompt = host.querySelector('textarea[aria-label="Generation prompt"]');
-    await act(async () => {
-      prompt.dispatchEvent(
-        new window.KeyboardEvent('keydown', {
-          key: 'ArrowLeft',
-          bubbles: true,
-        })
-      );
-    });
+    await pressArrow('ArrowLeft', host.querySelector('textarea[aria-label="Generation prompt"]'));
     assert.equal(
       host.querySelector('.studio-detail-prompt')?.textContent,
       'Older image',
       'typing controls must retain their own arrow-key behavior'
     );
 
-    await act(async () => {
-      window.dispatchEvent(
-        new window.KeyboardEvent('keydown', {
-          key: 'ArrowLeft',
-          bubbles: true,
-        })
-      );
-    });
+    await pressArrow('ArrowLeft');
     assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'Newer image');
-    await act(async () => {
-      window.dispatchEvent(
-        new window.KeyboardEvent('keydown', {
-          key: 'ArrowRight',
-          bubbles: true,
-        })
-      );
-    });
-    assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'Older image');
+  } finally {
+    await studio.unmount();
+  }
+});
 
+test('Studio detail opens its media and reveals its folder', async () => {
+  const studio = await renderDetailStudio();
+  const { host } = studio;
+  try {
+    await act(async () => host.querySelectorAll('.studio-tile-open')[1].click());
+    await act(async () => host.querySelector('.studio-detail-media-open').click());
+    assert.deepEqual(studio.record.opened, ['asset-older']);
+
+    const folder = detailAction(host, 'Open Folder');
+    assert.ok(folder);
+    await act(async () => folder.click());
+    assert.deepEqual(studio.record.revealed, ['asset-older']);
+  } finally {
+    await studio.unmount();
+  }
+});
+
+test('Escape closes the detail only from the focused pane and not from the composer', async () => {
+  const studio = await renderDetailStudio();
+  const { host } = studio;
+  try {
+    await act(async () => host.querySelectorAll('.studio-tile-open')[0].click());
+    const prompt = host.querySelector('textarea[aria-label="Generation prompt"]');
     const pressEscape = async (target) => {
       const event = new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
       await act(async () => target.dispatchEvent(event));
@@ -279,25 +285,30 @@ test('Studio detail opens media, reveals its folder, and navigates with plain ar
     assert.ok(host.querySelector('.studio-detail'), 'the composer keeps its own Escape');
     assert.equal(composerEscape.defaultPrevented, false);
     document.activeElement?.blur();
-    await act(async () => root.render(React.createElement(StudioPane, { api, referenceStore, focused: false })));
+    await studio.render({ focused: false });
     const otherPaneEscape = await pressEscape(document.body);
     assert.ok(host.querySelector('.studio-detail'), 'a page Escape belongs to the focused pane, not this one');
     assert.equal(otherPaneEscape.defaultPrevented, false);
-    await act(async () => root.render(React.createElement(StudioPane, { api, referenceStore, focused: true })));
+    await studio.render({ focused: true });
     await pressEscape(document.body);
     assert.equal(host.querySelector('.studio-detail'), null, 'Escape with focus on body closes the detail viewer');
+  } finally {
+    await studio.unmount();
+  }
+});
+
+test('Studio detail regenerates with the references stored for the asset', async () => {
+  const studio = await renderDetailStudio();
+  const { host } = studio;
+  try {
     await act(async () => host.querySelectorAll('.studio-tile-open')[1].click());
     assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'Older image');
-
-    const regenerate = [...host.querySelectorAll('.studio-detail-actions button')].find((button) =>
-      button.textContent.includes('Regenerate')
-    );
+    const regenerate = detailAction(host, 'Regenerate');
     assert.ok(regenerate);
     await act(async () => regenerate.click());
-    assert.deepEqual(generations[0].references, [{ base64: 'cmVmZXJlbmNl', mime: 'image/png' }]);
+    assert.deepEqual(studio.record.generations[0].references, [{ base64: 'cmVmZXJlbmNl', mime: 'image/png' }]);
   } finally {
-    await act(async () => root.unmount());
-    host.remove();
+    await studio.unmount();
   }
 });
 
@@ -437,19 +448,20 @@ test('a catalog outage notice names the catalog, not an unavailable model', asyn
   }
 });
 
-test('a slow gateway catalog shows loading in the model list, re-polls, and a failure says so with Retry', async () => {
-  const nano = {
-    id: 'nano-gpt',
-    label: 'NanoGPT',
-    authType: 'api-key',
-    authProvider: 'nano-gpt',
-    authenticated: true,
-    supportedKinds: ['image'],
-    kinds: [],
-    image: null,
-    video: null,
-  };
-  let nanoState = { ...nano, catalogPending: true };
+const nanoLane = {
+  id: 'nano-gpt',
+  label: 'NanoGPT',
+  authType: 'api-key',
+  authProvider: 'nano-gpt',
+  authenticated: true,
+  supportedKinds: ['image'],
+  kinds: [],
+  image: null,
+  video: null,
+};
+
+async function renderSlowCatalogStudio(initialNano) {
+  let nanoState = initialNano;
   const laneCalls = [];
   const api = detailApi();
   const base = api.invokeCapability;
@@ -470,11 +482,32 @@ test('a slow gateway catalog shows loading in the model list, re-polls, and a fa
       disabled: row.disabled,
     }));
   };
-  const closeModels = () =>
-    act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  const closeModels = async () => {
+    for (let closed = 0; closed < 2; closed += 1) {
+      await act(async () =>
+        document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      );
+    }
+  };
+  return {
+    studio,
+    laneCalls,
+    openModels,
+    closeModels,
+    setNano(next) {
+      nanoState = next;
+    },
+  };
+}
+
+test('a slow gateway catalog is listed as loading in the model list', async () => {
+  const harness = await renderSlowCatalogStudio({ ...nanoLane, catalogPending: true });
   try {
-    assert.ok(laneCalls[0]?.[0]?.budgetMs > 0, 'Studio bounds the listing so one slow catalog cannot hold the pane');
-    let rows = await openModels();
+    assert.ok(
+      harness.laneCalls[0]?.[0]?.budgetMs > 0,
+      'Studio bounds the listing so one slow catalog cannot hold the pane'
+    );
+    const rows = await harness.openModels();
     assert.ok(
       rows.some((row) => row.text.startsWith('Image model')),
       'the ready lane stays usable'
@@ -483,49 +516,51 @@ test('a slow gateway catalog shows loading in the model list, re-polls, and a fa
     assert.ok(loading, 'the slow lane is listed instead of vanishing');
     assert.match(loading.text, /Loading models…/);
     assert.equal(loading.disabled, true);
-    await closeModels();
-    await closeModels();
+    await harness.closeModels();
+  } finally {
+    await harness.studio.unmount();
+  }
+});
 
-    nanoState = {
-      ...nano,
+test('a pending gateway catalog is polled again and its late models become choosable', async () => {
+  const harness = await renderSlowCatalogStudio({ ...nanoLane, catalogPending: true });
+  try {
+    harness.setNano({
+      ...nanoLane,
       kinds: ['image'],
       image: { defaultModel: 'hidream', controls: {}, models: [{ id: 'hidream', label: 'HiDream', controls: {} }] },
-    };
+    });
     await settle(1_200);
-    assert.ok(laneCalls.length >= 2, 'a pending catalog is polled again');
-    rows = await openModels();
+    assert.ok(harness.laneCalls.length >= 2, 'a pending catalog is polled again');
+    const rows = await harness.openModels();
     assert.ok(
       rows.some((row) => row.text.startsWith('HiDream') && !row.disabled),
       'the late models become choosable'
     );
-    await closeModels();
-    await closeModels();
+    await harness.closeModels();
+  } finally {
+    await harness.studio.unmount();
+  }
+});
 
-    nanoState = {
-      ...nano,
-      catalogErrorCode: 'MEDIA_CATALOG_TIMEOUT',
-      catalogError: 'NanoGPT (API key): Model catalog request timed out. Retry after checking the connection.',
-    };
-    // A fresh listing (Studio entry or Retry) picks up the failure.
-    await studio.unmount();
-    const failed = await renderStudio(api, memoryReferenceStore());
-    try {
-      rows = await openModels();
-      const row = rows.find((entry) => entry.text.includes('NanoGPT'));
-      assert.match(row.text, /Couldn't load models/);
-      assert.ok(
-        [...failed.host.querySelectorAll('.studio-dock button')].some((button) => button.textContent === 'Retry'),
-        'a failed catalog offers Retry'
-      );
-      assert.match(failed.host.textContent, /Model catalog request timed out/);
-    } finally {
-      await closeModels();
-      await closeModels();
-      await failed.unmount();
-    }
-  } catch (error) {
-    await studio.unmount().catch(() => {});
-    throw error;
+test('a failed gateway catalog says so in the model list and offers Retry', async () => {
+  const harness = await renderSlowCatalogStudio({
+    ...nanoLane,
+    catalogErrorCode: 'MEDIA_CATALOG_TIMEOUT',
+    catalogError: 'NanoGPT (API key): Model catalog request timed out. Retry after checking the connection.',
+  });
+  try {
+    const rows = await harness.openModels();
+    const row = rows.find((entry) => entry.text.includes('NanoGPT'));
+    assert.match(row.text, /Couldn't load models/);
+    assert.ok(
+      [...harness.studio.host.querySelectorAll('.studio-dock button')].some((button) => button.textContent === 'Retry'),
+      'a failed catalog offers Retry'
+    );
+    assert.match(harness.studio.host.textContent, /Model catalog request timed out/);
+    await harness.closeModels();
+  } finally {
+    await harness.studio.unmount();
   }
 });
 

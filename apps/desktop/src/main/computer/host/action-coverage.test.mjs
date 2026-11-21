@@ -2,11 +2,6 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-// Source-text on purpose (whole file): the action lists live in TypeScript modules and
-// PowerShell programs that only run on a real desktop; the cross-layer coverage is the invariant.
-// Pointer actions are enumerated again in every layer that has to recognise them.
-// A tool-surface action missing from one of those lists does not fail loudly: the
-// host dies mid-command and the run ends without a verdict.
 const HOST_ACTION_LISTS = [
   'host/command-router.ts',
   'host/sequence-runner.ts',
@@ -43,10 +38,6 @@ test('a held key in the background lane is refused as unsupported, not as bad gr
 });
 
 test('a value write reaches every layer that dispatches it', async () => {
-  // set_value writes through the element, so it is neither a pointer nor a key
-  // action; the layers that route it still have to recognise it by name.
-  // host/sequence-runner.ts vets every act step: a value write missing from its
-  // grammar is refused before dispatch, so act can never reach the layers below.
   for (const file of [
     'host/sequence-runner.ts',
     'session/element-aliases.ts',

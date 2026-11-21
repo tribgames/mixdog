@@ -13,6 +13,10 @@ export interface BridgeServerHost {
   diagnose(event: string, data?: Record<string, unknown>): void;
   /** The core the commands run on; the bridge answers a command the core could not take as a failed one. */
   callCore: CallCore;
+  /** Where the desktop's own computer host runs the commands (the core relays them to it), the runtime owner whose
+   *  `/owner` connection this is is bound there too, by the desktop's own proof of its process; the returned function
+   *  releases it. Absent, or null: no such host holds owners. */
+  attachOwner?(ownerId: string, pid: number): Promise<(() => void) | null>;
 }
 
 export interface BridgeServerState {

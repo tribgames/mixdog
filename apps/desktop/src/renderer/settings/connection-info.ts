@@ -49,10 +49,6 @@ export function preloadConnectionInfo(
   { activate = true }: { activate?: boolean } = {}
 ): Promise<DesktopRemoteAccessInfo | null> {
   const entry = cacheEntry(api);
-  // Null results stay cached for instant paint but are refetched on the next
-  // call, so a slow relay start never sticks as an empty card. Each shared
-  // attempt has its own deadline: an IPC request that never answers must
-  // release the cache so the next poll can make a fresh request.
   if (connectionInfoReady(entry.value)) return Promise.resolve(entry.value);
   // A read-only attempt in flight must not satisfy an activating request.
   if (entry.promise && (entry.promiseActivates || !activate)) return entry.promise;
@@ -68,10 +64,6 @@ export function preloadConnectionInfo(
     .then((value) => {
       const next = value ?? null;
       const appliedRequestVersion = entry.appliedRequestVersion ?? 0;
-      // A deadline releases the shared attempt so polling can retry, but the
-      // original IPC call keeps running. Keep a late READY result unless a
-      // newer completed request already won; otherwise a response slower than
-      // the polling interval is invalidated forever by every following retry.
       if (requestVersion < appliedRequestVersion) return entry.value ?? null;
       // Once any request produced a usable QR, an overlapping empty response
       // must not erase it and send the card back to its loading state.

@@ -60,13 +60,6 @@ export function mediaFile(asset: MediaAsset, media: MediaBytes): File {
   return new File([media.bytes], `mixdog-${asset.id}.${extension}`, { type: media.mime });
 }
 
-/** Fallback thumbnail hydration ONLY: tiles normally load their rendition
- *  straight from the byte lane. This queue exists for hosts without that lane,
- *  and pulls the server-side rendition through the RPC surface instead. Local
- *  image misses read ONE original at a time through direct IPC and shrink it
- *  here: using a second mixdog-media:// URL merely joined the same delayed
- *  custom-protocol queue. Remote hosts keep the glyph rather than pulling a
- *  full-size asset across the link. Returns its own teardown. */
 export function startStudioThumbnailHydration({
   api,
   assetUrl,

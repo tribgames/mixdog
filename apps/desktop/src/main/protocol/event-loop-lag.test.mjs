@@ -1,15 +1,4 @@
-// The bound that lets a process own the client library (desktop-services.md §12): under reconnect storms with a
-// large app snapshot and several sessions streaming at once, the event loop is never blocked for more than 50 ms.
-//
-// What runs: the real client library folding frames from its mock transport, a store listener standing for the
-// consumer of every change, and a real event-loop delay monitor (perf_hooks `monitorEventLoopDelay`) over the whole storm. The scripted
-// core streams every session from its own immediate-loop in bursts of 200 frames (one burst is delivered in a single
-// synchronous run, as the frames of one socket read are), drops the socket in the middle of the stream, and the next
-// generation re-handshakes, re-sends the ~1 MB app snapshot and re-folds the sessions while the streams of the other
-// sessions keep going. No frame is awaited between bursts. Frames are built before the monitor starts.
-//
-// `structuredClone` stands in for Electron's IPC serialisation (both are V8's structured-clone algorithm); the listener
-// runs it on every changed section, so its cost is inside the measured turns.
+// The 50 ms bound is desktop-services.md §12's.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { monitorEventLoopDelay, PerformanceObserver } from 'node:perf_hooks';

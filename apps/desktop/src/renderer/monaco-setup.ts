@@ -69,12 +69,7 @@ self.MonacoEnvironment = {
 
 loader.config({ monaco });
 
-// basic-languages registers every language id synchronously but loads its
-// Monarch tokenizer through a lazy dynamic import(); a model created before
-// that chunk resolves paints untokenized (default white) on entry — the
-// intermittent "white, no highlighting" first open. Registering every PANE
-// target language eagerly makes the first paint colored. ('json' keeps
-// monaco's own JSON-mode tokenizer; 'log' is our custom Monarch below.)
+// monaco basic-languages loads each Monarch tokenizer through a lazy import(); a model created before it resolves paints untokenized.
 const BASIC_LANGUAGE_DEFINITIONS: Readonly<
   Record<
     string,
@@ -219,11 +214,6 @@ monaco.editor.defineTheme('mixdog-light', {
   },
 });
 
-// ── Dynamic theme sync ──────────────────────────────────────────────────
-// The static definitions above are the boot fallback (default dark /
-// light). Registry themes (nord, dracula, …) restyle the shell through
-// injected --mx-* tokens; the editor must follow the same tokens or it
-// stays on the default dark inside a differently colored shell.
 let themeColorProbe: HTMLElement | null = null;
 
 function colorProbe(): HTMLElement {

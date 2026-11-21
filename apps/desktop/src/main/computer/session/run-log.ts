@@ -1,9 +1,3 @@
-/**
- * The Computer Use run history: one JSONL line per executed command so a failed
- * run can be reconstructed afterwards. Actions, targets, timings, and verdicts
- * only — typed text, clipboard contents, and pixels never reach this file, and
- * a history write never decides whether a command succeeds.
- */
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 

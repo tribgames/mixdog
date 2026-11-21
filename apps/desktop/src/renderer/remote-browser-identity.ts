@@ -1,8 +1,3 @@
-// What this browser container is, as the desktop sees it: the id the relay
-// routes to and the human label an approval prompt or a push registration
-// shows. Nothing here touches the socket, so both answers are available before
-// any connection exists.
-
 import { nativeAppInfo } from '../shared/native-app';
 import { MIXDOG_APP_CLIENT_BROWSER, MIXDOG_DESKTOP_CLIENT_BROWSER } from '../shared/remote-trust';
 import { remoteWindowInfo } from '../shared/remote-window';

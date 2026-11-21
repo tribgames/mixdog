@@ -1,5 +1,5 @@
 import { Check, Info, Plus, Search, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DesktopModelOption } from '../shared/contract';
 import { t } from './i18n';
@@ -158,6 +158,199 @@ function emptyCatalogText(loading: boolean, hasQuery: boolean): string {
   return hasQuery ? t('No matching models.') : t('No connected provider models.');
 }
 
+function sortedProviderEntries(
+  models: DesktopModelOption[],
+  resolveProviderLabel: (id: string) => string
+): Array<[string, DesktopModelOption[]]> {
+  const entries = new Map<string, DesktopModelOption[]>();
+  for (const option of models) {
+    const options = entries.get(option.provider) || [];
+    options.push(option);
+    entries.set(option.provider, options);
+  }
+  return [...entries].sort(
+    ([left], [right]) =>
+      providerDisplayRank(left) - providerDisplayRank(right) ||
+      resolveProviderLabel(left).localeCompare(resolveProviderLabel(right)) ||
+      left.localeCompare(right)
+  );
+}
+
+function selectCatalogGroups(
+  providerEntries: Array<[string, DesktopModelOption[]]>,
+  models: DesktopModelOption[],
+  recentModelKeys: string[],
+  matchesQuery: (option: DesktopModelOption) => boolean
+) {
+  const favoriteModels = providerEntries.flatMap(([, options]) =>
+    options.filter((option) => option.favorite === true && matchesQuery(option))
+  );
+  const visibleProviderEntries = providerEntries
+    .map(
+      ([entryProvider, options]) =>
+        [entryProvider, options.filter((option) => option.favorite !== true && matchesQuery(option))] as const
+    )
+    .filter(([, options]) => options.length > 0);
+  const recentModels = recentModelKeys.flatMap((key) => {
+    const option = models.find((entry) => modelRowKey(entry) === key);
+    return option && matchesQuery(option) ? [option] : [];
+  });
+  const renderedKeys = [
+    ...favoriteModels.map((option) => modelRowKey(option, 'favorite:')),
+    ...recentModels.map((option) => modelRowKey(option, 'recent:')),
+    ...visibleProviderEntries.flatMap(([, options]) => options.map((option) => modelRowKey(option))),
+  ];
+  return { favoriteModels, recentModels, visibleProviderEntries, renderedKeys };
+}
+
+function useModelListNavigation(
+  dialog: RefObject<HTMLElement | null>,
+  activeRowKey: string,
+  setActiveRowKey: (key: string) => void
+) {
+  const listOptions = () =>
+    Array.from(dialog.current?.querySelectorAll<HTMLButtonElement>('.model-list [role="option"]') || []);
+  const focusRow = (index: number) => {
+    const options = listOptions();
+    const target = options[Math.max(0, Math.min(index, options.length - 1))];
+    if (!target) return;
+    setActiveRowKey(target.dataset.rowKey || '');
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: 'nearest' });
+  };
+  return (event: React.KeyboardEvent, fromSearch = false) => {
+    if (event.key === 'Enter' && fromSearch && !event.nativeEvent.isComposing) {
+      const target = listOptions().find((option) => option.dataset.rowKey === activeRowKey);
+      if (target) {
+        event.preventDefault();
+        target.click();
+      }
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    const options = listOptions();
+    if (!options.length) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === 'Home') return focusRow(0);
+    if (event.key === 'End') return focusRow(options.length - 1);
+    if (fromSearch) {
+      const initialized = options.findIndex((option) => option.dataset.rowKey === activeRowKey);
+      if (initialized >= 0) return focusRow(initialized);
+      return focusRow(event.key === 'ArrowDown' ? 0 : options.length - 1);
+    }
+    const current = options.indexOf(document.activeElement as HTMLButtonElement);
+    focusRow(current + (event.key === 'ArrowDown' ? 1 : -1));
+  };
+}
+
+function rowMenuItems(
+  option: DesktopModelOption,
+  inUse: boolean,
+  onSetModelPreference:
+    | ((option: DesktopModelOption, change: Omit<ModelPreferenceChange, 'model'>) => unknown)
+    | undefined,
+  onOpenModelManagement: ((provider?: string) => void) | undefined
+): ScmContextMenuState['items'] {
+  const items: ScmContextMenuState['items'] = [];
+  if (onSetModelPreference) {
+    items.push(
+      {
+        id: 'favorite',
+        label: option.favorite ? t('Unfavorite model') : t('Favorite model'),
+        onSelect: () => void onSetModelPreference(option, { favorite: option.favorite !== true }),
+      },
+      {
+        id: 'hide',
+        label: t('Hide from list'),
+        disabled: inUse,
+        title: inUse ? t('The model in use cannot be hidden.') : undefined,
+        onSelect: () => void onSetModelPreference(option, { hidden: true }),
+      }
+    );
+  }
+  if (onOpenModelManagement) {
+    items.push({
+      id: 'manage',
+      label: t('Open model management'),
+      onSelect: () => onOpenModelManagement(option.provider),
+    });
+  }
+  return items;
+}
+
+function ModelSearchBar({
+  query,
+  setQuery,
+  search,
+  onKeyDown,
+  onOpenModelManagement,
+  onOpenProviders,
+}: {
+  query: string;
+  setQuery: (query: string) => void;
+  search: RefObject<HTMLInputElement | null>;
+  onKeyDown: (event: React.KeyboardEvent) => void;
+  onOpenModelManagement?: (provider?: string) => void;
+  onOpenProviders?: () => void;
+}) {
+  return (
+    <div className="model-search-wrapper">
+      <div className="model-search">
+        <div className="model-search-container">
+          <Search size={16} aria-hidden="true" />
+          <input
+            ref={search}
+            type="text"
+            value={query}
+            placeholder={t('Search models…')}
+            aria-label={t('Search models')}
+            autoComplete="off"
+            spellCheck={false}
+            onInput={(event) => setQuery(event.currentTarget.value)}
+            onKeyDown={onKeyDown}
+          />
+        </div>
+        {query && (
+          <button
+            type="button"
+            data-component="icon-button"
+            onClick={() => {
+              setQuery('');
+              search.current?.focus();
+            }}
+            aria-label={t('Clear picker search')}
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+      {onOpenModelManagement && (
+        <button
+          type="button"
+          className="model-provider-add model-management-open"
+          aria-label={t('Open model management')}
+          data-tooltip={t('Model management')}
+          onClick={() => onOpenModelManagement()}
+        >
+          <Info size={16} aria-hidden="true" />
+        </button>
+      )}
+      {onOpenProviders && (
+        <button
+          type="button"
+          className="model-provider-add"
+          aria-label={t('Add provider')}
+          data-tooltip={t('Add provider')}
+          onClick={onOpenProviders}
+        >
+          <Plus size={16} aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function ModelCatalog({
   models,
   provider,
@@ -203,10 +396,6 @@ export function ModelCatalog({
   const modelList = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // The composer's flyout keeps this catalog MOUNTED while it is hidden, so
-    // the typed filter outlived its close and still trimmed the list at the
-    // next open. The close drops the query; the open re-reads recents and
-    // re-centers.
     if (!active) {
       setQuery('');
       setRowMenu(null);
@@ -227,46 +416,22 @@ export function ModelCatalog({
     (id: string) => resolveProviderDisplayName(id, providerNames),
     [providerNames]
   );
-  const providerEntries = useMemo(() => {
-    const entries = new Map<string, DesktopModelOption[]>();
-    for (const option of models) {
-      const options = entries.get(option.provider) || [];
-      options.push(option);
-      entries.set(option.provider, options);
-    }
-    return [...entries].sort(
-      ([left], [right]) =>
-        providerDisplayRank(left) - providerDisplayRank(right) ||
-        resolveProviderLabel(left).localeCompare(resolveProviderLabel(right)) ||
-        left.localeCompare(right)
-    );
-  }, [models, resolveProviderLabel]);
+  const providerEntries = useMemo(
+    () => sortedProviderEntries(models, resolveProviderLabel),
+    [models, resolveProviderLabel]
+  );
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const matchesQuery = (option: DesktopModelOption) =>
     !normalizedQuery ||
     `${option.model} ${option.display} ${modelDisplayName(option.model, option.provider, option.display)} ${modelOptionDescription(option)} ${resolveProviderLabel(option.provider)}`
       .toLocaleLowerCase()
       .includes(normalizedQuery);
-  // Favorites lead (provider order), then Recent, then each provider without
-  // its favorites. A favorite may also appear under Recent.
-  const favoriteModels = providerEntries.flatMap(([, options]) =>
-    options.filter((option) => option.favorite === true && matchesQuery(option))
+  const { favoriteModels, recentModels, visibleProviderEntries, renderedKeys } = selectCatalogGroups(
+    providerEntries,
+    models,
+    recentModelKeys,
+    matchesQuery
   );
-  const visibleProviderEntries = providerEntries
-    .map(
-      ([entryProvider, options]) =>
-        [entryProvider, options.filter((option) => option.favorite !== true && matchesQuery(option))] as const
-    )
-    .filter(([, options]) => options.length > 0);
-  const recentModels = recentModelKeys.flatMap((key) => {
-    const option = models.find((entry) => modelRowKey(entry) === key);
-    return option && matchesQuery(option) ? [option] : [];
-  });
-  const renderedKeys = [
-    ...favoriteModels.map((option) => modelRowKey(option, 'favorite:')),
-    ...recentModels.map((option) => modelRowKey(option, 'recent:')),
-    ...visibleProviderEntries.flatMap(([, options]) => options.map((option) => modelRowKey(option))),
-  ];
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: the derived lists are recomputed each render; the primitive inputs (normalizedQuery, models, recentModelKeys) are the intended triggers.
   useEffect(() => {
@@ -288,40 +453,7 @@ export function ModelCatalog({
     setActiveRowKey(preferred ? modelRowKey(preferred) : '');
   }, [active, model, normalizedQuery, models, provider, recentModelKeys]);
 
-  const listOptions = () =>
-    Array.from(dialog.current?.querySelectorAll<HTMLButtonElement>('.model-list [role="option"]') || []);
-  const focusRow = (index: number) => {
-    const options = listOptions();
-    const target = options[Math.max(0, Math.min(index, options.length - 1))];
-    if (!target) return;
-    setActiveRowKey(target.dataset.rowKey || '');
-    target.focus({ preventScroll: true });
-    target.scrollIntoView({ block: 'nearest' });
-  };
-  const navigateRows = (event: React.KeyboardEvent, fromSearch = false) => {
-    if (event.key === 'Enter' && fromSearch && !event.nativeEvent.isComposing) {
-      const target = listOptions().find((option) => option.dataset.rowKey === activeRowKey);
-      if (target) {
-        event.preventDefault();
-        target.click();
-      }
-      return;
-    }
-    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-    const options = listOptions();
-    if (!options.length) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.key === 'Home') return focusRow(0);
-    if (event.key === 'End') return focusRow(options.length - 1);
-    if (fromSearch) {
-      const initialized = options.findIndex((option) => option.dataset.rowKey === activeRowKey);
-      if (initialized >= 0) return focusRow(initialized);
-      return focusRow(event.key === 'ArrowDown' ? 0 : options.length - 1);
-    }
-    const current = options.indexOf(document.activeElement as HTMLButtonElement);
-    focusRow(current + (event.key === 'ArrowDown' ? 1 : -1));
-  };
+  const navigateRows = useModelListNavigation(dialog, activeRowKey, setActiveRowKey);
   const choose = async (option: DesktopModelOption) => {
     const token = ++latestModelChoice;
     // Selection owns this close, not the eventual persistence reply. A late
@@ -346,30 +478,7 @@ export function ModelCatalog({
   ) => {
     if (!onSetModelPreference && !onOpenModelManagement) return;
     const inUse = option.provider === provider && option.model === model;
-    const items: ScmContextMenuState['items'] = [];
-    if (onSetModelPreference) {
-      items.push(
-        {
-          id: 'favorite',
-          label: option.favorite ? t('Unfavorite model') : t('Favorite model'),
-          onSelect: () => void onSetModelPreference(option, { favorite: option.favorite !== true }),
-        },
-        {
-          id: 'hide',
-          label: t('Hide from list'),
-          disabled: inUse,
-          title: inUse ? t('The model in use cannot be hidden.') : undefined,
-          onSelect: () => void onSetModelPreference(option, { hidden: true }),
-        }
-      );
-    }
-    if (onOpenModelManagement) {
-      items.push({
-        id: 'manage',
-        label: t('Open model management'),
-        onSelect: () => onOpenModelManagement(option.provider),
-      });
-    }
+    const items = rowMenuItems(option, inUse, onSetModelPreference, onOpenModelManagement);
     // The menu hands focus back to whatever held it: the row, even when the
     // press that opened it never focused the button.
     row.focus({ preventScroll: true });
@@ -432,59 +541,14 @@ export function ModelCatalog({
       <div className="model-catalog-body">
         <PaneSurfaceGate ready={catalogLoaded || models.length > 0} label={t('Loading models…')}>
           <div className="model-catalog-list">
-            <div className="model-search-wrapper">
-              <div className="model-search">
-                <div className="model-search-container">
-                  <Search size={16} aria-hidden="true" />
-                  <input
-                    ref={search}
-                    type="text"
-                    value={query}
-                    placeholder={t('Search models…')}
-                    aria-label={t('Search models')}
-                    autoComplete="off"
-                    spellCheck={false}
-                    onInput={(event) => setQuery(event.currentTarget.value)}
-                    onKeyDown={(event) => navigateRows(event, true)}
-                  />
-                </div>
-                {query && (
-                  <button
-                    type="button"
-                    data-component="icon-button"
-                    onClick={() => {
-                      setQuery('');
-                      search.current?.focus();
-                    }}
-                    aria-label={t('Clear picker search')}
-                  >
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-              {onOpenModelManagement && (
-                <button
-                  type="button"
-                  className="model-provider-add model-management-open"
-                  aria-label={t('Open model management')}
-                  data-tooltip={t('Model management')}
-                  onClick={() => onOpenModelManagement()}
-                >
-                  <Info size={16} aria-hidden="true" />
-                </button>
-              )}
-              {onOpenProviders && (
-                <button
-                  type="button"
-                  className="model-provider-add"
-                  aria-label={t('Add provider')}
-                  data-tooltip={t('Add provider')}
-                  onClick={onOpenProviders}
-                >
-                  <Plus size={16} aria-hidden="true" />
-                </button>
-              )}
-            </div>
+            <ModelSearchBar
+              query={query}
+              setQuery={setQuery}
+              search={search}
+              onKeyDown={(event) => navigateRows(event, true)}
+              onOpenModelManagement={onOpenModelManagement}
+              onOpenProviders={onOpenProviders}
+            />
             <div ref={modelList} className="model-list" role="listbox" aria-label={t('Available models')}>
               {catalogError && <ErrorNotice error={catalogError} role="status" />}
               {providerSetupError && (

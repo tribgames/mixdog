@@ -1,10 +1,3 @@
-/**
- * Where a ref is on screen, as a point a gesture can be sent to. The page
- * confirms the element — or the label a person would click instead — is
- * actually on top at that point; a covered, hidden, disabled or moving
- * element is refused with the reason, because a wrong point clicks the
- * wrong thing.
- */
 import type { WebContents } from 'electron';
 
 import { BrowserActionabilityError } from './actionability';

@@ -173,10 +173,7 @@ function watchTerminalSizeOwner(): void {
 
 function tryEnableWebglRenderer(view: TerminalView): void {
   if (view.webgl || view.webglUnavailable || !view.term.element) return;
-  // A phone keeps xterm's DOM renderer: at a fractional device pixel ratio
-  // the WebGL canvas kept a CSS-pixel backing store while its glyph atlas was
-  // drawn at device pixels, so the prompt painted ~3x large and cut off at the
-  // sheet's left edge. A phone-sized grid gains nothing from the GPU path.
+  // A phone keeps xterm's DOM renderer: at a fractional device pixel ratio the WebGL canvas and its glyph atlas disagree on pixel size.
   if (isMobileRemoteSurface()) return;
   const addon = new WebglAddon();
   let contextLossDisposable: { dispose(): void } | undefined;
@@ -211,11 +208,7 @@ function tryEnableWebglRenderer(view: TerminalView): void {
   }
 }
 
-/** Release the per-tab GL context when the terminal DOM detaches. Chromium
- * caps live WebGL contexts per renderer (~16) and evicts the oldest, which
- * permanently degraded early terminals to the DOM renderer once enough tabs
- * existed. Scrollback lives in xterm's buffer and is untouched; the next
- * attach re-enables WebGL through tryEnableWebglRenderer. */
+/** Releases the tab's GL context on detach: Chromium caps live WebGL contexts per renderer (~16) and evicts the oldest. */
 function releaseWebglRenderer(view: TerminalView): void {
   const addon = view.webgl;
   if (!addon) return;
@@ -273,10 +266,6 @@ function terminalView(key: string): TerminalView {
           return buffer.cursorX;
         },
         cols: () => term.cols,
-        // One confirmed echo is enough to characterise the shell here: every
-        // extra measured keystroke is a full relay round trip the typist waits
-        // out with nothing on screen. A mismatch still
-        // rolls back and restarts validation, so the safety net is unchanged.
         validationStreak: 1,
       })
     : null;
@@ -302,11 +291,7 @@ function terminalView(key: string): TerminalView {
   return created;
 }
 
-// xterm measures cell metrics (and the WebGL renderer bakes its glyph atlas)
-// with whatever face is ACTIVE at open. A terminal created before JetBrains
-// Mono settles keeps fallback metrics after the swap — clipped glyphs and a
-// visible jump (same class as the Monaco boot shift). One
-// refresh when the face lands realigns every live terminal.
+// xterm measures cell metrics (and the WebGL glyph atlas) with the face active at open; one refresh when JetBrains Mono loads realigns live terminals.
 let terminalMonoRefreshArmed = false;
 function armTerminalMonoRefresh() {
   if (terminalMonoRefreshArmed) return;
@@ -335,22 +320,12 @@ function armTerminalMonoRefresh() {
   }
 }
 
-/** The tab's terminal paints complete in its mount frame: this renderer holds
- *  its screen (a live view whose replay is fully written), or it never ran (no
- *  saved view, so no scrollback to replay). The same rule lets the mount
- *  report ready at once. A replay still being written is never complete. */
+/** True when the tab's terminal paints complete in its mount frame: this renderer holds its fully written screen, or the tab never ran. */
 export function terminalPaintsAtOnce(terminalId: string): boolean {
   return viewPaintsAtOnce(terminalViews.get(terminalId), Boolean(readTerminalViewState(terminalId)));
 }
 
-/** Attaches a tab's PTY before its pane mounts (the dock toggle's hover,
- *  focus or touch-down) when that PTY is already running: its scrollback
- *  replays into the view and its output streams there, so the pane that
- *  mounts next holds the screen and paints it in its first frame
- *  (terminalPaintsAtOnce) instead of a loading cover. Attach-only: a shell
- *  that never started or has exited stays so (resolves false) — a warm-up
- *  never starts or changes a process. A tab this renderer already holds
- *  resolves true; one being warmed shares that attach. */
+/** Attaches a running PTY before its pane mounts so the pane paints its screen in its first frame. Resolves false for a shell that never started or has exited; never starts or changes a process. */
 export function prewarmTerminal(terminalId: string): Promise<boolean> {
   const view = terminalView(terminalId);
   if (view.id) return Promise.resolve(true);
@@ -401,13 +376,6 @@ export async function disposeTerminalPane(id: string): Promise<void> {
   await window.mixdogDesktop.termDispose?.(ptyId);
 }
 
-// Terminals stay dark on both app themes: ANSI palettes —
-// PSReadLine yellows included — assume a dark background, and a light sheet
-// made typed input and the cursor unreadable.
-// The 16 ANSI slots use the editor's dark palette instead of xterm's
-// built-in Tango defaults: Tango's blue (#3465a4) and bright black sit near
-// this canvas and made paths/prompts hard to read. Background stays in sync
-// with --mx-terminal-bg (desktop.css).
 function cssVar(name: string, fallback: string): string {
   if (typeof document === 'undefined') return fallback;
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
@@ -546,12 +514,7 @@ export default function TerminalPane({
     else term.open(container);
     if (activeRef.current || view.warmed) tryEnableWebglRenderer(view);
     view.warmed = false;
-    // Focus at ATTACH time, not after the PTY round trip. A phone raises its
-    // keypad only for a focus that still sits inside the opening tap's
-    // activation window, so waiting for termEnsure() + replay + fit made the
-    // keyboard arrive seconds later and shove the layout a SECOND time
-    // The post-ensure and
-    // activation focus calls stay as fallbacks for a cold or failed attach.
+    // A phone raises its keypad only for a focus inside the opening tap's activation window.
     if (activeRef.current) {
       try {
         term.focus();
@@ -559,16 +522,6 @@ export default function TerminalPane({
         /* element not measurable yet */
       }
     }
-    // PTY ensure/replay can be slow. Revealing xterm's empty shell first let
-    // the replayed scrollback visibly dump into an already-open terminal
-    // Keep PaneSurfaceGate's opaque
-    // cover up until the replay buffer is written and the first fit has run —
-    // the ensure path fires onReady right after that. This timer only guards
-    // a stalled PTY host so the gate can never hang on a blank pane.
-    // Nothing can dump in, though, when this renderer already holds the tab's
-    // screen (view.id) or the tab never ran (no saved view, so no scrollback
-    // to replay): the frame and the cursor line show at once, fitted, and the
-    // prompt prints into them as it arrives.
     if (terminalPaintsAtOnce(key)) {
       fitScheduler.schedule(view.warmRestore);
       view.warmRestore = null;
@@ -629,12 +582,7 @@ export default function TerminalPane({
       const reattached = replayOnReattach && !isNewPty;
       replayOnReattach = false;
       view.id = ensured.id;
-      // Attaching to a PTY a phone already sizes: follow it from the start. A
-      // phone attaching takes the size over instead (its first fit claims it).
-      // An answer without `sizeOwner` says nobody owns it: a follower that
-      // missed the release (e.g. across a reconnect) stops following.
-      // Phones reconcile too: a phone only follows another phone's live claim,
-      // and clearing a stale follow lets its refit send a fresh claim.
+      // An answer without `sizeOwner` means nobody owns the size: a follower that missed the release stops following.
       applyEnsuredSizeOwner(view, ensured.sizeOwner);
       view.shell = shell;
       if (isNewPty) fitScheduler.invalidateResize();
@@ -855,9 +803,6 @@ export default function TerminalPane({
     const beat = window.setInterval(() => {
       const view = terminalViews.get(key);
       if (!view?.id) return;
-      // Renew with THIS phone's fitted grid: while it follows another phone
-      // its xterm holds that phone's size, but its own claim stays current so
-      // ownership can pass back to it.
       const grid = view.fit.proposeDimensions() ?? view.term;
       sendSizeOwnerHeartbeat(window.mixdogDesktop, view.id, grid.cols, grid.rows);
     }, SIZE_OWNER_HEARTBEAT_MS);

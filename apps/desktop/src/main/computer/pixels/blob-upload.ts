@@ -1,8 +1,3 @@
-/**
- * Moves encoded pixels into the core's blob store with `blob/put` (content-addressed: `sha256:` and 64 hex digits), in raw
- * chunks under the core's `limits.maxBlobPutChunkBytes`, so a capture larger than one inbound frame never drops the host
- * connection. `callCore` is the host connection's request to the core.
- */
 import { BLOB_PUT_CHUNK_BYTES, blobDigestOf } from '../../host/browser-engine/blob-upload';
 
 export type CallCore = (method: string, params: unknown) => Promise<unknown>;

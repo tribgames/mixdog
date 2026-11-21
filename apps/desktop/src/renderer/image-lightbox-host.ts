@@ -1,8 +1,4 @@
-// The in-app image viewer for callers outside a React tree (the attachment
-// "open image" bridge of a paired browser, a chip that has no editor pane to
-// open into). This module stays free of the viewer itself so the remote shim
-// can call it without bundling the app UI: image-lightbox.tsx registers the
-// opener when the app loads it.
+// Kept free of the viewer so the remote shim can call it without bundling the app UI; image-lightbox.tsx registers the opener.
 import type { LightboxItem } from './image-lightbox';
 
 type Opener = (item: Omit<LightboxItem, 'id'>) => Promise<void>;

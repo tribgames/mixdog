@@ -245,9 +245,7 @@ export function RowOverflowMenu({
   const panel = useRef<HTMLDivElement>(null);
   const anchorBounds = useRef<ReturnType<typeof captureRowMenuAnchor> | null>(null);
   const clickGuard = useImmediateOverlayClickGuard();
-  // A retained Dock tab keeps this row mounted while inert. The panel lives on
-  // document.body, where inert cannot reach it, so the owning surface's active
-  // signal unmounts the portal in the SAME commit as the deactivation.
+  // The panel portals to document.body, beyond the reach of the surface's `inert`: unmount it with the surface.
   const surfaceActive = useSurfaceActive();
   const menuOpen = open && surfaceActive;
   useEffect(() => {

@@ -18,6 +18,70 @@ export const ASKED_FILE = 'ask-me.json';
 export const kindOf = (key) => key.replace(/ \d+ [0-9a-f]{64}$/, '');
 const textOf = (content) =>
   typeof content === 'string' ? content : Array.isArray(content) ? content.map((p) => p?.text ?? '').join('\n') : '';
+const USAGE_FRAME = `data: ${JSON.stringify({ id: 'chatcmpl-abort', object: 'chat.completion.chunk', model: 'harness-model', choices: [], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } })}\n\n`;
+const chunk = (delta, finish = null) =>
+  `data: ${JSON.stringify({ id: 'chatcmpl-abort', object: 'chat.completion.chunk', created: 1700000000, model: 'harness-model', choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
+
+const heldKindOf = (prompt, hasTools) => {
+  if (!hasTools) return null;
+  if (/HOLD-TEXT/.test(prompt)) return 'text';
+  if (/HOLD-FINAL/.test(prompt)) return 'final';
+  return /HOLD-EMPTY|HOLD-TOOL|HOLD-APPROVAL/.test(prompt) ? 'empty' : null;
+};
+
+const completionOnce = () =>
+  JSON.stringify({
+    id: 'chatcmpl-abort',
+    object: 'chat.completion',
+    model: 'harness-model',
+    choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+    usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+  });
+
+const askUserArguments = {
+  questions: [
+    {
+      question: 'Add the file?',
+      header: 'Add file',
+      options: [
+        { label: 'Yes', description: 'Add it' },
+        { label: 'No', description: 'Leave it out' },
+      ],
+    },
+  ],
+};
+
+/** Streams the tool call a HOLD-TOOL / HOLD-APPROVAL / HOLD-ASK prompt asks for; false when the turn does not offer the tool. */
+function writeToolCall(res, body, prompt) {
+  const offered = (body.tools ?? []).map((t) => t?.function?.name);
+  const approval = /HOLD-APPROVAL/.test(prompt);
+  // The read tool runs unasked; ask_user waits for the person through the same hook as a tool approval (turn.mjs:291-296 approveToolRequest).
+  const toolName = offered.find((n) => (approval ? /^ask_user$/i : /^read$/i).test(n ?? ''));
+  if (!toolName) {
+    // Answered as a failed request, never thrown: a throw here would end the recording process before it shut its daemon down.
+    process.stderr.write(
+      `the turn offers no ${approval ? 'ask_user' : 'read'} tool (offered: ${offered.join(', ')})\n`
+    );
+    res.end();
+    return;
+  }
+  const args = approval ? askUserArguments : { path: /HOLD-ASK/.test(prompt) ? ASKED_FILE : 'package.json' };
+  res.write(
+    chunk({
+      tool_calls: [
+        {
+          index: 0,
+          id: 'call_hold_1',
+          type: 'function',
+          function: { name: toolName, arguments: JSON.stringify(args) },
+        },
+      ],
+    })
+  );
+  res.write(chunk({}, 'tool_calls'));
+  res.write(USAGE_FRAME);
+  res.end('data: [DONE]\n\n');
+}
 
 /** `gated`: nothing is written until the caller releases it (`releaseNext`, one write at a time, the history recorder's barrier between
  *  inputs); otherwise every write goes out as soon as the request is read. */
@@ -66,18 +130,9 @@ export async function startAbortProvider({ gated = false } = {}) {
       const prompt = textOf(lastUser?.content);
       const afterTool = (body.messages ?? []).some((m) => m?.role === 'tool');
       // HOLD-TOOL: the first request answers with a call of the read tool, the request that carries its result is held with no further output.
-      const asksTool = (body.tools ?? []).length > 0 && /HOLD-TOOL|HOLD-APPROVAL|HOLD-ASK/.test(prompt) && !afterTool;
-      const held = asksTool
-        ? null
-        : (body.tools ?? []).length > 0
-          ? /HOLD-TEXT/.test(prompt)
-            ? 'text'
-            : /HOLD-FINAL/.test(prompt)
-              ? 'final'
-              : /HOLD-EMPTY|HOLD-TOOL|HOLD-APPROVAL/.test(prompt)
-                ? 'empty'
-                : null
-          : null;
+      const hasTools = (body.tools ?? []).length > 0;
+      const asksTool = hasTools && /HOLD-TOOL|HOLD-APPROVAL|HOLD-ASK/.test(prompt) && !afterTool;
+      const held = asksTool ? null : heldKindOf(prompt, hasTools);
       // The key a gated release orders by: what the request is, never when its connection was accepted.
       const entry = {
         prompt,
@@ -89,68 +144,16 @@ export async function startAbortProvider({ gated = false } = {}) {
       Object.defineProperty(entry, 'raw', { value: raw, enumerable: false });
       requests.push(entry);
       const res = gate(entry, realRes);
-      const chunk = (delta, finish = null) =>
-        `data: ${JSON.stringify({ id: 'chatcmpl-abort', object: 'chat.completion.chunk', created: 1700000000, model: 'harness-model', choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
       if (body.stream !== true) {
         res.setHeader('content-type', 'application/json');
-        res.end(
-          JSON.stringify({
-            id: 'chatcmpl-abort',
-            object: 'chat.completion',
-            model: 'harness-model',
-            choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
-            usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
-          })
-        );
+        res.end(completionOnce());
         for (const listener of listeners) listener(entry);
         return;
       }
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
       res.write(chunk({ role: 'assistant', content: '' }));
       if (asksTool) {
-        const offered = (body.tools ?? []).map((t) => t?.function?.name);
-        const approval = /HOLD-APPROVAL/.test(prompt);
-        // The read tool runs unasked; ask_user waits for the person through the same hook as a tool approval (turn.mjs:291-296 approveToolRequest).
-        const toolName = offered.find((n) => (approval ? /^ask_user$/i : /^read$/i).test(n ?? ''));
-        if (!toolName) {
-          // Answered as a failed request, never thrown: a throw here would end the recording process before it shut its daemon down.
-          process.stderr.write(
-            `the turn offers no ${approval ? 'ask_user' : 'read'} tool (offered: ${offered.join(', ')})\n`
-          );
-          res.end();
-          return;
-        }
-        const args = approval
-          ? {
-              questions: [
-                {
-                  question: 'Add the file?',
-                  header: 'Add file',
-                  options: [
-                    { label: 'Yes', description: 'Add it' },
-                    { label: 'No', description: 'Leave it out' },
-                  ],
-                },
-              ],
-            }
-          : { path: /HOLD-ASK/.test(prompt) ? ASKED_FILE : 'package.json' };
-        res.write(
-          chunk({
-            tool_calls: [
-              {
-                index: 0,
-                id: 'call_hold_1',
-                type: 'function',
-                function: { name: toolName, arguments: JSON.stringify(args) },
-              },
-            ],
-          })
-        );
-        res.write(chunk({}, 'tool_calls'));
-        res.write(
-          `data: ${JSON.stringify({ id: 'chatcmpl-abort', object: 'chat.completion.chunk', model: 'harness-model', choices: [], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } })}\n\n`
-        );
-        res.end('data: [DONE]\n\n');
+        writeToolCall(res, body, prompt);
         for (const listener of listeners) listener(entry);
         return;
       }
@@ -158,9 +161,7 @@ export async function startAbortProvider({ gated = false } = {}) {
       if (held === 'final') {
         res.write(chunk({ content: FINAL }));
         res.write(chunk({}, 'stop'));
-        res.write(
-          `data: ${JSON.stringify({ id: 'chatcmpl-abort', object: 'chat.completion.chunk', model: 'harness-model', choices: [], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } })}\n\n`
-        );
+        res.write(USAGE_FRAME);
       }
       if (held) {
         // Open until the client hangs up (the Stop).
@@ -170,9 +171,7 @@ export async function startAbortProvider({ gated = false } = {}) {
       } else {
         res.write(chunk({ content: 'ok' }));
         res.write(chunk({}, 'stop'));
-        res.write(
-          `data: ${JSON.stringify({ id: 'chatcmpl-abort', object: 'chat.completion.chunk', model: 'harness-model', choices: [], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } })}\n\n`
-        );
+        res.write(USAGE_FRAME);
         res.end('data: [DONE]\n\n');
       }
       for (const listener of listeners) listener(entry);

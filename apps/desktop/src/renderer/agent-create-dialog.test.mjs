@@ -43,7 +43,7 @@ async function type(input, value) {
 const dialog = () => document.querySelector('.agent-create-dialog');
 const createButton = () => dialog().querySelector('button[type="submit"]');
 
-test('Create stays off until a name is typed, and the save carries the avatar, model and job', async (t) => {
+async function renderForm(t, props = {}) {
   const render = harness(t);
   const saved = [];
   await render(
@@ -53,18 +53,33 @@ test('Create stays off until a name is typed, and the save carries the avatar, m
       busy: false,
       onCancel() {},
       onSave: (payload) => saved.push(payload),
+      ...props,
     })
   );
+  return saved;
+}
+
+const submitForm = () =>
+  act(async () =>
+    dialog()
+      .querySelector('form')
+      .dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+  );
+
+test('Create stays off until a name is typed', async (t) => {
+  await renderForm(t);
   assert.equal(createButton().disabled, true);
-  // No permission field and no helper lines under the fields.
   assert.equal(dialog().querySelector('small'), null);
   assert.doesNotMatch(dialog().textContent, /Permission/i);
   await type(dialog().querySelector('.agent-create-name'), '   ');
   assert.equal(createButton().disabled, true, 'blank names do not count');
   await type(dialog().querySelector('.agent-create-name'), 'GitHub Watcher');
   assert.equal(createButton().disabled, false);
+});
 
-  // No tabs: the dog kinds, then accessory and colour rows.
+test('the save carries the picked avatar, model and job', async (t) => {
+  const saved = await renderForm(t);
+  await type(dialog().querySelector('.agent-create-name'), 'GitHub Watcher');
   assert.equal(dialog().querySelector('.agent-avatar-tabs'), null);
   assert.deepEqual(
     [...dialog().querySelectorAll('[data-species]')].map((button) => button.dataset.species),
@@ -81,11 +96,7 @@ test('Create stays off until a name is typed, and the save carries the avatar, m
   assert.equal(preview.dataset.look, 'shepherd-collar-calm', 'new picks keep the default expression');
   assert.equal(preview.dataset.color, '#5b9bff');
   await type(dialog().querySelector('input[name="agent-description"]'), 'Sum up new PRs');
-  await act(async () =>
-    dialog()
-      .querySelector('form')
-      .dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
-  );
+  await submitForm();
   assert.equal(saved.length, 1);
   assert.deepEqual(saved[0].avatar, {
     kind: 'mascot',
@@ -129,23 +140,24 @@ test('the model picker names a custom provider by its registered name, not its g
   assert.doesNotMatch(catalog.textContent, /custom-c07a1b4c/);
 });
 
-test('내 이미지 takes one image per motion state: idle required, the rest optional, each resettable', async (t) => {
-  const render = harness(t);
-  const saved = [];
-  const idle = { data: 'data:image/gif;base64,R0lGODlh', poster: 'data:image/png;base64,iVBORw0KGgo=' };
-  const typing = { data: 'data:image/png;base64,iVBORw0KGgoT' };
-  const uploads = [idle, typing];
-  await render(
-    React.createElement(AgentCreateForm, {
-      models,
-      initialRoute: { provider: 'openai', model: 'test-model' },
-      busy: false,
-      prepareImage: async () => uploads.shift(),
-      onCancel() {},
-      onSave: (payload) => saved.push(payload),
-    })
-  );
+const IDLE_UPLOAD = { data: 'data:image/gif;base64,R0lGODlh', poster: 'data:image/png;base64,iVBORw0KGgo=' };
+const TYPING_UPLOAD = { data: 'data:image/png;base64,iVBORw0KGgoT' };
+
+async function renderImageForm(t) {
+  const uploads = [IDLE_UPLOAD, TYPING_UPLOAD];
+  const saved = await renderForm(t, { prepareImage: async () => uploads.shift() });
   const [basic, custom] = dialog().querySelectorAll('.agent-create-segments > button');
+  const input = (state) => dialog().querySelector(`.agent-avatar-state[data-state="${state}"] input[type="file"]`);
+  const pick = async (state, file) => {
+    Object.defineProperty(input(state), 'files', { configurable: true, value: [file] });
+    await act(async () => input(state).dispatchEvent(new dom.window.Event('change', { bubbles: true })));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  };
+  return { saved, basic, custom, input, pick };
+}
+
+test('내 이미지 lists one row per motion state, idle required, and checks each picked file', async (t) => {
+  const { basic, custom, input, pick } = await renderImageForm(t);
   assert.equal(basic.getAttribute('aria-pressed'), 'true');
   assert.ok(dialog().querySelector('.agent-avatar-picker'));
   await act(async () => custom.click());
@@ -163,13 +175,7 @@ test('내 이미지 takes one image per motion state: idle required, the rest op
   await type(dialog().querySelector('.agent-create-name'), 'Painter');
   assert.equal(createButton().disabled, true, 'custom waits for an idle image');
 
-  const input = (state) => dialog().querySelector(`.agent-avatar-state[data-state="${state}"] input[type="file"]`);
   assert.equal(input('idle').getAttribute('accept'), 'image/png,image/gif,image/webp,image/jpeg');
-  const pick = async (state, file) => {
-    Object.defineProperty(input(state), 'files', { configurable: true, value: [file] });
-    await act(async () => input(state).dispatchEvent(new dom.window.Event('change', { bubbles: true })));
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  };
   await pick('idle', { type: 'image/svg+xml', size: 10 });
   assert.match(dialog().textContent, /Only PNG, GIF, WebP or JPG/, 'no SVG');
   await pick('idle', { type: 'image/gif', size: 2 * 1024 * 1024 });
@@ -178,6 +184,13 @@ test('내 이미지 takes one image per motion state: idle required, the rest op
   const preview = dialog().querySelector('img.agent-create-preview');
   assert.ok(preview, 'the idle image previews above');
   assert.equal(createButton().disabled, false);
+});
+
+test('an own state image can be removed and falls back to idle; the save carries the uploads', async (t) => {
+  const { saved, custom, pick } = await renderImageForm(t);
+  await act(async () => custom.click());
+  await type(dialog().querySelector('.agent-create-name'), 'Painter');
+  await pick('idle', { type: 'image/gif', size: 100 });
   await pick('typing', { type: 'image/png', size: 100 });
   const typingRow = dialog().querySelector('.agent-avatar-state[data-state="typing"]');
   const reset = [...typingRow.querySelectorAll('button')].find((button) => button.textContent === 'Remove');
@@ -197,18 +210,16 @@ test('내 이미지 takes one image per motion state: idle required, the rest op
   assert.equal(typingRow.querySelector('.agent-avatar-state-thumb').dataset.fallback, 'true', 'removed → falls back');
   assert.ok(![...typingRow.querySelectorAll('button')].some((b) => b.textContent === 'Remove'));
   assert.equal(typingRow.querySelector('small'), null, 'a state row shows no sub-text');
-  await act(async () =>
-    dialog()
-      .querySelector('form')
-      .dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
-  );
-  assert.deepEqual(saved[0].avatar, { kind: 'custom', states: { idle } });
+  await submitForm();
+  assert.deepEqual(saved[0].avatar, { kind: 'custom', states: { idle: IDLE_UPLOAD } });
+});
 
-  // Back to 마스코트: the picker and a mascot preview again.
+test('switching back to 마스코트 shows the mascot preview; removing the base image drops every state image', async (t) => {
+  const { basic, custom, pick } = await renderImageForm(t);
+  await act(async () => custom.click());
+  await pick('idle', { type: 'image/gif', size: 100 });
   await act(async () => basic.click());
   assert.ok(dialog().querySelector('svg.agent-create-preview'));
-
-  // Removing the base image returns to 마스코트 and drops every state image.
   await act(async () => custom.click());
   await pick('typing', { type: 'image/png', size: 100 });
   const idleRemove = [...dialog().querySelectorAll('.agent-avatar-state[data-state="idle"] button')].find(

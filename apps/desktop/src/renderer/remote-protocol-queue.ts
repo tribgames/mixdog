@@ -1,15 +1,5 @@
-// The phone's one call queue: Node's per-connection queue (main/remote-call-queue.ts at b6f10295a, ported whole - every lane, the write
-// barriers and the newest-wins search lane). Node ran EVERY call of a connection through it. Here the router (remote-shim-protocol.ts)
-// sends every call of every adapter through `runQueued`, with no opt-in by an adapter, so calls of different groups order against one
-// another exactly as they did there (a file write, then a chat mutation, then `gitStatus`).
 import { DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES } from '../shared/contract-capabilities';
 
-// Only explicitly read-only operations may overlap within the general lane.
-// Terminal lifecycle/input operations have their own ordered lane so unrelated
-// filesystem, voice, or session work cannot hold a keystroke behind it.
-// Unknown methods and all other
-// mutations are barriers: reads after a write observe that write, and writes
-// never overtake an earlier operation or replay on recovery.
 const PARALLEL_READS = new Set([
   'getSnapshot',
   'listProjects',
@@ -49,16 +39,9 @@ const PARALLEL_READS = new Set([
   'getQuotaAutoResume',
 ]);
 
-// The model catalog (140 KB, seconds while a provider is slow or offline).
-// As a general-lane read it fenced every mutation queued after it, and every
-// read behind that mutation: one boot-time load held 14 calls for 3.7s. It
-// observes mutations queued before it; later ones need not wait for it.
+// The model catalog is 140 KB and takes seconds while a provider is slow or offline; in the general lane one boot-time load held 14 calls for 3.7s.
 const CATALOG_READS = new Set(['listProviderModels']);
 
-// Keystroke-driven file-name searches: their own lane, so a review or usage
-// sweep in the slow lane never holds the newest query. A call queued with a
-// `latest` key is withdrawn when a newer call under the same key arrives
-// before it started (newest query wins).
 const SEARCH_READS = new Set(['searchProjectFiles']);
 
 /** Read-only capabilities that sweep providers' quota APIs or the usage
@@ -82,11 +65,7 @@ const REVIEW_FILE_PATCH_CALLS: ReadonlySet<string> = new Set([
   'invokeCapability:getTurnReviewFilePatch',
 ]);
 
-// Read-only operations that may walk a whole Project index, grep its text or
-// render document pages (seconds, occasionally minutes). They get their own bounded lane so
-// stat/read/capability/submit calls are never queued behind them. They still
-// observe every mutation queued before them; later mutations need not wait
-// for them, because a search or preview has nothing a write could overtake.
+// Whole-Project index walks, text greps and document page renders take seconds, occasionally minutes.
 const SLOW_READS = new Set([
   'searchWorkspaceText',
   // Full-text scan of every stored conversation (session_search schema).
@@ -122,10 +101,7 @@ const SLOW_READS = new Set([
   SLOW_CAPABILITY_READ_CALL,
 ]);
 
-// Dictation (keyed by capability at the dispatch site). A transcription runs
-// for seconds; as a general-lane barrier it waited for every in-flight read
-// and then held every later call. Neither touches state another call reads,
-// so they share their own lane and only observe mutations queued before them.
+// A transcription runs for seconds.
 const VOICE_CALLS: ReadonlySet<string> = new Set([
   'invokeCapability:transcribeAudio',
   'invokeCapability:prepareTranscription',

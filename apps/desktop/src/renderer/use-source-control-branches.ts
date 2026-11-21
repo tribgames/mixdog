@@ -34,10 +34,7 @@ export function useSourceControlBranches({
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  // The picker is a document.body PORTAL and the Dock keeps this pane
-  // MOUNTED (inert + aria-hidden) while another tab is presented — inert
-  // cannot reach a portal that left the pane, so the owning surface's active
-  // signal drives the VISIBLE open state.
+  // `inert` cannot reach a picker portaled out of the Dock's mounted-but-hidden pane, so the surface's active signal gates it.
   const pickerVisible = pickerOpen && surfaceActive;
   // Branch panel: reference width 365px (app/styles/ui/_branches.scss:3-16),
   // capped to the room the window actually has.
@@ -83,11 +80,7 @@ export function useSourceControlBranches({
     }
   }, [api, projectPath, status?.branch, status?.upstreamName, setError]);
 
-  /** Branches are grouped under the repository's default branch.
-   *  `gitBranches` drops symbolic refs, so the only contract member that
-   *  still carries the remote HEAD is the review base
-   *  (main/git-cli.ts:806-819 resolves `refs/remotes/<remote>/HEAD`). Resolved
-   *  once per project and cached; the conventional names stay as a fallback. */
+  /** `gitBranches` drops symbolic refs, so the review base is the only contract member carrying the remote HEAD. */
   const loadDefaultBranch = useCallback(async () => {
     if (!projectPath || !api?.gitReview) return;
     try {

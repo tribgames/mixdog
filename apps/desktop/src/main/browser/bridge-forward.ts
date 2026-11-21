@@ -1,10 +1,3 @@
-/**
- * The loopback browser bridge of the Node-hosted runtime, forwarding to the core: every command the runtime's `browser` tool posts is
- * run by the core's browser command path (`browser/bridge/run`; a turn's start or end by `browser/bridge/turn`; a dropped caller by
- * `browser/bridge/abort`). The HTTP contract, `browser-bridge.json` and the timing of a reply are bridge-server.ts's, as before; the
- * tool's validation, the runtime-only actions, the approval cards, the 32-command allowance and the redaction of the session's
- * secrets are the core's.
- */
 import { bridgeDiscoveryDirectory } from '../bridge/discovery-file';
 import type { BrowserCommand } from './host-types';
 import { BridgeCommandFailure, BrowserBridgeServer } from './bridge-server';

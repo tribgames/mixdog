@@ -144,86 +144,26 @@ function microphoneFailureText(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason);
 }
 
-export function useComposerDictation({
-  transitioningRef,
-  textarea,
-  setDraft,
-  invokeResult,
-  showNotice,
-  requestVoiceInstall,
-  onTranscriptSubmit,
-  keysActive = true,
-}: {
-  /** This composer is the focused pane's: only then do Enter and Esc reach
-   *  its take (a window capture listener would otherwise take them from the
-   *  pane the user is typing in). */
-  keysActive?: boolean;
-  transitioningRef: MutableRefObject<boolean>;
-  textarea: MutableRefObject<HTMLTextAreaElement | null>;
-  setDraft: Dispatch<SetStateAction<string>>;
-  invokeResult<T>(action: () => T | Promise<T>): Promise<T | undefined>;
-  showNotice(message: string, tone?: 'info' | 'error'): void;
-  requestVoiceInstall(): void;
-  /** Fired when a take ended by `stopDictationAndSend` produced real text. */
-  onTranscriptSubmit?(): void;
-}) {
-  const [dictationState, setDictationState] = useState<DictationState>('idle');
-  // Off screen (a retained or parked conversation) the composer owns no mic.
-  const surfaceActive = useSurfaceActive();
-  const surfaceActiveRef = useRef(surfaceActive);
-  surfaceActiveRef.current = surfaceActive;
-  // Elapsed time backs the composer's recording overlay: the disc alone
-  // never told the user how long the mic had been live.
-  const [recordingSince, setRecordingSince] = useState(0);
-  const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
-  // Smoothed 0..1 input level, read by the overlay's own animation frame.
-  const dictationLevelRef = useRef(0);
-  // The take whose microphone is still being opened; cancelling it releases
-  // the stream the moment getUserMedia hands it over.
-  const dictationAttempt = useRef<{ cancelled: boolean } | null>(null);
-  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>();
-  const dictationAvailable = voiceStatus?.installed === true && voiceStatus.enabled === true;
-  const voiceAvailableRef = useRef(false);
-  const voiceGeneration = useRef(0);
-  const dictationSession = useRef<{
-    recorder: MediaRecorder;
-    stream: MediaStream;
-    chunks: Blob[];
-    cancelled: boolean;
-    submitOnStop: boolean;
-    stopTimer: number;
-    meter: DictationMeter | null;
-    /** Audio is actually being captured (state `recording`). */
-    live: boolean;
-  } | null>(null);
-
-  /** Discards a take whose microphone is still opening; true when one was. */
-  const cancelPendingAttempt = useCallback((): boolean => {
-    const pending = dictationAttempt.current;
-    if (!pending) return false;
-    pending.cancelled = true;
-    dictationAttempt.current = null;
-    setDictationState('idle');
-    return true;
-  }, []);
-
+/** Tracks whether voice transcription is installed and enabled (on mount, on
+ *  setup and runtime changes, on reconnect). Losing it bumps `generation` so
+ *  in-flight takes drop their results, and runs `onLost` to end the live take. */
+function useVoiceStatus(
+  setStatus: (status: VoiceStatus | undefined) => void,
+  availableRef: MutableRefObject<boolean>,
+  generation: MutableRefObject<number>,
+  onLost: () => void
+): void {
   useEffect(() => {
     let live = true;
     let latest = 0;
     const adopt = (status?: VoiceStatus) => {
       const available = status?.installed === true && status.enabled === true;
-      if (!available && voiceAvailableRef.current) {
-        voiceGeneration.current += 1;
-        cancelPendingAttempt();
-        const active = dictationSession.current;
-        if (active) {
-          active.cancelled = true;
-          stopRecorder(active.recorder);
-          for (const track of active.stream.getTracks()) track.stop();
-        }
+      if (!available && availableRef.current) {
+        generation.current += 1;
+        onLost();
       }
-      voiceAvailableRef.current = available;
-      setVoiceStatus(status);
+      availableRef.current = available;
+      setStatus(status);
     };
     const refresh = () => {
       const seq = ++latest;
@@ -255,7 +195,96 @@ export function useComposerDictation({
       window.removeEventListener('mixdog:voice-runtime-changed', onRuntimeChanged);
       window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, refresh);
     };
+  }, [availableRef, generation, onLost, setStatus]);
+}
+
+/** Milliseconds since `since` while a take is recording, refreshed twice a second. */
+function useRecordingElapsed(state: DictationState, since: number): number {
+  const [elapsedMs, setElapsedMs] = useState(0);
+  useEffect(() => {
+    if (state !== 'recording' || !since) {
+      setElapsedMs(0);
+      return;
+    }
+    setElapsedMs(Date.now() - since);
+    const timer = window.setInterval(() => setElapsedMs(Date.now() - since), 500);
+    return () => window.clearInterval(timer);
+  }, [state, since]);
+  return elapsedMs;
+}
+
+export function useComposerDictation({
+  transitioningRef,
+  textarea,
+  setDraft,
+  invokeResult,
+  showNotice,
+  requestVoiceInstall,
+  onTranscriptSubmit,
+  keysActive = true,
+}: {
+  /** This composer is the focused pane's: only then do Enter and Esc reach
+   *  its take (a window capture listener would otherwise take them from the
+   *  pane the user is typing in). */
+  keysActive?: boolean;
+  transitioningRef: MutableRefObject<boolean>;
+  textarea: MutableRefObject<HTMLTextAreaElement | null>;
+  setDraft: Dispatch<SetStateAction<string>>;
+  invokeResult<T>(action: () => T | Promise<T>): Promise<T | undefined>;
+  showNotice(message: string, tone?: 'info' | 'error'): void;
+  requestVoiceInstall(): void;
+  /** Fired when a take ended by `stopDictationAndSend` produced real text. */
+  onTranscriptSubmit?(): void;
+}) {
+  const [dictationState, setDictationState] = useState<DictationState>('idle');
+  // Off screen (a retained or parked conversation) the composer owns no mic.
+  const surfaceActive = useSurfaceActive();
+  const surfaceActiveRef = useRef(surfaceActive);
+  surfaceActiveRef.current = surfaceActive;
+  // Elapsed time backs the composer's recording overlay: the disc alone
+  // never told the user how long the mic had been live.
+  const [recordingSince, setRecordingSince] = useState(0);
+  // Smoothed 0..1 input level, read by the overlay's own animation frame.
+  const dictationLevelRef = useRef(0);
+  // The take whose microphone is still being opened; cancelling it releases
+  // the stream the moment getUserMedia hands it over.
+  const dictationAttempt = useRef<{ cancelled: boolean } | null>(null);
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>();
+  const recordingElapsedMs = useRecordingElapsed(dictationState, recordingSince);
+  const dictationAvailable = voiceStatus?.installed === true && voiceStatus.enabled === true;
+  const voiceAvailableRef = useRef(false);
+  const voiceGeneration = useRef(0);
+  const dictationSession = useRef<{
+    recorder: MediaRecorder;
+    stream: MediaStream;
+    chunks: Blob[];
+    cancelled: boolean;
+    submitOnStop: boolean;
+    stopTimer: number;
+    meter: DictationMeter | null;
+    /** Audio is actually being captured (state `recording`). */
+    live: boolean;
+  } | null>(null);
+
+  /** Discards a take whose microphone is still opening; true when one was. */
+  const cancelPendingAttempt = useCallback((): boolean => {
+    const pending = dictationAttempt.current;
+    if (!pending) return false;
+    pending.cancelled = true;
+    dictationAttempt.current = null;
+    setDictationState('idle');
+    return true;
+  }, []);
+
+  const discardTakeOnVoiceLoss = useCallback(() => {
+    cancelPendingAttempt();
+    const active = dictationSession.current;
+    if (!active) return;
+    active.cancelled = true;
+    stopRecorder(active.recorder);
+    for (const track of active.stream.getTracks()) track.stop();
   }, [cancelPendingAttempt]);
+  useVoiceStatus(setVoiceStatus, voiceAvailableRef, voiceGeneration, discardTakeOnVoiceLoss);
 
   const toggleDictation = useCallback(async () => {
     if (dictationState === 'transcribing' || transitioningRef.current) return;
@@ -284,11 +313,6 @@ export function useComposerDictation({
       }
       const generation = voiceGeneration.current;
       setDictationState('preparing');
-      // Transcription needs intelligibility, not fidelity: engines resample to
-      // 16 kHz mono anyway, and 24 kbps Opus is transparent for speech. The
-      // browser default (48 kHz stereo, 48-64 kbps) sent two to three times
-      // the bytes over a phone link for no gain in accuracy. Every constraint
-      // is `ideal`, so a device that cannot honour one still records.
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: { ideal: 1 },
@@ -401,10 +425,6 @@ export function useComposerDictation({
     transitioningRef,
   ]);
 
-  // Speaking straight into the conversation: the take ends, the transcript
-  // lands in the draft, and the composer submits it — one press instead of
-  // stop, read, send. The mic disc keeps the editing path for takes worth
-  // checking first.
   const stopDictationAndSend = useCallback(() => {
     const active = dictationSession.current;
     if (!active || active.cancelled) return;
@@ -422,10 +442,6 @@ export function useComposerDictation({
     stopRecorder(active.recorder);
   }, [cancelPendingAttempt]);
 
-  // Enter finishes the take, Esc discards it. Capture phase, because the
-  // composer's own Escape policy would otherwise clear the draft and Enter
-  // would send it while the mic is still live.
-  // While preparing, Enter is swallowed: there is no speech yet to finish.
   useEffect(() => {
     if (!keysActive || !surfaceActive) return undefined;
     if (dictationState !== 'recording' && dictationState !== 'preparing') return undefined;
@@ -448,28 +464,12 @@ export function useComposerDictation({
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [cancelDictation, dictationState, keysActive, surfaceActive, toggleDictation]);
 
-  // The conversation left the screen (switched away, parked behind a tab):
-  // the take ends and the mic is released. Speech already captured is still
-  // transcribed into this composer's draft, where it waits for the user's
-  // return; a take still opening the mic is discarded.
   useEffect(() => {
     if (surfaceActive) return;
     cancelPendingAttempt();
     const session = dictationSession.current;
     if (session) stopRecorder(session.recorder);
   }, [surfaceActive, cancelPendingAttempt]);
-
-  useEffect(() => {
-    if (dictationState !== 'recording' || !recordingSince) {
-      setRecordingElapsedMs(0);
-      return;
-    }
-    setRecordingElapsedMs(Date.now() - recordingSince);
-    const timer = window.setInterval(() => {
-      setRecordingElapsedMs(Date.now() - recordingSince);
-    }, 500);
-    return () => window.clearInterval(timer);
-  }, [dictationState, recordingSince]);
 
   useEffect(
     () => () => {

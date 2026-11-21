@@ -1,17 +1,9 @@
-// Authenticated encryption for the relay's HTTP media lane.
-//
-// The relay proxies `/media/<asset>` as opaque bytes, so everything it carries
-// is a sequence of FRAMES sealed with the session's media key
-// (RelayE2EEChannel.mediaKey):
-//
+// Frames of the relay's `/media/<asset>` lane, sealed with
+// RelayE2EEChannel.mediaKey:
 //   frame = u32be(length) | nonce(12) | AES-GCM ciphertext+tag
 //   response = meta frame, then one data frame per 64 KiB plaintext segment
-//
-// Every frame has its own random nonce, and its AAD binds the asset id,
-// variant and position, so a frame cannot be moved to another asset, offset or
-// size, or replayed into a different slot. A different session has a different
-// key, so frames cannot cross sessions either. public/sw-media.js decodes the
-// same format in the browser; sw-media.test.mjs pins the two together.
+// The AAD binds asset id, variant and position. public/sw-media.js decodes the
+// same format; sw-media.test.mjs pins the two together.
 const MEDIA_CONTEXT = 'mixdog-relay-media-v1';
 const NONCE_BYTES = 12;
 const TAG_BYTES = 16;

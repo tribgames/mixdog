@@ -1,8 +1,3 @@
-/**
- * Where the pills sit on a display, with no Electron in sight. The Computer
- * Use pill owns the top-centre slot; the remote-screen pill takes the slot
- * directly below it, never the same one.
- */
 import { OVERLAY_HEIGHT, OVERLAY_PILL_HEIGHT, OVERLAY_PILL_INSET, OVERLAY_WIDTH } from './content';
 
 export interface Rect {

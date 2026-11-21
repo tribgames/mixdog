@@ -1,10 +1,4 @@
-/**
- * Time-based one-time passwords (RFC 6238 over RFC 4226 HOTP) for the
- * authenticator keys saved with a login (credential-vault.ts `totpSecret`).
- * A key is the base32 text shown under a setup QR code, or the QR's own
- * `otpauth://totp/...` address with its `secret`, `digits`, `period` and
- * `algorithm` parameters. Codes are made in this process only.
- */
+/** RFC 6238 TOTP over RFC 4226 HOTP. */
 import { createHmac } from 'node:crypto';
 
 export type TotpAlgorithm = 'SHA1' | 'SHA256' | 'SHA512';

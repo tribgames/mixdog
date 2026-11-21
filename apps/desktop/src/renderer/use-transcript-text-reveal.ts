@@ -1,55 +1,6 @@
-/**
- * Paint pacing of the live assistant part.
- *
- * Paced (the coding transcript):
- * - Steps: what was received is revealed in steps of REVEAL_STEP_CHARS,
- *   ending after the last space when that keeps more than half the step, on a
- *   setTimeout chain. The time between steps follows the backlog (received
- *   minus shown), recomputed at every step: TARGET_LAG × STEP / backlog,
- *   within [REVEAL_MIN_STEP_MS, REVEAL_MAX_STEP_MS]. While text arrives at a
- *   steady rate the reveal settles REVEAL_TARGET_LAG_MS behind it (the
- *   backlog is then rate × TARGET_LAG); a lump with nothing after it drains
- *   slower as it shrinks (a 400-character opening of five-letter words: its
- *   first step at once, the other 19 over about 1.5 s).
- * - Catch-up: a backlog the fastest cadence cannot drain in time (above
- *   TARGET_LAG × STEP / MIN_STEP characters) adds its excess to the step,
- *   scaled by how long the step waited, up to REVEAL_CATCH_UP_RAMP_MS.
- * - Rejoin: one delivery growing the text by more than REVEAL_REJOIN_CHARS
- *   while more than that waits shows everything at once; so does what arrived
- *   while the document was hidden, as a new `revision`: it shows unfaded.
- * - A part's first text longer than REVEAL_JOIN_CHARS shows at once, else as
- *   a first step. A remount continues where it was (the reveal is kept per
- *   row key).
- * - Once the backlog is drained the chain idles; the next arrival restarts
- *   it, timed from that arrival.
- * - Hold-back: a line that is only a list or heading marker, and a closing
- *   fence being typed, wait (stream-reveal-hold pacedRevealCeiling).
- *
- * Unpaced (chat): what was received shows whole, at most one paint per
- * REVEAL_INTERVAL_MS, held back at any unfinished line construct
- * (stream-reveal-hold revealHold).
- *
- * The part ending shows the rest at once, paced or not: the backlog is at
- * most about REVEAL_TARGET_LAG_MS of steps, and what it held fades in as one
- * last phrase (the row stays live until that fade ended, transcript-row
- * useStreamFade). Reduced motion shows everything at once,
- * and received text is never delayed upstream: canonical text, persistence,
- * copy and tools all read the full text.
- *
- * A row's reveal outlives its mounts: rows subscribe by key, so a mode change
- * (reduced motion, paced) keeps the reveal and its subscribers, and what
- * already shows stays shown. Steps run only while a row is mounted; a
- * remount continues where the last mount stopped. A deleted session's
- * reveals (and fade timelines) are dropped.
- *
- * Rendering changes nothing: a render works out what it shows from the
- * committed reveal (revealView) and its layout effect records that
- * (recordReveal), so a render React discards leaves the reveal as the
- * committed row shows it.
- */
 import { useCallback, useLayoutEffect, useSyncExternalStore } from 'react';
 import { onSessionPreviewsDeleted } from './image-preview-store';
-import { dropStreamFadeTimelines } from './markdown-stream-fade';
+import { dropStreamFadeTimelines, reducedMotion } from './markdown-stream-fade';
 import { pacedRevealCeiling, pacedRevealStep, revealHold } from './stream-reveal-hold';
 import { transcriptRowNamespace } from './transcript-virtual-cache';
 
@@ -64,10 +15,7 @@ const REVEAL_MIN_STEP_MS = 25;
 const REVEAL_MAX_STEP_MS = 150;
 /** Paced: a step that waited this long adds the whole excess backlog. */
 const REVEAL_CATCH_UP_RAMP_MS = 75;
-/** Paced: a first text longer than this shows at once, and unfaded
- *  (streamFadeTimeline's `primed`): a reply opening with a lump (after a
- *  thinking phase) reads at once instead of spreading over the target lag.
- *  Below it the opening paces and fades like the rest of the reply. */
+/** Paced: a first text longer than this shows at once, unfaded (streamFadeTimeline's `primed`). */
 export const REVEAL_JOIN_CHARS = 400;
 /** Paced: one delivery this large over a backlog this large shows at once. */
 const REVEAL_REJOIN_CHARS = 600;
@@ -145,10 +93,6 @@ function forget(key: string, entry: RevealEntry): void {
   if (entry.timer !== null) clearTimeout(entry.timer);
   entry.timer = null;
   registry.delete(key);
-}
-
-function motionReduced(): boolean {
-  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
 function documentHidden(): boolean {
@@ -414,7 +358,7 @@ export function useTranscriptTextReveal({
   const subscribeRow = useCallback((listener: () => void) => (live ? subscribe(key, listener) : () => {}), [key, live]);
   const version = useCallback(() => (live ? (registry.get(key)?.version ?? 0) : 0), [key, live]);
   useSyncExternalStore(subscribeRow, version, version);
-  const mode = paced && !motionReduced();
+  const mode = paced && !reducedMotion();
   const entry = key ? registry.get(key) : undefined;
   const view = key && (streaming || entry) ? revealView(entry, text, performance.now(), mode, streaming) : null;
   useLayoutEffect(() => {

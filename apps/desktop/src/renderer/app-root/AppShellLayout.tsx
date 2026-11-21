@@ -146,7 +146,6 @@ export function AppShellLayout({
               openFileTab={openFileTab}
               openConversationCommandSurface={openConversationCommandSurface}
               paneWorkspace={paneWorkspace}
-              observedAgentSessionIds={sessionTitle.observedAgentSessionIds}
               dockSessionIds={dockSessionIds}
               paneStripFor={paneStripFor}
               paneConversationSurface={paneConversationSurface}

@@ -1,8 +1,3 @@
-/**
- * The last phase of a state capture: publish the actionable targets, build the
- * reply payload, attach the image, and remember the OCR preference. It runs only
- * after the observation was judged consistent.
- */
 import { elapsedMs } from '../shared/common';
 import type { createOcrCapturePreferenceStore } from '../input/capability-policy';
 import { captureResultPayload } from './capture-result';

@@ -1,7 +1,3 @@
-// A verify open (`input.verify`) is the agent's own check: its tab is made so
-// check / inspect / capture work on it off screen, but it is never revealed,
-// gets no chat card, and is closed at the session's next turn end (or when the
-// session closes), with or without a turn hold (turn-hold.ts).
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

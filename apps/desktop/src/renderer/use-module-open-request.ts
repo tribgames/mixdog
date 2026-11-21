@@ -6,15 +6,6 @@ export interface OpenRequestModule {
   load(): Promise<unknown>;
 }
 
-/** Opens of a view whose module may still be loading, gated on that module so
- *  the view opens with its content instead of an empty frame. Loaded (or
- *  nothing to wait for): the open runs at once. Otherwise one request waits for
- *  the module, however many arrive (the newest one's open wins), and runs when
- *  the import settles, a failed import included (the view then reports it).
- *  It is dropped when the user moves on first: `subscribeDismiss` reports a
- *  dismissal (said at the request to close, before the closed state commits),
- *  `opened` turns true (opened by another route), `cancel` reports another
- *  navigation, or the owner unmounts. */
 export function useModuleOpenRequest({
   module,
   waits,

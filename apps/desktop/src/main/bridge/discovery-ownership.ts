@@ -1,8 +1,3 @@
-/**
- * Ownership of one bridge discovery file (Computer Use, Browser Use): the
- * record shape, identity comparison, and the /health probe that tells a live
- * foreign owner from a crashed one so a surviving instance can reclaim the file.
- */
 import { request } from 'node:http';
 
 const BRIDGE_DISCOVERY_VERSION = 1;

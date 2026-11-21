@@ -1,7 +1,3 @@
-// ABB (Android back button) contract for the phone surface. Every transient
-// layer registers here, so these are the rules the whole renderer depends on:
-// back closes the TOPMOST layer only, a layer that closes itself consumes its
-// own sentinel silently, and desktop surfaces never touch history at all.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 

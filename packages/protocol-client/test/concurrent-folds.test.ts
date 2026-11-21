@@ -1,8 +1,3 @@
-// Folds that run at once share the loop's turns (`ConnectOptions.turn`). The test owns the loop: a yield request only queues, and
-// `release()` is the loop turn that answers every request queued so far. Reducer work is charged in fake time (`now()` charges
-// nothing), so what a turn spent is the fake time between its release and the end of everything it ran, whatever the number of
-// yield requests. Nothing here waits a fixed time: the fixture is promises only, so everything a turn set running has finished when
-// a whole macrotask passes without a unit of work, a yield request or a client frame.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
@@ -21,10 +16,25 @@ const PAD = 128;
 const SCAN_ASKS = 3;
 // A test that never settles is a failure, not a hang.
 const DEADLINE = { timeout: 20_000 };
-const thread = (id: string) => ({ id, preview: '', title: '', updatedAt: 1, messageCount: 0, cwd: '/w', classification: {}, projectPath: null });
+const thread = (id: string) => ({
+  id,
+  preview: '',
+  title: '',
+  updatedAt: 1,
+  messageCount: 0,
+  cwd: '/w',
+  classification: {},
+  projectPath: null,
+});
 const snapshot = (id: string, epoch: string, seq: number, pad: number) => ({
   method: 'thread/snapshot',
-  params: { thread: thread(id), items: [], state: { title: 'T' }, hasOlder: false, padding: Array.from({ length: pad }, (_, i) => i) },
+  params: {
+    thread: thread(id),
+    items: [],
+    state: { title: 'T' },
+    hasOlder: false,
+    padding: Array.from({ length: pad }, (_, i) => i),
+  },
   feed: { id, epoch, seq },
 });
 
@@ -106,7 +116,10 @@ async function harness(config: Config) {
   for (const id of ids) {
     const resumed = client.resumeThread(id, { lastItems: 50 });
     const req = JSON.parse(await conn.nextSent());
-    conn.serverSend({ id: req.id, result: { thread: thread(id), subscription: { id: `sub-${id}`, mode: 'snapshot', epoch: 'e1', startSeq: 1 } } });
+    conn.serverSend({
+      id: req.id,
+      result: { thread: thread(id), subscription: { id: `sub-${id}`, mode: 'snapshot', epoch: 'e1', startSeq: 1 } },
+    });
     await resumed;
   }
   /** Until a macrotask passes with nothing done: every microtask chain the last step set off has run out. */
@@ -119,7 +132,7 @@ async function harness(config: Config) {
   /** One socket read: every session's snapshot arrives in the same loop turn, so the folds start together. `spendBeforeScan`
    *  is fake time that passes before any fold's blob scan runs (they run in microtasks, after this synchronous read). */
   const startAll = async (spendBeforeScan = 0, only = ids) => {
-    only.forEach((id) => conn.serverSend(snapshot(id, 'e1', 0, pad)));
+    for (const id of only) conn.serverSend(snapshot(id, 'e1', 0, pad));
     t += spendBeforeScan;
     await settle();
   };
@@ -150,7 +163,11 @@ async function harness(config: Config) {
     for (const request of asked) request.resolve();
     await settle();
     const ran = log.slice(before);
-    return { spent: t - from, steps: ran.filter((s) => !s.done).map((s) => s.id), finished: ran.filter((s) => s.done).length };
+    return {
+      spent: t - from,
+      steps: ran.filter((s) => !s.done).map((s) => s.id),
+      finished: ran.filter((s) => s.done).length,
+    };
   };
   /** Turns until nobody asks for one. Every turn runs at least one unit of work, so a run of `units` units takes at most that
    *  many turns: more is a turn that advanced nothing. */
@@ -174,10 +191,17 @@ async function harness(config: Config) {
     void (async () => {
       for (;;) {
         const frame = JSON.parse(await next.nextSent());
-        if (frame.method === 'initialize') next.serverSend({ id: frame.id, result: { ...options.initializeResult, serverInstanceId: 's2' } });
+        if (frame.method === 'initialize')
+          next.serverSend({ id: frame.id, result: { ...options.initializeResult, serverInstanceId: 's2' } });
         else if (frame.method === 'thread/resume') {
           const id = frame.params.threadId as string;
-          next.serverSend({ id: frame.id, result: { thread: thread(id), subscription: { id: `sub2-${id}`, mode: 'snapshot', epoch: 'e2', startSeq: 1 } } });
+          next.serverSend({
+            id: frame.id,
+            result: {
+              thread: thread(id),
+              subscription: { id: `sub2-${id}`, mode: 'snapshot', epoch: 'e2', startSeq: 1 },
+            },
+          });
           next.serverSend(snapshot(id, 'e2', 0, pad));
           resumed.add(id);
           if (resumed.size === FOLDS) allResumed();
@@ -188,60 +212,101 @@ async function harness(config: Config) {
     assert.deepEqual([...resumed].sort(), ids, 'every session re-attached');
     await settle();
   };
-  return { net, conn, client, ids, requests, log, turnNo: () => turnNo, startAll, startApp, release, drain, settle, stepsOf, unitsOf, reattach, steps };
+  return {
+    net,
+    conn,
+    client,
+    ids,
+    requests,
+    log,
+    turnNo: () => turnNo,
+    startAll,
+    startApp,
+    release,
+    drain,
+    settle,
+    stepsOf,
+    unitsOf,
+    reattach,
+    steps,
+  };
 }
 
 /** Per released turn: the turn spent at most one budget plus the longest step, and ran at least one unit. */
 function assertTurns(turns: Turn[], budgetMs: number, stepMs: number): void {
   turns.forEach((turn, i) => {
     assert.ok(turn.steps.length + turn.finished >= 1, `turn ${i} advanced no fold`);
-    assert.ok(turn.spent <= budgetMs + stepMs, `turn ${i} spent ${turn.spent} ms (limit ${budgetMs + stepMs}): ${turn.steps.join(',')}`);
+    assert.ok(
+      turn.spent <= budgetMs + stepMs,
+      `turn ${i} spent ${turn.spent} ms (limit ${budgetMs + stepMs}): ${turn.steps.join(',')}`
+    );
   });
 }
 
-test('concurrent folds share one budget per loop turn, and each advances within a bounded number of turns', DEADLINE, async () => {
-  const h = await harness({ budgetMs: 8, stepMs: 1 });
-  await h.startAll();
-  const turns = await h.drain(h.unitsOf(STEPS));
-  assertTurns(turns, 8, 1);
-  for (const id of h.ids) {
-    const at = [-1, ...h.stepsOf(id).map((s) => s.turn)];
-    assert.equal(h.stepsOf(id).length, STEPS, `${id} finished`);
-    for (let i = 1; i < at.length; i++) assert.ok(at[i]! - at[i - 1]! <= FOLDS, `${id} waited ${at[i]! - at[i - 1]!} turns`);
+test(
+  'concurrent folds share one budget per loop turn, and each advances within a bounded number of turns',
+  DEADLINE,
+  async () => {
+    const h = await harness({ budgetMs: 8, stepMs: 1 });
+    await h.startAll();
+    const turns = await h.drain(h.unitsOf(STEPS));
+    assertTurns(turns, 8, 1);
+    for (const id of h.ids) {
+      const at = [-1, ...h.stepsOf(id).map((s) => s.turn)];
+      assert.equal(h.stepsOf(id).length, STEPS, `${id} finished`);
+      for (let i = 1; i < at.length; i++)
+        assert.ok(at[i]! - at[i - 1]! <= FOLDS, `${id} waited ${at[i]! - at[i - 1]!} turns`);
+    }
+    assert.ok(
+      turns.length <= Math.ceil((FOLDS * STEPS) / 8) + FOLDS,
+      `${turns.length} turns for ${FOLDS * STEPS} steps`
+    );
   }
-  assert.ok(turns.length <= Math.ceil((FOLDS * STEPS) / 8) + FOLDS, `${turns.length} turns for ${FOLDS * STEPS} steps`);
-});
+);
 
 test('steps longer than the budget run one step per turn, not one per fold', DEADLINE, async () => {
   const h = await harness({ budgetMs: 8, stepMs: 9, steps: 6 });
   await h.startAll();
   const turns = await h.drain(h.unitsOf(6));
   assertTurns(turns, 8, 9);
-  assert.ok(turns.every((turn) => turn.steps.length <= 1), `steps per turn: ${turns.map((turn) => turn.steps.length).join(',')}`);
+  assert.ok(
+    turns.every((turn) => turn.steps.length <= 1),
+    `steps per turn: ${turns.map((turn) => turn.steps.length).join(',')}`
+  );
   for (const id of h.ids) assert.equal(h.stepsOf(id).length, 6, `${id} finished`);
 });
 
-test('folds that resume inside the blob scan share the turn too: 9 ms steps on an 8 ms budget run one step', DEADLINE, async () => {
-  const h = await harness({ budgetMs: 8, stepMs: 9, steps: 6, pad: PAD });
-  // The budget is spent before any scan runs: every fold waits inside its scan, not in its reducer.
-  await h.startAll(9);
-  assert.equal(h.log.length, 0, 'no fold reached its reducer before the first turn');
-  const first = await h.release();
-  assert.ok(first, 'the folds asked for a turn');
-  assert.equal(first.steps.length, 1, `the first turn ran ${first.steps.length} steps`);
-  assert.ok(first.spent <= 8 + 9, `the first turn spent ${first.spent} ms`);
-  const turns = await h.drain(h.unitsOf(6));
-  assertTurns(turns, 8, 9);
-  assert.ok(turns.every((turn) => turn.steps.length <= 1), `steps per turn: ${turns.map((turn) => turn.steps.length).join(',')}`);
-  for (const id of h.ids) assert.equal(h.stepsOf(id).length, 6, `${id} finished`);
-});
+test(
+  'folds that resume inside the blob scan share the turn too: 9 ms steps on an 8 ms budget run one step',
+  DEADLINE,
+  async () => {
+    const h = await harness({ budgetMs: 8, stepMs: 9, steps: 6, pad: PAD });
+    // The budget is spent before any scan runs: every fold waits inside its scan, not in its reducer.
+    await h.startAll(9);
+    assert.equal(h.log.length, 0, 'no fold reached its reducer before the first turn');
+    const first = await h.release();
+    assert.ok(first, 'the folds asked for a turn');
+    assert.equal(first.steps.length, 1, `the first turn ran ${first.steps.length} steps`);
+    assert.ok(first.spent <= 8 + 9, `the first turn spent ${first.spent} ms`);
+    const turns = await h.drain(h.unitsOf(6));
+    assertTurns(turns, 8, 9);
+    assert.ok(
+      turns.every((turn) => turn.steps.length <= 1),
+      `steps per turn: ${turns.map((turn) => turn.steps.length).join(',')}`
+    );
+    for (const id of h.ids) assert.equal(h.stepsOf(id).length, 6, `${id} finished`);
+  }
+);
 
 test('with a budget of 0 every turn still advances one fold', DEADLINE, async () => {
   const h = await harness({ budgetMs: 0, stepMs: 1, steps: 6 });
   await h.startAll();
   const turns = await h.drain(h.unitsOf(6));
   assertTurns(turns, 0, 1);
-  assert.ok(turns.every((turn) => turn.steps.length <= 1), `steps per turn: ${turns.map((turn) => turn.steps.length).join(',')}`);
+  assert.ok(
+    turns.every((turn) => turn.steps.length <= 1),
+    `steps per turn: ${turns.map((turn) => turn.steps.length).join(',')}`
+  );
   for (const id of h.ids) assert.equal(h.stepsOf(id).length, 6, `${id} finished`);
 });
 
@@ -260,46 +325,65 @@ test('a fold cancelled while it waits does not stop the others', DEADLINE, async
   assert.ok(h.stepsOf('t0').length - stepsBefore <= 1, 'the cancelled fold stopped at its next turn');
 });
 
-test('an app snapshot fold and a thread reducer alternate: neither waits more than one turn of the other between two of its units', DEADLINE, async () => {
-  const SECTIONS = 32;
-  const THREAD_STEPS = 12;
-  const h = await harness({ budgetMs: 0, stepMs: 1, steps: THREAD_STEPS, advancing: true });
-  // The thread reducer is queued first, then the app snapshot arrives while it is waiting.
-  await h.startAll(0, ['t0']);
-  await h.startApp(SECTIONS);
-  // The budget is 0 and the clock advances on every ask, so each turn holds one unit of work, the thread's (a step, or its finish)
-  // or the app fold's (staging a section, announcing it): a turn the thread did not run in belongs to the app.
-  const turns = await h.drain(THREAD_STEPS + 1 + SECTIONS * (2 + SCAN_ASKS) + 2);
-  const ran = turns.map((turn) => turn.steps.length + turn.finished > 0);
-  const lastThread = ran.lastIndexOf(true);
-  assert.equal(h.stepsOf('t0').length, THREAD_STEPS, 'the thread finished');
-  assert.ok(lastThread >= THREAD_STEPS - 2, 'the thread ran across the turns');
-  const threadRan = ran.slice(0, lastThread + 1);
-  for (let i = 1; i < threadRan.length; i++) {
-    assert.notEqual(threadRan[i], threadRan[i - 1], `turns ${i - 1} and ${i} went to the ${threadRan[i] ? 'thread' : 'app fold'} both times: ${threadRan.map((r) => (r ? 'T' : 'A')).join('')}`);
+test(
+  'an app snapshot fold and a thread reducer alternate: neither waits more than one turn of the other between two of its units',
+  DEADLINE,
+  async () => {
+    const SECTIONS = 32;
+    const THREAD_STEPS = 12;
+    const h = await harness({ budgetMs: 0, stepMs: 1, steps: THREAD_STEPS, advancing: true });
+    // The thread reducer is queued first, then the app snapshot arrives while it is waiting.
+    await h.startAll(0, ['t0']);
+    await h.startApp(SECTIONS);
+    // The budget is 0 and the clock advances on every ask, so each turn holds one unit of work, the thread's (a step, or its finish)
+    // or the app fold's (staging a section, announcing it): a turn the thread did not run in belongs to the app.
+    const turns = await h.drain(THREAD_STEPS + 1 + SECTIONS * (2 + SCAN_ASKS) + 2);
+    const ran = turns.map((turn) => turn.steps.length + turn.finished > 0);
+    const lastThread = ran.lastIndexOf(true);
+    assert.equal(h.stepsOf('t0').length, THREAD_STEPS, 'the thread finished');
+    assert.ok(lastThread >= THREAD_STEPS - 2, 'the thread ran across the turns');
+    const threadRan = ran.slice(0, lastThread + 1);
+    for (let i = 1; i < threadRan.length; i++) {
+      assert.notEqual(
+        threadRan[i],
+        threadRan[i - 1],
+        `turns ${i - 1} and ${i} went to the ${threadRan[i] ? 'thread' : 'app fold'} both times: ${threadRan.map((r) => (r ? 'T' : 'A')).join('')}`
+      );
+    }
   }
-});
+);
 
-test('an app fold that goes from staging to announcing keeps its turn order beside a thread fold that is still waiting', DEADLINE, async () => {
-  const THREAD_STEPS = 12;
-  const h = await harness({ budgetMs: 0, stepMs: 1, steps: THREAD_STEPS, advancing: true });
-  let announcedAt = -1;
-  h.client.store.subscribe((change) => {
-    if (change.type === 'appSnapshot') announcedAt = h.turnNo();
-  });
-  await h.startAll(0, ['t0']);
-  // The last section is a stub (no value to resolve), so the fold goes from staging its last section into announcing in one
-  // synchronous run, with no await of its own between them.
-  await h.startApp(2, true);
-  const turns = await h.drain(THREAD_STEPS + 1 + 2 * (2 + SCAN_ASKS) + 2);
-  assert.equal(h.stepsOf('t0').length, THREAD_STEPS, 'the thread finished');
-  assert.ok(announcedAt >= 0 && announcedAt < turns.length - 1, `the app fold finished (turn ${announcedAt}) while the thread was still running`);
-  // Every turn the app fold was active, up to and including its last announcement, went to one fold or the other in turn.
-  const threadRan = turns.slice(0, announcedAt + 1).map((turn) => turn.steps.length + turn.finished > 0);
-  for (let i = 1; i < threadRan.length; i++) {
-    assert.notEqual(threadRan[i], threadRan[i - 1], `turns ${i - 1} and ${i} went to the ${threadRan[i] ? 'thread' : 'app fold'} both times: ${threadRan.map((r) => (r ? 'T' : 'A')).join('')}`);
+test(
+  'an app fold that goes from staging to announcing keeps its turn order beside a thread fold that is still waiting',
+  DEADLINE,
+  async () => {
+    const THREAD_STEPS = 12;
+    const h = await harness({ budgetMs: 0, stepMs: 1, steps: THREAD_STEPS, advancing: true });
+    let announcedAt = -1;
+    h.client.store.subscribe((change) => {
+      if (change.type === 'appSnapshot') announcedAt = h.turnNo();
+    });
+    await h.startAll(0, ['t0']);
+    // The last section is a stub (no value to resolve), so the fold goes from staging its last section into announcing in one
+    // synchronous run, with no await of its own between them.
+    await h.startApp(2, true);
+    const turns = await h.drain(THREAD_STEPS + 1 + 2 * (2 + SCAN_ASKS) + 2);
+    assert.equal(h.stepsOf('t0').length, THREAD_STEPS, 'the thread finished');
+    assert.ok(
+      announcedAt >= 0 && announcedAt < turns.length - 1,
+      `the app fold finished (turn ${announcedAt}) while the thread was still running`
+    );
+    // Every turn the app fold was active, up to and including its last announcement, went to one fold or the other in turn.
+    const threadRan = turns.slice(0, announcedAt + 1).map((turn) => turn.steps.length + turn.finished > 0);
+    for (let i = 1; i < threadRan.length; i++) {
+      assert.notEqual(
+        threadRan[i],
+        threadRan[i - 1],
+        `turns ${i - 1} and ${i} went to the ${threadRan[i] ? 'thread' : 'app fold'} both times: ${threadRan.map((r) => (r ? 'T' : 'A')).join('')}`
+      );
+    }
   }
-});
+);
 
 /** The waiting folds failed: the link dropped, and the folds that come after it still get turns and finish. */
 async function assertRecovered(h: Awaited<ReturnType<typeof harness>>) {
@@ -307,7 +391,12 @@ async function assertRecovered(h: Awaited<ReturnType<typeof harness>>) {
   await h.reattach();
   const turns = await h.drain(h.unitsOf(h.steps));
   assertTurns(turns, 8, 1);
-  for (const id of h.ids) assert.equal(h.log.slice(before).filter((s) => s.id === id && !s.done).length, h.steps, `${id} folded after the failure`);
+  for (const id of h.ids)
+    assert.equal(
+      h.log.slice(before).filter((s) => s.id === id && !s.done).length,
+      h.steps,
+      `${id} folded after the failure`
+    );
 }
 
 test('a rejected yieldTurn fails the waiting folds, and later folds still get turns', DEADLINE, async () => {
@@ -318,16 +407,12 @@ test('a rejected yieldTurn fails the waiting folds, and later folds still get tu
   await assertRecovered(h);
 });
 
-test('a yieldTurn that throws synchronously fails the waiting folds, and later folds still get turns', DEADLINE, async () => {
-  const h = await harness({ budgetMs: 8, stepMs: 1, throwFirstYield: true });
-  await h.startAll();
-  await assertRecovered(h);
-});
-
-
-
-
-
-
-
-
+test(
+  'a yieldTurn that throws synchronously fails the waiting folds, and later folds still get turns',
+  DEADLINE,
+  async () => {
+    const h = await harness({ budgetMs: 8, stepMs: 1, throwFirstYield: true });
+    await h.startAll();
+    await assertRecovered(h);
+  }
+);

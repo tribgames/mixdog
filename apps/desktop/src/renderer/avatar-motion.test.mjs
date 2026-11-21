@@ -1,7 +1,3 @@
-// At most one avatar moves: the highest claim wins (a bounce, then a typing
-// bubble, then a working list row, then the header's idle blink); the rest
-// show their still frame. Reduced motion keeps every avatar still, and a
-// custom avatar's missing state falls back to its idle image.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';

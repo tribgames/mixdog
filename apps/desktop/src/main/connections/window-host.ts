@@ -1,8 +1,3 @@
-/**
- * `host/window/open|close|focus` (core → host) and the two things this desktop tells the core about its windows:
- * `host/window/closed` and `host/state/set{windowFocus}`. A pure module over injected deps (no BrowserWindow), so
- * main/index.ts supplies what `showConnectionWindow`, the window close and the focus calls do.
- */
 import type {
   HostWindowCloseParams,
   HostWindowFocusParams,

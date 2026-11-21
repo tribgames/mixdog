@@ -1,10 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { attributeWrite } from './transcript-follow-rules';
 
-/** Offsets WRITTEN by the virtual timeline (append follow, measured-size
- *  adjustments, entry anchoring) all route through its scrollToFn, which
- *  reports them here. They are the timeline keeping its own promise, never
- *  reader intent — counted as a gesture they released follow mid-stream. */
 export function useProgrammaticWrites() {
   // Only the LAST write counts: scroll events coalesce per frame, and the one
   // that follows a burst reports where the burst ended.

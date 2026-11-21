@@ -1,12 +1,8 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { join } from 'node:path';
 
-/** Chromium's Crashpad client publishes the handler's registration pipe in this
- *  variable. Every child started with it — renderers and the
- *  ELECTRON_RUN_AS_NODE daemon, which inherits `process.env` — registers with
- *  that one handler at startup. Once the handler is gone the pipe is gone too:
- *  a child still carrying the name fails `CreateFile` and, on its first fatal
- *  error, is killed with 0xFFFF7003 ("not connected") and no dump. */
+/** Chromium's Crashpad client publishes the handler's registration pipe in this variable. Once the handler is gone
+ *  the pipe is gone too: a child still carrying the name is killed with 0xFFFF7003 ("not connected") on its first fatal error. */
 export const CRASHPAD_PIPE_ENV = 'CHROME_CRASHPAD_PIPE_NAME';
 
 export type CrashHandlerWatchEvent =
@@ -66,13 +62,8 @@ function spawnPowerShell(script: string): ChildProcess {
   );
 }
 
-/** Watches the Crashpad handler of `mainPid`: a one-shot finder names its pid,
- *  then the main process polls its liveness in-process — no resident helper,
- *  so the loss is detected but its exit code is not known. On loss the dead
- *  pipe name is removed from `env` BEFORE the event is reported, so every
- *  child spawned afterwards (a respawned daemon included) starts without a
- *  Crashpad client and a fatal error reaches Windows' own handler with its
- *  real exception code instead of a silent 0xFFFF7003 kill. Returns `stop`. */
+/** Removes the dead pipe name from `env` before a loss is reported, so later children start without a Crashpad
+ *  client and a fatal error reaches Windows' own handler instead of a silent 0xFFFF7003 kill. Returns `stop`. */
 export function watchCrashHandler({
   mainPid,
   onEvent,

@@ -199,8 +199,7 @@ function focusIsKeyboard(element: Element): boolean {
 
 type LinkPress = { pointerType: string; pointerId: number; clientX: number; clientY: number };
 const TAP_SLOP_PX = 10;
-/** Backoff of a failed mention lookup; the first step outlasts the resolver's
- *  3s cache of a miss, so each retry asks the file service again. */
+/** Backoff of a failed mention lookup; the first step outlasts the resolver's 3 s cache of a miss. */
 const LINK_VERIFY_RETRY_MS = [3_500, 10_000, 30_000];
 /** Automatic mention in every state (pending, missing, verified): one box
  *  rule, so verification never changes how the text wraps. */
@@ -238,19 +237,23 @@ export function createLinkPressIntent() {
   };
 }
 
-/** One opening rule for every local mention (chat links, tool subjects):
- *  text files go to Mixdog's editor at their line, documents launch the OS
- *  app, previewable files open in the Visualize panel, and folders open in
- *  the dock's Files tree (the file manager where there is no dock). Wherever
- *  the path is — the conversation's Project, another Project or outside every
- *  Project — it opens the same way. */
-function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
-  const projectPath = useContext(MarkdownProjectContext);
-  const sessionId = useContext(MarkdownSessionContext);
-  const openFile = useContext(MarkdownOpenFileContext);
-  const openFolder = useContext(MarkdownOpenFolderContext);
-  const documentDir = useContext(MarkdownDocumentDirContext);
-  const itemId = useContext(MarkdownTranscriptItemContext);
+function useLinkVerification({
+  verify,
+  local,
+  projectPath,
+  path,
+  sessionId,
+  resolutionKey,
+  suffix,
+}: {
+  verify: boolean;
+  local: boolean;
+  projectPath: string;
+  path: string;
+  sessionId: string | undefined;
+  resolutionKey: string;
+  suffix: string;
+}) {
   const [resolved, setResolved] = useState<{ key: string; title: string; target: ResolvedLocalLink | null }>({
     key: '',
     title: '',
@@ -259,67 +262,10 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   const [verifiedKey, setVerifiedKey] = useState('');
   const [missingKey, setMissingKey] = useState('');
   const [missingReason, setMissingReason] = useState('');
-  // Failed verifications retry on a backoff: one transient file-service
-  // failure must not leave a real file as plain text for the whole session.
   const [retry, setRetry] = useState({ key: '', attempt: 0 });
-  const [press] = useState(createLinkPressIntent);
-  const resolutionKey = `${projectPath}\0${documentDir}\0${target}`;
-  const resolvedTitle = resolved.key === resolutionKey ? resolved.title : '';
-  const resolvedTarget = resolved.key === resolutionKey ? resolved.target : null;
-  const local = isLocalMarkdownLink(target);
-  const authored = parseLocalFileLocation(target);
-  const location = local ? { ...authored, path: documentRelativePath(documentDir, authored.path) } : authored;
-  const kind = localLinkKind(location.path);
-  const rel = local ? projectRelativeFilePath(projectPath, location.path) : null;
-  // Only a relative mention without folders is a bare name; `C:/work/a.docx`
-  // at the Project root is already exact.
-  const bare = Boolean(
-    rel && kind === 'file' && !rel.includes('/') && !/^(?:[a-z]:[\\/]|[\\/]|file:)/i.test(location.path)
-  );
-  const columnSuffix = location.column ? `:${location.column}` : '';
-  const suffix = location.line ? `:${location.line}${columnSuffix}` : '';
-  const name =
-    (location.path
-      .replace(/[\\/]+$/, '')
-      .split(/[\\/]/)
-      .at(-1) || location.path) + (kind === 'folder' ? '/' : '');
-  const title = resolvedTitle || (rel && !bare && projectPath ? displayPath(projectPath, rel, suffix) : undefined);
-  const downloadable = local && kind !== 'folder';
-  const downloadSupport = useFileDownloadSupport(local && isRemoteHostRenderer());
-  const downloadBlocked = fileDownloadBlockedReason(downloadSupport);
-  // A paired device downloads the host file (GitHub #40): a reply's link by
-  // its row, a file of the conversation's project by its project path, and
-  // anything else (a tool output outside the project) as a path the
-  // conversation references.
-  const download = () => {
-    let source: FileDownloadSource | null = null;
-    if (sessionId && itemId) source = { kind: 'link', sessionId, itemId, href: target };
-    else if (sessionId && rel && rel !== '.') source = { kind: 'project', sessionId, relPath: rel };
-    else if (sessionId && local && localMarkdownPath(location.path)) {
-      source = { kind: 'session', sessionId, path: localMarkdownPath(location.path) };
-    }
-    if (downloadBlocked || !source) {
-      showDesktopToast(downloadBlocked || fileDownloadReasonMessage('not-linked'), 'error');
-      return;
-    }
-    startFileDownload(source, name);
-  };
-  // A folder the conversation links downloads as a zip the host builds
-  // (size-capped; the host says so when it is too large).
-  const downloadFolder = () => {
-    if (downloadBlocked) {
-      showDesktopToast(downloadBlocked, 'error');
-      return;
-    }
-    void startFolderDownload(sessionId, location.path, `${name.replace(/\/$/, '')}.zip`);
-  };
-
-  // A filename-shaped mention is not an authored link. Keep it noninteractive
-  // until the owning Project and actual file/folder are confirmed.
-  // Verification looks in the conversation's Project, then the other
-  // registered Projects (or the exact absolute path); a name found nowhere
-  // stays text. Repeated mentions of one name share a single verification.
   const attempt = retry.key === resolutionKey ? retry.attempt : 0;
+  const adoptResolved = (match: ResolvedLocalLink) =>
+    setResolved({ key: resolutionKey, title: displayPath(match.project, match.path, suffix), target: match });
   useEffect(() => {
     if (!verify || !local) return;
     // A retry keeps the current (missing) paint until it has an answer.
@@ -329,7 +275,7 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
     }
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    verifyLocalLink(projectPath, location.path, sessionId || undefined)
+    verifyLocalLink(projectPath, path, sessionId || undefined)
       .then((match) => {
         if (!active) return;
         setResolved({
@@ -355,22 +301,86 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, [verify, local, projectPath, location.path, resolutionKey, suffix, attempt, sessionId]);
+  }, [verify, local, projectPath, path, resolutionKey, suffix, attempt, sessionId]);
+  return {
+    resolvedTitle: resolved.key === resolutionKey ? resolved.title : '',
+    resolvedTarget: resolved.key === resolutionKey ? resolved.target : null,
+    adoptResolved,
+    verified: verifiedKey === resolutionKey,
+    missing: missingKey === resolutionKey,
+    missingReason,
+  };
+}
 
-  // The first paint (verified mentions) and hover both resolve this exact
-  // link already. Reusing that result keeps the click from paying a second
-  // round trip to the file service — for a bare name that trip is a whole
-  // project-index search — before anything can start opening.
+function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
+  const projectPath = useContext(MarkdownProjectContext);
+  const sessionId = useContext(MarkdownSessionContext);
+  const openFile = useContext(MarkdownOpenFileContext);
+  const openFolder = useContext(MarkdownOpenFolderContext);
+  const documentDir = useContext(MarkdownDocumentDirContext);
+  const itemId = useContext(MarkdownTranscriptItemContext);
+  const [press] = useState(createLinkPressIntent);
+  const resolutionKey = `${projectPath}\0${documentDir}\0${target}`;
+  const local = isLocalMarkdownLink(target);
+  const authored = parseLocalFileLocation(target);
+  const location = local ? { ...authored, path: documentRelativePath(documentDir, authored.path) } : authored;
+  const kind = localLinkKind(location.path);
+  const rel = local ? projectRelativeFilePath(projectPath, location.path) : null;
+  // Only a relative mention without folders is a bare name; `C:/work/a.docx`
+  // at the Project root is already exact.
+  const bare = Boolean(
+    rel && kind === 'file' && !rel.includes('/') && !/^(?:[a-z]:[\\/]|[\\/]|file:)/i.test(location.path)
+  );
+  const columnSuffix = location.column ? `:${location.column}` : '';
+  const suffix = location.line ? `:${location.line}${columnSuffix}` : '';
+  const { resolvedTitle, resolvedTarget, adoptResolved, verified, missing, missingReason } = useLinkVerification({
+    verify,
+    local,
+    projectPath,
+    path: location.path,
+    sessionId,
+    resolutionKey,
+    suffix,
+  });
+  const name =
+    (location.path
+      .replace(/[\\/]+$/, '')
+      .split(/[\\/]/)
+      .at(-1) || location.path) + (kind === 'folder' ? '/' : '');
+  const title = resolvedTitle || (rel && !bare && projectPath ? displayPath(projectPath, rel, suffix) : undefined);
+  const downloadable = local && kind !== 'folder';
+  const downloadSupport = useFileDownloadSupport(local && isRemoteHostRenderer());
+  const downloadBlocked = fileDownloadBlockedReason(downloadSupport);
+  // A paired device downloads the host file (GitHub #40).
+  const download = () => {
+    let source: FileDownloadSource | null = null;
+    if (sessionId && itemId) source = { kind: 'link', sessionId, itemId, href: target };
+    else if (sessionId && rel && rel !== '.') source = { kind: 'project', sessionId, relPath: rel };
+    else if (sessionId && local && localMarkdownPath(location.path)) {
+      source = { kind: 'session', sessionId, path: localMarkdownPath(location.path) };
+    }
+    if (downloadBlocked || !source) {
+      showDesktopToast(downloadBlocked || fileDownloadReasonMessage('not-linked'), 'error');
+      return;
+    }
+    startFileDownload(source, name);
+  };
+  // A folder the conversation links downloads as a zip the host builds
+  // (size-capped; the host says so when it is too large).
+  const downloadFolder = () => {
+    if (downloadBlocked) {
+      showDesktopToast(downloadBlocked, 'error');
+      return;
+    }
+    void startFolderDownload(sessionId, location.path, `${name.replace(/\/$/, '')}.zip`);
+  };
+
   const resolveTarget = async (): Promise<ResolvedLocalLink> => {
     const match = await resolveLocalLinkForOpen(resolvedTarget, projectPath, location.path, sessionId || undefined);
     if (match === resolvedTarget) return match;
-    setResolved({ key: resolutionKey, title: displayPath(match.project, match.path, suffix), target: match });
+    adoptResolved(match);
     return match;
   };
-  // Chat links deserve the file tree's treatment: start Monaco's chunk on the
-  // open intent, rather than paying its whole fetch + evaluate after the
-  // click, behind the path resolution.
-  // A web page link shows the page; naming a line asks for its source instead.
   const pageLink = isLocalWebPage(location.path) && !location.line;
   const editorTarget = local && kind === 'file' && editorFileOpener(location.path) === 'editor' && !pageLink;
   const warmEditor = () => {
@@ -412,13 +422,6 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
         return;
       }
       const { project, path: file, accessToken, directory } = await resolveTarget();
-      // A previewable file, wherever it is, opens in the session's Visualize
-      // panel through main's validated reopen. The target goes as an absolute
-      // path; main resolves it (symlinks resolved) and a refusal falls through
-      // to the regular opening below. A paired device sends only web pages
-      // there: its other previewable files keep the device's own viewer, while
-      // a page in the PC's browser pane shows a desktop-sized streamed tab
-      // instead of the phone-fitted panel.
       const previewFile =
         !external &&
         (!remote || pageLink) &&
@@ -439,11 +442,6 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
           // Fall back to the regular opening.
         }
       }
-      // A web page opens in the session's browser pane from a loopback address
-      // main serves; with no pane to reveal (a draft) the system browser takes
-      // the same address. Without the server (a paired phone) it stays source.
-      // A paired device asks the host for the same address and has the PC's
-      // browser pane load it (its own system browser cannot reach a loopback).
       const pageUrl = serverWindow ? undefined : window.mixdogDesktop?.localPageUrl;
       const pane = !remote || (Boolean(sessionId) && browserPageRequestsAvailable());
       if (!directory && pageLink && pageUrl && pane) {
@@ -463,11 +461,6 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
         openSandboxedPagePreview(await pageSource(project, file, accessToken), file);
         return;
       }
-      // A folder opens beside the conversation as the dock's Files tree with
-      // the folder revealed: inside a Project it is revealed there, outside
-      // every Project it is its own tree rooted at the folder. A paired device
-      // reaches only Project folders (its others download as a zip below) and
-      // a server window keeps its own route further down.
       if (openFolder && !accessToken) {
         let folder: Awaited<ReturnType<typeof owningProjectFolder>> = null;
         if (directory) {
@@ -523,10 +516,6 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
       showDesktopToast(t('Unable to open file: {{error}}', { error: errorMessageText(error) }), 'error');
     }
   };
-  // Hover is the earliest reliable open intent on a pointer surface: warm the
-  // editor chunk there, and resolve cross-Project paths too. The resolution is
-  // cached only for this exact conversation cwd and link, never a preceding
-  // Project or target.
   const revealTitle = local
     ? () => {
         if (editorTarget) scheduleEditorPanePrefetch();
@@ -534,9 +523,6 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
         resolveTarget().catch(() => {});
       }
     : undefined;
-  // Explicit external actions for the right-click menu. Each re-resolves the
-  // link, then goes through the same validated IPC as the editor's own buttons
-  // (project boundary, realpath and access token are checked in main).
   const openDefault = async () => {
     try {
       const { project, path: file, accessToken } = await resolveTarget();
@@ -578,8 +564,8 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
     downloadBlocked,
     webPage,
     local,
-    verified: verifiedKey === resolutionKey,
-    missing: missingKey === resolutionKey,
+    verified,
+    missing,
     missingReason,
     path: authored.path,
     kind,
@@ -605,10 +591,7 @@ function LocalLinkIcon({ target }: { target: LocalLinkTarget }) {
   return <LinkKindIcon kind={target.kind === 'folder' ? 'folder' : 'file'} name={target.name} />;
 }
 
-/** Tool-card subject that names a file: same rule and look as a chat link,
- *  as its own focusable button (callers keep it out of the header's
- *  disclosure button). Enter/Space open it; its events never reach a
- *  disclosure around it. */
+/** A tool-card subject naming a file: opens like a chat link, as its own focusable button whose events never reach a surrounding disclosure. */
 export function LocalPathMention({ path, line, children }: { path: string; line?: number; children: ReactNode }) {
   const link = useLocalLinkTarget(line ? `${path}:${line}` : path);
   if (!link.local) return <>{children}</>;
@@ -636,6 +619,33 @@ export function LocalPathMention({ path, line, children }: { path: string; line?
       {children}
     </button>
   );
+}
+
+function localLinkMenuItems(link: LocalLinkTarget, external: boolean): ScmContextMenuState['items'] {
+  const downloadItem = (id: string, label: string, onSelect: () => void) => ({
+    id,
+    label,
+    onSelect,
+    disabled: Boolean(link.downloadBlocked),
+    title: link.downloadBlocked,
+  });
+  return [
+    { id: 'open', label: t('Open'), onSelect: () => void link.open() },
+    ...(link.webPage
+      ? [{ id: 'open-browser', label: t('Open in browser'), onSelect: () => void link.open(true) }]
+      : []),
+    ...(external
+      ? [
+          { id: 'open-default', label: t('Open in default app'), onSelect: () => void link.openDefault() },
+          { id: 'reveal', label: t('Reveal in Explorer'), onSelect: () => void link.reveal() },
+        ]
+      : []),
+    ...(link.download && !external ? [downloadItem('download', t('Download / Share'), link.download)] : []),
+    ...(link.downloadFolder && !external
+      ? [downloadItem('download-zip', t('Download / Share (zip)'), link.downloadFolder)]
+      : []),
+    { id: 'copy-path', label: t('Copy path'), onSelect: () => void link.copyPath(), separatorBefore: true },
+  ];
 }
 
 export function MarkdownLink({
@@ -669,46 +679,7 @@ export function MarkdownLink({
       setMenu(webLinkMenu(sessionId, target, point));
       return;
     }
-    const external = !isRemoteHostRenderer();
-    setMenu({
-      label: link.name,
-      ...point,
-      items: [
-        { id: 'open', label: t('Open'), onSelect: () => void link.open() },
-        ...(link.webPage
-          ? [{ id: 'open-browser', label: t('Open in browser'), onSelect: () => void link.open(true) }]
-          : []),
-        ...(external
-          ? [
-              { id: 'open-default', label: t('Open in default app'), onSelect: () => void link.openDefault() },
-              { id: 'reveal', label: t('Reveal in Explorer'), onSelect: () => void link.reveal() },
-            ]
-          : []),
-        ...(link.download && !external
-          ? [
-              {
-                id: 'download',
-                label: t('Download / Share'),
-                onSelect: link.download,
-                disabled: Boolean(link.downloadBlocked),
-                title: link.downloadBlocked,
-              },
-            ]
-          : []),
-        ...(link.downloadFolder && !external
-          ? [
-              {
-                id: 'download-zip',
-                label: t('Download / Share (zip)'),
-                onSelect: link.downloadFolder,
-                disabled: Boolean(link.downloadBlocked),
-                title: link.downloadBlocked,
-              },
-            ]
-          : []),
-        { id: 'copy-path', label: t('Copy path'), onSelect: () => void link.copyPath(), separatorBefore: true },
-      ],
-    });
+    setMenu({ label: link.name, ...point, items: localLinkMenuItems(link, !isRemoteHostRenderer()) });
   };
   const pathLike =
     local &&

@@ -1,9 +1,3 @@
-/**
- * What a session's visualize state looks like from outside: the desktop
- * window's state (with signed inline render ids), the remote mirror's host
- * state (with each pane's resolved file) and the session's "All visuals"
- * history.
- */
 import { createHmac, randomBytes } from 'node:crypto';
 
 import type {
@@ -74,11 +68,6 @@ export function createSessionViews(
   /** Signs the render ids issued to the desktop window. */
   const renderSecret = randomBytes(32);
 
-  /** One render instance's id: bound to this service's secret, the session,
-   *  the tab, its revision (every remount bumps it), the displayed pane and
-   *  the version it shows. Issued with the tab state, never guessable. A
-   *  remote client's id is signed apart, so neither audience learns the
-   *  other's. */
   const renderIdOf = (
     sessionId: string,
     tab: TabState,
@@ -212,9 +201,6 @@ export function publishedHold(
 export function createPublish(ctx: Pick<VisualizeServiceContext, 'deps' | 'views' | 'thumbnails' | 'holds'>) {
   return (sessionId: string, revealTab?: string, updatedTab?: string, callId?: string): void => {
     ctx.thumbnails.cancelStale(sessionId);
-    // A running agent turn (turn-hold.ts): the reveal waits for its end, and
-    // the state goes out `held`, which the panel does not show; while the
-    // turn's end applies, nothing goes out until its one final publish.
     const hold = ctx.holds.get(sessionId);
     if (hold && hold.bypass === 0) {
       if (revealTab) noteReveal(hold, revealTab, callId);

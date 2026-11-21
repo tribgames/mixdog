@@ -210,6 +210,39 @@ function scheduleDraft(schedule: RecordValue | undefined, defaultAgent: string):
   };
 }
 
+/** The `saveSchedule` entry for the editor form's fields and its controlled state. */
+function scheduleEntryFromForm(
+  data: FormData,
+  state: Pick<ScheduleDraft, 'agent' | 'executor' | 'attachments' | 'enabled'> & {
+    draft: ScheduleDraft;
+    editing: boolean;
+    frequency: FrequencyKind;
+    weekday: ScheduleDraft['weekday'];
+    cwd: string;
+  }
+): RecordValue {
+  const { draft, editing, frequency, weekday, agent, executor, cwd, attachments, enabled } = state;
+  const text = (name: string) => String(data.get(name) || '').trim();
+  // An untouched run time keeps the saved instant to the millisecond,
+  // so the save does not read as a new time (which re-arms a
+  // finished one-shot).
+  const at = text('schedule-at');
+  return {
+    name: editing ? draft.name : text('schedule-name'),
+    ...(editing && text('schedule-name') !== draft.name ? { newName: text('schedule-name') } : {}),
+    description: draft.description,
+    ...(frequency === 'once'
+      ? { at: draft.whenAt && at === draft.at ? draft.whenAt : at }
+      : { time: scheduleCron(frequency, text, weekday) }),
+    ...automationRunFields(agent),
+    ...executorRunFields(executor),
+    ...(cwd ? { cwd } : {}),
+    ...(attachments.length ? { attachments } : {}),
+    instructions: text('schedule-instructions'),
+    enabled,
+    ...(editing ? { overwrite: true } : {}),
+  };
+}
 function ScheduleEditor({
   api,
   draft,
@@ -277,28 +310,20 @@ function ScheduleEditor({
         <form
           onSubmit={(event: FormEvent<HTMLFormElement>) => {
             event.preventDefault();
-            const data = new FormData(event.currentTarget);
-            const text = (name: string) => String(data.get(name) || '').trim();
-            // An untouched run time keeps the saved instant to the millisecond,
-            // so the save does not read as a new time (which re-arms a
-            // finished one-shot).
-            const at = text('schedule-at');
             setFormError('');
-            onSave({
-              name: editing ? draft.name : text('schedule-name'),
-              ...(editing && text('schedule-name') !== draft.name ? { newName: text('schedule-name') } : {}),
-              description: draft.description,
-              ...(frequency === 'once'
-                ? { at: draft.whenAt && at === draft.at ? draft.whenAt : at }
-                : { time: scheduleCron(frequency, text, weekday) }),
-              ...automationRunFields(agent),
-              ...executorRunFields(executor),
-              ...(cwd ? { cwd } : {}),
-              ...(attachments.length ? { attachments } : {}),
-              instructions: text('schedule-instructions'),
-              enabled,
-              ...(editing ? { overwrite: true } : {}),
-            });
+            onSave(
+              scheduleEntryFromForm(new FormData(event.currentTarget), {
+                draft,
+                editing,
+                frequency,
+                weekday,
+                agent,
+                executor,
+                cwd,
+                attachments,
+                enabled,
+              })
+            );
           }}
         >
           <label className="schedules-field">

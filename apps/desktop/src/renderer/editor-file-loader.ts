@@ -1,8 +1,9 @@
 import type { DesktopApi, DesktopEditorBackup, DesktopTextFileEncoding } from '../shared/contract';
 import { filePreviewTypeForPath } from '../shared/file-preview';
 import type { EditorRecovery } from './editor-pane-model';
+import { errorMessage } from './editor-pane-session-errors';
 import { t } from './i18n';
-import { beginEditorLoad, editorLoadKey, ensureEditorLoad, reportEditorLoadStage } from './renderer-load-metrics';
+import { beginEditorLoad, editorLoadKey, ensureEditorLoad, now, reportEditorLoadStage } from './renderer-load-metrics';
 
 export interface EditorFileLoad {
   content: string;
@@ -89,10 +90,6 @@ const PRIMED_FILE_MAX_AGE_MS = 10_000;
 const PRIMED_FILE_LIMIT = 24;
 const primedEditorFiles = new Map<string, PrimedEditorFile>();
 
-function now(): number {
-  return typeof performance !== 'undefined' ? performance.now() : Date.now();
-}
-
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -123,8 +120,7 @@ async function readEditorFile(
       return result;
     } catch (reason) {
       lastError = reason;
-      const message = reason instanceof Error ? reason.message : String(reason);
-      if (!retryMissing || !/ENOENT|no such file|cannot find|not found/i.test(message)) throw reason;
+      if (!retryMissing || !/ENOENT|no such file|cannot find|not found/i.test(errorMessage(reason))) throw reason;
     }
   }
   throw lastError;

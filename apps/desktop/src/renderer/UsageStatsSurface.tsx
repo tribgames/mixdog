@@ -1,15 +1,3 @@
-/**
- * Token and cost totals by provider, with the models beneath each provider.
- * /usage answers what quota is LEFT; this answers what was SPENT to get there.
- *
- * Every turn counts, background runners included: what this surface is asked
- * is what the machine spent, not which part of it the user typed himself.
- *
- * One thing the raw totals still get wrong if shown as-is: cache reads outweigh
- * real traffic by orders of magnitude, so cache sits beside the token figure
- * instead of inside it.
- */
-
 import { useMemo, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { ErrorNotice } from './ErrorNotice';
@@ -230,42 +218,12 @@ function SortHeader({
 
 const USAGE_REFERENCE_KEYS = ['providerSetup'] as const satisfies readonly SidebarReferenceKey[];
 
-export function UsageStatsBody({
-  data,
-  request,
-  loading = false,
-}: {
-  data: Record<string, unknown>;
-  request: StatsRequest;
-  loading?: boolean;
-}) {
-  const loaded = useMemo(() => record(data.getUsageStats), [data.getUsageStats]);
-  // A custom provider is named by what the user registered, not its generated id.
-  const { values } = useSidebarReferences(window.mixdogDesktop, USAGE_REFERENCE_KEYS, true);
-  const providerNames = useMemo(() => customProviderDisplayNames(values.providerSetup), [values.providerSetup]);
+function useUsageStatsReload(request: StatsRequest, loaded: Row) {
   // Read initial data directly: an effect-based copy exposed an empty frame
   // between the loading placeholder and the first real response.
   const [selection, setSelection] = useState<{ view: StatsView; stats: Row } | null>(null);
-  const stats = selection?.stats ?? loaded;
-  const view = selection?.view ?? 'hour';
-  const initialPeriod = useMemo(() => {
-    const toMs = Date.now();
-    return { fromMs: toMs - 24 * 60 * 60 * 1000, toMs };
-  }, []);
-  const [sort, setSort] = useState<SortKey>('tokens');
-  // Models start visible, including providers arriving with a new period.
-  // Only explicit collapses are retained.
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set<string>());
-  const toggleExpanded = (id: string) =>
-    setCollapsed((current) => {
-      const next = new Set(current);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  // Only the newest request may publish: clicking through the chips must not
-  // let a slower earlier answer overwrite the current selection.
   const sequence = useRef(0);
   const reload = (nextView: StatsView, anchor?: string, dates?: { startDay: string; endDay: string }) => {
     const ticket = ++sequence.current;
@@ -284,6 +242,95 @@ export function UsageStatsBody({
         if (sequence.current === ticket) setBusy(false);
       });
   };
+  return { stats: selection?.stats ?? loaded, view: selection?.view ?? ('hour' as StatsView), busy, error, reload };
+}
+
+function ProviderRows({
+  provider,
+  open,
+  share,
+  providerNames,
+  onToggle,
+}: {
+  provider: Row;
+  open: boolean;
+  share: number | null;
+  providerNames: ReturnType<typeof customProviderDisplayNames>;
+  onToggle: (id: string) => void;
+}) {
+  const id = String(provider.provider || '');
+  const models = rows(provider.models);
+  const plan = statsPlan(id, String(provider.providerKind || ''));
+  return (
+    <tbody className="stats-provider" data-usage-provider={id} data-open={open ? 'true' : 'false'}>
+      <tr className="stats-provider-row">
+        <td className="stats-provider-cell">
+          <button
+            type="button"
+            className="stats-provider-toggle"
+            aria-expanded={open}
+            disabled={!models.length}
+            onClick={() => onToggle(id)}
+          >
+            <b>{usageProviderLabel(resolveProviderDisplayName(id, providerNames))}</b>
+            <ChevronDown className="stats-provider-chevron" aria-hidden="true" />
+            {plan && (
+              <span className="usage-plan" data-plan={plan}>
+                {statsPlanLabel(plan)}
+              </span>
+            )}
+          </button>
+          <div className="stats-provider-share" aria-hidden="true">
+            <i className="stats-share">
+              <i style={{ width: `${share ?? 0}%` }} />
+            </i>
+          </div>
+        </td>
+        <td className="stats-share-cell">{share === null ? '—' : `${share}%`}</td>
+        <RouteCells route={provider} speed />
+      </tr>
+      {open &&
+        models.map((model) => (
+          <tr className="stats-model-row" key={usageModelKey(model)}>
+            <ModelNameCell row={model} provider={id} />
+            <td className="stats-share-cell" />
+            <RouteCells route={model} speed />
+          </tr>
+        ))}
+    </tbody>
+  );
+}
+
+export function UsageStatsBody({
+  data,
+  request,
+  loading = false,
+}: {
+  data: Record<string, unknown>;
+  request: StatsRequest;
+  loading?: boolean;
+}) {
+  const loaded = useMemo(() => record(data.getUsageStats), [data.getUsageStats]);
+  // A custom provider is named by what the user registered, not its generated id.
+  const { values } = useSidebarReferences(window.mixdogDesktop, USAGE_REFERENCE_KEYS, true);
+  const providerNames = useMemo(() => customProviderDisplayNames(values.providerSetup), [values.providerSetup]);
+  // Read initial data directly: an effect-based copy exposed an empty frame
+  // between the loading placeholder and the first real response.
+  const { stats, view, busy, error, reload } = useUsageStatsReload(request, loaded);
+  const initialPeriod = useMemo(() => {
+    const toMs = Date.now();
+    return { fromMs: toMs - 24 * 60 * 60 * 1000, toMs };
+  }, []);
+  const [sort, setSort] = useState<SortKey>('tokens');
+  // Models start visible, including providers arriving with a new period.
+  // Only explicit collapses are retained.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set<string>());
+  const toggleExpanded = (id: string) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
 
   const totals = record(stats.totals);
   const period: Row = loading ? initialPeriod : record(stats.period);
@@ -412,52 +459,16 @@ export function UsageStatsBody({
           </thead>
           {providers.map((provider) => {
             const id = String(provider.provider || '');
-            const models = rows(provider.models);
-            const open = !collapsed.has(id);
-            const plan = statsPlan(id, String(provider.providerKind || ''));
-            // Share is suppressed per row, not for the whole table: the model
-            // already returns null only for a provider whose own turns went
-            // unmeasured. Reading the table-wide flag here blanked every share
-            // as soon as a single unmeasured route (Cursor) was present.
             const shareValue = usageNumber(provider.share);
-            const share = shareValue === null ? null : Math.round(shareValue * 100);
             return (
-              <tbody key={id} className="stats-provider" data-usage-provider={id} data-open={open ? 'true' : 'false'}>
-                <tr className="stats-provider-row">
-                  <td className="stats-provider-cell">
-                    <button
-                      type="button"
-                      className="stats-provider-toggle"
-                      aria-expanded={open}
-                      disabled={!models.length}
-                      onClick={() => toggleExpanded(id)}
-                    >
-                      <b>{usageProviderLabel(resolveProviderDisplayName(id, providerNames))}</b>
-                      <ChevronDown className="stats-provider-chevron" aria-hidden="true" />
-                      {plan && (
-                        <span className="usage-plan" data-plan={plan}>
-                          {statsPlanLabel(plan)}
-                        </span>
-                      )}
-                    </button>
-                    <div className="stats-provider-share" aria-hidden="true">
-                      <i className="stats-share">
-                        <i style={{ width: `${share ?? 0}%` }} />
-                      </i>
-                    </div>
-                  </td>
-                  <td className="stats-share-cell">{share === null ? '—' : `${share}%`}</td>
-                  <RouteCells route={provider} speed />
-                </tr>
-                {open &&
-                  models.map((model) => (
-                    <tr className="stats-model-row" key={usageModelKey(model)}>
-                      <ModelNameCell row={model} provider={id} />
-                      <td className="stats-share-cell" />
-                      <RouteCells route={model} speed />
-                    </tr>
-                  ))}
-              </tbody>
+              <ProviderRows
+                key={id}
+                provider={provider}
+                open={!collapsed.has(id)}
+                share={shareValue === null ? null : Math.round(shareValue * 100)}
+                providerNames={providerNames}
+                onToggle={toggleExpanded}
+              />
             );
           })}
           {loading && (

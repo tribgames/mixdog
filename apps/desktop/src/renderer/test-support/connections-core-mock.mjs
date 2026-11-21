@@ -1,7 +1,4 @@
-// Stands in for connections-core-api.ts in a renderer test: the components call that module's functions (one core request
-// each), and a test names what those calls answer with the same method-by-method object it used to put on the preload.
-// Import this file first, then import the components dynamically (a module is replaced only for imports made after
-// the mock is installed). A method the object lacks answers as the real module does with no core client.
+// Import this file first, then import the components dynamically: a module is replaced only for imports made after the mock is installed.
 import { mock } from 'node:test';
 
 const NO_CORE = 'This window has no connection to the core.';

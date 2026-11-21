@@ -1,9 +1,5 @@
-// Per-frame samples of a streamed reply in a real browser, and the checks on
-// them. A frame (STREAM_FRAME_PROBE) holds the reply's article and markdown
-// node ids, the ids of its top-level blocks (all, and those in view), its
-// height, whether it settled, and the opacity of every painted character:
-// `runs` of [offset, length, opacity] over the reply's non-whitespace
-// characters in document order (whitespace paints nothing).
+// A frame holds the reply's article and markdown node ids, its top-level block ids (all, and those in view), its height, whether it
+// settled, and `runs` of [offset, length, opacity] over its non-whitespace characters in document order.
 
 /** Page script: `window.__streamFrames` gains one sample per animation frame. */
 export const STREAM_FRAME_PROBE = `

@@ -29,10 +29,6 @@ export function useUtilityDockProject({
   snapshot: Snapshot;
   onSelectProject?(projectPath: string): void;
 }) {
-  // One view per host section: the workbench side layout owns grouping and
-  // ordering, so this dock only ever presents the tab it was given.
-  // A controlled App shares one selection across Search / Source Control /
-  // Pull Requests. Standalone mounts retain the historical local override.
   const [localProjectOverride, setLocalProjectOverride] = useState('');
   const [knownProjects, setKnownProjects] = useState<DesktopProjectSummary[]>([]);
   useEffect(() => {

@@ -133,12 +133,6 @@ export function useEditorDocumentPages({
   };
 }
 
-/** Previews are binary loads, which the text watch skips: poll their stat
- *  instead, so an external or agent edit refreshes them. A change must be seen
- *  on two polls in a row before it is acted on (a file still being written does
- *  not trigger a refresh per write). A document refreshes through its page
- *  request - the viewer keeps its scroll position and the revision check swaps
- *  the pages - a media preview reloads. */
 export function useEditorPreviewPoll({
   api,
   projectPath,

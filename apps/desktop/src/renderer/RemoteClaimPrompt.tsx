@@ -9,11 +9,6 @@ import { claimDisplay, claimQueueSnapshot, updateClaimQueue, useClaimQueue } fro
 import { requestConnectionDialog } from './settings/connection-intent';
 import { startSettingsReadRecovery } from './settings/read-recovery';
 
-// An installed web app runs in its own storage container: it reaches this
-// desktop with no credential and asks for one, and the answer here IS the
-// grant. The answer is given in Settings → Connection's "Connect a device"
-// dialog; this component keeps the request list current and, while that dialog
-// is not open, shows the app-wide notice that leads there.
 export function RemoteClaimPrompt() {
   const queue = useClaimQueue();
   const [dialogOpen, setDialogOpen] = useState(isRemoteClaimPromptActive);

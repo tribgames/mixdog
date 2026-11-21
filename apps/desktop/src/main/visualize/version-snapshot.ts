@@ -1,8 +1,3 @@
-/**
- * What one visualize version keeps: a tab's pane files and, for HTML panes,
- * the local page assets they reference (within one size budget), and the
- * content hash that tells an unchanged snapshot apart.
- */
 import { createHash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { dirname, relative, resolve, sep } from 'node:path';

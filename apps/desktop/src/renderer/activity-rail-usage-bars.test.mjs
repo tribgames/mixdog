@@ -84,6 +84,27 @@ test('a flyout opened before its module is ready shows the loading placeholder u
   assert.equal(document.querySelector('.initial-surface[aria-busy="true"]'), null);
 });
 
+test('the usage flyout closes on Escape and on a press outside it, not on a press inside it', async (t) => {
+  await mountRail(t);
+  const popup = () => document.querySelector('.rail-usage-popup');
+  const pointerdown = (target) =>
+    act(async () => {
+      target.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true }));
+    });
+
+  const menu = await openFlyout();
+  await pointerdown(menu);
+  assert.ok(popup(), 'a press inside the flyout keeps it open');
+  await pointerdown(document.body);
+  assert.equal(popup(), null, 'a press outside closes it');
+
+  await openFlyout();
+  await act(async () => {
+    document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+  assert.equal(popup(), null, 'Escape closes it');
+});
+
 test('the rail draws one bar per brand by default and saves the chosen two-bar mode in settings', async (t) => {
   const { root, props, stored } = await mountRail(t);
   assert.equal(meters('claude').length, 1);

@@ -1,7 +1,5 @@
-// The main process end of a window's own link to the core: a WebSocket opened from Node (headers, no Origin) piped
-// both ways over a MessagePort handed to the window. Text frames cross unchanged; the core's end going away is
-// reported as `{t:'closed'}` and the window can end the link with `{t:'close'}`. There is no flow control on a
-// MessagePort: a flood from the core buffers in this process.
+// Text frames cross unchanged; the core's end going away is reported as `{t:'closed'}` and the window ends the link with
+// `{t:'close'}`. A MessagePort has no flow control: a flood from the core buffers in this process.
 import WebSocket from 'ws';
 
 import { createLinkLog } from '../../../../../packages/protocol-client/src/link-log.mjs';
@@ -227,49 +225,7 @@ export class CorePortRelay {
         throw superseded();
       }
       entry.port = channel.port1;
-      // The window cannot see a socket's bytes arrive, only whole messages: it is told, as a fact, that bytes of one are arriving.
-      observeSocketProgress(socket, () => {
-        if (!entry.ended) channel.port1.postMessage({ t: 'progress' });
-      });
-      socket.on('message', (data, isBinary) => {
-        if (isBinary) {
-          this.log('[mixdog] core sent a binary frame on a window port; dropped');
-          return;
-        }
-        if (!entry.ended) channel.port1.postMessage(data.toString('utf8'));
-      });
-      channel.port1.on('message', ({ data }) => {
-        if (entry.ended) return;
-        if (typeof data === 'string') {
-          socket.send(data);
-          return;
-        }
-        const note = data as { t?: unknown; token?: unknown; text?: unknown } | null;
-        if (note?.t === 'send' && typeof note.token === 'number' && typeof note.text === 'string') {
-          // A write receipt for the window's health check: told back only when the socket's own send callback has run, with whether
-          // it succeeded. It is a fact about this write, not a ping, and the window never counts it as progress.
-          const token = note.token;
-          const receipt = (ok: boolean): void => {
-            if (!entry.ended) channel.port1.postMessage({ t: 'sent', token, ok });
-          };
-          try {
-            socket.send(note.text, (error) => receipt(!error));
-          } catch {
-            receipt(false);
-          }
-        } else if (note?.t === 'settle' && typeof note.token === 'number') {
-          // Everything this side accepted from the core before now has been posted ahead of this on the same ordered port.
-          channel.port1.postMessage({ t: 'settled', token: note.token });
-        } else if (note?.t === 'close') {
-          entry.finish('window', 1000, 'window closed the port');
-          socket.close(1000, 'window closed the port');
-        }
-      });
-      channel.port1.on('close', () => {
-        if (entry.ended) return;
-        entry.finish('window', 1000, 'window port closed');
-        socket.close(1000, 'window port closed');
-      });
+      this.bridge(entry, socket, channel.port1);
       channel.port1.start();
       webContents.postMessage(CORE_PORT_CHANNEL, { generation, slot, role: endpoint.role, target: endpoint.target }, [
         channel.port2,
@@ -295,6 +251,48 @@ export class CorePortRelay {
     } finally {
       entry.stopReports?.();
     }
+  }
+
+  private bridge(entry: Live, socket: RelaySocket, port: RelayPort): void {
+    observeSocketProgress(socket, () => {
+      if (!entry.ended) port.postMessage({ t: 'progress' });
+    });
+    socket.on('message', (data, isBinary) => {
+      if (isBinary) {
+        this.log('[mixdog] core sent a binary frame on a window port; dropped');
+        return;
+      }
+      if (!entry.ended) port.postMessage(data.toString('utf8'));
+    });
+    port.on('message', ({ data }) => {
+      if (entry.ended) return;
+      if (typeof data === 'string') {
+        socket.send(data);
+        return;
+      }
+      const note = data as { t?: unknown; token?: unknown; text?: unknown } | null;
+      if (note?.t === 'send' && typeof note.token === 'number' && typeof note.text === 'string') {
+        const token = note.token;
+        const receipt = (ok: boolean): void => {
+          if (!entry.ended) port.postMessage({ t: 'sent', token, ok });
+        };
+        try {
+          socket.send(note.text, (error) => receipt(!error));
+        } catch {
+          receipt(false);
+        }
+      } else if (note?.t === 'settle' && typeof note.token === 'number') {
+        port.postMessage({ t: 'settled', token: note.token });
+      } else if (note?.t === 'close') {
+        entry.finish('window', 1000, 'window closed the port');
+        socket.close(1000, 'window closed the port');
+      }
+    });
+    port.on('close', () => {
+      if (entry.ended) return;
+      entry.finish('window', 1000, 'window port closed');
+      socket.close(1000, 'window port closed');
+    });
   }
 
   /** Tells the window what the launcher reports of the boot, now and at each change, for as long as `current()` says this open

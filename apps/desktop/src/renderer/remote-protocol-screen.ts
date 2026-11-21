@@ -1,12 +1,3 @@
-// The phone's relay plumbing calls (list 1 unit G), answered over the protocol as Node's relay answered them (b6f10295a:
-// remote-relay-client-calls.ts:169-186 and :410-428). Node answered none of them: `setForeground`, `setScreenSessions` and
-// `setVisualizePanels` each set one field of the phone's leg, which decides whether a push is held back for a conversation the
-// phone shows and whether the phone counts as viewing a visualize panel; the core keeps the same fields from
-// `ui/screenSessions/changed` (a report without a field leaves it as stated). `remotePerfPaint` acknowledged a paint probe the PC
-// issued, logging `[mixdog-remote-perf]` (remote-performance.ts acknowledgeFrame): the PC issues none unless its perf flag is on,
-// and the core issues none, so no paint answers one and nothing reaches the core. `reportConnectionTimeline` was a PC log line,
-// which the core writes from `remote/connectionTimeline` (sanitised there, as the PC did). The replay compares them with the recording
-// (benchmarks/rust-core/recorders/record-phone-plumbing.mjs).
 import type { UiScreenSessionsChangedParams } from '@mixdog/protocol';
 import { SCREEN_SESSIONS_CHANGED } from '../../../mobile/src/screen-reporter';
 import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';

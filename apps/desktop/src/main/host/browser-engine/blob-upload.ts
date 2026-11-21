@@ -1,8 +1,4 @@
-/**
- * Moves bytes to the core's blob store with `blob/put`: content-addressed
- * (digest `sha256:` and 64 lowercase hex digits, `BlobDigest`), in raw chunks
- * whose base64 and request envelope fit one 256 KiB inbound frame.
- */
+/** `blob/put`: digest `sha256:` + 64 lowercase hex (`BlobDigest`); chunks whose base64 and envelope fit one 256 KiB inbound frame. */
 import { createHash } from 'node:crypto';
 
 import type { BrowserBlobRef } from '../../../../../../packages/protocol/src/index.ts';
@@ -18,11 +14,6 @@ export function blobDigestOf(bytes: Uint8Array): string {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
 
-/**
- * Uploads `bytes` and answers the ref the result carries. `blob/put` is
- * content-addressed and names no media type, so `mimeType` is not sent: the
- * result that holds the ref states it (`mimeType` of a screenshot).
- */
 export async function uploadBlob(
   connection: HostConnection,
   bytes: Uint8Array,

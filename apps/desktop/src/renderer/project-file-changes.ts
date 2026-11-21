@@ -37,10 +37,6 @@ function ensureBridge(): boolean {
   return true;
 }
 
-// Each bridge listener lives exactly as long as the started watches that use
-// it: it is dropped with the last of them, or when a start fails or finds
-// itself released, so a watch released while it was still starting leaves no
-// listener behind.
 function leaveLegacy(target: ProjectWatchTarget): void {
   legacyWatches.delete(target);
   if (legacyWatches.size > 0) return;

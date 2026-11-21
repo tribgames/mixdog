@@ -23,7 +23,7 @@ const { ProjectListSection } = await import('./ProjectListSection.tsx');
 
 const projects = [{ path: '/work/alpha', name: 'alpha', alias: '' }];
 
-test('opening project settings by path shows the dialog while no Projects panel is active', async (t) => {
+function mountRoot(t) {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
@@ -31,6 +31,26 @@ test('opening project settings by path shows the dialog while no Projects panel 
     await act(async () => root.unmount());
     host.remove();
   });
+  return root;
+}
+
+function connectorFixture(ids) {
+  const calls = [];
+  let rows = ids.map((id) => ({ id, enabled: true }));
+  const connectorApi = {
+    invokeCapability: async ({ capability, args }) => {
+      calls.push([capability, ...args]);
+      if (capability === 'setProjectConnectorEnabled') {
+        rows = rows.map((row) => (row.id === args[1] ? { ...row, enabled: args[2] } : row));
+      }
+      return { value: rows };
+    },
+  };
+  return { calls, connectorApi };
+}
+
+test('opening project settings by path shows the dialog while no Projects panel is active', async (t) => {
+  const root = mountRoot(t);
   const ref = React.createRef();
   await act(async () =>
     root.render(
@@ -58,29 +78,8 @@ test('opening project settings by path shows the dialog while no Projects panel 
 });
 
 test('three Gmail accounts are one Gmail row whose switch writes all three; a single connector is unchanged', async (t) => {
-  const host = document.createElement('main');
-  document.body.append(host);
-  const root = createRoot(host);
-  t.after(async () => {
-    await act(async () => root.unmount());
-    host.remove();
-  });
-  const calls = [];
-  let rows = [
-    { id: 'gmail', enabled: true },
-    { id: 'gmail-2', enabled: true },
-    { id: 'gmail-3', enabled: true },
-    { id: 'notion', enabled: true },
-  ];
-  const connectorApi = {
-    invokeCapability: async ({ capability, args }) => {
-      calls.push([capability, ...args]);
-      if (capability === 'setProjectConnectorEnabled') {
-        rows = rows.map((row) => (row.id === args[1] ? { ...row, enabled: args[2] } : row));
-      }
-      return { value: rows };
-    },
-  };
+  const root = mountRoot(t);
+  const { calls, connectorApi } = connectorFixture(['gmail', 'gmail-2', 'gmail-3', 'notion']);
   const ref = React.createRef();
   await act(async () =>
     root.render(React.createElement(ProjectEditorDialog, { ref, projects, connectorApi, onRename() {}, onRemove() {} }))
@@ -109,27 +108,8 @@ test('three Gmail accounts are one Gmail row whose switch writes all three; a si
 });
 
 test('project settings switch a connector off for the project; every other one stays on', async (t) => {
-  const host = document.createElement('main');
-  document.body.append(host);
-  const root = createRoot(host);
-  t.after(async () => {
-    await act(async () => root.unmount());
-    host.remove();
-  });
-  const calls = [];
-  let rows = [
-    { id: 'github', enabled: true },
-    { id: 'notion', enabled: true },
-  ];
-  const connectorApi = {
-    invokeCapability: async ({ capability, args }) => {
-      calls.push([capability, ...args]);
-      if (capability === 'setProjectConnectorEnabled') {
-        rows = rows.map((row) => (row.id === args[1] ? { ...row, enabled: args[2] } : row));
-      }
-      return { value: rows };
-    },
-  };
+  const root = mountRoot(t);
+  const { calls, connectorApi } = connectorFixture(['github', 'notion']);
   const ref = React.createRef();
   await act(async () =>
     root.render(React.createElement(ProjectEditorDialog, { ref, projects, connectorApi, onRename() {}, onRemove() {} }))

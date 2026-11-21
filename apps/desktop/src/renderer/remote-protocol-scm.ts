@@ -1,11 +1,3 @@
-// PH-2 "Source control" group of the phone over `mixdogd`: the git panel, commits, branches, pull requests, GitHub login and the
-// three installers. The phone still calls by Node's relay method names (remote-shim-api.ts); each answers as Node's host did
-// (remote-methods.ts at b6f10295a): the host's argument grammar first, then the desktop operation, then the frame the relay
-// sent back (`undefined` as null, a failure as the page's rebuilt Error with its `code`).
-//
-// The conversions are the desktop's own, shared with its operation lane: the request mapping and reply shapes
-// (shared/scm-operation-route.ts), the argument grammar (shared/scm-input.ts, shared/git-contract.mjs) and the core failure
-// (shared/core-error.ts).
 import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
 import { codedErrorParams } from '../shared/coded-error';
 import { coreFailure } from '../shared/core-error';
@@ -35,6 +27,7 @@ import {
   requiredString,
 } from '../shared/scm-input';
 import type { NodeCall, PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
+import { record } from './record-utils';
 
 /** The part of the protocol client this group uses. */
 interface ScmClient {
@@ -111,9 +104,6 @@ const operation =
     operate(host, name, args(params, platformFamily(host)));
 
 const cwdOnly = (name: string): NodeCall => operation(name, ([cwd], os) => [requiredRepositoryCwd(cwd, os)]);
-
-const record = (value: unknown): Record<string, unknown> =>
-  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
 const calls: Record<string, NodeCall> = {
   // ── working tree and index ──

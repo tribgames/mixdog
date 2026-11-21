@@ -103,6 +103,40 @@ export function sanitizeTweakValue(tweak: VisualizeTweak, raw: unknown): string 
   return typeof raw === 'string' && tweak.options?.some((option) => option.value === raw) ? raw : null;
 }
 
+function parseRangeFields(
+  item: Record<string, unknown>,
+  name: string
+): { min: number; max: number; step: number; unit: unknown } | { error: string } {
+  const min = finiteNumber(item.min);
+  const max = finiteNumber(item.max);
+  const step = item.step === undefined ? 1 : finiteNumber(item.step);
+  if (min === null || max === null || max <= min) return { error: `${name} needs numeric min < max` };
+  if (step === null || step <= 0) return { error: `${name} step must be a positive number` };
+  if (item.unit !== undefined && (typeof item.unit !== 'string' || !UNIT.test(item.unit))) {
+    return { error: `${name} unit must be up to 4 letters or %` };
+  }
+  return { min, max, step, unit: item.unit ?? '' };
+}
+
+function parseSelectOptions(
+  item: Record<string, unknown>,
+  name: string
+): { options: Array<{ value: string; label: string }> } | { error: string } {
+  const options = Array.isArray(item.options) ? item.options : null;
+  if (!options?.length || options.length > MAX_OPTIONS) return { error: `${name} needs 1-${MAX_OPTIONS} options` };
+  const parsed: Array<{ value: string; label: string }> = [];
+  for (const option of options) {
+    const entry = option && typeof option === 'object' ? (option as Record<string, unknown>) : {};
+    if (typeof entry.value !== 'string' || !OPTION_VALUE.test(entry.value)) {
+      return { error: `${name} option values use letters, digits and . , # % / - _ (max 40)` };
+    }
+    const optionLabel = entry.label === undefined ? entry.value : clipText(entry.label, 40);
+    if (!optionLabel) return { error: `${name} has an option with an empty or too long label` };
+    parsed.push({ value: entry.value, label: optionLabel });
+  }
+  return { options: parsed };
+}
+
 function parseOne(raw: unknown, index: number): { tweak: VisualizeTweak } | { error: string } {
   const where = `control ${index + 1}`;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { error: `${where} is not an object` };
@@ -132,30 +166,14 @@ function parseOne(raw: unknown, index: number): { tweak: VisualizeTweak } | { er
     default: '',
   };
   if (type === 'range') {
-    const min = finiteNumber(item.min);
-    const max = finiteNumber(item.max);
-    const step = item.step === undefined ? 1 : finiteNumber(item.step);
-    if (min === null || max === null || max <= min) return { error: `${name} needs numeric min < max` };
-    if (step === null || step <= 0) return { error: `${name} step must be a positive number` };
-    if (item.unit !== undefined && (typeof item.unit !== 'string' || !UNIT.test(item.unit))) {
-      return { error: `${name} unit must be up to 4 letters or %` };
-    }
-    Object.assign(tweak, { min, max, step, unit: item.unit ?? '' });
+    const range = parseRangeFields(item, name);
+    if ('error' in range) return range;
+    Object.assign(tweak, range);
   }
   if (type === 'select') {
-    const options = Array.isArray(item.options) ? item.options : null;
-    if (!options?.length || options.length > MAX_OPTIONS) return { error: `${name} needs 1-${MAX_OPTIONS} options` };
-    const parsed: Array<{ value: string; label: string }> = [];
-    for (const option of options) {
-      const entry = option && typeof option === 'object' ? (option as Record<string, unknown>) : {};
-      if (typeof entry.value !== 'string' || !OPTION_VALUE.test(entry.value)) {
-        return { error: `${name} option values use letters, digits and . , # % / - _ (max 40)` };
-      }
-      const optionLabel = entry.label === undefined ? entry.value : clipText(entry.label, 40);
-      if (!optionLabel) return { error: `${name} has an option with an empty or too long label` };
-      parsed.push({ value: entry.value, label: optionLabel });
-    }
-    tweak.options = parsed;
+    const options = parseSelectOptions(item, name);
+    if ('error' in options) return options;
+    tweak.options = options.options;
   }
   const fallbacks = { range: tweak.min, select: tweak.options?.[0]?.value, toggle: false, color: undefined };
   const given = item.default === undefined ? fallbacks[type] : item.default;

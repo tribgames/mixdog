@@ -1,9 +1,3 @@
-// Browser Use ships install-first, so every entry point to it — the rail
-// launcher included — appears only once the feature is installed, matching the
-// session tool surface. The marker is the core's pushed `config`/`desktop`
-// section, read through the window's section store: a section that has not
-// arrived is UNKNOWN (never "not installed"). A host without the feed can
-// still answer with the same marker over the desktop settings API.
 import { useEffect, useState } from 'react';
 import { desktopSettingsFromConfig } from '../shared/desktop-settings';
 import { isSshConnectionWindow } from './desktop-connection';

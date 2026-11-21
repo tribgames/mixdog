@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-// Builds the Node-API module the desktop's browser modules call (native/mixdog-main-native: the Browser Use URL policy
-// and redaction rules) before a test run, so a test that imports those modules finds it where native-module.ts looks in a
-// checkout. The package's `pretest` scripts run it; no test starts cargo itself.
-//
-// The build is skipped when the library is newer than every source file the module is built from. CARGO_TARGET_DIR is
-// honoured exactly as native-module.ts honours it.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';

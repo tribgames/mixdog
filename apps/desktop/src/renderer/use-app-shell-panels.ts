@@ -39,10 +39,6 @@ const SIDEBAR_OPEN_KEY = 'mixdog.desktop-sidebar-open.v1';
 
 /** The rail destinations' mount, chunk-load and failure bookkeeping. */
 function useSidebarPanelRegistry() {
-  // Rail destinations pre-mount hidden after boot and stay mounted while the
-  // sidebar remains open. Their shared reference cache coalesces hydration, so
-  // this constructs rows, route controls and overflow options without issuing
-  // duplicate provider/catalog requests.
   const [mountedSidebarPanels, setMountedSidebarPanels] = useState<ReadonlySet<string>>(() => new Set());
   const mountSidebarPanel = useCallback((panel: string) => {
     setMountedSidebarPanels((current) => {
@@ -50,10 +46,6 @@ function useSidebarPanelRegistry() {
       return new Set([...current, panel]);
     });
   }, []);
-  // "Already visited" is not enough to present a destination instantly: the
-  // panel's lazy chunk must have RESOLVED, otherwise a fast swap would only
-  // reveal the Suspense fallback (null) as an empty panel. A rejected chunk
-  // never lands here, so that destination keeps the safe settle path.
   const [loadedSidebarPanels, setLoadedSidebarPanels] = useState<ReadonlySet<string>>(() => new Set());
   const trackSidebarPanelModule = useCallback((panel: string, load: Promise<unknown>) => {
     void load
@@ -118,225 +110,10 @@ function useSidebarPanelRegistry() {
   };
 }
 
-export function useAppShellPanels(activeBottomPanelPaneId: string) {
-  const preferredSidePanelMode = useSyncExternalStore(
-    subscribeSidePanelMode,
-    getSidePanelMode,
-    (): SidePanelMode => 'close-both'
-  );
-  // Narrow web/desktop windows use the both-folding policy; the layout now
-  // depends only on available resolution, never device or pointer type.
-  const { narrowShell, bottomSheetBand } = useResponsiveShellBands();
-  const responsiveSidePanels = narrowShell;
-  const activeSidePanelMode = responsiveSidePanels ? 'close-both' : preferredSidePanelMode;
-  const activeSidePanelLayout = sidePanelLayout(activeSidePanelMode);
-  // Chrome-like responsive side panels (user decision): crossing into the
-  // narrow band changes the panels' MODE (inline → overlay drawer), never
-  // their meaning — a drawer always starts closed, and returning to the
-  // desktop band restores the inline open/collapsed states exactly as they
-  // were: a collapsed panel is not opened, nor an open one collapsed.
-  const wasNarrowShell = useRef(narrowShell);
-  // Callback-safe mirror: the sheet-exclusivity rule below runs inside
-  // stable useCallbacks and must read the CURRENT band.
-  const narrowShellRef = useRef(narrowShell);
-  narrowShellRef.current = narrowShell;
-  const [sidebarOpen, setSidebarOpen] = useState(() => {
-    if (!desktopFeatureEnabled('sessions')) return false;
-    if (activeSidePanelLayout.sidebarLockedOpen) return true;
-    try {
-      if (responsiveSidePanels) return false;
-      // First launch starts with the session sidebar OPEN (user decision):
-      // only an explicit stored "false" (the user folded it before) keeps it
-      // minimized. The right dock still defaults to closed.
-      return window.localStorage.getItem(SIDEBAR_OPEN_KEY) !== 'false';
-    } catch {
-      return false;
-    }
-  });
-  const desktopSidebarOpen = useRef(sidebarOpen);
-  const persistSidebarState = useCallback(() => {
-    if (narrowShell || wasNarrowShell.current) return;
-    desktopSidebarOpen.current = sidebarOpen;
-    try {
-      window.localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen));
-    } catch {
-      /* layout persistence is a convenience only */
-    }
-  }, [narrowShell, sidebarOpen]);
-  usePageHideFlush(persistSidebarState);
-  useEffect(() => {
-    // Narrow-band drawer toggles are transient: they update neither the
-    // stored preference nor the restore target. The wasNarrowShell guard
-    // also holds the first wide render back until the crossing effect below
-    // has re-applied the inline state.
-    if (narrowShell || wasNarrowShell.current) return;
-    const timer = window.setTimeout(persistSidebarState, 120);
-    return () => window.clearTimeout(timer);
-  }, [narrowShell, persistSidebarState]);
-  // Projects panel (rail → Projects): hosted in the session-panel area with
-  // popup editors (user decision — Schedules grammar, no takeover).
-  const [projectsOpen, setProjectsOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsSection, setSettingsSection] = useState<SettingsViewSection | null>(null);
-  const [commandSurface, setCommandSurface] = useState<CommandSurfaceName | null>(null);
-  const [commandSurfaceSessionId, setCommandSurfaceSessionId] = useState('');
-  const commandSurfaceLane = useSessionLane(commandSurfaceSessionId, defaultSessionLaneStore);
-  // The session travels WITH the open request. Clearing it unconditionally here
-  // would wipe a session the caller just named inside the same batch, and
-  // /context would read the blank control session. A surface that owns no
-  // conversation simply passes nothing.
-  const openConversationCommandSurface = useCallback((surface: CommandSurfaceName, sessionId = '') => {
-    if (surface === 'stats' && !desktopFeatureEnabled('usage')) return;
-    setSettingsOpen(false);
-    setCommandSurfaceSessionId(surface === 'context' || surface === 'inherit' ? sessionId : '');
-    setCommandSurface(surface);
-  }, []);
-  // The right dock is PER-PANE state (pane-side-dock.tsx); this hook
-  // keeps the window-level drawer, bottom panel, and rail surfaces only.
-  const bottomPanel = useBottomPanelState(activeBottomPanelPaneId);
-  const [problemsFilter, setProblemsFilter] = useState<ProblemsPanelFilter>(() => ({
-    ...DEFAULT_PROBLEMS_PANEL_FILTER,
-  }));
-  const [problemsCollapseNonce, setProblemsCollapseNonce] = useState(0);
-  // View Transition update callbacks can land a frame after the click. Keep
-  // the user's latest intent separately so rapid toggles never read a stale
-  // rendered state or let an older close completion reverse the newest input.
-  const sidebarOpenIntent = useRef(sidebarOpen);
-  // Every route to a closed drawer (toggle, swipe, backdrop, back gesture, a
-  // navigation) records its intent here, and announces it at once: a request
-  // waiting on the open drawer must not outlive the dismissal into the commit.
-  const setSidebarIntent = useCallback((open: boolean) => {
-    sidebarOpenIntent.current = open;
-    if (!open) announceDrawerDismiss();
-  }, []);
-  const [sidebarMotion, setSidebarMotion] = useState<'animated' | 'instant'>('animated');
-  const applySidebarOpen = useCallback(
-    (open: boolean, motion: 'animated' | 'instant' = 'animated') => {
-      setSidebarIntent(open);
-      if (narrowShellRef.current && motion === 'animated') {
-        // A phone drawer tap: the sheet's look flips through CSS on this very
-        // frame, and the shell's heavy render commits as a transition behind it.
-        paintDrawerIntent(open);
-        startTransition(() => {
-          setSidebarMotion(motion);
-          setSidebarOpen(open);
-        });
-        return;
-      }
-      setSidebarMotion(motion);
-      setSidebarOpen(open);
-    },
-    [setSidebarIntent]
-  );
-  // Every commit checks whether the rendered drawer has reached the latest
-  // tap's intent; only then does the CSS stamp go.
-  useLayoutEffect(() => {
-    settleDrawerIntent(sidebarOpen, sidebarOpenIntent.current);
-  });
-  // The bottom panel is the SAME kind of narrow-band surface as the side
-  // sheets: while a sheet would overlap it (dock ≤940px, drawer ≤760px),
-  // opening either side folds the bottom panel, mirroring the bottom-panel
-  // toggle that folds the sheets. Wide inline layouts coexist untouched.
-  const dismissBottomPanelForSheet = useCallback(
-    (band: 'dock' | 'drawer') => {
-      const query = band === 'dock' ? BOTTOM_SHEET_QUERY : NARROW_SHELL_QUERY;
-      if (window.matchMedia?.(query).matches === true && bottomPanel.open) {
-        bottomPanel.setOpen(false);
-      }
-    },
-    [bottomPanel]
-  );
-  const appliedSidePanelMode = useRef(activeSidePanelMode);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: applies only when the side-panel mode changes; layout and applySidebarOpen are read at that moment
-  useEffect(() => {
-    // Existing installs retain their last folding state on launch. A mode
-    // CHANGE applies immediately; navigation applies the same exact policy.
-    if (appliedSidePanelMode.current === activeSidePanelMode) return;
-    appliedSidePanelMode.current = activeSidePanelMode;
-    applySidebarOpen(activeSidePanelLayout.sidebarOpen && desktopFeatureEnabled('sessions'));
-    // The dock half of the policy applies inside usePaneSideDocks.
-  }, [activeSidePanelMode]);
-  // Manual toggles ALWAYS win: a dead open/close button reads as a
-  // bug. The keep-open policy re-applies on the next navigation instead of
-  // rejecting the click outright.
-  // Both directions commit their final layout synchronously in one frame,
-  // without snapshot interpolation.
-  const {
-    mainPanel: mainPanelRef,
-    beginOpen: beginSidePanelOpen,
-    beginClose: beginSidePanelClose,
-  } = useSidePanelOpenFlip(narrowShell);
-  const openSidebar = useCallback(() => {
-    if (sidebarOpenIntent.current) return;
-    sidebarOpenIntent.current = true;
-    dismissBottomPanelForSheet('drawer');
-    beginSidePanelOpen('sidebar', () => applySidebarOpen(true));
-  }, [applySidebarOpen, beginSidePanelOpen, dismissBottomPanelForSheet]);
-  // Toggle spam queues expensive panel mounts and replays them after the
-  // clicks stop: clicks inside one motion window coalesce into the FIRST one
-  // instead of stacking.
-  // The window is measured on the EVENT clock, not the handler clock: a
-  // mount that blocks longer than the window would otherwise re-space the
-  // queued clicks and let every one of them through.
-  const lastSidePanelToggle = useRef(0);
-  const sidePanelToggleReady = useCallback((stamp?: number) => {
-    const now = typeof stamp === 'number' && stamp > 0 ? stamp : performance.now();
-    if (lastSidePanelToggle.current > 0 && now - lastSidePanelToggle.current < 220) return false;
-    lastSidePanelToggle.current = now;
-    return true;
-  }, []);
-  const toggleSidebar = useCallback(
-    (event?: { timeStamp?: number }) => {
-      if (!sidebarOpenIntent.current && !desktopFeatureEnabled('sessions')) return;
-      if (!sidePanelToggleReady(event?.timeStamp)) return;
-      const nextOpen = !sidebarOpenIntent.current;
-      setSidebarIntent(nextOpen);
-      if (nextOpen) {
-        dismissBottomPanelForSheet('drawer');
-        beginSidePanelOpen('sidebar', () => applySidebarOpen(true));
-      } else {
-        beginSidePanelClose('sidebar', () => applySidebarOpen(false));
-      }
-    },
-    [
-      applySidebarOpen,
-      beginSidePanelClose,
-      beginSidePanelOpen,
-      dismissBottomPanelForSheet,
-      setSidebarIntent,
-      sidePanelToggleReady,
-    ]
-  );
-  // Expanding the bottom panel in the sheet band dismisses the overlay
-  // drawer — last press wins. The right dock lives INSIDE each pane now, so
-  // it no longer competes with the bottom panel as a window sheet.
-  const dismissSheetsForBottomPanel = useCallback(() => {
-    if (window.matchMedia?.(BOTTOM_SHEET_QUERY).matches !== true) return;
-    if (narrowShellRef.current && sidebarOpenIntent.current) applySidebarOpen(false);
-  }, [applySidebarOpen]);
-  const toggleBottomPanel = useCallback(() => {
-    if (!bottomPanel.open) dismissSheetsForBottomPanel();
-    bottomPanel.toggle();
-  }, [bottomPanel, dismissSheetsForBottomPanel]);
-  // The breakpoint crossing itself: the LEFT drawer hides on the way IN and
-  // the stored inline state returns on the way OUT; the RIGHT sheet has
-  // priority over the left drawer, which is why it is the one surface that
-  // survives the crossing. The bottom panel follows the same
-  // hide/restore rule on its own 940px sheet band below. Runs after the side-panel mode effect above so
-  // a mode-policy write never overrides the restore.
-  useEffect(() => {
-    if (wasNarrowShell.current === narrowShell) return;
-    wasNarrowShell.current = narrowShell;
-    if (narrowShell) {
-      if (sidebarOpenIntent.current) applySidebarOpen(false, 'instant');
-      return;
-    }
-    if (desktopSidebarOpen.current !== sidebarOpenIntent.current) {
-      applySidebarOpen(desktopSidebarOpen.current, 'instant');
-    }
-  }, [narrowShell, applySidebarOpen]);
-  // Bottom panel band (≤940px = the width where it becomes an overlay
-  // sheet): hide on shrink, restore the stored wide state on expand.
+/** Bottom panel band (≤940px = the width where it becomes an overlay sheet):
+ *  hide on shrink, restore the stored wide state on expand. Returns the ref
+ *  holding whether the previous render was in the sheet band. */
+function useBottomPanelBandRestore(bottomPanel: ReturnType<typeof useBottomPanelState>, bottomSheetBand: boolean) {
   const wasBottomSheetBand = useRef(bottomSheetBand);
   const desktopBottomPanelOpen = useRef(bottomPanel.open);
   useEffect(() => {
@@ -355,21 +132,25 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
       bottomPanel.setOpen(desktopBottomPanelOpen.current, 'instant');
     }
   }, [bottomSheetBand, bottomPanel]);
-  const {
-    mountedSidebarPanels,
-    mountSidebarPanel,
-    loadedSidebarPanels,
-    trackSidebarPanelModule,
-    failedSidebarPanels,
-    sidebarPanes,
-    markSidebarPanelFailed,
-    retrySidebarPanel,
-  } = useSidebarPanelRegistry();
-  // Scheduled-tasks panel (rail → Schedules): lives in the session-panel
-  // area, so navigation leaves it alone (user decision).
+  return wasBottomSheetBand;
+}
+
+/** Which rail destination (Schedules, Webhooks, Projects) the session-panel
+ *  area shows, if any; navigation leaves it alone and a closed drawer resets it. */
+function useRailPanels({
+  sidebarOpen,
+  openSidebar,
+  mountSidebarPanel,
+  trackSidebarPanelModule,
+}: {
+  sidebarOpen: boolean;
+  openSidebar: () => void;
+  mountSidebarPanel: (panel: string) => void;
+  trackSidebarPanelModule: (panel: string, load: Promise<unknown>) => void;
+}) {
   const [schedulesOpen, setSchedulesOpen] = useState(false);
-  // Inbound-webhooks panel: same session-panel concept as Schedules.
   const [webhooksOpen, setWebhooksOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
   const showRailPanel = useCallback(
     (panel: 'schedules' | 'webhooks' | 'projects') => {
       if (!desktopFeatureEnabled(panel)) return;
@@ -402,14 +183,227 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   useEffect(() => {
     if (!sidebarOpen) closeSidebarPanels();
   }, [closeSidebarPanels, sidebarOpen]);
+  return { schedulesOpen, webhooksOpen, projectsOpen, openSchedules, openWebhooks, openProjects, closeSidebarPanels };
+}
+
+function useCommandSurfaceState() {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsViewSection | null>(null);
+  const [commandSurface, setCommandSurface] = useState<CommandSurfaceName | null>(null);
+  const [commandSurfaceSessionId, setCommandSurfaceSessionId] = useState('');
+  const commandSurfaceLane = useSessionLane(commandSurfaceSessionId, defaultSessionLaneStore);
+  const openConversationCommandSurface = useCallback((surface: CommandSurfaceName, sessionId = '') => {
+    if (surface === 'stats' && !desktopFeatureEnabled('usage')) return;
+    setSettingsOpen(false);
+    setCommandSurfaceSessionId(surface === 'context' || surface === 'inherit' ? sessionId : '');
+    setCommandSurface(surface);
+  }, []);
+  return {
+    settingsOpen,
+    setSettingsOpen,
+    settingsSection,
+    setSettingsSection,
+    commandSurface,
+    setCommandSurface,
+    commandSurfaceSessionId,
+    setCommandSurfaceSessionId,
+    commandSurfaceLane,
+    openConversationCommandSurface,
+  };
+}
+
+function useSidePanelToggleGate() {
+  const lastToggle = useRef(0);
+  return useCallback((stamp?: number) => {
+    const now = typeof stamp === 'number' && stamp > 0 ? stamp : performance.now();
+    if (lastToggle.current > 0 && now - lastToggle.current < 220) return false;
+    lastToggle.current = now;
+    return true;
+  }, []);
+}
+
+export function useAppShellPanels(activeBottomPanelPaneId: string) {
+  const preferredSidePanelMode = useSyncExternalStore(
+    subscribeSidePanelMode,
+    getSidePanelMode,
+    (): SidePanelMode => 'close-both'
+  );
+  // Narrow web/desktop windows use the both-folding policy; the layout now
+  // depends only on available resolution, never device or pointer type.
+  const { narrowShell, bottomSheetBand } = useResponsiveShellBands();
+  const responsiveSidePanels = narrowShell;
+  const activeSidePanelMode = responsiveSidePanels ? 'close-both' : preferredSidePanelMode;
+  const activeSidePanelLayout = sidePanelLayout(activeSidePanelMode);
+  const wasNarrowShell = useRef(narrowShell);
+  // Callback-safe mirror: the sheet-exclusivity rule below runs inside
+  // stable useCallbacks and must read the CURRENT band.
+  const narrowShellRef = useRef(narrowShell);
+  narrowShellRef.current = narrowShell;
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (!desktopFeatureEnabled('sessions')) return false;
+    if (activeSidePanelLayout.sidebarLockedOpen) return true;
+    try {
+      if (responsiveSidePanels) return false;
+      // First launch starts with the session sidebar OPEN (user decision):
+      // only an explicit stored "false" (the user folded it before) keeps it
+      // minimized. The right dock still defaults to closed.
+      return window.localStorage.getItem(SIDEBAR_OPEN_KEY) !== 'false';
+    } catch {
+      return false;
+    }
+  });
+  const desktopSidebarOpen = useRef(sidebarOpen);
+  const persistSidebarState = useCallback(() => {
+    if (narrowShell || wasNarrowShell.current) return;
+    desktopSidebarOpen.current = sidebarOpen;
+    try {
+      window.localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen));
+    } catch {
+      /* layout persistence is a convenience only */
+    }
+  }, [narrowShell, sidebarOpen]);
+  usePageHideFlush(persistSidebarState);
+  useEffect(() => {
+    if (narrowShell || wasNarrowShell.current) return;
+    const timer = window.setTimeout(persistSidebarState, 120);
+    return () => window.clearTimeout(timer);
+  }, [narrowShell, persistSidebarState]);
+  const {
+    settingsOpen,
+    setSettingsOpen,
+    settingsSection,
+    setSettingsSection,
+    commandSurface,
+    setCommandSurface,
+    commandSurfaceSessionId,
+    setCommandSurfaceSessionId,
+    commandSurfaceLane,
+    openConversationCommandSurface,
+  } = useCommandSurfaceState();
+  // The right dock is PER-PANE state (pane-side-dock.tsx); this hook
+  // keeps the window-level drawer, bottom panel, and rail surfaces only.
+  const bottomPanel = useBottomPanelState(activeBottomPanelPaneId);
+  const [problemsFilter, setProblemsFilter] = useState<ProblemsPanelFilter>(() => ({
+    ...DEFAULT_PROBLEMS_PANEL_FILTER,
+  }));
+  const [problemsCollapseNonce, setProblemsCollapseNonce] = useState(0);
+  const sidebarOpenIntent = useRef(sidebarOpen);
+  // Every route to a closed drawer (toggle, swipe, backdrop, back gesture, a
+  // navigation) records its intent here, and announces it at once: a request
+  // waiting on the open drawer must not outlive the dismissal into the commit.
+  const setSidebarIntent = useCallback((open: boolean) => {
+    sidebarOpenIntent.current = open;
+    if (!open) announceDrawerDismiss();
+  }, []);
+  const [sidebarMotion, setSidebarMotion] = useState<'animated' | 'instant'>('animated');
+  const applySidebarOpen = useCallback(
+    (open: boolean, motion: 'animated' | 'instant' = 'animated') => {
+      setSidebarIntent(open);
+      if (narrowShellRef.current && motion === 'animated') {
+        // A phone drawer tap: the sheet's look flips through CSS on this very
+        // frame, and the shell's heavy render commits as a transition behind it.
+        paintDrawerIntent(open);
+        startTransition(() => {
+          setSidebarMotion(motion);
+          setSidebarOpen(open);
+        });
+        return;
+      }
+      setSidebarMotion(motion);
+      setSidebarOpen(open);
+    },
+    [setSidebarIntent]
+  );
+  // Every commit checks whether the rendered drawer has reached the latest
+  // tap's intent; only then does the CSS stamp go.
+  useLayoutEffect(() => {
+    settleDrawerIntent(sidebarOpen, sidebarOpenIntent.current);
+  });
+  const dismissBottomPanelForSheet = useCallback(
+    (band: 'dock' | 'drawer') => {
+      const query = band === 'dock' ? BOTTOM_SHEET_QUERY : NARROW_SHELL_QUERY;
+      if (window.matchMedia?.(query).matches === true && bottomPanel.open) {
+        bottomPanel.setOpen(false);
+      }
+    },
+    [bottomPanel]
+  );
+  const appliedSidePanelMode = useRef(activeSidePanelMode);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: applies only when the side-panel mode changes; layout and applySidebarOpen are read at that moment
+  useEffect(() => {
+    // Existing installs retain their last folding state on launch. A mode
+    // CHANGE applies immediately; navigation applies the same exact policy.
+    if (appliedSidePanelMode.current === activeSidePanelMode) return;
+    appliedSidePanelMode.current = activeSidePanelMode;
+    applySidebarOpen(activeSidePanelLayout.sidebarOpen && desktopFeatureEnabled('sessions'));
+    // The dock half of the policy applies inside usePaneSideDocks.
+  }, [activeSidePanelMode]);
+  const { mainPanel: mainPanelRef } = useSidePanelOpenFlip(narrowShell);
+  const openSidebar = useCallback(() => {
+    if (sidebarOpenIntent.current) return;
+    sidebarOpenIntent.current = true;
+    dismissBottomPanelForSheet('drawer');
+    applySidebarOpen(true);
+  }, [applySidebarOpen, dismissBottomPanelForSheet]);
+  const sidePanelToggleReady = useSidePanelToggleGate();
+  const toggleSidebar = useCallback(
+    (event?: { timeStamp?: number }) => {
+      if (!sidebarOpenIntent.current && !desktopFeatureEnabled('sessions')) return;
+      if (!sidePanelToggleReady(event?.timeStamp)) return;
+      const nextOpen = !sidebarOpenIntent.current;
+      setSidebarIntent(nextOpen);
+      if (nextOpen) {
+        dismissBottomPanelForSheet('drawer');
+        applySidebarOpen(true);
+      } else {
+        applySidebarOpen(false);
+      }
+    },
+    [applySidebarOpen, dismissBottomPanelForSheet, setSidebarIntent, sidePanelToggleReady]
+  );
+  // Expanding the bottom panel in the sheet band dismisses the overlay
+  // drawer — last press wins. The right dock lives INSIDE each pane now, so
+  // it no longer competes with the bottom panel as a window sheet.
+  const dismissSheetsForBottomPanel = useCallback(() => {
+    if (window.matchMedia?.(BOTTOM_SHEET_QUERY).matches !== true) return;
+    if (narrowShellRef.current && sidebarOpenIntent.current) applySidebarOpen(false);
+  }, [applySidebarOpen]);
+  const toggleBottomPanel = useCallback(() => {
+    if (!bottomPanel.open) dismissSheetsForBottomPanel();
+    bottomPanel.toggle();
+  }, [bottomPanel, dismissSheetsForBottomPanel]);
+  useEffect(() => {
+    if (wasNarrowShell.current === narrowShell) return;
+    wasNarrowShell.current = narrowShell;
+    if (narrowShell) {
+      if (sidebarOpenIntent.current) applySidebarOpen(false, 'instant');
+      return;
+    }
+    if (desktopSidebarOpen.current !== sidebarOpenIntent.current) {
+      applySidebarOpen(desktopSidebarOpen.current, 'instant');
+    }
+  }, [narrowShell, applySidebarOpen]);
+  const wasBottomSheetBand = useBottomPanelBandRestore(bottomPanel, bottomSheetBand);
+  const {
+    mountedSidebarPanels,
+    mountSidebarPanel,
+    loadedSidebarPanels,
+    trackSidebarPanelModule,
+    failedSidebarPanels,
+    sidebarPanes,
+    markSidebarPanelFailed,
+    retrySidebarPanel,
+  } = useSidebarPanelRegistry();
+  const { schedulesOpen, webhooksOpen, projectsOpen, openSchedules, openWebhooks, openProjects, closeSidebarPanels } =
+    useRailPanels({ sidebarOpen, openSidebar, mountSidebarPanel, trackSidebarPanelModule });
   // Re-selecting the visible rail destination mirrors the Sessions button:
   // collapse the whole sidebar, but clear the destination first so the next
   // expand always starts from Sessions instead of restoring a stale panel.
   const closeActiveRailPanel = useCallback(() => {
     closeSidebarPanels();
     setSidebarIntent(false);
-    beginSidePanelClose('sidebar', () => applySidebarOpen(false));
-  }, [applySidebarOpen, beginSidePanelClose, closeSidebarPanels, setSidebarIntent]);
+    applySidebarOpen(false);
+  }, [applySidebarOpen, closeSidebarPanels, setSidebarIntent]);
   return {
     applySidebarOpen,
     bottomPanel,

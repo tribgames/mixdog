@@ -1,8 +1,3 @@
-// A long code block keeps its header (language + copy button) at the top of
-// the visible part of the transcript while the block is partly scrolled past,
-// below the status island and top fade, and the code never shows through it.
-// Real Chrome against the app's own stylesheets, on the transcript's virtual
-// row markup (TranscriptList.tsx), judged on geometry and rendered pixels.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import puppeteer from 'puppeteer-core';
@@ -63,8 +58,12 @@ async function scrollTo(page, top) {
 
 async function pixel(page, { x, y }) {
   const png = PNG.sync.read(await page.screenshot({ type: 'png', clip: { x, y, width: 1, height: 1 } }));
-  return [png.data[0], png.data[1], png.data[2]].join(',');
+  return [png.data[0], png.data[1], png.data[2]];
 }
+
+/** The same paint: a translucent skin plate lands one 8-bit step apart from frame to frame, and code ink showing through
+    is a different colour altogether. */
+const samePaint = (a, b) => a.every((channel, at) => Math.abs(channel - b[at]) <= 1);
 
 test('code block header: sticks below the top chrome while the block scrolls, and is opaque', async (t) => {
   installTestDom(t, { actEnvironment: false });
@@ -116,10 +115,10 @@ test('code block header: sticks below the top chrome while the block scrolls, an
         `${label}: the header sits 44px below the chat's top (${stuck.offset})`
       );
       assert.ok(stuck.copyHit, `${label}: the copy button is on top and reachable`);
-      assert.equal(
-        await pixel(page, stuck.probe),
-        restInk,
-        `${label}: no code shows through the header (${into}px in)`
+      const stuckInk = await pixel(page, stuck.probe);
+      assert.ok(
+        samePaint(stuckInk, restInk),
+        `${label}: no code shows through the header (${into}px in): ${stuckInk} at rest ${restInk}`
       );
     }
 

@@ -648,48 +648,51 @@ export function toolActivityLocalizeTaskList(text: string): string {
     .join('\n');
 }
 
-export function toolActivityBackgroundTask(
-  text: string,
-  waitResult = false
-): {
+type ToolActivityBackgroundTask = {
   meta: string;
   body: string;
   failed: boolean;
   running: boolean;
   outcome: string;
   reason: string;
-} | null {
+};
+
+function backgroundTaskFromNotification(
+  notification: NonNullable<ReturnType<typeof parseTaskNotification>>
+): ToolActivityBackgroundTask {
+  const error = String(notification.error || '');
+  const result = toolActivityBackgroundOutcome(
+    String(notification.status || ''),
+    notification.exitCode,
+    false,
+    '',
+    error
+  );
+  const summary = String(notification.summary || '');
+  const shell = /^Shell task [^(]*\(exit [^)]*\)(?::\s*([\s\S]*))?$/.exec(summary);
+  // With no output at all the command is the only thing left to show; the
+  // header already says it failed and how.
+  const command = (shell?.[1] || '').trim();
+  let failure = '';
+  if (result.failed) failure = shell ? command || toolActivityFailureLine(result, '') : summary.trim();
+  const id = shortMachineId(String(notification.taskId || ''));
+  return {
+    meta: toolActivityCompact([result.failed ? result.outcome : result.statusLabel, id]),
+    body: toolActivityFailureBody(
+      toolActivityDropEmptySections(toolActivityStripInstructions(String(notification.result || ''))),
+      error,
+      failure
+    ),
+    failed: result.failed,
+    running: false,
+    outcome: result.outcome,
+    reason: result.reason,
+  };
+}
+
+export function toolActivityBackgroundTask(text: string, waitResult = false): ToolActivityBackgroundTask | null {
   const notification = parseTaskNotification(text);
-  if (notification) {
-    const error = String(notification.error || '');
-    const result = toolActivityBackgroundOutcome(
-      String(notification.status || ''),
-      notification.exitCode,
-      false,
-      '',
-      error
-    );
-    const summary = String(notification.summary || '');
-    const shell = /^Shell task [^(]*\(exit [^)]*\)(?::\s*([\s\S]*))?$/.exec(summary);
-    // With no output at all the command is the only thing left to show; the
-    // header already says it failed and how.
-    const command = (shell?.[1] || '').trim();
-    let failure = '';
-    if (result.failed) failure = shell ? command || toolActivityFailureLine(result, '') : summary.trim();
-    const id = shortMachineId(String(notification.taskId || ''));
-    return {
-      meta: toolActivityCompact([result.failed ? result.outcome : result.statusLabel, id]),
-      body: toolActivityFailureBody(
-        toolActivityDropEmptySections(toolActivityStripInstructions(String(notification.result || ''))),
-        error,
-        failure
-      ),
-      failed: result.failed,
-      running: false,
-      outcome: result.outcome,
-      reason: result.reason,
-    };
-  }
+  if (notification) return backgroundTaskFromNotification(notification);
   const lines = text.split('\n');
   if ((lines[0] ?? '').trim() !== 'background task') return null;
   const meta = new Map<string, string>();

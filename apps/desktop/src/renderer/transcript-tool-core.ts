@@ -58,9 +58,7 @@ export function isHookApprovalDenialToolItem(item: TranscriptItem) {
 
 /** Set on a phone's copy of a row whose output the host cut
  *  (main/remote-transcript.ts): the facts its whole output gives
- *  (`toolOutputFacts`, transcript-tool-model.ts) wherever the cut text gives
- *  others. Plain data: numbers, flags, enums, raw output text and deferred
- *  translations, never words in a language. */
+ *  (`toolOutputFacts`). Plain data, never words in a language. */
 export const REMOTE_OUTPUT_FACTS_FIELD = 'remoteOutputFacts';
 
 export function carriedOutputFacts(item: TranscriptItem): Record<string, unknown> | null {
@@ -524,10 +522,6 @@ function desktopToolActivityUnit(
   };
 }
 
-/** The one-word verb a call's own row opens with ("Read a.ts", "Run npm
- *  test"). The group summary counts work units by their full name; a row sits
- *  beside its target, so the short verb is all it needs. Empty when the unit
- *  has no plain verb (a named skill, an MCP server). */
 function toolActivityRowVerb(category: string, done: string, noun: string): string {
   switch (toolActivityUnitKey(category, done, noun)) {
     case 'Read|Read|file':

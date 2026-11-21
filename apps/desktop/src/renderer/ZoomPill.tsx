@@ -1,12 +1,3 @@
-// Floating zoom control at the bottom centre of a surface: [−] [NN% ▾] [+].
-// The percent button opens a small menu of presets (and, in the editor
-// previews, "Fit width"). The value is always the live, resolved scale.
-//
-// Shared by the browser panes, the editor previews and Visualize; the browser
-// keeps its own name (BrowserZoomPill) for the default 50%–200% range. Every
-// surface shows it always, unless the shared zoom-bar preference
-// (zoom-bar-pref.ts) hides it. The stylesheet ships with the component so
-// every surface renders it alike.
 import { Check, ChevronDown, Minus, Plus } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 

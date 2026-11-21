@@ -1,9 +1,3 @@
-/**
- * Subscription usage answers, kept per host so the usage dialog paints at
- * once: an opening shows the last answer to its question while that question
- * is read again, and the usage flyout reads ahead what a click on it opens.
- * Everyone asking one question shares its read.
- */
 import { readGlobalCapabilities } from './global-capability-reads';
 import { record } from './record-utils';
 import { peekQuotaFocus, readQuotaSubscription, type QuotaFocus } from './usage-surface-mode';

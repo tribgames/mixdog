@@ -1,7 +1,4 @@
-// How the dock words the failure of a Git action. Every action carries an op id and is never replayed after the connection to
-// the core is lost; when the answer never came back and the core's own record of the op cannot be read either, the client
-// library fails the call with `opOutcomeUnknown` (packages/protocol-client). Its bare message is a protocol word, and the action
-// may have run: the person is told that, and to look at the repository before trying again.
+// `opOutcomeUnknown` (packages/protocol-client): the connection was lost and the core's record of the op cannot be read, so the action may have run.
 import { isOutcomeUnknown } from '../shared/outcome-unknown';
 import { t } from './i18n';
 

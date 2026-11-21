@@ -1,10 +1,3 @@
-/**
- * Subscription usage: what a provider's own quota meter did — each limit
- * window rising, resetting and rising again — and which models moved it.
- * Token usage answers what was SPENT; this answers how the subscription was
- * used up. The layout follows token usage: period, cards, mix, trend and the
- * model table, then the history of the windows.
- */
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { DayRange } from './DateRangePicker';
@@ -385,15 +378,9 @@ function QuotaHistory({
   );
 }
 
-const QUOTA_REFERENCE_KEYS = ['providerSetup'] as const satisfies readonly SidebarReferenceKey[];
-
-export function QuotaUsageBody({ api }: { api: QuotaApi }) {
-  const { values: references } = useSidebarReferences(window.mixdogDesktop, QUOTA_REFERENCE_KEYS, true);
-  const providerNames = useMemo(() => customProviderDisplayNames(references.providerSetup), [references.providerSetup]);
-  // A provider meter that opened the dialog picks the subscription; otherwise
-  // the one shown last does.
-  const [query, setQuery] = useState<QuotaQuery>(() => openingQuotaQuestion());
-  useEffect(() => clearQuotaFocus(), []);
+/** The answer for query: what was cached shows at once while the newest
+ *  question is read, and only the newest question may publish. */
+function useQuotaAnswer(api: QuotaApi, query: QuotaQuery) {
   const [data, setData] = useState<Row | null>(() => cachedQuotaAnswer(api, quotaArgs(query)) ?? null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
@@ -436,6 +423,109 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
       current = false;
     };
   }, [api, query]);
+  return { data, busy, error };
+}
+
+function useQuotaHistoryAnswer(api: QuotaApi, historyQuestion: ReturnType<typeof quotaHistoryQuestion> | null) {
+  const [historyAnswer, setHistoryAnswer] = useState<Row | null>(null);
+  const [historyError, setHistoryError] = useState('');
+  useEffect(() => {
+    if (!historyQuestion) return undefined;
+    let current = true;
+    const known = cachedQuotaAnswer(api, historyQuestion);
+    if (known) setHistoryAnswer(known);
+    setHistoryError('');
+    readQuotaAnswer(api, historyQuestion)
+      .then((answer) => {
+        if (current) setHistoryAnswer(answer);
+      })
+      .catch((reason) => {
+        if (current) setHistoryError(String(reason?.message || reason));
+      });
+    return () => {
+      current = false;
+    };
+  }, [api, historyQuestion]);
+  return { historyAnswer, historyError };
+}
+
+/** The four summary cards, with the usage and run-out time the rest of the body reads. */
+function quotaCards(loaded: Row, windowView: boolean, now: number, summary: Row) {
+  const focus = record(loaded.focus);
+  const forecast = record(loaded.forecast);
+  const used = statsNumber(focus.usedPct);
+  const resetAt = statsNumber(focus.resetAt);
+  const current = windowView && focus.current === true;
+  const pace =
+    current && focus.paced === true ? quotaPace(statsNumber(focus.startMs), statsNumber(focus.endMs), now) : null;
+  const paceDelta = pace === null ? null : used - pace;
+  const runsOutAt = statsNumber(forecast.exhaustAt);
+  const tone = current ? quotaTone(used, paceDelta, runsOutAt > 0) : '';
+  // A limit window: the whole limit at Mixdog's own rate, outside use excluded.
+  const perPercent = summary.costPerPercent == null ? null : statsNumber(summary.costPerPercent);
+  const valueCard: CardSpec = {
+    label: t('Est. value'),
+    value: quotaValue(summary, windowView),
+    // A window is valued over its whole limit, which needs Mixdog's rate.
+    note: windowView && perPercent === null ? t('Not enough measured usage to estimate.') : '',
+    detail: `${quotaValueBreakdown(summary)}\n${quotaValueCaution()}\n${t('OAuth values use list prices. API costs may be estimates; neither is an invoice.')}`,
+  };
+  const perPercentCard: CardSpec = {
+    label: t('Per 1%'),
+    value: perPercent === null ? '—' : usageMoney(perPercent),
+    note: perPercent === null ? t('Not enough measured usage to estimate.') : '',
+    detail: quotaValueCaution(),
+  };
+  let paceNote = '';
+  if (paceDelta !== null && Math.round(paceDelta) > 0) {
+    paceNote = t('{{points}} pts ahead of an even pace', { points: Math.round(paceDelta) });
+  } else if (paceDelta !== null && Math.round(paceDelta) < 0) {
+    paceNote = t('{{points}} pts behind an even pace', { points: Math.round(-paceDelta) });
+  }
+  const spanMs = statsNumber(focus.endMs) - statsNumber(focus.startMs);
+  const unitFor = (ms: number) => (ms > DAY_MS ? DAY_MS : HOUR_MS);
+  const perUnit = (percent: number, unitMs: number) =>
+    unitMs === DAY_MS
+      ? t('{{percent}} a day', { percent: quotaPercent(percent) })
+      : t('{{percent}} an hour', { percent: quotaPercent(percent) });
+  const leftMs = resetAt - now;
+  let allowanceCard: CardSpec;
+  if (!current) {
+    const unitMs = unitFor(spanMs);
+    allowanceCard = {
+      label: t('Average pace'),
+      value: spanMs > 0 ? perUnit((statsNumber(focus.peak) * unitMs) / spanMs, unitMs) : '—',
+    };
+  } else if (used >= 100) {
+    allowanceCard = { label: t('Allowance to reset'), value: '—', note: t('Maxed out'), tone: 'danger' };
+  } else {
+    const unitMs = unitFor(leftMs);
+    allowanceCard = {
+      label: t('Allowance to reset'),
+      value: leftMs > 0 ? perUnit(Math.min(100 - used, ((100 - used) * unitMs) / leftMs), unitMs) : '—',
+      note: leftMs > 0 ? t('{{time}} left', { time: formatUsageResetRemaining(leftMs) }) : '',
+    };
+  }
+  const cards: CardSpec[] = windowView
+    ? [{ label: t('Used'), value: quotaPercent(used), note: paceNote, tone }, allowanceCard, valueCard, perPercentCard]
+    : [
+        { label: t('Times maxed out'), value: statsCount(summary.maxedOut) },
+        { label: t('Period usage'), value: quotaPercent(summary.consumed) },
+        valueCard,
+        perPercentCard,
+      ];
+  return { cards, used, runsOutAt };
+}
+const QUOTA_REFERENCE_KEYS = ['providerSetup'] as const satisfies readonly SidebarReferenceKey[];
+
+export function QuotaUsageBody({ api }: { api: QuotaApi }) {
+  const { values: references } = useSidebarReferences(window.mixdogDesktop, QUOTA_REFERENCE_KEYS, true);
+  const providerNames = useMemo(() => customProviderDisplayNames(references.providerSetup), [references.providerSetup]);
+  // A provider meter that opened the dialog picks the subscription; otherwise
+  // the one shown last does.
+  const [query, setQuery] = useState<QuotaQuery>(() => openingQuotaQuestion());
+  useEffect(() => clearQuotaFocus(), []);
+  const { data, busy, error } = useQuotaAnswer(api, query);
 
   const loaded: Row = data ?? {};
   const loading = !data;
@@ -471,25 +561,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
     () => (shownSelection ? quotaHistoryQuestion(provider, account, label, historyPage) : null),
     [shownSelection, provider, account, label, historyPage]
   );
-  const [historyAnswer, setHistoryAnswer] = useState<Row | null>(null);
-  const [historyError, setHistoryError] = useState('');
-  useEffect(() => {
-    if (!historyQuestion) return undefined;
-    let current = true;
-    const known = cachedQuotaAnswer(api, historyQuestion);
-    if (known) setHistoryAnswer(known);
-    setHistoryError('');
-    readQuotaAnswer(api, historyQuestion)
-      .then((answer) => {
-        if (current) setHistoryAnswer(answer);
-      })
-      .catch((reason) => {
-        if (current) setHistoryError(String(reason?.message || reason));
-      });
-    return () => {
-      current = false;
-    };
-  }, [api, historyQuestion]);
+  const { historyAnswer, historyError } = useQuotaHistoryAnswer(api, historyQuestion);
   // Another subscription's rows never stand in while this one's are read.
   const historyOf = record(historyAnswer?.selection);
   const history =
@@ -502,8 +574,6 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
   const view = String(loaded.view || query.view) as QuotaView;
   const windowView = view === 'window';
   const now = statsNumber(loaded.generatedAt) || Date.now();
-  const focus = record(loaded.focus);
-  const forecast = record(loaded.forecast);
   const summary = record(loaded.summary);
   const models = rows(loaded.models);
   const outside = statsNumber(loaded.outside);
@@ -518,10 +588,6 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
     setQuery({ ...query, provider, account, window: label, ...(keepsAnchor ? {} : { anchor: undefined }), ...next });
   };
 
-  // Each subscription once: the one shown first, then the flyout's order and
-  // names, so a subscription reads the same in both. One with several
-  // accounts picks among them beside it — the one shown, then the order of
-  // its account pool.
   const subscriptionOptions = [...new Set(subscriptions.map((row) => String(row.provider || '')))]
     .sort((a, b) => Number(b === provider) - Number(a === provider) || subscriptionRank(a) - subscriptionRank(b))
     .map((id) => ({
@@ -537,72 +603,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
     .filter((row) => row.provider === provider && row.account === account)
     .flatMap((row) => (Array.isArray(row.windows) ? row.windows.map(String) : []));
 
-  const used = statsNumber(focus.usedPct);
-  const resetAt = statsNumber(focus.resetAt);
-  const current = windowView && focus.current === true;
-  const pace =
-    current && focus.paced === true ? quotaPace(statsNumber(focus.startMs), statsNumber(focus.endMs), now) : null;
-  const paceDelta = pace === null ? null : used - pace;
-  const runsOutAt = statsNumber(forecast.exhaustAt);
-  const tone = current ? quotaTone(used, paceDelta, runsOutAt > 0) : '';
-  // A limit window: the whole limit at Mixdog's own rate, outside use excluded.
-  const perPercent = summary.costPerPercent == null ? null : statsNumber(summary.costPerPercent);
-  const valueCard: CardSpec = {
-    label: t('Est. value'),
-    value: quotaValue(summary, windowView),
-    // A window is valued over its whole limit, which needs Mixdog's rate.
-    note: windowView && perPercent === null ? t('Not enough measured usage to estimate.') : '',
-    detail: `${quotaValueBreakdown(summary)}\n${quotaValueCaution()}\n${t('OAuth values use list prices. API costs may be estimates; neither is an invoice.')}`,
-  };
-  const perPercentCard: CardSpec = {
-    label: t('Per 1%'),
-    value: perPercent === null ? '—' : usageMoney(perPercent),
-    note: perPercent === null ? t('Not enough measured usage to estimate.') : '',
-    detail: quotaValueCaution(),
-  };
-  let paceNote = '';
-  if (paceDelta !== null && Math.round(paceDelta) > 0) {
-    paceNote = t('{{points}} pts ahead of an even pace', { points: Math.round(paceDelta) });
-  } else if (paceDelta !== null && Math.round(paceDelta) < 0) {
-    paceNote = t('{{points}} pts behind an even pace', { points: Math.round(-paceDelta) });
-  }
-  // The reset and the forecast run-out already read off the period and the
-  // chart; the card says what is left to spend: the rest of the limit spread
-  // evenly to the reset — per day while more than a day is left, per hour
-  // otherwise, and never more than the rest itself. An ended window shows how
-  // fast it went instead, per hour in a window shorter than a day.
-  const spanMs = statsNumber(focus.endMs) - statsNumber(focus.startMs);
-  const unitFor = (ms: number) => (ms > DAY_MS ? DAY_MS : HOUR_MS);
-  const perUnit = (percent: number, unitMs: number) =>
-    unitMs === DAY_MS
-      ? t('{{percent}} a day', { percent: quotaPercent(percent) })
-      : t('{{percent}} an hour', { percent: quotaPercent(percent) });
-  const leftMs = resetAt - now;
-  let allowanceCard: CardSpec;
-  if (!current) {
-    const unitMs = unitFor(spanMs);
-    allowanceCard = {
-      label: t('Average pace'),
-      value: spanMs > 0 ? perUnit((statsNumber(focus.peak) * unitMs) / spanMs, unitMs) : '—',
-    };
-  } else if (used >= 100) {
-    allowanceCard = { label: t('Allowance to reset'), value: '—', note: t('Maxed out'), tone: 'danger' };
-  } else {
-    const unitMs = unitFor(leftMs);
-    allowanceCard = {
-      label: t('Allowance to reset'),
-      value: leftMs > 0 ? perUnit(Math.min(100 - used, ((100 - used) * unitMs) / leftMs), unitMs) : '—',
-      note: leftMs > 0 ? t('{{time}} left', { time: formatUsageResetRemaining(leftMs) }) : '',
-    };
-  }
-  const cards: CardSpec[] = windowView
-    ? [{ label: t('Used'), value: quotaPercent(used), note: paceNote, tone }, allowanceCard, valueCard, perPercentCard]
-    : [
-        { label: t('Times maxed out'), value: statsCount(summary.maxedOut) },
-        { label: t('Period usage'), value: quotaPercent(summary.consumed) },
-        valueCard,
-        perPercentCard,
-      ];
+  const { cards, used, runsOutAt } = quotaCards(loaded, windowView, now, summary);
   const selectors = (
     <div className="quota-selectors">
       {subscriptionOptions.length > 0 && (

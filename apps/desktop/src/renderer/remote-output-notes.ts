@@ -1,9 +1,3 @@
-// The host's phone copy of a tool row says what it changed in an output field
-// as data (`remoteOutputNotes`, see main/remote-transcript.ts), not as English
-// prose. The phone writes the words in its own language. The row keeps its
-// text exactly as the host sent it — its collapsed header is parsed from that
-// text (the host compares the same parse of the cut and the whole output) —
-// and shows its note on a line of its own (`remoteOutputNotice`).
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 

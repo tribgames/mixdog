@@ -6,11 +6,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// The Leads rows sit under the bot rows with no visual foreignness: the
-// provider mark on a plate (5/6 of the bot face's box) in the same avatar box,
-// the same title, 2-line muted preview, time and
-// spinner / "!" in the same places, and the same row height. Real CSS and
-// components in headless Chrome at the default and the narrow pane widths.
 // MIXDOG_QA_DIR keeps the screenshots (harmony-*.png).
 
 const lazyChunkBoundary = {
@@ -147,10 +142,19 @@ const MEASURE = () => {
   };
 };
 
-test('Lead rows match the bot rows: face, badge, text, time, status and row height', async (t) => {
+const HOST_PAGE =
+  '<!doctype html><html data-mixdog-theme="dark"><head></head><body style="margin:0"><div id="root"></div></body></html>';
+const shots = process.env.MIXDOG_QA_DIR || '';
+if (shots) mkdirSync(shots, { recursive: true });
+
+let assets;
+const buildAssets = () => {
+  assets ??= buildPageAssets();
+  return assets;
+};
+
+async function buildPageAssets() {
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
-  const shots = process.env.MIXDOG_QA_DIR || '';
-  if (shots) mkdirSync(shots, { recursive: true });
   const [bundle, styles] = await Promise.all([
     build({
       stdin: { resolveDir, loader: 'tsx', contents: PAGE },
@@ -176,6 +180,10 @@ test('Lead rows match the bot rows: face, badge, text, time, status and row heig
       loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
     }),
   ]);
+  return { bundle, styles };
+}
+
+async function openPage(t, viewport) {
   const browser = await puppeteer.launch({
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
     headless: true,
@@ -184,18 +192,31 @@ test('Lead rows match the bot rows: face, badge, text, time, status and row heig
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.setViewport({ width: 520, height: 520, deviceScaleFactor: 2 });
+  await page.setViewport(viewport);
+  return { page, errors };
+}
+
+async function serveHostPage(page) {
+  await page.setRequestInterception(true);
+  page.on('request', (request) => request.respond({ contentType: 'text/html', body: HOST_PAGE }));
+}
+
+async function loadAssets(page) {
+  const { bundle, styles } = await buildAssets();
+  for (const file of [...styles.outputFiles, ...bundle.outputFiles.filter((f) => f.path.endsWith('.css'))])
+    await page.addStyleTag({ content: file.text });
+  await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
+}
+
+test('Lead rows match the bot rows: face, badge, text, time, status and row height', async (t) => {
+  const { page, errors } = await openPage(t, { width: 520, height: 520, deviceScaleFactor: 2 });
   for (const [width, face] of [
     [420, 48],
     [252, 32],
   ]) {
-    await page.setContent(
-      '<!doctype html><html data-mixdog-theme="dark"><head></head><body style="margin:0"><div id="root"></div></body></html>'
-    );
+    await page.setContent(HOST_PAGE);
     await page.evaluate((w) => document.documentElement.style.setProperty('--probe-width', `${w}px`), width);
-    for (const file of [...styles.outputFiles, ...bundle.outputFiles.filter((f) => f.path.endsWith('.css'))])
-      await page.addStyleTag({ content: file.text });
-    await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
+    await loadAssets(page);
     await page.waitForSelector('[data-agent-lead]');
     await page.evaluate(() => document.fonts.ready);
     const m = await page.evaluate(MEASURE);
@@ -204,8 +225,6 @@ test('Lead rows match the bot rows: face, badge, text, time, status and row heig
     assert.equal(m.lead.avatar.w, face, `${tag}: avatar box`);
     assert.deepEqual(m.lead.avatar, m.bot.avatar, `${tag}: avatar box and place`);
     assert.deepEqual(m.bot.face, { w: face, h: face }, `${tag}: a bot's face fills the box`);
-    // A Lead's face is a faint plate inset to 5/6 of the box (97602902e), so it
-    // reads apart from the bare-mark sub-agents; layout snaps it to 1/64 px.
     const plate = Math.round((face * 5) / 6);
     assert.deepEqual(
       { w: Math.round(m.lead.face.w), h: Math.round(m.lead.face.h) },
@@ -219,8 +238,6 @@ test('Lead rows match the bot rows: face, badge, text, time, status and row heig
     assert.equal(m.lead.preview.webkitLineClamp, '2');
     assert.deepEqual(m.lead.time, m.bot.time, `${tag}: time place and type`);
     assert.deepEqual(m.lead.status, m.bot.status, `${tag}: spinner place and size`);
-    // An approval wait shows the shared amber triangle (2aba1580c; the "!" pill
-    // is gone) in the same status slot the spinner sits in, so the slot is the same size.
     assert.equal(m.lead.spinner, 14, `${tag}: spinner glyph`);
     assert.deepEqual(
       { w: m.attention.status.w, h: m.attention.status.h },
@@ -229,19 +246,15 @@ test('Lead rows match the bot rows: face, badge, text, time, status and row heig
     );
     assert.equal(m.attention.rowH, m.oneLineBot.rowH, `${tag}: a one-line Lead is as tall as a one-line bot`);
   }
-  // A face the user picked (Appearance): same box and badge, new palette and breed.
-  // Storage needs a real origin (about:blank denies it).
-  await page.setRequestInterception(true);
-  page.on('request', (request) =>
-    request.respond({
-      contentType: 'text/html',
-      body: '<!doctype html><html data-mixdog-theme="dark"><head></head><body style="margin:0"><div id="root"></div></body></html>',
-    })
-  );
+  assert.deepEqual(errors, []);
+});
+
+test('a stored Lead face leaves the Lead row on its provider plate', async (t) => {
+  const { page, errors } = await openPage(t, { width: 520, height: 520, deviceScaleFactor: 2 });
+  await serveHostPage(page);
   await page.goto('http://mixdog.test/');
   await page.evaluate(() => {
     document.documentElement.style.setProperty('--probe-width', '420px');
-    // The host stores the shared Lead face; this page's host holds a blue corgi.
     window.mixdogDesktop = {
       invokeCapability: async ({ capability }) => ({
         value:
@@ -259,9 +272,7 @@ test('Lead rows match the bot rows: face, badge, text, time, status and row heig
       }),
     };
   });
-  for (const file of [...styles.outputFiles, ...bundle.outputFiles.filter((f) => f.path.endsWith('.css'))])
-    await page.addStyleTag({ content: file.text });
-  await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
+  await loadAssets(page);
   await page.waitForSelector('[data-agent-lead]');
   const custom = await page.evaluate(MEASURE);
   if (shots) await page.screenshot({ path: join(shots, 'lead-custom.png') });
@@ -271,17 +282,18 @@ test('Lead rows match the bot rows: face, badge, text, time, status and row heig
     null,
     'the Lead row shows the provider plate, not the stored face'
   );
-  // The Appearance dialog (the bots' own picker) over the page.
-  await page.setViewport({ width: 520, height: 680, deviceScaleFactor: 1.5 });
+  assert.deepEqual(errors, []);
+});
+
+test('the Lead Appearance dialog shows a room-tile face and the colour swatches', async (t) => {
+  const { page, errors } = await openPage(t, { width: 520, height: 680, deviceScaleFactor: 1.5 });
+  await serveHostPage(page);
   await page.goto('http://mixdog.test/?dialog');
   await page.evaluate(() => {
     document.documentElement.style.setProperty('--probe-width', '420px');
   });
-  for (const file of [...styles.outputFiles, ...bundle.outputFiles.filter((f) => f.path.endsWith('.css'))])
-    await page.addStyleTag({ content: file.text });
-  await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
+  await loadAssets(page);
   await page.waitForSelector('[data-lead-appearance] .agent-avatar-picker');
-  // The card fades in: shoot it settled.
   await page.evaluate(() =>
     Promise.all(
       document

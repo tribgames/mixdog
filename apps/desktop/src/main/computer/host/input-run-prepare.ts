@@ -1,10 +1,3 @@
-/**
- * Everything an input action needs settled before it is delivered: the exact
- * target window and its observed scope, the policy's view of that window,
- * ownership of the targets a mutation will touch, cursor feedback for pointer
- * actions, the input-recovery baseline for foreground delivery, and the
- * window list a transition is judged against.
- */
 import { backgroundDialogInputError } from '../input/background-dialog-input';
 import { prepareCursorFeedback } from '../overlay/cursor-readiness';
 import { CHROME_SETUP_SESSION_ID, elapsedMs } from '../shared/common';

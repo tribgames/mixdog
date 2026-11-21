@@ -1,7 +1,3 @@
-// The one "show the zoom bar" preference shared by every panel that has a
-// ZoomPill (browser, image/PDF/document previews, Visualize). Stored in
-// localStorage; a change reaches every mounted panel (and other windows).
-// Off hides the pill only - keyboard and wheel zoom keep working.
 import { useSyncExternalStore } from 'react';
 
 import { t } from './i18n';

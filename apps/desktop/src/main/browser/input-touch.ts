@@ -1,9 +1,3 @@
-/**
- * Touch gestures at CSS coordinates: a tap is one contact down and up, a
- * swipe drags a single contact across ten intermediate points. CDP places a
- * touch point in the same CSS pixels as a mouse event, so page zoom never
- * rescales it here.
- */
 import type { WebContents } from 'electron';
 
 import { cssPoint, type Point, type SendBrowserInput } from './input-primitives';

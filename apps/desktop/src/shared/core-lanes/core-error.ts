@@ -1,8 +1,5 @@
-// A core failure as the window sees it: shared/core-error.ts, then framed for the IPC boundary. A worktree code gets
-// the message framing of worktree-error.ts worktreeErrorWithCode, because Electron hands the page only the message;
-// every other code is returned by the IPC wrapper as an envelope (coded-error.ts ipcErrorEnvelope). Past the framing the
-// error keeps only the params its code declares public (desktop-service-client.ts responseError -> codedErrorParams);
-// a worktree's details travel in its message.
+// A worktree code is framed into its message (worktreeErrorWithCode) because Electron hands the page only the message;
+// every other code is returned by the IPC wrapper as an envelope (ipcErrorEnvelope).
 import { codedErrorParams } from '../coded-error';
 import { coreFailure } from '../core-error';
 import { worktreeErrorWithCode } from '../worktree-error';

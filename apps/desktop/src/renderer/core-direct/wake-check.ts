@@ -1,9 +1,3 @@
-// A machine that slept (or lost its network) can leave the window's link looking open while nothing travels on it. Nothing
-// reports that, so the window looks for it: a timer that finds much more time gone than it asked for, or the browser saying it
-// is online again, asks the client to check the link: the client's health machine (packages/protocol-client/src/health.ts) voids
-// whatever it was measuring, sends a fresh probe, and drops the link only if a whole observation window then passes with no
-// progress from the core. This file only notices the wake; it holds no deadline of its own.
-
 import { SCHEDULING_GAP_MS } from '../../../../../packages/protocol-client/src/health.ts';
 
 /** How often the clock is looked at. */

@@ -1,9 +1,3 @@
-/**
- * What the session downloaded, and how a file reaches the caller. A download is
- * named and measured here; it only rides back inside the reply when it is small
- * enough, and otherwise the report says where the file is instead of pretending
- * it could be attached.
- */
 import { existsSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { basename, join } from 'node:path';
@@ -81,7 +75,7 @@ export function browserDownloadSavePath(
   throw new Error('could not allocate a unique browser download path');
 }
 
-/** Extension-derived type, used only when Chromium reported nothing useful. */
+/** Extension-derived type; the reported type is the fallback for unknown extensions. */
 export function downloadMimeType(path: string, fallback: string): string {
   const extension = path.split('.').pop()?.toLowerCase() || '';
   const types: Record<string, string> = {
@@ -103,8 +97,69 @@ export function downloadMimeType(path: string, fallback: string): string {
   return types[extension] || fallback || 'application/octet-stream';
 }
 
+async function readDownloadForAttachment(
+  selected: TrackedBrowserDownload,
+  attachMaxBytes: number,
+  signal?: AbortSignal
+): Promise<Buffer> {
+  const handle = await open(selected.path, 'r');
+  try {
+    signal?.throwIfAborted();
+    const info = await handle.stat();
+    signal?.throwIfAborted();
+    if (!info.isFile()) throw new Error(`download ${selected.id} is not a readable file`);
+    if (info.size > attachMaxBytes) {
+      throw new Error(
+        `download ${selected.id} is ${info.size} bytes; inline attachment limit is ${attachMaxBytes} bytes. Use read with path ${selected.path}`
+      );
+    }
+    const data = Buffer.alloc(info.size);
+    let offset = 0;
+    while (offset < data.length) {
+      signal?.throwIfAborted();
+      const { bytesRead } = await handle.read(data, offset, data.length - offset, offset);
+      if (!bytesRead) break;
+      offset += bytesRead;
+    }
+    signal?.throwIfAborted();
+    const after = await handle.stat();
+    signal?.throwIfAborted();
+    if (after.size !== info.size || offset !== info.size) {
+      throw new Error(`download ${selected.id} changed while it was being attached; retry`);
+    }
+    return data;
+  } finally {
+    await handle.close();
+  }
+}
+
 export function createBrowserDownloads(host: BrowserDownloadsHost) {
   const { downloads, pause, attachMaxBytes } = host;
+
+  async function waitForDownload(
+    sessionId: string,
+    downloadId: string | undefined,
+    timeoutMs: number,
+    signal?: AbortSignal
+  ): Promise<string | undefined> {
+    let selectedId = downloadId;
+    const startedAt = Date.now();
+    for (;;) {
+      signal?.throwIfAborted();
+      selectedId ||= downloads(sessionId)[0]?.id;
+      const selected = downloads(sessionId).find((entry) => entry.id === selectedId);
+      if (selected && selected.state !== 'in_progress') {
+        if (selected.state !== 'completed') {
+          throw new Error(`download ${selected.id} ended as ${selected.state}`);
+        }
+        return selectedId;
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        throw new Error(`download ${selectedId || '(not started)'} did not complete within ${timeoutMs}ms`);
+      }
+      await pause(WAIT_POLL_MS, signal);
+    }
+  }
 
   async function listDownloads(
     sessionId: string,
@@ -117,27 +172,10 @@ export function createBrowserDownloads(host: BrowserDownloadsHost) {
     signal?: AbortSignal
   ): Promise<{ text: string; file?: { mimeType: string; data: string; name: string } }> {
     signal?.throwIfAborted();
-    // Pin the newest download once. Older completed files must not satisfy a
-    // wait for the file that is currently arriving.
     let selectedId = command.downloadId;
-    const timeoutMs = boundedInteger(command.timeoutMs, DEFAULT_WAIT_MS, MIN_WAIT_MS, MAX_WAIT_MS);
     if (command.wait) {
-      const startedAt = Date.now();
-      for (;;) {
-        signal?.throwIfAborted();
-        selectedId ||= downloads(sessionId)[0]?.id;
-        const selected = downloads(sessionId).find((entry) => entry.id === selectedId);
-        if (selected && selected.state !== 'in_progress') {
-          if (selected.state !== 'completed') {
-            throw new Error(`download ${selected.id} ended as ${selected.state}`);
-          }
-          break;
-        }
-        if (Date.now() - startedAt >= timeoutMs) {
-          throw new Error(`download ${selectedId || '(not started)'} did not complete within ${timeoutMs}ms`);
-        }
-        await pause(WAIT_POLL_MS, signal);
-      }
+      const timeoutMs = boundedInteger(command.timeoutMs, DEFAULT_WAIT_MS, MIN_WAIT_MS, MAX_WAIT_MS);
+      selectedId = await waitForDownload(sessionId, selectedId, timeoutMs, signal);
     }
     const recorded = downloads(sessionId);
     if (recorded.length === 0) return { text: 'No downloads this session.' };
@@ -159,35 +197,7 @@ export function createBrowserDownloads(host: BrowserDownloadsHost) {
     if (selected.state !== 'completed') {
       throw new Error(`download ${selected.id} is ${selected.state}; wait for completion before attaching`);
     }
-    const handle = await open(selected.path, 'r');
-    let data: Buffer;
-    try {
-      signal?.throwIfAborted();
-      const info = await handle.stat();
-      signal?.throwIfAborted();
-      if (!info.isFile()) throw new Error(`download ${selected.id} is not a readable file`);
-      if (info.size > attachMaxBytes) {
-        throw new Error(
-          `download ${selected.id} is ${info.size} bytes; inline attachment limit is ${attachMaxBytes} bytes. Use read with path ${selected.path}`
-        );
-      }
-      data = Buffer.alloc(info.size);
-      let offset = 0;
-      while (offset < data.length) {
-        signal?.throwIfAborted();
-        const { bytesRead } = await handle.read(data, offset, data.length - offset, offset);
-        if (!bytesRead) break;
-        offset += bytesRead;
-      }
-      signal?.throwIfAborted();
-      const after = await handle.stat();
-      signal?.throwIfAborted();
-      if (after.size !== info.size || offset !== info.size) {
-        throw new Error(`download ${selected.id} changed while it was being attached; retry`);
-      }
-    } finally {
-      await handle.close();
-    }
+    const data = await readDownloadForAttachment(selected, attachMaxBytes, signal);
     signal?.throwIfAborted();
     result.text += `\n\nAttached download ${selected.id} as ${selected.file}.`;
     result.file = {

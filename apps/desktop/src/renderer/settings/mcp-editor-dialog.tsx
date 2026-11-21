@@ -211,6 +211,58 @@ function useAuthProbe(
   return { probing, probeResult, recheck };
 }
 
+interface McpPayloadInput {
+  editing: boolean;
+  originalName: string;
+  transport: string;
+  accountOwners: Record<string, string>;
+  takenNames: string[];
+  args: string[];
+  env: PairRow[];
+  envVars: string[];
+  headers: PairRow[];
+  envHeaders: PairRow[];
+}
+
+/** Validates the form and shapes the save payload for the chosen transport; throws the message the form shows. */
+function buildMcpPayload(data: FormData, input: McpPayloadInput): RecordValue {
+  const { editing, transport } = input;
+  const field = (key: string) => String(data.get(key) || '').trim();
+  const payload: RecordValue = {
+    ...(editing ? { originalName: input.originalName } : {}),
+    name: field('mcp-name'),
+    type: transport,
+  };
+  if (!editing && Object.hasOwn(input.accountOwners, String(payload.name))) {
+    throw new Error(
+      t('The name "{{name}}" is used by a {{connector}} account. Choose another name.', {
+        name: String(payload.name),
+        connector: input.accountOwners[String(payload.name)],
+      })
+    );
+  }
+  if (!editing && input.takenNames.includes(String(payload.name))) {
+    throw new Error(t('MCP server "{{name}}" already exists.', { name: String(payload.name) }));
+  }
+  if (transport === 'stdio') {
+    payload.command = field('mcp-command');
+    payload.args = input.args.map((value) => value.trim()).filter(Boolean);
+    payload.env = pairRecord(input.env, t('Environment'));
+    payload.env_vars = input.envVars.map((value) => value.trim()).filter(Boolean);
+    payload.cwd = field('mcp-cwd');
+  } else {
+    payload.url = field('mcp-url');
+    payload.headers = pairRecord(input.headers, t('Headers'));
+    payload.bearer_token_env_var = field('mcp-bearer-token-env');
+    payload.env_http_headers = pairRecord(input.envHeaders, t('Environment-backed headers'));
+    payload.oauthClientId = field('mcp-oauth-client-id');
+    // Sent only when typed: the host keeps it in the keychain, never here.
+    const secret = field('mcp-oauth-client-secret');
+    if (secret) payload.oauthClientSecret = secret;
+  }
+  return payload;
+}
+
 export function McpEditorDialog({
   server,
   busy: busyProp,
@@ -283,41 +335,20 @@ export function McpEditorDialog({
   const { probing, probeResult, recheck } = useAuthProbe(probeUrl, onProbe);
   const save = (form: HTMLFormElement, connectAfter: boolean) => {
     if (autoDetect) return;
-    const data = new FormData(form);
     const fail = (error: unknown) => setFormError(error instanceof Error ? error.message : String(error));
     try {
-      const payload: RecordValue = {
-        ...(editing ? { originalName: name } : {}),
-        name: String(data.get('mcp-name') || '').trim(),
-        type: transport,
-      };
-      if (!editing && Object.hasOwn(accountOwners, String(payload.name))) {
-        throw new Error(
-          t('The name "{{name}}" is used by a {{connector}} account. Choose another name.', {
-            name: String(payload.name),
-            connector: accountOwners[String(payload.name)],
-          })
-        );
-      }
-      if (!editing && takenNames.includes(String(payload.name))) {
-        throw new Error(t('MCP server "{{name}}" already exists.', { name: String(payload.name) }));
-      }
-      if (transport === 'stdio') {
-        payload.command = String(data.get('mcp-command') || '').trim();
-        payload.args = args.map((value) => value.trim()).filter(Boolean);
-        payload.env = pairRecord(env, t('Environment'));
-        payload.env_vars = envVars.map((value) => value.trim()).filter(Boolean);
-        payload.cwd = String(data.get('mcp-cwd') || '').trim();
-      } else {
-        payload.url = String(data.get('mcp-url') || '').trim();
-        payload.headers = pairRecord(headers, t('Headers'));
-        payload.bearer_token_env_var = String(data.get('mcp-bearer-token-env') || '').trim();
-        payload.env_http_headers = pairRecord(envHeaders, t('Environment-backed headers'));
-        payload.oauthClientId = String(data.get('mcp-oauth-client-id') || '').trim();
-        // Sent only when typed: the host keeps it in the keychain, never here.
-        const secret = String(data.get('mcp-oauth-client-secret') || '').trim();
-        if (secret) payload.oauthClientSecret = secret;
-      }
+      const payload = buildMcpPayload(new FormData(form), {
+        editing,
+        originalName: name,
+        transport,
+        accountOwners,
+        takenNames,
+        args,
+        env,
+        envVars,
+        headers,
+        envHeaders,
+      });
       setFormError('');
       void Promise.resolve(onSave(payload))
         .then(() => {

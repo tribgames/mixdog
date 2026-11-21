@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import type { BrowserWindow } from 'electron';
+import { errorMessage } from './error-message';
 import { loadWindowModule } from './native-module';
 
 const WM_NCACTIVATE = 0x0086;
@@ -42,10 +43,6 @@ export function micaLibraryPath(environment: { isPackaged: boolean; resourcesPat
         'release',
         MICA_BUILD_FILE
       );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 interface MicaModule {

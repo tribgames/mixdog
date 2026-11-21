@@ -1,7 +1,3 @@
-// Opens the whole-PC screen view on a paired phone. Two entries share it: the
-// takeover card's "Open" (a Computer Use hand-off) and the ⋯ menu's "View
-// entire PC screen". The app shell mounts one host that reads this store, so
-// a request works whether or not the view was open before.
 import { useSyncExternalStore } from 'react';
 
 import type { DesktopApi } from '../shared/contract';

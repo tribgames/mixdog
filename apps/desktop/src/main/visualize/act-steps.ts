@@ -1,10 +1,4 @@
-/**
- * The agent `visualize` tool's `act`: an ordered, bounded list of steps run on
- * one HTML pane of a tab. Main runs the loop (timeouts, waits, the time
- * limit); each step is one script the pane's frame runs, so a step works the
- * same in the side panel's frame and in an off-screen window. Input is
- * simulated in the page (synthetic DOM events), never real OS input.
- */
+import { sleep as hostSleep } from './host-frames';
 
 export const MAX_ACT_STEPS = 25;
 /** The time all steps of one `act` may take together, ms. */
@@ -58,7 +52,7 @@ export interface ActStepOutcome {
 export const actScriptStillRunning = (outcomes: readonly ActStepOutcome[]): boolean =>
   outcomes.some((outcome) => outcome.scriptRunning === true);
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 function stepText(value: unknown, name: string, max: number, trim = true): string {
@@ -305,8 +299,6 @@ export function actEvaluateScript(script: string): string {
 
 type PageAnswer = { ok?: unknown; detail?: unknown; found?: unknown; value?: unknown; cut?: unknown; error?: unknown };
 
-const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
 class StepFailure extends Error {}
 
 /** An evaluate that timed out: page scripts cannot be stopped, so it may
@@ -351,7 +343,7 @@ export async function runActSteps(
   exec: (script: string) => Promise<unknown>,
   options: { budgetMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number } = {}
 ): Promise<ActStepOutcome[]> {
-  const { budgetMs = ACT_BUDGET_MS, sleep = defaultSleep, now = Date.now } = options;
+  const { budgetMs = ACT_BUDGET_MS, sleep = hostSleep, now = Date.now } = options;
   const end = now() + budgetMs;
   const limit = `the act time limit (${budgetMs / 1000} s for all steps)`;
   const left = () => {

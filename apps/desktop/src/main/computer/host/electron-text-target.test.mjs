@@ -200,3 +200,38 @@ test('a failed preparatory click retains uncertainty and never sends app-owned t
     }
   }
 });
+
+test('a saved-login worker step is authorized, merged into the worker request and refused unavailable before any write', async () => {
+  const { createInputDispatch } = await import('./input-dispatch.ts');
+  const requests = [];
+  const dispatch = createInputDispatch(
+    {
+      assertExecutionNotAborted() {},
+      isObserveOnly: () => false,
+      sessionIdFor: () => 'saved-login-fixture',
+      callPowerShell: async (request) => {
+        requests.push(request);
+        return { ok: true, result: { action: request.action } };
+      },
+    },
+    { assertAction() {}, dispatchAuthority: () => ({ authorization_expires_at: 7 }) }
+  );
+  const target = { targetWindowId: 'hwnd:0x1', allowedWindowIds: ['hwnd:0x1'] };
+  const checked = await dispatch(
+    { action: 'fill_saved_login', saved_login_step: 'check', field: 'password' },
+    'fill_saved_login',
+    target
+  );
+  assert.equal(checked.result.action, 'saved_login_check');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].action, 'saved_login_check');
+  assert.equal(requests[0].field, 'password');
+  assert.equal(requests[0].text, null);
+  assert.equal(requests[0].authorization_expires_at, 7);
+  assert.equal(requests[0].session_id, 'saved-login-fixture');
+  await assert.rejects(
+    dispatch({ action: 'fill_saved_login', saved_login_step: 'type', field: 'password' }, 'fill_saved_login', target),
+    /saved_login_unavailable/
+  );
+  assert.equal(requests.length, 1);
+});

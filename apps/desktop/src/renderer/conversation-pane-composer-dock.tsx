@@ -167,16 +167,8 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
   const routeScope = String(routeSnapshot.sessionId || routeProject || 'new-task');
   const { actions } = submission;
   const userMessages = useComposerUserMessages(props.settledItems);
-  // A plain message sent while a question waits answers it (with the card's
-  // picks); an attachment or slash command closes the question and goes out
-  // as a new request the agent reads after it. In a bot chat the question may
-  // be a handed-off session's (use-conversation-approvals.tsx `wrapSubmit`).
   const { wrapSubmit } = island;
   const submit = useMemo(() => wrapSubmit(actions.composerSubmit), [wrapSubmit, actions.composerSubmit]);
-  // An existing coding session has no context bar: its workflow and
-  // delegation mode are rows of the model menu and switch that session
-  // alone — at once between turns, from the next response while one runs
-  // (never refused). Agent mode has neither.
   const sessionChoices = useSessionRouteChoices({
     sessionId: draftMode || agentMode ? '' : String(routeSnapshot.sessionId || ''),
     workflow: (routeSnapshot.workflow as RecordValue | null) ?? null,

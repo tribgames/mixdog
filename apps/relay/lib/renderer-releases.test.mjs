@@ -183,106 +183,115 @@ async function until(predicate) {
   }
 }
 
-test('the relay serves each device the renderer release for its reported desktop version', async () => {
+async function withRelay(run) {
   const fixture = await releaseFixture();
-  const dataDir = join(fixture.root, 'data');
-  let relay = await startRelay({
-    port: 0,
-    dataDir,
-    rendererDir: fixture.rendererDir,
-    rendererReleasesDir: fixture.releasesDir,
-  });
-  const sockets = [];
-  try {
-    const modern = randomUUID();
-    const silent = randomUUID();
-    sockets.push(await connectDesktop(relay, modern, { appVersion: '2.0.0' }));
-    sockets.push(await connectDesktop(relay, silent, null));
-    await until(() => relay.store.deviceVersion(modern).appVersion === '2.0.0');
-    const origin = `http://127.0.0.1:${relay.port}`;
-    const page = async (id, path = '') => (await fetch(`${origin}/d/${id}/${path}`)).text();
-    assert.match(await page(modern), /<body>new<\/body>/);
-    // An old desktop never reports: it keeps the renderer that shipped before.
-    assert.match(await page(silent), /<body>legacy<\/body>/);
-    assert.match(await page(modern, 'icon.svg'), /<title>new<\/title>/);
-    assert.match(await page(silent, 'icon.svg'), /<title>legacy<\/title>/);
-    assert.match(await page(silent, 'assets/main-12345678.js'), /'legacy'/);
-
-    // Root asset requests follow the device cookie to the same release.
-    const cookie = `mixdog_device=${modern}`;
-    const root = await fetch(`${origin}/sw.js`, { headers: { cookie } });
-    assert.match(await root.text(), /worker new/);
-    assert.match(root.headers.get('vary'), /Cookie/);
-    const legacyRoot = await fetch(`${origin}/sw.js`, { headers: { cookie: `mixdog_device=${silent}` } });
-    assert.match(await legacyRoot.text(), /worker legacy/);
-    // Hashed assets are content-addressed and stay cacheable across releases.
-    const hashed = await fetch(`${origin}/assets/main-12345678.js`, { headers: { cookie } });
-    assert.doesNotMatch(hashed.headers.get('vary'), /Cookie/);
-    assert.match(hashed.headers.get('cache-control'), /immutable/);
-    // Service worker and shell never share a validator between releases.
-    const etagNew = (await fetch(`${origin}/d/${modern}/sw.js`)).headers.get('etag');
-    const etagOld = (await fetch(`${origin}/d/${silent}/sw.js`)).headers.get('etag');
-    assert.notEqual(etagNew, etagOld);
-
-    // The reported version is on disk: a restarted relay routes before the
-    // desktop has redialed.
-    for (const socket of sockets) socket.terminate();
-    await relay.close();
-    relay = await startRelay({
-      port: 0,
-      dataDir,
-      rendererDir: fixture.rendererDir,
-      rendererReleasesDir: fixture.releasesDir,
-    });
-    const restarted = `http://127.0.0.1:${relay.port}`;
-    assert.match(await (await fetch(`${restarted}/d/${modern}/`)).text(), /<body>new<\/body>/);
-    assert.match(await (await fetch(`${restarted}/d/${silent}/`)).text(), /<body>legacy<\/body>/);
-    // A device's version is learned again when its desktop upgrades.
-    const upgraded = await connectDesktop(relay, silent, { appVersion: '2.0.1', rendererRelease: fixture.shells.new });
-    sockets.push(upgraded);
-    await until(() => relay.store.deviceVersion(silent).appVersion === '2.0.1');
-    const pending = await fetch(`${restarted}/d/${silent}/`, { headers: { 'user-agent': 'MixdogApp/1.4.0' } });
-    assert.equal(pending.status, 200);
-    assert.equal(pending.headers.get('cache-control'), 'no-store');
-    assert.match(await pending.text(), /web client for this PC version is unavailable/);
-    // Readiness reports every retained release.
-    const ready = await (await fetch(`${restarted}/readyz`)).json();
-    assert.deepEqual(
-      ready.releases.map((release) => release.id),
-      ['legacy', '2.0.0-new']
-    );
-  } finally {
-    for (const socket of sockets) socket.terminate();
-    await relay.close();
-    await rm(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test('the phone app gets the update-PC page instead of the legacy renderer', async () => {
-  const fixture = await releaseFixture();
-  const relay = await startRelay({
+  const options = {
     port: 0,
     dataDir: join(fixture.root, 'data'),
     rendererDir: fixture.rendererDir,
     rendererReleasesDir: fixture.releasesDir,
-  });
+  };
   const sockets = [];
+  const context = { fixture, relay: await startRelay(options) };
+  context.origin = () => `http://127.0.0.1:${context.relay.port}`;
+  context.connect = async (version) => {
+    const id = randomUUID();
+    sockets.push(await connectDesktop(context.relay, id, version));
+    if (version?.appVersion) await until(() => context.relay.store.deviceVersion(id).appVersion === version.appVersion);
+    return id;
+  };
+  context.restart = async () => {
+    for (const socket of sockets) socket.terminate();
+    await context.relay.close();
+    context.relay = await startRelay(options);
+  };
   try {
-    const stale = randomUUID();
-    const silent = randomUUID();
-    const modern = randomUUID();
-    sockets.push(await connectDesktop(relay, stale, { appVersion: '1.0.0' }));
-    sockets.push(await connectDesktop(relay, silent, null));
-    sockets.push(await connectDesktop(relay, modern, { appVersion: '2.0.0' }));
-    await until(
-      () => relay.store.deviceVersion(stale).appVersion === '1.0.0' && relay.store.deviceVersion(modern).appVersion
-    );
-    const origin = `http://127.0.0.1:${relay.port}`;
-    const appUa = { 'user-agent': 'Mozilla/5.0 (iPhone) MixdogApp/1.4.0' };
-    const browserUa = { 'user-agent': 'Mozilla/5.0 (iPhone) Safari/605.1.15' };
-    const get = (id, path, headers) => fetch(`${origin}/d/${id}/${path}`, { headers });
+    await run(context);
+  } finally {
+    for (const socket of sockets) socket.terminate();
+    await context.relay.close();
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+}
 
-    const update = await get(stale, '', appUa);
+const pageOf = async (origin, id, path = '') => (await fetch(`${origin}/d/${id}/${path}`)).text();
+
+test('the relay serves each device the renderer release for its reported desktop version', () =>
+  withRelay(async ({ connect, origin }) => {
+    const modern = await connect({ appVersion: '2.0.0' });
+    const silent = await connect(null);
+    assert.match(await pageOf(origin(), modern), /<body>new<\/body>/);
+    // An old desktop never reports: it keeps the renderer that shipped before.
+    assert.match(await pageOf(origin(), silent), /<body>legacy<\/body>/);
+    assert.match(await pageOf(origin(), modern, 'icon.svg'), /<title>new<\/title>/);
+    assert.match(await pageOf(origin(), silent, 'icon.svg'), /<title>legacy<\/title>/);
+    assert.match(await pageOf(origin(), silent, 'assets/main-12345678.js'), /'legacy'/);
+  }));
+
+test('root asset requests follow the device cookie to the same release', () =>
+  withRelay(async ({ connect, origin }) => {
+    const modern = await connect({ appVersion: '2.0.0' });
+    const silent = await connect(null);
+    const root = await fetch(`${origin()}/sw.js`, { headers: { cookie: `mixdog_device=${modern}` } });
+    assert.match(await root.text(), /worker new/);
+    assert.match(root.headers.get('vary'), /Cookie/);
+    const legacyRoot = await fetch(`${origin()}/sw.js`, { headers: { cookie: `mixdog_device=${silent}` } });
+    assert.match(await legacyRoot.text(), /worker legacy/);
+  }));
+
+test('hashed assets are content-addressed and stay cacheable across releases', () =>
+  withRelay(async ({ connect, origin }) => {
+    const modern = await connect({ appVersion: '2.0.0' });
+    const hashed = await fetch(`${origin()}/assets/main-12345678.js`, {
+      headers: { cookie: `mixdog_device=${modern}` },
+    });
+    assert.doesNotMatch(hashed.headers.get('vary'), /Cookie/);
+    assert.match(hashed.headers.get('cache-control'), /immutable/);
+  }));
+
+test('the service worker never shares a validator between releases', () =>
+  withRelay(async ({ connect, origin }) => {
+    const modern = await connect({ appVersion: '2.0.0' });
+    const silent = await connect(null);
+    const etagNew = (await fetch(`${origin()}/d/${modern}/sw.js`)).headers.get('etag');
+    const etagOld = (await fetch(`${origin()}/d/${silent}/sw.js`)).headers.get('etag');
+    assert.notEqual(etagNew, etagOld);
+  }));
+
+test('a restarted relay routes by the persisted version before the desktop redials', () =>
+  withRelay(async ({ connect, origin, restart }) => {
+    const modern = await connect({ appVersion: '2.0.0' });
+    const silent = await connect(null);
+    await restart();
+    assert.match(await pageOf(origin(), modern), /<body>new<\/body>/);
+    assert.match(await pageOf(origin(), silent), /<body>legacy<\/body>/);
+  }));
+
+test('a device version is learned again when its desktop upgrades', () =>
+  withRelay(async ({ fixture, connect, origin }) => {
+    const upgraded = await connect({ appVersion: '2.0.1', rendererRelease: fixture.shells.new });
+    const pending = await fetch(`${origin()}/d/${upgraded}/`, { headers: { 'user-agent': 'MixdogApp/1.4.0' } });
+    assert.equal(pending.status, 200);
+    assert.equal(pending.headers.get('cache-control'), 'no-store');
+    assert.match(await pending.text(), /web client for this PC version is unavailable/);
+  }));
+
+test('readiness reports every retained release', () =>
+  withRelay(async ({ origin }) => {
+    const ready = await (await fetch(`${origin()}/readyz`)).json();
+    assert.deepEqual(
+      ready.releases.map((release) => release.id),
+      ['legacy', '2.0.0-new']
+    );
+  }));
+
+const appUa = { 'user-agent': 'Mozilla/5.0 (iPhone) MixdogApp/1.4.0' };
+const browserUa = { 'user-agent': 'Mozilla/5.0 (iPhone) Safari/605.1.15' };
+
+test('the phone app gets the update-PC page instead of the legacy renderer for an unsupported desktop', () =>
+  withRelay(async ({ connect, origin }) => {
+    const stale = await connect({ appVersion: '1.0.0' });
+    const update = await fetch(`${origin()}/d/${stale}/`, { headers: appUa });
     const html = await update.text();
     assert.equal(update.status, 200);
     assert.equal(update.headers.get('cache-control'), 'no-store');
@@ -292,36 +301,50 @@ test('the phone app gets the update-PC page instead of the legacy renderer', asy
     assert.doesNotMatch(html, /<body>legacy<\/body>/);
     assert.match(html, /openHostPicker/);
     assert.match(html, /location\.reload\(\)/);
+  }));
 
-    // A PC that never reported a version is unknown, not blank.
-    const unknown = await (await get(silent, '', appUa)).text();
+test('a PC that never reported a version is unknown, not blank', () =>
+  withRelay(async ({ connect, origin }) => {
+    const silent = await connect(null);
+    const unknown = await (await fetch(`${origin()}/d/${silent}/`, { headers: appUa })).text();
     assert.match(unknown, /data-current="" data-min="2\.0\.0"/);
     assert.match(unknown, /PC version unknown/);
     assert.match(unknown, /PC 버전 알 수 없음/);
+  }));
 
-    // An extension-less deep link is the SPA index document too.
-    assert.match(await (await get(stale, 'some/deep/link', appUa)).text(), /Update Mixdog on your PC/);
-    assert.match(await (await get(stale, 'some/deep/link', browserUa)).text(), /Web client unavailable/);
+test('an extension-less deep link is the SPA index document too', () =>
+  withRelay(async ({ connect, origin }) => {
+    const stale = await connect({ appVersion: '1.0.0' });
+    assert.match(
+      await (await fetch(`${origin()}/d/${stale}/some/deep/link`, { headers: appUa })).text(),
+      /Update Mixdog on your PC/
+    );
+    assert.match(
+      await (await fetch(`${origin()}/d/${stale}/some/deep/link`, { headers: browserUa })).text(),
+      /Web client unavailable/
+    );
+  }));
 
-    // Only a top-level document: Fetch Metadata, when sent, must say so.
+test('the update page is only for a top-level document', () =>
+  withRelay(async ({ connect, origin }) => {
+    const stale = await connect({ appVersion: '1.0.0' });
+    const get = (headers) => fetch(`${origin()}/d/${stale}/`, { headers: { ...appUa, ...headers } });
     for (const dest of ['empty', 'iframe']) {
-      const sub = await get(stale, '', { ...appUa, 'sec-fetch-dest': dest });
-      assert.match(await sub.text(), /Web client unavailable/, dest);
+      assert.match(await (await get({ 'sec-fetch-dest': dest })).text(), /Web client unavailable/, dest);
     }
-    const document = await get(stale, '', { ...appUa, 'sec-fetch-dest': 'document' });
-    assert.match(await document.text(), /Update Mixdog on your PC/);
+    assert.match(await (await get({ 'sec-fetch-dest': 'document' })).text(), /Update Mixdog on your PC/);
+  }));
 
-    // A supported or unidentified old PC can still load its shell. An unmatched
-    // version cannot get private assets from another release.
+test('a supported or unidentified old PC still loads its shell, an unmatched one gets no private assets', () =>
+  withRelay(async ({ connect, origin }) => {
+    const stale = await connect({ appVersion: '1.0.0' });
+    const silent = await connect(null);
+    const modern = await connect({ appVersion: '2.0.0' });
+    const get = (id, path, headers) => fetch(`${origin()}/d/${id}/${path}`, { headers });
     assert.match(await (await get(modern, '', appUa)).text(), /<body>new<\/body>/);
     assert.match(await (await get(silent, '', browserUa)).text(), /<body>legacy<\/body>/);
     assert.equal((await get(stale, 'assets/main-12345678.js', appUa)).status, 404);
-  } finally {
-    for (const socket of sockets) socket.terminate();
-    await relay.close();
-    await rm(fixture.root, { recursive: true, force: true });
-  }
-});
+  }));
 
 test('the update page escapes the versions it prints', async () => {
   const { renderUpdatePcPage } = await import('./update-pc-page.mjs');

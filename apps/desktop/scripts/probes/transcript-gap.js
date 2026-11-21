@@ -2,25 +2,6 @@
 //
 //   node scripts/dom-eval.mjs --port=9342 scripts/probes/transcript-gap.js
 //
-// Drives each scenario itself in the visible conversation pane and samples
-// every PAINTED frame (read in the task right after the frame) for a bounded
-// window: the gap between the last transcript row and the top of the topmost
-// visible bottom chrome (island, quota card, /btw card, queue tray, context
-// bar, composer), the scroller's scrollTop/scrollHeight/clientHeight and the
-// dock height. Chrome is driven with stand-in nodes carrying the real class
-// names (so the real CSS and the real end pin react), the textarea through
-// its native input path, the session switch and the reading release through
-// real clicks/wheel events. Every stand-in and the typed draft are restored.
-//
-// The gap is measured to the dock's top (the transcript/dock boundary);
-// chromeGap is the same to the topmost visible chrome member. Island
-// scenarios sample ISLAND_FRAMES, which spans the collapse grace and the
-// slot's height easing; `frames` lists gap/clientHeight/scrollTop per frame.
-// `resized` holds the same reads taken inside every resize delivery (after
-// the timeline's observer and its end pin) — what each frame paints. A
-// post-paint sample can occasionally read the NEXT frame's animation tick
-// before its pin has run; that state is never painted.
-//
 // Optional, from an earlier eval: window.__transcriptGapScenarios = ['island', ...]
 // and window.__transcriptGapSessions = [overflowingLeadRow, otherLeadRow].
 (async () => {

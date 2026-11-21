@@ -4,6 +4,7 @@ import { sleep } from '../shared/common';
 import { capturePayload, actionPayload, ocrMark } from './scenario-ocr';
 import { eventually, runScenario } from './scenario-runtime';
 import type { ScenarioGroup } from './scenario-context';
+import { windowIdWhere } from './window-listing';
 
 export const externalScenarios: ScenarioGroup = {
   S19: async (ctx) => {
@@ -12,20 +13,19 @@ export const externalScenarios: ScenarioGroup = {
       try {
         const externalPid = externalChild?.pid;
         assert.ok(externalPid, 'external Electron process PID is unavailable');
-        const externalLine = (text: string) =>
-          text
-            .split(/\r?\n/)
-            .find(
-              (line) =>
-                /\|\s+app=electron\b/i.test(line) &&
-                /Chrome_WidgetWin/i.test(line) &&
-                (line.includes(`pid=${externalPid}`) ||
-                  line.includes('"Electron"') ||
-                  line.includes('"Mixdog External Electron Fixture"'))
-            ) || '';
+        const externalWindowIdIn = (text: string) =>
+          windowIdWhere(
+            text,
+            (line) =>
+              /\|\s+app=electron\b/i.test(line) &&
+              /Chrome_WidgetWin/i.test(line) &&
+              (line.includes(`pid=${externalPid}`) ||
+                line.includes('"Electron"') ||
+                line.includes('"Mixdog External Electron Fixture"'))
+          );
         const listed = await eventually(
           async () => (await command({ action: 'list_windows' }, 'external-type')).text,
-          (text) => Boolean(externalLine(text)),
+          (text) => Boolean(externalWindowIdIn(text)),
           30_000
         ).catch((error) => {
           let state = '';
@@ -36,7 +36,7 @@ export const externalScenarios: ScenarioGroup = {
           }
           throw new Error(`${(error as Error).message}; external fixture state=${state}`);
         });
-        const externalWindowId = externalLine(listed).match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '';
+        const externalWindowId = externalWindowIdIn(listed);
         assert.ok(externalWindowId);
         const capture = capturePayload(
           await command(

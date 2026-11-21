@@ -4,15 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// Sending in a bot chat: the sent bubble lands with the composer clear, and the
-// durable row the core publishes later replaces it. A chat bubble carries its
-// time under it and a date divider above the day's first message
-// (agent-chat-place.ts), both read from the row's `at`. The optimistic row had
-// none, so it landed as a bare bubble and the durable row grew it by the time
-// line (and the divider) frames later: the followed chat moved a second time
-// (live: +144 px at the send, +19 px when the durable row landed; a day's first
-// message +40 more). The real list, chat rows, typing band, stylesheet and the
-// real submit action run in real Chrome; every painted frame is sampled.
 const resolveDir = fileURLToPath(new URL('.', import.meta.url));
 const loader = { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' };
 

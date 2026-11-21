@@ -1,10 +1,3 @@
-// Provider error kind: one semantic verdict for a thrown provider error,
-// shared by retry policy, account rotation and the UI. Leaf module: it reads
-// the typed fields provider boundaries stamp on errors (status, code,
-// headers, retryAfterMs, resetAt, quotaScope, reauthRequired) and falls back
-// to the older fields (httpStatus, responseFailed, providerError, SDK error
-// bodies, RPC status strings). Message text is consulted only for untyped
-// errors and only for unambiguous wordings.
 import { TIMEOUT_PHASE, isFirstByteTimeout } from './provider-timeout-phase.mjs';
 
 export const PROVIDER_ERROR_KINDS = Object.freeze([
@@ -654,6 +647,7 @@ function messageOf(err, chain) {
  * `options.text:false` skips the message-wording fallbacks, for retry
  * policy that must decide from typed evidence alone. `options.quotaFlags:false`
  * ignores the header-derived providerQuota / quotaExceeded flags.
+ * `options.legacyQuotaWording` lets a fully untyped error read as billing or quota from its wording; presentation only.
  * @returns {{ kind: string, code: string, status: number, retryAfterMs: number|null, resetAt: number|null }}
  */
 export function providerErrorKind(err, options = {}) {
@@ -687,16 +681,7 @@ export function providerErrorKind(err, options = {}) {
   if (quotaFlagged && (!kind || kind === 'rate_limited')) kind = 'quota_exhausted';
   // Wordings, for untyped errors only (a typed code always decides).
   const text = options.text !== false && (!kind || kind === 'invalid_request') ? messageOf(err, chain) : '';
-  // Capacity wording counts only on a typed 429 ("… is at capacity"): it
-  // keeps such a 429 from reading as a rate limit. An untyped 5xx stays an
-  // ordinary transient server fault, whatever its body says. Quota or billing
-  // wording never yields a quota kind: that takes a typed code, a quota flag
-  // or a quota scope (text may refine only the displayed message).
   if (!kind && !codes.length && text && status === 429 && CAPACITY_MESSAGE_RE.test(text)) kind = 'overloaded';
-  // Presentation-only fallback (`legacyQuotaWording`): a fully UNTYPED error
-  // (no status, code, retry advice, quota flag or scope — e.g. persisted
-  // failure text) may still read as a usage limit from unambiguous wording.
-  // Retry, rotation and blocking never enable it.
   if (
     options.legacyQuotaWording === true &&
     !kind &&

@@ -213,11 +213,6 @@ export interface SentAttachmentData {
   paste: boolean;
 }
 
-// A sent user item carries only `images` metadata; the bytes of pasted texts
-// and files live here for the life of the window. Entries are keyed by the
-// submission id (the sent item's `id`, unique per message) plus the prompt
-// token, so a token reused by another message or session never collides and a
-// chip never resolves without its own message's identity.
 const SENT_ATTACHMENT_LIMIT = 64;
 const sentAttachments = new Map<string, SentAttachmentData>();
 

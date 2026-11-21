@@ -1,14 +1,3 @@
-/**
- * Bringing one CDP session (root document or child frame) up: the safety
- * boundary first (dialog bridge, page guards, Fetch patterns), then the quiet
- * domains in the background. Also the Fetch
- * pattern refresh that has to reach every attached session.
- *
- * A page someone is only browsing sees no more of the debugger than Chrome
- * shows: no script context, console or accessibility observation. Those come
- * up while an agent command drives the page and go down again once it has
- * been left alone for a while (see `drive`).
- */
 import type { WebContents } from 'electron';
 
 import { CHROME_LIKENESS_SCRIPT, PERMISSION_STATE_PATTERN } from './chrome-likeness';

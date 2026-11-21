@@ -19,7 +19,7 @@ import {
   replaceQueuedRestorePrefix,
 } from '../../../../src/tui/components/prompt-input/restore-policy.mjs';
 
-test('queued follow-up Escape behavior keeps queue priority and handoff', () => {
+test('queued follow-up Escape keeps queue priority', () => {
   assert.equal(
     classifyPromptEscape({
       interruptActive: true,
@@ -48,6 +48,9 @@ test('queued follow-up Escape behavior keeps queue priority and handoff', () => 
     }).action,
     'restore-queue'
   );
+});
+
+test('restoring a queued follow-up puts it before the current draft', () => {
   assert.deepEqual(
     mergeQueuedRestoreDraft('queued follow-up', {
       value: 'current draft',
@@ -60,7 +63,9 @@ test('queued follow-up Escape behavior keeps queue priority and handoff', () => 
       selectionAnchor: null,
     }
   );
+});
 
+test('an accepted prompt interrupts, except while a draft materializes', () => {
   assert.equal(
     shouldInterruptPrompt({
       turnBusy: false,

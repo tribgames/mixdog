@@ -1,7 +1,3 @@
-// Navigation that works without a language server: definitions, references and
-// the outline come from the code graph, and an LSP answer is preferred whenever
-// the pane has one. Registered once per language, plus the opener Monaco's own
-// peek widgets use to hand a cross-file target back to the pane.
 import { monaco } from './monaco-setup';
 import {
   codeGraphDocumentSymbols,

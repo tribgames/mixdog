@@ -1,8 +1,3 @@
-// Pane strip dock toggles: ONE button per right-side dock child (session Diff,
-// Browser Use, Terminal, …) at the strip's right end. The strip is
-// the only place that names the pane's utility children; the dock header does
-// not repeat them. A press opens the dock on that child; pressing the child that
-// is already showing folds the unit.
 import { startTransition, useEffect, useState } from 'react';
 import { FolderTree } from 'lucide-react';
 import { t } from './i18n';
@@ -25,6 +20,31 @@ export const SESSION_BOUND_VIEWS: readonly WorkbenchSideViewId[] = [
   'terminal',
   'agent-session',
 ];
+
+type ToggleTarget = WorkbenchSideViewId | 'files';
+
+/** Phone tap feedback: the pressed state is the strip's own, set on the tap,
+ *  while the dock opens in a transition behind it, so the heavy pane render
+ *  never gates the toggle's first frame. The tap is dropped when the shell
+ *  answers (`activeRoot` / `filesActive` change) or after a second. */
+function useTapFeedback(activeRoot: WorkbenchSideViewId | null, filesActive: boolean | undefined) {
+  const [tapped, setTapped] = useState<{ root: ToggleTarget; pressed: boolean } | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the shell's answer is the settle trigger; the body does not read it
+  useEffect(() => setTapped(null), [activeRoot, filesActive]);
+  useEffect(() => {
+    if (!tapped) return undefined;
+    const timer = window.setTimeout(() => setTapped(null), 1000);
+    return () => window.clearTimeout(timer);
+  }, [tapped]);
+  const pressedOf = (root: ToggleTarget, shellPressed: boolean) =>
+    tapped ? tapped.pressed && tapped.root === root : shellPressed;
+  const press = (root: ToggleTarget, pressed: boolean, apply: () => void) => {
+    if (!isMobileRemoteSurface()) return apply();
+    setTapped({ root, pressed });
+    startTransition(apply);
+  };
+  return { pressedOf, press };
+}
 
 export function PaneDockToggles({
   groups,
@@ -50,25 +70,7 @@ export function PaneDockToggles({
     const descriptor = root === undefined ? undefined : descriptors.get(root);
     return root !== undefined && descriptor ? [{ root, descriptor }] : [];
   });
-  // Phone tap feedback: the pressed state is this component's own, set on the
-  // tap, while the dock itself opens in a transition behind it — the heavy
-  // pane render never gates the toggle's first frame. The tap is dropped when
-  // the shell's own answer (activeRoot / files.active) arrives or after a beat.
-  const [tapped, setTapped] = useState<{ root: WorkbenchSideViewId | 'files'; pressed: boolean } | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the shell's answer is the settle trigger; the body does not read it
-  useEffect(() => setTapped(null), [activeRoot, files?.active]);
-  useEffect(() => {
-    if (!tapped) return undefined;
-    const timer = window.setTimeout(() => setTapped(null), 1000);
-    return () => window.clearTimeout(timer);
-  }, [tapped]);
-  const pressedOf = (root: WorkbenchSideViewId | 'files', shellPressed: boolean) =>
-    tapped ? tapped.pressed && tapped.root === root : shellPressed;
-  const press = (root: WorkbenchSideViewId | 'files', pressed: boolean, apply: () => void) => {
-    if (!isMobileRemoteSurface()) return apply();
-    setTapped({ root, pressed });
-    startTransition(apply);
-  };
+  const { pressedOf, press } = useTapFeedback(activeRoot, files?.active);
   const filesLabel = t('Files');
   const { isVisible, menuProps, menu } = useDockVisibilityMenu(
     [

@@ -1,7 +1,3 @@
-// Host-side media resolution shared by the two byte lanes on this machine:
-// the Electron `mixdog-media://` protocol and the relay leg's media lane.
-// Both need a FILE (path + mime), never a base64 payload — that is the whole
-// point of moving gallery bytes off the RPC lane.
 import type { DesktopService } from './desktop-service-contract';
 
 interface MediaFileTarget {

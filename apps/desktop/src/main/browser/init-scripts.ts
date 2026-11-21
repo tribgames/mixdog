@@ -1,11 +1,3 @@
-/**
- * Scripts registered to run at the start of every navigation on a page.
- *
- * This is the one moment `evaluate` can never reach: an evaluated script always
- * arrives after the document has already booted, so anything a page reads
- * during startup — a feature flag, a stubbed clock, a seeded token — has to be
- * installed before that navigation begins rather than repaired afterwards.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';

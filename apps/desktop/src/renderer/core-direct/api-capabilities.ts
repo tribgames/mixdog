@@ -1,7 +1,3 @@
-// invokeCapability and readCapabilities of the renderer's direct API: the session capability lane over this window's core
-// connection (the one main ran in ipc-window-settings.ts), plus what only the Electron host can add around it: the
-// human-only confirmation that turns on "Allow all actions", the sign-in raise of the window, and a server window's
-// provider quota, which is this PC's. Input checks live in the core; a failure is mapped as the IPC path returned it.
 import type {
   DesktopCapabilityReadRequest,
   DesktopCapabilityReadResult,

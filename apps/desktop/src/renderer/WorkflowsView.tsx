@@ -32,12 +32,6 @@ type WorkflowsApi = Partial<
   Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'getSnapshot' | 'setModelRoute'>
 >;
 
-// Agents have exactly two states: a pinned model, or off. "Follows Main" is
-// reserved for Web Search, whose row keeps its own default marker route.
-// listWorkflows/listAgents/quickProviderModels are the same shared snapshots
-// Schedules and Webhooks read, so entering this panel costs nothing extra.
-// Workflow and agent configuration has its own rail destination. The sidebar
-// surface owns the panel wrapper; this body renders its lists and popup editors.
 export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { api?: WorkflowsApi; active?: boolean }) {
   // App pre-mounts rail destinations while idle, and boot prewarms these keys,
   // so a normal first click is already a warm, atomic reveal.

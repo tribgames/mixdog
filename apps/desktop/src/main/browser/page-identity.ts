@@ -1,10 +1,3 @@
-/** What the in-app browser already knows about the pages it showed — title,
- *  site icon and a small screenshot — so transcript links and cards can name
- *  a page the way its tab did. Fed by the browser's own guests, and for a
- *  page card with nothing recorded, by that page's own markup read through
- *  the browser session (page-preview); never by an outside favicon or preview
- *  service. Bounded; a snapshot carries it across restarts
- *  (page-identity-file). */
 import type { WebContents } from 'electron';
 import type { DesktopBrowserPageIdentity } from '../../shared/contract';
 import { isHttpUrl } from './favicon-fetch';

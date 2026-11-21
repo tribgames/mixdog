@@ -379,7 +379,7 @@ test('only the desktop that bound a token to its own paired client can send to i
   assert.equal(b.socket.sent.at(-1).error, 'unbound-token');
 });
 
-test('one phone token paired with two desktops: both deliver, and revoking one leaves the other', async () => {
+function twoDesktopsBoundToOneToken() {
   const paired = { 'dev-a': ['client-1'], 'dev-b': ['client-9'] };
   const store = clientsOf(paired);
   const push = fakeNativePush();
@@ -388,30 +388,41 @@ test('one phone token paired with two desktops: both deliver, and revoking one l
   const b = connectDesktop({ deviceId: 'dev-b', store, bindings, nativePush: push });
   a.emit(bind());
   b.emit(bind({ clientId: 'client-9' }));
+  return { paired, store, push, bindings, a, b };
+}
+
+test('one phone token paired with two desktops: both deliver', async () => {
+  const { push, a, b } = twoDesktopsBoundToOneToken();
   a.emit(send());
   b.emit(send());
   await settle();
   assert.equal(push.sent.length, 2);
   assert.equal(a.socket.sent.at(-1).ok, true);
   assert.equal(b.socket.sent.at(-1).ok, true);
+});
 
-  // A re-binding does not take B's association over (no last-writer-wins).
+test('a desktop re-binding a shared token does not take the other desktop association over', async () => {
+  const { push, a, b } = twoDesktopsBoundToOneToken();
   a.emit(bind());
   b.emit(send());
   await settle();
-  assert.equal(push.sent.length, 3);
+  assert.equal(push.sent.length, 1);
+  assert.equal(b.socket.sent.at(-1).ok, true);
+});
 
-  // A unbinds: only A's association goes.
+test('unbinding a shared token removes only that desktop association', async () => {
+  const { push, a, b } = twoDesktopsBoundToOneToken();
   a.emit({ type: 'native-push-unbind', token: APNS_TOKEN });
   a.emit(send());
   b.emit(send());
   await settle();
   assert.equal(a.socket.sent.at(-1).error, 'unbound-token');
   assert.equal(b.socket.sent.at(-1).ok, true);
-  assert.equal(push.sent.length, 4);
+  assert.equal(push.sent.length, 1);
+});
 
-  // A re-binds, then its pairing is revoked: B still delivers.
-  a.emit(bind());
+test('revoking a pairing on one desktop leaves the other desktop delivering', async () => {
+  const { paired, store, push, bindings, a, b } = twoDesktopsBoundToOneToken();
   store.revokeClient = (device, client) => {
     paired[device] = paired[device].filter((id) => id !== client);
     return true;
@@ -422,16 +433,18 @@ test('one phone token paired with two desktops: both deliver, and revoking one l
   await settle();
   assert.equal(a.socket.sent.at(-1).error, 'unbound-token');
   assert.equal(b.socket.sent.at(-1).ok, true);
-  assert.equal(push.sent.length, 5);
+  assert.equal(push.sent.length, 1);
   assert.equal(bindings.get(APNS_TOKEN).size, 1);
+});
 
-  // A desktop that never bound the token is still rejected.
+test('a desktop that never bound a shared token is rejected', async () => {
+  const { paired, store, push, bindings } = twoDesktopsBoundToOneToken();
   paired['dev-c'] = ['client-5'];
   const c = connectDesktop({ deviceId: 'dev-c', store, bindings, nativePush: push });
   c.emit(send());
   await settle();
   assert.equal(c.socket.sent.at(-1).error, 'unbound-token');
-  assert.equal(push.sent.length, 5);
+  assert.equal(push.sent.length, 0);
 });
 
 test('a single-binding (legacy) entry is still honoured and upgraded on use', async () => {

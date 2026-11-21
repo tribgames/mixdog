@@ -1,10 +1,3 @@
-/**
- * `host/browser/command{action, input, threadId}` → result. The core owns the
- * tool contract, approvals and grants; this host runs the command on the
- * in-app browser through the same runner the loopback bridge used, so
- * results and redaction are unchanged. A failure is a JSON-RPC error whose
- * message is redacted and whose `data.timing` carries the failure timing.
- */
 import type { HostCommandParams } from '../../../../../packages/protocol/src/index.ts';
 import type { DesktopRemoteBrowserControl } from '../../shared/contract';
 import {
@@ -76,11 +69,46 @@ export const BROWSER_INPUT_ACTION = 'input';
 export const BROWSER_ENGINE_COMMAND_REFUSED =
   'This desktop serves the browser through the host/browser engine methods; host/browser/command takes no tool action while the core uses them.';
 
-/**
- * `engineMode`: the core drives the browser through the engine lane (it has called an engine method on this
- * connection). The core then never sends a tool action here, so one is refused with a clear error; the
- * non-tool actions (a phone's input, history, tabs, credentials, import) are served in both.
- */
+const redactedMessage = (error: unknown): string => redactBrowserText((error as Error)?.message || String(error));
+
+function invalidParams<T>(check: () => T): T {
+  try {
+    return check();
+  } catch (error) {
+    throw new HostRpcError(HOST_INVALID_PARAMS, (error as Error).message);
+  }
+}
+
+async function commandResult(run: () => Promise<unknown>): Promise<unknown> {
+  try {
+    return (await run()) ?? null;
+  } catch (error) {
+    throw new HostRpcError(HOST_COMMAND_FAILED, redactedMessage(error));
+  }
+}
+
+function serveInputCommand(input: BrowserInputControl, command: BrowserCommand): Promise<unknown> {
+  const { action: _action, session_id, ...fields } = command;
+  if (typeof session_id !== 'string' || !session_id) {
+    throw new HostRpcError(HOST_INVALID_PARAMS, 'host/browser/command input needs a threadId.');
+  }
+  const control = invalidParams(() => normalizeRemoteBrowserControl(fields));
+  // Dispatched with no await before it, so gestures keep their arrival order;
+  // not counted against the command cap, which bounds tool work.
+  return commandResult(() => input.remoteBrowserControl(session_id, control));
+}
+
+function serveRemoteCommand(
+  input: BrowserInputControl,
+  remoteArgs: (session: unknown, fields: Record<string, unknown>) => unknown[],
+  command: BrowserCommand
+): Promise<unknown> {
+  const { action, session_id, ...fields } = command as unknown as Record<string, unknown>;
+  const args = invalidParams(() => remoteArgs(session_id, fields));
+  // As the window-process request path answers: `result ?? null` (main/index.ts, browserRemoteResolve).
+  return commandResult(() => input.remote(action as BrowserRemoteMethod, args));
+}
+
 export function createBrowserCommandHost(
   connection: HostConnection,
   runner: BrowserCommandRunner,
@@ -91,41 +119,9 @@ export function createBrowserCommandHost(
 
   connection.handleRequest(HOST_METHOD.browserCommand, async (params, signal) => {
     const command = toBrowserCommand(params);
-    if (command.action === BROWSER_INPUT_ACTION) {
-      const { action: _action, session_id, ...fields } = command;
-      if (typeof session_id !== 'string' || !session_id) {
-        throw new HostRpcError(HOST_INVALID_PARAMS, 'host/browser/command input needs a threadId.');
-      }
-      let control: DesktopRemoteBrowserControl;
-      try {
-        control = normalizeRemoteBrowserControl(fields);
-      } catch (error) {
-        throw new HostRpcError(HOST_INVALID_PARAMS, (error as Error).message);
-      }
-      // Dispatched with no await before it, so gestures keep their arrival order;
-      // not counted against the command cap, which bounds tool work.
-      try {
-        return (await input.remoteBrowserControl(session_id, control)) ?? null;
-      } catch (error) {
-        throw new HostRpcError(HOST_COMMAND_FAILED, redactBrowserText((error as Error)?.message || String(error)));
-      }
-    }
+    if (command.action === BROWSER_INPUT_ACTION) return serveInputCommand(input, command);
     const remoteArgs = Object.hasOwn(REMOTE_ACTIONS, command.action) ? REMOTE_ACTIONS[command.action] : undefined;
-    if (remoteArgs) {
-      const { action, session_id, ...fields } = command as unknown as Record<string, unknown>;
-      let args: unknown[];
-      try {
-        args = remoteArgs(session_id, fields);
-      } catch (error) {
-        throw new HostRpcError(HOST_INVALID_PARAMS, (error as Error).message);
-      }
-      try {
-        // As the window-process request path answers: `result ?? null` (main/index.ts, browserRemoteResolve).
-        return (await input.remote(action as BrowserRemoteMethod, args)) ?? null;
-      } catch (error) {
-        throw new HostRpcError(HOST_COMMAND_FAILED, redactBrowserText((error as Error)?.message || String(error)));
-      }
-    }
+    if (remoteArgs) return serveRemoteCommand(input, remoteArgs, command);
     if (engineMode()) throw new HostRpcError(HOST_COMMAND_FAILED, BROWSER_ENGINE_COMMAND_REFUSED);
     if (running.size >= MAX_CONCURRENT_BROWSER_COMMANDS) {
       throw new HostRpcError(HOST_COMMAND_FAILED, 'too many concurrent browser commands');
@@ -138,8 +134,7 @@ export function createBrowserCommandHost(
     try {
       return await runner.execute(command, controller.signal);
     } catch (error) {
-      const message = redactBrowserText((error as Error)?.message || String(error));
-      throw new HostRpcError(HOST_COMMAND_FAILED, message, { timing: browserFailureTiming(error) });
+      throw new HostRpcError(HOST_COMMAND_FAILED, redactedMessage(error), { timing: browserFailureTiming(error) });
     } finally {
       signal.removeEventListener('abort', abandon);
       running.delete(controller);
@@ -152,9 +147,8 @@ export function createBrowserCommandHost(
       runner.begin();
       runner.ready();
     },
-    /** The connection is gone: abandon in-flight commands. The session's named background pages stay: the same
-     *  desktop claims again on reconnect and its core still names them; the idle reclaim (kept running) is what ends
-     *  one nobody comes back to, and quitting the app ends the rest. */
+    /** The connection is gone: abandon in-flight commands. Named background pages stay: the same desktop
+     *  claims again on reconnect; the idle reclaim ends one nobody returns to, quitting the app the rest. */
     stop(): void {
       for (const controller of running) controller.abort(new Error('browser host stopped'));
       running.clear();

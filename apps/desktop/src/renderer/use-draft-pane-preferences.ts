@@ -45,11 +45,6 @@ export function useDraftPanePreferences({
   effectiveDraftProjectPath(candidate: unknown): string;
 }) {
   const [newTaskDeferred, setNewTaskDeferred] = useState(false);
-  // Per-draft-tab prefs (user requirement: every pane manages its OWN
-  // project/model/workflow). The focused-route singletons always mirror the
-  // FOCUSED draft (submit path unchanged); this map keeps each draftId's
-  // staged values so switching drafts restores them and non-focused draft
-  // panes render their own chrome instead of the focused draft's.
   const focused = useFocusedDraftRoute();
   const {
     paint: paintFocusedDraft,
@@ -82,11 +77,6 @@ export function useDraftPanePreferences({
       projectPath: effectiveDraftProjectPath(
         last?.projectPath ?? (focused.projectPathRef.current || preferredDraftProjectPath)
       ),
-      // The last cached settings win over the focused-draft singletons: the
-      // singletons may still mirror an old parked draft, while a genuinely
-      // new task must reuse the LAST cached settings (user rule). Every
-      // explicit staging also updates lastNewTaskPrefs, so this order never
-      // loses fresh data.
       // Painted only: a draft sends a route when the user picked one in it.
       modelSelection:
         hostMainRoute.current ??
@@ -247,10 +237,6 @@ export function useDraftPanePreferences({
       // choice into the entry.
       if (projectPath === null) setNewTaskDeferred(true);
       else stageNewTaskProject(projectPath);
-      // A fresh draft INHERITS the last cached model/workflow instead of
-      // resetting to "Select model" (user rule). The values are painted but NOT
-      // staged into the entry: the draft keeps following the cache until the
-      // user explicitly diverges this pane.
       paintFocusedDraft(inheritedDraftPrefs(), { projectPath: projectPath === null });
     },
     [inheritedDraftPrefs, paintFocusedDraft, rememberDraftPanePrefs, setNewTaskProjectPath, stageNewTaskProject]
@@ -269,16 +255,6 @@ export function useDraftPanePreferences({
     // visible route and later session-route changes keep flowing in.
     paintFocusedDraft(resolvedDraftPrefsFor(activeDraftKey));
     if (draftPanePrefs.current.has(activeDraftKey)) return;
-    // First sight of this draft: register a null-valued entry (user rule: new
-    // tasks reuse the last settings). Model/workflow stay INHERITED (null) so
-    // later session-route changes keep flowing in until the user explicitly
-    // stages this pane, and auto-seeding never rewrites lastNewTaskPrefs
-    // (which rewound the cache to stale values, so the last session-creation
-    // model was not applied to the next New Task).
-    // The PROJECT inherits on the same terms: materializing the resolved
-    // value here froze whatever was known at FIRST PAINT, which on a phone
-    // is an empty catalog — and "" then read as an explicit No project for
-    // the rest of that draft's life.
     draftPanePrefs.current.set(activeDraftKey, emptyDraftPanePrefs());
     persistDraftPanePrefs();
     repaintDrafts();

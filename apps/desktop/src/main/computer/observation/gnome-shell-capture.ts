@@ -1,9 +1,4 @@
-/**
- * Pixels on GNOME Wayland, taken by Mixdog's own shell extension. Electron's
- * desktopCapturer would go through the ScreenCast portal there and ask the user
- * to "Share Screen" on every capture; this never prompts, so a background
- * capture cannot interrupt the user.
- */
+/** On GNOME Wayland Electron's desktopCapturer goes through the ScreenCast portal and asks the user to "Share Screen" on every capture. */
 import { nativeImage, screen, type NativeImage } from 'electron';
 
 import { gnomeShellScreenshot, type GnomeShellSource, type GnomeShotTarget } from '../host/gnome-helper';

@@ -114,16 +114,24 @@ test('split view has no filename strip; the cell tooltip carries the name and a 
   }
 });
 
-test('the Visualize pill scales the content, Ctrl+0 resets, and the shared toggle hides it', async () => {
+async function withZoomImagePane(run) {
   setZoomBarVisible(true);
   putTab({ id: 't3', label: 'p.png', revision: 0, panes: [image('p.png')] });
   const root = await mount();
   try {
+    await run();
+  } finally {
+    setZoomBarVisible(true);
+    await act(async () => root.unmount());
+  }
+}
+
+test('the Visualize pill scales the content; an image layer grows with the scale', async () => {
+  await withZoomImagePane(async () => {
     assert.equal(percent(), '100%');
     assert.equal(layer().style.width, '');
     await click(document.querySelector('[aria-label="Zoom in"]'));
     assert.equal(percent(), '125%');
-    // An image is fitted to its layer: the layer grows with the scale.
     assert.equal(layer().style.width, '125%');
     assert.equal(layer().style.height, '125%');
     assert.equal(layer().style.transform, '');
@@ -133,31 +141,48 @@ test('the Visualize pill scales the content, Ctrl+0 resets, and the shared toggl
     assert.deepEqual(entries, ['Fit to window', '50%', '100%', '150%', '200%']);
     await click(document.querySelectorAll('[role="menuitemradio"]')[4]);
     assert.equal(percent(), '200%');
+  });
+});
 
+test('Ctrl+- steps the Visualize zoom down and Ctrl+0 resets it', async () => {
+  await withZoomImagePane(async () => {
+    await act(async () => document.querySelector('.visualize-pane').dispatchEvent(new window.Event('pointerenter')));
+    await key('=');
+    await key('=');
+    assert.equal(percent(), '150%');
     await key('-');
-    assert.equal(percent(), '175%');
+    assert.equal(percent(), '125%');
     await key('0');
     assert.equal(percent(), '100%');
     assert.equal(layer().style.width, '');
+  });
+});
 
-    // Ctrl+wheel over the pane zooms too.
+test('Ctrl+wheel over the Visualize pane zooms it', async () => {
+  await withZoomImagePane(async () => {
     const wheel = new window.WheelEvent('wheel', { deltaY: -40, ctrlKey: true, bubbles: true, cancelable: true });
     await act(async () => document.querySelector('.visualize-pane').dispatchEvent(wheel));
     assert.equal(wheel.defaultPrevented, true);
     assert.ok(Number.parseInt(percent(), 10) > 100);
+  });
+});
 
-    // A reload of the same tab's files (a new revision) keeps the zoom…
+test('a reload of the same tab’s files keeps the zoom; another tab starts again at 100%', async () => {
+  await withZoomImagePane(async () => {
+    await click(document.querySelector('[aria-label="Zoom in"]'));
     const zoomed = percent();
     assert.notEqual(zoomed, '100%');
     putTab({ id: 't3', label: 'p.png', revision: 1, panes: [image('p.png')] });
     await act(async () => {});
     assert.equal(percent(), zoomed);
-    // …another tab starts again at 100%.
     putTab({ id: 't4', label: 'q.png', revision: 0, panes: [image('q.png')] });
     await act(async () => {});
     assert.equal(percent(), '100%');
+  });
+});
 
-    // The ⋯ toggle hides the pill; the zoom keys keep working.
+test('the ⋯ zoom bar toggle hides the pill and the zoom keys keep working', async () => {
+  await withZoomImagePane(async () => {
     const zoomItem = (await openMenu()).find((item) => item.textContent.includes('Zoom bar'));
     await click(zoomItem);
     assert.equal(readZoomBarVisible(), false);
@@ -168,10 +193,7 @@ test('the Visualize pill scales the content, Ctrl+0 resets, and the shared toggl
     assert.equal(shown.getAttribute('aria-checked'), 'false');
     await click(shown);
     assert.equal(percent(), '125%');
-  } finally {
-    setZoomBarVisible(true);
-    await act(async () => root.unmount());
-  }
+  });
 });
 
 test('pages and documents scale like browser zoom: laid out at 1/scale, then scaled up', async () => {
@@ -237,7 +259,7 @@ test('zoom gestures made inside a pane frame (a page, a PDF) zoom the panel they
   }
 });
 
-test('a zoom key goes to ONE target: the focused pane first, hover only as the fallback', async () => {
+async function withZoomTargets(run) {
   const { ZoomFrame } = await import('./ZoomFrame.tsx');
   setZoomBarVisible(true);
   putTab({ id: 't6', label: 'p.png', revision: 0, panes: [image('p.png')] });
@@ -253,51 +275,22 @@ test('a zoom key goes to ONE target: the focused pane first, hover only as the f
     );
     vizRoot.render(React.createElement(VisualizePane, { sessionId: 's1', active: true, onClose() {} }));
   });
-  const editorPercent = () => host.querySelector('#editor .browser-zoom-percent span')?.textContent;
-  const vizPercent = () => host.querySelector('#viz .browser-zoom-percent span')?.textContent;
   const hover = (element, over) =>
     act(async () => {
       element.dispatchEvent(new window.Event(over ? 'pointerenter' : 'pointerleave'));
     });
   const keyEvent = () =>
     new window.KeyboardEvent('keydown', { key: '=', ctrlKey: true, bubbles: true, cancelable: true });
-  const press = (event = keyEvent()) => act(async () => host.ownerDocument.dispatchEvent(event));
-  const panel = host.querySelector('#viz .visualize-pane');
-  const frame = host.querySelector('#editor .editor-zoom-frame');
   try {
-    assert.equal(editorPercent(), '100%');
-    assert.equal(vizPercent(), '100%');
-
-    // Focus in the editor preview, pointer over Visualize: the editor alone zooms.
-    await act(async () => frame.focus());
-    assert.equal(document.activeElement, frame);
-    await hover(panel, true);
-    await press();
-    assert.equal(editorPercent(), '125%');
-    assert.equal(vizPercent(), '100%');
-
-    // Focus in Visualize, pointer back over the editor: Visualize alone zooms.
-    const tab = panel.querySelector('.visualize-pane-content');
-    tab.setAttribute('tabindex', '0');
-    await act(async () => tab.focus());
-    await hover(panel, false);
-    await press();
-    assert.equal(vizPercent(), '125%');
-    assert.equal(editorPercent(), '125%');
-
-    // No focus anywhere: hover decides.
-    await act(async () => document.activeElement.blur());
-    await hover(panel, true);
-    await press();
-    assert.equal(vizPercent(), '150%');
-    assert.equal(editorPercent(), '125%');
-
-    // A key someone already handled is left alone.
-    const handled = keyEvent();
-    handled.preventDefault();
-    await press(handled);
-    assert.equal(vizPercent(), '150%');
-    assert.equal(editorPercent(), '125%');
+    await run({
+      editorPercent: () => host.querySelector('#editor .browser-zoom-percent span')?.textContent,
+      vizPercent: () => host.querySelector('#viz .browser-zoom-percent span')?.textContent,
+      hover,
+      keyEvent,
+      press: (event = keyEvent()) => act(async () => host.ownerDocument.dispatchEvent(event)),
+      panel: host.querySelector('#viz .visualize-pane'),
+      frame: host.querySelector('#editor .editor-zoom-frame'),
+    });
   } finally {
     await act(async () => {
       editorRoot.unmount();
@@ -305,6 +298,53 @@ test('a zoom key goes to ONE target: the focused pane first, hover only as the f
     });
     host.innerHTML = '';
   }
+}
+
+test('a zoom key goes to the focused editor preview, not to a hovered Visualize panel', async () => {
+  await withZoomTargets(async ({ editorPercent, vizPercent, hover, press, panel, frame }) => {
+    assert.equal(editorPercent(), '100%');
+    assert.equal(vizPercent(), '100%');
+    await act(async () => frame.focus());
+    assert.equal(document.activeElement, frame);
+    await hover(panel, true);
+    await press();
+    assert.equal(editorPercent(), '125%');
+    assert.equal(vizPercent(), '100%');
+  });
+});
+
+test('a zoom key goes to the focused Visualize pane, not to a hovered editor preview', async () => {
+  await withZoomTargets(async ({ editorPercent, vizPercent, hover, press, panel }) => {
+    const tab = panel.querySelector('.visualize-pane-content');
+    tab.setAttribute('tabindex', '0');
+    await act(async () => tab.focus());
+    await hover(panel, false);
+    await press();
+    assert.equal(vizPercent(), '125%');
+    assert.equal(editorPercent(), '100%');
+  });
+});
+
+test('with no focus anywhere, hover decides which panel a zoom key goes to', async () => {
+  await withZoomTargets(async ({ editorPercent, vizPercent, hover, press, panel }) => {
+    await act(async () => document.activeElement.blur());
+    await hover(panel, true);
+    await press();
+    assert.equal(vizPercent(), '125%');
+    assert.equal(editorPercent(), '100%');
+  });
+});
+
+test('a zoom key someone already handled is left alone', async () => {
+  await withZoomTargets(async ({ editorPercent, vizPercent, hover, press, keyEvent, panel }) => {
+    await act(async () => document.activeElement.blur());
+    await hover(panel, true);
+    const handled = keyEvent();
+    handled.preventDefault();
+    await press(handled);
+    assert.equal(vizPercent(), '100%');
+    assert.equal(editorPercent(), '100%');
+  });
 });
 
 test('Ctrl+wheel scales by the wheel delta and keeps the point under the pointer fixed', async () => {

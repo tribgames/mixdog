@@ -1,8 +1,3 @@
-// v2 retires every v1 entry: those were stored with the relay's
-// Content-Encoding header still attached to an ALREADY DECODED body, so
-// replaying one made the browser try to brotli-decode plain JavaScript and the
-// app failed to boot on its next visit (user: Importing a module script
-// failed).
 const ASSET_CACHE = 'mixdog-assets-v2';
 importScripts('/sw-shell.js');
 importScripts('/ui-language.js');
@@ -14,11 +9,6 @@ const MAX_ASSET_ENTRIES = 400;
 const CACHE_TRIM_DEBOUNCE_MS = 50;
 let cacheTrimMaintenance = null;
 
-// Hashed assets are immutable. The document cache separately checks whether
-// its bootstrap is retained; live host traffic never enters the asset cache.
-// The installed app lives under its device route, so its relative asset URLs
-// arrive as /d/<deviceId>/assets/...; only matching the bare /assets/ scope
-// left every chunk of an installed app uncached and its shell never reusable.
 const HASHED_ASSET = /^(?:\/d\/[^/]+)?(\/assets\/.+-[A-Za-z0-9_-]{8,}\.[^./]+)$/;
 
 /** One cache entry per immutable file, whichever route requested it: the relay
@@ -29,12 +19,6 @@ function hashedAssetKey(url) {
   return match ? `${url.origin}${match[1]}` : null;
 }
 
-// Web Share Target. The share sheet POSTs the shared payload into this scope,
-// and on a phone that is the ONLY way a screenshot reaches the app: mobile
-// browsers do not deliver an inter-app DRAG to a web page (user: 스크린샷을
-// 드래그해도 첨부되지 않는다). The payload is retained HERE, in the app's own
-// cache, so a shared screenshot never travels to the relay — it enters the
-// composer exactly like one attached inside the app.
 const SHARE_CACHE = 'mixdog-share-v1';
 const SHARE_ENTRY_PREFIX = '/__mixdog-share__/';
 const SHARE_INDEX_NAME = 'index.json';
@@ -46,10 +30,6 @@ const SHARE_ENTRY_TTL_MS = 10 * 60 * 1000;
 // route (/d/<deviceId>/share-target).
 const SHARE_TARGET_PATH = /^\/(?:d\/[^/]+\/)?share-target$/;
 
-// State this worker and the app read from each other. A worker has no
-// localStorage, and the app cannot see what a tapped notification did while
-// it was not running, so both meet in the app's own cache. The renderer half
-// is push-notification-bridge.ts, which mirrors these names.
 const APP_STATE_CACHE = 'mixdog-app-state-v1';
 const APP_SCOPE_ENTRY = '/__mixdog-app__/scope';
 const UI_LANGUAGE_ENTRY = '/__mixdog-app__/ui-language';
@@ -61,10 +41,6 @@ const OPEN_SESSION_MESSAGE = 'mixdog:open-session';
 // Mirrors push-notification-bridge.ts PUSH_SUBSCRIPTION_CHANGED_MESSAGE.
 const PUSH_SUBSCRIPTION_CHANGED_MESSAGE = 'mixdog:push-subscription-changed';
 
-// The one sentence this worker composes itself. Everything else in a
-// notification is the session's own text. The DEVICE showing it owns the
-// language: the desktop that sent the push has a UI language of its own, and
-// on a phone it is routinely not this one (user: 노티파이 다국어).
 const TURN_FINISHED_TEXT = {
   de: 'Arbeit abgeschlossen.',
   en: 'Finished working.',
@@ -164,12 +140,8 @@ function scheduleAssetCacheTrim(cache) {
   return cacheTrimMaintenance;
 }
 
-// A fetched Response hands over a DECODED body while keeping the transfer
-// headers that described the encoded one. Storing that pair makes the next
-// replay decode already-plain bytes, so the transfer description is dropped
-// before the copy is retained. Preserve the clone's stream: arrayBuffer()
-// buffered an entire Monaco-sized chunk before the browser could consume the
-// original response.
+// A fetched Response hands over a decoded body but keeps the Content-Encoding and Content-Length of the encoded one; replaying that pair re-decodes plain bytes.
+// The clone's stream is kept so a large chunk is not buffered before the original response is consumed.
 function storableCopy(response) {
   const headers = new Headers(response.headers);
   headers.delete('content-encoding');
@@ -243,11 +215,7 @@ async function readAppState(entry) {
   }
 }
 
-/** The path the app is actually installed at. An install started from a device
- *  route lives under /d/<deviceId>/, and the bare origin is a DIFFERENT
- *  container with no credential of its own (server.mjs parseDeviceRoute), so
- *  opening "/" from a notification lands on the pairing gate instead of the
- *  app (user: 눌러도 동작이 안 된다). */
+/** An install from a device route lives under /d/<deviceId>/; the bare origin is a different container without its credential (server.mjs parseDeviceRoute). */
 function appScopePath(pathname) {
   const match = /^\/d\/[^/]+\//.exec(String(pathname || ''));
   return match ? match[0] : '/';
@@ -423,21 +391,12 @@ function notificationTag(hostId, sessionId) {
   return hostId ? `session:${hostId}:${sessionId}` : `session:${sessionId}`;
 }
 
-/** Where a tap launches the app when nothing is running: the installed scope,
- *  naming the session AND the PC that sent it. Only the app knows which PCs
- *  this browser is paired with, so it opens the session there, moves to that
- *  PC's route, or ignores a PC it no longer knows
- *  (push-notification-bridge.ts routeNotificationTap). */
 function notificationLaunchUrl(scope, hostId, sessionId) {
   if (!sessionId) return scope;
   const query = `session=${encodeURIComponent(sessionId)}`;
   return hostId ? `${scope}?${query}&host=${hostId}` : `${scope}?${query}`;
 }
 
-// Web Push. This is the ONLY path that reaches an installed web app whose
-// relay socket is gone: the OS wakes this worker even when the app was swiped
-// away. The desktop that owns the session encrypts the payload for this
-// subscription alone, so the push service delivering it cannot read a word.
 self.addEventListener('push', (event) => {
   // userVisibleOnly is enforced by the browser: every delivery MUST end in a
   // visible notification, so a malformed payload still shows something rather
@@ -479,11 +438,6 @@ self.addEventListener('push', (event) => {
   );
 });
 
-// The browser may expire or rotate a subscription on its own. Renew it with
-// the same sender key. A worker holds no pairing credential, so the new
-// endpoint is published by the open app windows, which are told to restate
-// their subscription at once (push-notification-bridge.ts
-// syncPushSubscription); a closed app does so on its next launch.
 self.addEventListener('pushsubscriptionchange', (event) => {
   event.waitUntil(
     (async () => {
@@ -513,11 +467,7 @@ self.addEventListener('notificationclick', (event) => {
   const hostId = notificationHostId(event.notification.data?.hostId);
   event.waitUntil(
     (async () => {
-      // Park it FIRST. focus() can hand the tap to a document the phone
-      // discarded while the app sat in the background: that document is still
-      // rebuilding when the message below arrives, has no listener yet, and the
-      // tap does nothing at all (user: 눌러도 동작이 안 되냐). The app claims
-      // this on boot, the same way a shared payload travels.
+      // Park the tap before focus(): a document the phone discarded has no message listener yet when focus() hands it the tap.
       if (sessionId) {
         await writeAppState(NOTIFICATION_CLICK_ENTRY, JSON.stringify({ sessionId, hostId, createdAt: Date.now() }));
       }

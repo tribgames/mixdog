@@ -44,10 +44,6 @@ export function useComposerExternalDraft({
     [draftRef, setDraft, textarea]
   );
   useComposerShareIntake({ active: shareActive, attachFiles, appendText: appendSharedText });
-  // Text sent to "the composer" (composer-text-inbox) is taken by exactly one
-  // composer: the focused pane's, while it is on screen. A conversation
-  // brought to the front for it (parked behind a file tab) takes what waits
-  // the moment it becomes that composer; retained sessions never do.
   const surfaceActive = useSurfaceActive();
   const takesText = shareActive && surfaceActive;
   // biome-ignore lint/correctness/useExhaustiveDependencies: refs and setters are stable and read at take time

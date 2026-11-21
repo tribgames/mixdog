@@ -1,7 +1,3 @@
-// "Composer style" (Settings → Display → Composer): a per-device renderer
-// preference for how much the composer shows. simple: the model only; basic
-// ("Normal"): the usage readout too; detail (default): the readout and the
-// conversation's workflow and delegation.
 export const COMPOSER_STYLES = ['simple', 'basic', 'detail'] as const;
 export type ComposerStyle = (typeof COMPOSER_STYLES)[number];
 

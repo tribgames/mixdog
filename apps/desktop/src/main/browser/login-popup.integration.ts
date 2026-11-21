@@ -1,12 +1,3 @@
-/**
- * The sign-in window of a login takeover against a real Electron and a local
- * test site (scripts/run-browser-login-popup-integration.mjs): non-HTTPS is
- * refused, nothing opens before human control is ready, 닫기 is never success,
- * 완료 settles once (a second press is a no-op), a sign-in in the window signs
- * the agent's partition in, a site's own popup keeps its opener, a takeover
- * answered elsewhere and a crash both end the window without success, and the
- * site sees no Mixdog API, no CDP and no agent command while it is open.
- */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { join } from 'node:path';

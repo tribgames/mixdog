@@ -1,9 +1,3 @@
-/**
- * Electron half of the `visualize` tool: preview URLs reuse the editor's own
- * paths (local page server for HTML, LibreOffice conversion for Office files,
- * the media scheme for PDF/image/audio/video); annotations and captures act on
- * the panel the main window is drawing.
- */
 import { basename, dirname } from 'node:path';
 import type { BrowserWindow, NativeImage, WebContents } from 'electron';
 
@@ -88,14 +82,22 @@ const pause = (ms: number, signal: AbortSignal) =>
     signal.addEventListener('abort', done, { once: true });
   });
 
+/** Each page pane of the tab with the live frames of its lease. */
+function htmlPaneFrames(window: BrowserWindow, tab: VisualizeTabView) {
+  const all = window.webContents.mainFrame.framesInSubtree;
+  return tab.panes
+    .filter((pane) => pane.kind === 'html' && pane.url)
+    .map((pane) => {
+      const prefix = leasePrefix(pane.url as string);
+      return { pane, frames: all.filter((frame) => !frame.isDestroyed() && frame.url.startsWith(prefix)) };
+    });
+}
+
 /** Whether every page pane of the tab has loaded, and a chart page has
  *  drawn its last frame (ECharts `finished`, animations included). */
 async function pagesReady(window: BrowserWindow, tab: VisualizeTabView): Promise<boolean> {
-  const frames = window.webContents.mainFrame.framesInSubtree;
-  for (const pane of tab.panes) {
-    if (pane.kind !== 'html' || !pane.url) continue;
-    const prefix = leasePrefix(pane.url);
-    const frame = frames.find((candidate) => !candidate.isDestroyed() && candidate.url.startsWith(prefix));
+  for (const { pane, frames } of htmlPaneFrames(window, tab)) {
+    const frame = frames[0];
     if (!frame) return false;
     const check =
       pane.inline?.kind === 'chart'
@@ -108,12 +110,8 @@ async function pagesReady(window: BrowserWindow, tab: VisualizeTabView): Promise
 
 /** Whether a page pane of the tab shows a password field now. */
 async function showsPassword(window: BrowserWindow, tab: VisualizeTabView): Promise<boolean> {
-  const frames = window.webContents.mainFrame.framesInSubtree;
-  for (const pane of tab.panes) {
-    if (pane.kind !== 'html' || !pane.url) continue;
-    const prefix = leasePrefix(pane.url);
+  for (const { frames } of htmlPaneFrames(window, tab)) {
     for (const frame of frames) {
-      if (frame.isDestroyed() || !frame.url.startsWith(prefix)) continue;
       if ((await frame.executeJavaScript(VISIBLE_PASSWORD_SCRIPT).catch(() => false)) === true) return true;
     }
   }
@@ -179,10 +177,6 @@ function fitVisualizeThumbnail(image: NativeImage): Buffer | null {
   return null;
 }
 
-/** The tab's chat-card picture: the panel's own rendering when the tab is
- *  on screen; otherwise its first pane file stands in (an image itself, the
- *  OS thumbnail of a PDF or video); null when nothing can, or once `signal`
- *  aborts (a newer job, revision or a closed tab). */
 async function cardThumbnail(
   window: BrowserWindow | null,
   sessionId: string,

@@ -7,9 +7,6 @@ import { SurfaceActiveContext } from './surface-activity.ts';
 
 const VIEWPORT = 400;
 
-// A layout stand-in: the viewport scrolls over the spacer the virtual list
-// sizes directly, clamped the way Chromium clamps, and a ResizeObserver
-// reports each row's border box from the heights below.
 function installLayout(dom, heights) {
   const viewport = dom.window.document.getElementById('viewport');
   const spacerHeight = () =>
@@ -33,9 +30,7 @@ function installLayout(dom, heights) {
   viewport.scrollTo = ({ top: next }) => {
     viewport.scrollTop = next;
   };
-  // A row's box, for the landing's synchronous measurement. A row without a
-  // height has no box yet (no width either); a laid-out row that paints
-  // nothing is one set to 0.
+
   dom.window.HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
     const known = this === viewport || heights.has(this.dataset?.timelineKey);
     const height = this === viewport ? VIEWPORT : (heights.get(this.dataset?.timelineKey) ?? 0);
@@ -104,8 +99,7 @@ async function mountTranscript(
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   const { TranscriptList } = await import('./TranscriptList.tsx');
   const root = createRoot(viewport);
-  // One ref for the mount's life, as the pane passes it: the list's hooks key
-  // on its identity.
+
   const viewportRef = { current: viewport };
   const render = (rows, shown = true, renderRow = (row) => React.createElement('div', null, row.key)) =>
     act(async () => {
@@ -321,6 +315,21 @@ function rowHeight(row) {
   return 2716 + (row.completion ? 30 : 0);
 }
 
+async function pageProjector(sessionKey, items, heights) {
+  const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
+  const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
+  return (from) => {
+    const window = items.slice(from);
+    const { rows } = projectSettledTranscriptRows({
+      sessionKey,
+      items: window,
+      turnKeys: transcriptTurnKeys(window),
+      failedTurns: new Set(),
+    });
+    for (const row of rows) heights.set(row.key, rowHeight(row));
+    return rows;
+  };
+}
 // The reader position is where the page request fires; a gesture is the
 // wheel/touch window (or fling) still open when the page lands.
 for (const [scenario, windowStart, pageStart, readerGesture, readerTop] of [
@@ -332,22 +341,10 @@ for (const [scenario, windowStart, pageStart, readerGesture, readerTop] of [
   ['a page landing at scrollTop 0 during a fling', 6 * 10 + 4, 6 * 6 + 2, true, 0],
 ]) {
   test(`${scenario} keeps the first visible surviving row within 1 px`, async () => {
-    const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
-    const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
     const sessionKey = `anchor-${windowStart}`;
     const items = turnItems(20);
     const heights = new Map();
-    const project = (from) => {
-      const window = items.slice(from);
-      const { rows } = projectSettledTranscriptRows({
-        sessionKey,
-        items: window,
-        turnKeys: transcriptTurnKeys(window),
-        failedTurns: new Set(),
-      });
-      for (const row of rows) heights.set(row.key, rowHeight(row));
-      return rows;
-    };
+    const project = await pageProjector(sessionKey, items, heights);
     const held = project(windowStart);
     let gesture = false;
     const mount = await mountTranscript(heights, sessionKey, () => gesture);
@@ -368,13 +365,7 @@ for (const [scenario, windowStart, pageStart, readerGesture, readerTop] of [
       const landed = mount.firstVisible(new Set([before.key]));
       assert.equal(landed?.key, before.key);
       assert.ok(Math.abs(landed.offset - before.offset) <= 1, `landed ${landed.offset} vs ${before.offset}`);
-      // A landed row right above the anchor finishes rendering (lazy
-      // Markdown) a few frames later — still inside the gesture window, and
-      // intersecting the viewport top, so it is never a deferred size.
-      // First the scroll-idle timer of the reader's last scroll event runs out
-      // (the page landed inside that window) with no scroll event since the
-      // landing's own offset write: the idle report must not restore the
-      // pre-landing offset for the next correction to start from.
+
       await mount.idle(200);
       const anchorIndex = paged.findIndex((row) => row.key === before.key);
       const above = paged[anchorIndex - 1];
@@ -396,59 +387,35 @@ for (const [scenario, windowStart, pageStart, readerGesture, readerTop] of [
   });
 }
 
-// The landing commit renders the range at the reader's restored offset: the
-// rows on screen keep their elements. Rendered first at the pre-landing
-// offset, whose indexes now name the page's oldest rows, every row the reader
-// saw was unmounted and built again in the same task (a phone: 21 rows twice
-// per page, the 200-300 ms task of an upward fling).
-test('a landing page keeps the mounted rows the reader sees, never unmounting and rebuilding them', async () => {
-  const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
-  const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
-  const sessionKey = 'landing-keeps-rows';
-  const items = turnItems(20);
+async function mountReaderMidHistory(sessionKey) {
   const heights = new Map();
-  const project = (from) => {
-    const window = items.slice(from);
-    const { rows } = projectSettledTranscriptRows({
-      sessionKey,
-      items: window,
-      turnKeys: transcriptTurnKeys(window),
-      failedTurns: new Set(),
-    });
-    for (const row of rows) heights.set(row.key, rowHeight(row));
-    return rows;
-  };
+  const project = await pageProjector(sessionKey, turnItems(20), heights);
   const held = project(6 * 10);
   const mount = await mountTranscript(heights, sessionKey);
+  await mount.render(held);
+  await mount.settle();
+  await mount.scrollTo(3000);
+  const before = mount.firstVisible();
+  assert.ok(before, 'a row is in view');
+  return { mount, before, landedRows: project(6 * 6) };
+}
+
+test('a landing page keeps the mounted rows the reader sees, never unmounting and rebuilding them', async () => {
+  const { mount, before, landedRows } = await mountReaderMidHistory('landing-keeps-rows');
   try {
-    await mount.render(held);
-    await mount.settle();
-    await mount.scrollTo(3000);
     const elements = new Map(
       [...mount.viewport.querySelectorAll('.transcript-virtual-row')].map((element) => [
         element.dataset.timelineKey,
         element,
       ])
     );
-    const before = mount.firstVisible();
-    assert.ok(before, 'a row is in view');
-    // Every row element the landing commit removes, by key.
     const removed = [];
     const observer = new window.MutationObserver((records) => {
       for (const record of records)
         for (const node of record.removedNodes) if (node.dataset?.timelineKey) removed.push(node.dataset.timelineKey);
     });
     observer.observe(mount.viewport, { childList: true, subtree: true });
-    const landedRows = project(6 * 6);
     await mount.render(landedRows);
-    // A later rows commit under the same hold (a streamed row, a catch-up)
-    // with nothing above the reader moved writes no offset: a phone resuming
-    // mid-reply wrote the unchanged scrollTop on every commit, each one a
-    // forced layout.
-    const writesAfterLanding = mount.writes();
-    await mount.render([...landedRows]);
-    await mount.render([...landedRows]);
-    assert.equal(mount.writes(), writesAfterLanding, 'an unchanged reading offset is not written again');
     observer.takeRecords().forEach((record) => {
       for (const node of record.removedNodes) if (node.dataset?.timelineKey) removed.push(node.dataset.timelineKey);
     });
@@ -456,16 +423,12 @@ test('a landing page keeps the mounted rows the reader sees, never unmounting an
     const landed = mount.firstVisible(new Set([before.key]));
     assert.equal(landed?.key, before.key);
     assert.ok(Math.abs(landed.offset - before.offset) <= 1, `landed ${landed.offset} vs ${before.offset}`);
-    const kept = [...mount.viewport.querySelectorAll('.transcript-virtual-row')].filter(
-      (element) => elements.get(element.dataset.timelineKey) === element
-    );
-    const mountedKeys = new Set(
-      [...mount.viewport.querySelectorAll('.transcript-virtual-row')].map((element) => element.dataset.timelineKey)
-    );
+    const mountedRows = [...mount.viewport.querySelectorAll('.transcript-virtual-row')];
+    const mountedKeys = new Set(mountedRows.map((element) => element.dataset.timelineKey));
     const rebuilt = [...elements.keys()].filter((key) => removed.includes(key) && mountedKeys.has(key));
     assert.deepEqual(rebuilt, [], 'no row the reader saw was unmounted and mounted again');
     assert.ok(
-      kept.some((element) => element.dataset.timelineKey === before.key),
+      mountedRows.some((element) => element.dataset.timelineKey === before.key && elements.get(before.key) === element),
       'the reader row kept its element'
     );
   } finally {
@@ -473,6 +436,18 @@ test('a landing page keeps the mounted rows the reader sees, never unmounting an
   }
 });
 
+test('a rows commit under a landed hold that moved nothing above the reader writes no scrollTop', async () => {
+  const { mount, landedRows } = await mountReaderMidHistory('landing-no-rewrite');
+  try {
+    await mount.render(landedRows);
+    const writesAfterLanding = mount.writes();
+    await mount.render([...landedRows]);
+    await mount.render([...landedRows]);
+    assert.equal(mount.writes(), writesAfterLanding, 'an unchanged reading offset is not written again');
+  } finally {
+    await mount.cleanup();
+  }
+});
 test('a row above the reader that grows into view during a gesture is corrected, not drawn over the reader', async () => {
   const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
   const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
@@ -622,22 +597,10 @@ test('a wheel ramp never has scrollTop written under it: a correction is held as
 });
 
 test('a page landing under a wheel ramp far from the top is held as a row offset, not written under the ramp', async () => {
-  const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
-  const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
   const sessionKey = 'touch-landing';
   const items = turnItems(20);
   const heights = new Map();
-  const project = (from) => {
-    const window = items.slice(from);
-    const { rows } = projectSettledTranscriptRows({
-      sessionKey,
-      items: window,
-      turnKeys: transcriptTurnKeys(window),
-      failedTurns: new Set(),
-    });
-    for (const row of rows) heights.set(row.key, rowHeight(row));
-    return rows;
-  };
+  const project = await pageProjector(sessionKey, items, heights);
   let touching = false;
   const mount = await mountTranscript(
     heights,
@@ -683,22 +646,10 @@ for (const [where, readerTop] of [
   ['below the top but within four viewports', 2 * VIEWPORT],
 ]) {
   test(`a page landing under a wheel ramp ${where} writes no scrollTop and settles once`, async () => {
-    const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
-    const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
     const sessionKey = `touch-landing-near-top-${readerTop}`;
     const items = turnItems(20);
     const heights = new Map();
-    const project = (from) => {
-      const window = items.slice(from);
-      const { rows } = projectSettledTranscriptRows({
-        sessionKey,
-        items: window,
-        turnKeys: transcriptTurnKeys(window),
-        failedTurns: new Set(),
-      });
-      for (const row of rows) heights.set(row.key, rowHeight(row));
-      return rows;
-    };
+    const project = await pageProjector(sessionKey, items, heights);
     let touching = false;
     const mount = await mountTranscript(
       heights,
@@ -748,13 +699,7 @@ const IPHONE = {
   maxTouchPoints: 5,
 };
 
-// iOS WebKit cancels a touch fling on a scrollTop write, so there a page
-// landing under the fling is held as a row offset (with the core's own iOS
-// deferral handed over to that hold) and lands once the fling settles. Native
-// 0 is no exception: the momentum reaches it, and the page sits above it.
-// A finger landing at native 0 with the page still held (inside the quiet
-// window, before scrollend) lands it: the momentum already ran into the edge,
-// and the drag that finger starts has to reach the page above.
+// iOS WebKit cancels a touch fling on a scrollTop write.
 for (const [scenario, readerTop, flingTo, retouch = false] of [
   ['far from the top is held, late sizes too, and lands as one write once the fling settles', 8 * VIEWPORT, null],
   ['stays held when the fling reaches native 0, then lands as one write once it settles', 8 * VIEWPORT, 0],
@@ -762,8 +707,6 @@ for (const [scenario, readerTop, flingTo, retouch = false] of [
   ['held at native 0 lands at the next touch, and that drag reaches the page', 8 * VIEWPORT, 0, true],
 ]) {
   test(`iOS: a page landing under a touch fling ${scenario}`, async () => {
-    const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
-    const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
     const { _resetIOSDetectionForTests } = await import('@tanstack/virtual-core');
     const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
     Object.defineProperty(globalThis, 'navigator', { configurable: true, writable: true, value: IPHONE });
@@ -771,17 +714,7 @@ for (const [scenario, readerTop, flingTo, retouch = false] of [
     const sessionKey = `ios-landing-${readerTop}-${flingTo}`;
     const items = turnItems(20);
     const heights = new Map();
-    const project = (from) => {
-      const window = items.slice(from);
-      const { rows } = projectSettledTranscriptRows({
-        sessionKey,
-        items: window,
-        turnKeys: transcriptTurnKeys(window),
-        failedTurns: new Set(),
-      });
-      for (const row of rows) heights.set(row.key, rowHeight(row));
-      return rows;
-    };
+    const project = await pageProjector(sessionKey, items, heights);
     let touching = false;
     const mount = await mountTranscript(
       heights,
@@ -1033,23 +966,7 @@ test('a tool group keeps its row key when a page supplies the tools cut off its 
 });
 
 test('prepending an older page keeps the first visible row at the same viewport offset', async () => {
-  const dom = new JSDOM("<div id='viewport'></div>", { url: 'http://localhost/', pretendToBeVisual: true });
-  const keys = ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT', 'ResizeObserver', 'HTMLElement', 'Element'];
-  const previous = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   const heights = new Map();
-  const { viewport, deliver, FakeResizeObserver } = installLayout(dom, heights);
-  dom.window.ResizeObserver = FakeResizeObserver;
-  for (const [key, value] of [
-    ['window', dom.window],
-    ['document', dom.window.document],
-    ['ResizeObserver', FakeResizeObserver],
-    ['HTMLElement', dom.window.HTMLElement],
-    ['Element', dom.window.Element],
-  ]) {
-    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
-  }
-  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  const { TranscriptList } = await import('./TranscriptList.tsx');
   const rowsFrom = (from, to, height) =>
     Array.from({ length: to - from }, (_, offset) => {
       const key = `row-${String(from + offset).padStart(3, '0')}`;
@@ -1057,67 +974,22 @@ test('prepending an older page keeps the first visible row at the same viewport 
       return { _tag: 'TurnGap', key, turnKey: key };
     });
   const held = rowsFrom(100, 140, 100);
-  // Older rows measure far from the 60 px estimate.
   const older = rowsFrom(70, 100, 150);
-  const root = createRoot(viewport);
-  const render = (rows) =>
-    act(async () => {
-      root.render(
-        React.createElement(TranscriptList, {
-          sessionKey: 'prepend-test',
-          rows,
-          viewport: { current: viewport },
-          content: { current: null },
-          shouldAnchorBottom: false,
-          scrollToEndRef: { current: () => {} },
-          renderRow: (row) => React.createElement('div', null, row.key),
-          markProgrammaticScroll: () => {},
-          hasScrollGesture: () => false,
-          onSelectionAutoScroll: () => {},
-        })
-      );
-    });
-  const settle = async () => {
-    for (let pass = 0; pass < 6; pass += 1) {
-      await act(async () => {
-        deliver();
-        viewport.dispatchEvent(new dom.window.Event('scroll'));
-      });
-    }
-  };
-  const firstVisible = () => {
-    const top = viewport.scrollTop;
-    const hit = [...viewport.querySelectorAll('.transcript-virtual-row')]
-      .map((element) => ({
-        key: element.dataset.timelineKey,
-        top: Number.parseFloat(element.style.top),
-        height: heights.get(element.dataset.timelineKey),
-      }))
-      .find((row) => row.top <= top && top < row.top + row.height);
-    return hit ? { key: hit.key, offset: hit.top - top } : null;
-  };
+  const mount = await mountTranscript(heights, 'prepend-test');
   try {
-    await render(held);
-    await settle();
-    // Read a few rows below the top of the held window: the overscan above
-    // the reader reaches into the page that is about to land.
-    viewport.scrollTop = 350;
-    await settle();
-    const before = firstVisible();
+    await mount.render(held);
+    await mount.settle();
+    await mount.scrollTo(350);
+    const before = mount.firstVisible();
     assert.ok(before, 'a row is under the top edge');
     assert.ok(before.key >= 'row-100' && before.key < 'row-110');
 
-    await render([...older, ...held]);
-    const landed = firstVisible();
-    await settle();
+    await mount.render([...older, ...held]);
+    const landed = mount.firstVisible();
+    await mount.settle();
     assert.deepEqual(landed, before, 'the commit that adds the page keeps the reader still');
-    assert.deepEqual(firstVisible(), before, 'measuring the page above the reader keeps it still');
+    assert.deepEqual(mount.firstVisible(), before, 'measuring the page above the reader keeps it still');
   } finally {
-    await act(async () => root.unmount());
-    dom.window.close();
-    for (const [key, descriptor] of previous) {
-      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-      else delete globalThis[key];
-    }
+    await mount.cleanup();
   }
 });

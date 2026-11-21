@@ -1,9 +1,3 @@
-// The phone drawer opens on the rail's topmost item. Released builds up to
-// v1.3.5 opened the left drawer on Bots (agents) whatever the rail's order
-// was (a LEFT_HOME_VIEW rule); the start view is now the first pinned rail
-// view, following the pins until the user picks. This drives the real
-// phone boot — shell panels, side docks, sidebar hub and the drawer — through
-// the idle mount of the Bots page and the first drawer opening, with no tap.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';

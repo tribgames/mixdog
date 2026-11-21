@@ -17,7 +17,8 @@ import {
   type WorkbenchSide,
   type WorkbenchSideViewId,
 } from './workbench-side-view-layout';
-import { usePaneSideDocks, type PaneSideDockDiff } from './pane-side-dock';
+import type { PaneSideDockDiff } from './pane-side-dock';
+import { usePaneSideDocks } from './pane-side-dock-state';
 import {
   isSessionSidePanelView,
   legacyTerminalSessions,
@@ -39,6 +40,24 @@ interface AppSideDockOptions {
   paneWorkspace: ReturnType<typeof usePaneWorkspace>;
   sessionSurfaces: ReturnType<typeof useSessionPaneSurfaces>;
   applySidebarOpen: (open: boolean) => void;
+}
+
+type ActiveSideViews = Record<WorkbenchSide, WorkbenchSideViewId | null>;
+
+function useActiveSideViews(layout: Parameters<typeof initialActiveWorkbenchSideViews>[0]) {
+  const { pins: railPins } = useActivityRailPins();
+  const startSideViews = initialActiveWorkbenchSideViews(layout, railPins);
+  const startSideViewsRef = useRef(startSideViews);
+  startSideViewsRef.current = startSideViews;
+  const [pickedSideViews, setPickedSideViews] = useState<ActiveSideViews | null>(null);
+  const activeSideViews = pickedSideViews ?? startSideViews;
+  const setActiveSideViews = useCallback((action: SetStateAction<ActiveSideViews>) => {
+    setPickedSideViews((picked) => {
+      const current = picked ?? startSideViewsRef.current;
+      return typeof action === 'function' ? action(current) : action;
+    });
+  }, []);
+  return { activeSideViews, setActiveSideViews };
 }
 
 export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOpen }: AppSideDockOptions) {
@@ -91,25 +110,7 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
         .filter((group) => group.length > 0),
     [workbenchSideLayout.layout]
   );
-  // The rail's order lives in the pins store, so the start view is read from
-  // the same pins the rail draws. It follows them (a host answer after boot,
-  // another window's reorder) until the user picks a view; from then on the
-  // pick holds. Every caller of setActiveSideViews is an explicit navigation
-  // (rail click, dock tab open, drag, settings route), so any call is a pick,
-  // including one that selects the view already showing.
-  const { pins: railPins } = useActivityRailPins();
-  type ActiveSideViews = Record<WorkbenchSide, WorkbenchSideViewId | null>;
-  const startSideViews = initialActiveWorkbenchSideViews(workbenchSideLayout.layout, railPins);
-  const startSideViewsRef = useRef(startSideViews);
-  startSideViewsRef.current = startSideViews;
-  const [pickedSideViews, setPickedSideViews] = useState<ActiveSideViews | null>(null);
-  const activeSideViews = pickedSideViews ?? startSideViews;
-  const setActiveSideViews = useCallback((action: SetStateAction<ActiveSideViews>) => {
-    setPickedSideViews((picked) => {
-      const current = picked ?? startSideViewsRef.current;
-      return typeof action === 'function' ? action(current) : action;
-    });
-  }, []);
+  const { activeSideViews, setActiveSideViews } = useActiveSideViews(workbenchSideLayout.layout);
   /** The session a pane shows ('' for a draft or a non-session tab). */
   const sessionOfLeaf = (leafId: string) => {
     const leaf = paneWorkspace.leaves.find((candidate) => candidate.id === leafId);
@@ -126,10 +127,6 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
       ? undefined
       : Object.fromEntries(paneWorkspace.leaves.map((leaf) => [leaf.id, sessionTabIds(leaf.tabs)])),
   });
-  // A reload restores the terminal by session (use-session-pane-surfaces):
-  // a pane's own entry never hands it to another session it shows. An
-  // upgrade, with only the pane-keyed store, migrates once the workspace is
-  // restored: each pane's stored terminal goes to the session it shows.
   const { surfacesMigrated, migrateLegacyTerminals } = sessionSurfaces;
   useEffect(() => {
     if (surfacesMigrated || paneWorkspace.restorePending) return;
@@ -229,12 +226,6 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
       rawEntry.surface === '' &&
       isSessionSidePanelView(rawEntry.view)
     ) {
-      // The pane remembers a view of another session kind (Routines from a
-      // home thread, the room panel from a room): this tab has no such view,
-      // so it neither stores it nor shows the panel's first view in its
-      // place; the dock opens on this tab's own first view.
-      // The agent session view comes back with the sub-agent the fold kept;
-      // without one a toggle has nothing to show in it.
       const remembered =
         rawEntry.view === 'agent-session' && !agentSessionPanels.has(sessionId)
           ? null

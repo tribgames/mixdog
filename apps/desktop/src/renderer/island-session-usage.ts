@@ -1,8 +1,3 @@
-// The composer island's agents-panel summary: the Lead session's lifetime
-// totals from the usage ledger beside one total of every agent it ever ran,
-// closed and replaced ones included, and each listed agent's own row total
-// (getSessionUsage). A figure is shown only when every session it covers was
-// fully measured; nothing is estimated or apportioned.
 import { useEffect, useRef, useState } from 'react';
 import type { DesktopAgentPoolRow } from '../shared/contract';
 import { record } from './record-utils';

@@ -28,21 +28,11 @@ function openFence(text) {
   return marker ? { marker, length, start } : null;
 }
 
-// The opening fence line arrives a token at a time: ``` → ```py → ```python.
-// Rendered at once, the card opened unlabelled and then relabelled (and
-// re-highlighted) per token. The card appears with its first code character:
-// an opening line alone would paint an empty box before any code.
 function trimPartialOpeningFence(text, fence) {
   const lineEnd = text.indexOf('\n', fence.start);
   return lineEnd >= 0 && /\S/.test(text.slice(lineEnd + 1)) ? text : text.slice(0, fence.start);
 }
 
-// A line holding only a block marker so far has no content to show, and the
-// marker alone parses as something else: `-` or `=` under a paragraph is a
-// setext underline (the paragraph flashed into a heading until the item text
-// arrived), `2` is a lazy paragraph continuation until its `.` arrives, `#`
-// grows into `##`, and a lone backtick run is literal text until it becomes a
-// fence. Hold the line back until its first content character.
 const PENDING_BLOCK_MARKER_LINE = /(?:^|\n)[ \t]*(?:[-+*=_#>~`]+|\d{1,9}[.)]?)[ \t]*$/;
 
 function trimPendingBlockMarker(text) {
@@ -51,10 +41,6 @@ function trimPendingBlockMarker(text) {
   return text.slice(0, pending.index + (pending[0].startsWith('\n') ? 1 : 0));
 }
 
-// A closing fence arrives a token at a time. Until its run is long enough to
-// close, the partial marker line is not code: parsed, it became one more code
-// line that vanished again once the fence closed — the block grew a line and
-// shrank back (the source fallback already hides it the same way).
 function trimPartialClosingFence(text, fence) {
   const partial = /(?:^|\r?\n) {0,3}([`~]+)$/.exec(text);
   const run = partial?.[1] || '';
@@ -275,14 +261,6 @@ function tableCells(line) {
   return cells.length;
 }
 
-// A table streams in as its header row, then its delimiter row a token at a
-// time. Until the delimiter is complete (and has the header's cell count) the
-// rows are a paragraph of raw pipes, which then re-laid out as a table of a
-// different height — the reply grew and shrank under a followed transcript.
-// Hold both rows back until the table can form in one step. The head may end
-// a block under paragraph lines (a table directly below its caption line),
-// and a header row needs no leading pipe: such a row is held while it is the
-// block's last line, and with a partial delimiter row below it.
 function trimPendingTableHead(text) {
   let offset = 0;
   for (const blank of text.matchAll(/\n[ \t]*\r?\n/g)) offset = blank.index + blank[0].length;

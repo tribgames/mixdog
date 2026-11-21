@@ -1,7 +1,3 @@
-/**
- * card-header.mjs — the header label and the parenthesized arg summary of
- * a single tool card.
- */
 import { formatToolActionHeader, toolLoadingTargets } from '../tool-surface.mjs';
 import { agentActionSummary, agentActionTitle, agentResponseTitle, isAgentTool } from './agent-surface.mjs';
 import { backgroundTaskActionTitle, backgroundTaskResultTitle, taskControlTitle } from './background-task.mjs';

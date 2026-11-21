@@ -1,11 +1,3 @@
-// The lines a child session's surfaces leave in the conversation that owns
-// it. A sub-agent, a bot's task session or a room member opens its browser
-// or terminal under its own session id; the reveal climbs its owner chain
-// (session-browser-policy surfaceOwnerChain) and the owner conversation gets
-// one line per child surface: "브라우저 · <child> · <page> · 보기", or
-// "열지 못함 · <reason>" with no 보기 when the open failed. The line sits in
-// the conversation the reveal is routed to (the nearest of the chain on
-// screen, else the authoritative owner) and follows a deferred reveal there.
 import { CircleX, SquareTerminal } from 'lucide-react';
 import { useSyncExternalStore } from 'react';
 import { BrowserPeekLine } from './browser-peek-line';
@@ -176,10 +168,6 @@ function ChildSurfacePeekLine({ sessionId, peek }: { sessionId: string; peek: Ch
       </div>
     );
   }
-  // The browser line (browser-peek-line.tsx) shows exactly that tab of the
-  // child in this conversation's panel, under the child's name: the same
-  // borrowed tab the routed reveal opened. Only an open naming its page
-  // records a browser line.
   if (peek.surface === 'browser') {
     return (
       <BrowserPeekLine
@@ -194,8 +182,6 @@ function ChildSurfacePeekLine({ sessionId, peek }: { sessionId: string; peek: Ch
       />
     );
   }
-  // "보기": the child's terminal tab, routed into this owner's dock
-  // (use-app-tab-actions revealSessionTerminal).
   return (
     <button
       type="button"

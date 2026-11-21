@@ -13,15 +13,11 @@ interface DeferredDesktopServiceScheduleOptions {
   clearTimer?: (timer: TimerHandle) => void;
 }
 
-/**
- * Starts non-critical Desktop services only after the daemon handshake and a
- * quiet input window. The BrowserWindow's WebContents reference is captured
- * while live because Electron's getter throws after window destruction.
- */
 export function scheduleDeferredDesktopServices(
   window: BrowserWindow,
   options: DeferredDesktopServiceScheduleOptions
 ): () => void {
+  // Captured while live: Electron's getter throws after window destruction.
   const webContents = window.webContents;
   const quietMs = Math.max(0, options.quietMs ?? 2_000);
   const setTimer = options.setTimer ?? ((task, delayMs) => setTimeout(task, delayMs));

@@ -15,14 +15,9 @@ import type { FollowSignals } from './use-follow-signals';
  *  latches meanwhile, and a tap that only stopped a fling lands after it. */
 const TOUCH_RELEASE_SETTLE_MS = 150;
 
-/** A touch keeps targeting the element it started on after that element
- *  leaves the document, and its moves and end then never bubble to the
- *  viewport. A streamed word's fade wrapper is unwrapped the moment its fade
- *  ends: a drag that began on the newest words of a live reply went unseen,
- *  follow was never released, and the end pin wrote the tail back under the
- *  finger every frame (phone: scrolling up stopped at once). The target's own
- *  listeners hand such events to the viewport's handlers; while the target is
- *  still in the document they bubble there themselves. */
+/** A touch keeps targeting its start element after it leaves the document, so
+ *  its moves and end no longer bubble to the viewport; the target's own
+ *  listeners forward them. */
 function followDetachedTouch(
   event: TouchLike,
   onMove: (event: TouchLike) => void,
@@ -71,15 +66,7 @@ export function useFollowTouch({
   const touchGesture = useRef<number | undefined>(undefined);
   const touchLatched = useRef(false);
   const touchDown = useRef(false);
-  // A touch keeps targeting the element it started on. When virtualization
-  // unmounts that row mid-drag, its touchend never reaches the viewport, and
-  // "finger down" stayed true until the NEXT touch: every row size deferred
-  // for reader motion then stayed deferred and the geometry never recovered.
-  // A detached target ends the finger's ownership; the scroll-idle fallback
-  // still owns the fling.
   const touchTarget = useRef<{ isConnected?: boolean } | null>(null);
-  // The moves and end of a touch whose target left the document (see
-  // followDetachedTouch); removes the target's listeners.
   const releaseTouchTarget = useRef<(() => void) | null>(null);
   const touchScrollAt = useRef(0);
   const fingerOnGlass = useCallback(() => {
@@ -99,24 +86,9 @@ export function useFollowTouch({
       }),
     [fingerOnGlass]
   );
-  // On iOS WebKit a touch scroll holds measured-size corrections and page
-  // landings off the native offset until its fling is over: a scrollTop write
-  // there cancels the momentum. WebKit fires no reliable end, so the hold ends
-  // once the scroll has been quiet for a moment. Native 0 with a page held
-  // above it is no exception while the momentum is on it: the hold lands
-  // early only once the logical offset is at the real top, or when a new
-  // finger lands at native 0 (its drag must reach the page); otherwise it
-  // waits for the settle (transcript-list-touch-deviation). A finger on the
-  // glass holds too, scrolling or not, and so does one lifted a moment ago: a
-  // lifted finger may still start a fling.
-  // Nowhere else. Chromium (Android Chrome, its WebView, a desktop
-  // touchscreen) keeps a touch fling's momentum through a scrollTop write —
-  // the fling is a stream of scroll deltas applied to wherever the offset is,
-  // the path its own scroll anchoring adjusts under — so corrections are
-  // written at once, as virtual-core writes them off iOS. Held there, a page
-  // landed above the reader stayed outside the native scroll range until the
-  // fling ended, and an upward fling stopped at the old first row, mid-history
-  // (Android).
+  // iOS WebKit only: a scrollTop write cancels touch-fling momentum and WebKit
+  // fires no reliable fling end, so corrections are held until the scroll has
+  // been quiet. Chromium keeps momentum through a write.
   const [iosWebKit] = useState(isIOSWebSurface);
   const touchEndedAt = useRef(0);
   const touchHoldsCorrections = useCallback(
@@ -218,10 +190,7 @@ export function useFollowTouch({
     []
   );
 
-  // Chromium — Android included — reports the true end of a touch scroll,
-  // momentum and all, with scrollend. It is the only precise "native motion is
-  // over" signal available, so it closes the touch latch directly instead of
-  // waiting out the idle fallback.
+  // Chromium reports the true end of a touch scroll, momentum included, with scrollend.
   useEffect(() => {
     const element = viewport.current;
     if (!element) return undefined;

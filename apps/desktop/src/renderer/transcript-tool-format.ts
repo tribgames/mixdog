@@ -695,10 +695,8 @@ function visualizeActionLabel(action: string): string {
   }
 }
 
-/** "Checked tab · 요금제 배치 시안 (3가지)": the action verb, then the tab's
- *  title (the label given at open, which `tabTitle` resolves from the tab id),
- *  else what the call acted on. A bare tab id is never shown. `args` is the
- *  call's `input`; the action rides beside it. */
+/** The action verb, then the tab's title (`tabTitle`), else what the call
+ *  acted on; a bare tab id is never shown. `args` is the call's `input`. */
 export function visualizeRowSubject(action: string, args: Record<string, unknown>, tabTitle: string): string {
   const content = asRecord(args.content);
   const kind = VISUALIZE_INLINE_KINDS.find((candidate) => candidate === content?.kind);

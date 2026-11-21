@@ -1,8 +1,3 @@
-// A window's large caches (shared/renderer-cache.ts), kept by the main process. They do not live in Local Storage:
-// a cache of hundreds of kilobytes is rewritten whole each time it changes, and every write of a value there is copied
-// into the renderer's storage cache and sent whole to the storage backend. Nor is each change written to disk: a cache
-// is read once, by the first paint of the window's next page, so the page's latest text is held here and written to its
-// profile file once, when the window is done with it.
 import { readFileSync } from 'node:fs';
 
 import type { BrowserWindow, IpcMainEvent } from 'electron';

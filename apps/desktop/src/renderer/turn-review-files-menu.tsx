@@ -46,6 +46,89 @@ const runningTurnNotice = () =>
 const inSourceMenu = (target: EventTarget | null) =>
   target instanceof Element && Boolean(target.closest('.row-overflow-menu'));
 
+/** Reads the row box (the 44px touch row on a phone) from a drawn row after
+ *  every commit and whenever that row resizes. */
+function useLearnedRowHeight(
+  list: RefObject<HTMLDivElement | null>,
+  open: boolean,
+  setRowHeight: (update: (current: number) => number) => void
+) {
+  const sizedRow = useRef<{ row: Element; observer: ResizeObserver | null } | null>(null);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const row = list.current?.querySelector('.turn-review-files-row') ?? null;
+    if (!row) return;
+    const learn = () => {
+      const height = row.getBoundingClientRect().height;
+      if (height > 0) setRowHeight((current) => (Math.abs(height - current) > 0.5 ? height : current));
+    };
+    learn();
+    if (sizedRow.current?.row === row) return;
+    sizedRow.current?.observer?.disconnect();
+    const Observer = typeof window.ResizeObserver === 'function' ? window.ResizeObserver : null;
+    const observer = Observer ? new Observer(learn) : null;
+    observer?.observe(row);
+    sizedRow.current = { row, observer };
+  });
+  useEffect(() => () => sizedRow.current?.observer?.disconnect(), []);
+}
+
+/** The index a menu key moves to over `total` items, or null for a key that does not navigate. */
+function menuNavigationTarget(key: string, current: number, total: number): number | null {
+  if (key === 'ArrowDown') return (current + 1) % total;
+  if (key === 'ArrowUp') return (current - 1 + total) % total;
+  if (key === 'Home') return 0;
+  if (key === 'End') return total - 1;
+  return null;
+}
+
+function FileRowButton({
+  index,
+  path,
+  entry,
+  menuSize,
+  onFocus,
+  onPointerDown,
+  onOpen,
+}: {
+  index: number;
+  path: string;
+  entry: TurnReviewFileEntry;
+  menuSize: number;
+  onFocus(): void;
+  onPointerDown(): void;
+  onOpen(): void;
+}) {
+  const clean = path.replace(/\\/g, '/');
+  const slash = clean.lastIndexOf('/');
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      className="turn-review-files-row"
+      data-index={index}
+      aria-posinset={index + 1}
+      aria-setsize={menuSize}
+      title={clean}
+      onFocus={onFocus}
+      onPointerDown={onPointerDown}
+      onClick={onOpen}
+    >
+      <span className="turn-review-files-path">
+        {slash >= 0 && <span className="turn-review-files-dir">{clean.slice(0, slash + 1)}</span>}
+        {clean.slice(slash + 1)}
+      </span>
+      {entry.lineStats && (
+        <span className="diff-stats">
+          {entry.additions > 0 && <i>+{entry.additions}</i>}
+          {entry.additions > 0 && entry.deletions > 0 && ' '}
+          {entry.deletions > 0 && <em>−{entry.deletions}</em>}
+        </span>
+      )}
+    </button>
+  );
+}
+
 /** The panel header's Changes source picker (shared with the Changes pane). */
 function ChangesSourceMenu() {
   const source = useSessionChangesSource();
@@ -66,10 +149,8 @@ function ChangesSourceMenu() {
 }
 
 /** The island's "Files N +a −b" segment as a menu trigger: every changed file
- *  in one scrolling list (a row opens that file's diff), with Delete history
- *  (behind a confirmation) and View changes fixed below it. The menu is an island tab like Goal and
- *  the jobs: the island expands upward in place into its panel. Roving focus
- *  and Escape/Tab dismissal follow RowOverflowMenu and SidebarUsageMenu. */
+ *  in one scrolling list, with Delete history (behind a confirmation) and View
+ *  changes fixed below it. */
 export function TurnReviewFilesMenu({
   sessionId,
   historyTurns,
@@ -142,30 +223,10 @@ export function TurnReviewFilesMenu({
   // arriving above never move the pin to another file.
   const [focusedPath, setFocusedPath] = useState('');
   const [focusRequest, setFocusRequest] = useState('');
-  // The row box (26px, the 44px touch row): read from a drawn row after every
-  // commit that has one — the list filling in, a layout change re-rendering
-  // it — and whenever that row's box changes size.
-  const sizedRow = useRef<{ row: Element; observer: ResizeObserver | null } | null>(null);
   useLayoutEffect(() => {
-    if (!open) {
-      if (focusedPath) setFocusedPath('');
-      return;
-    }
-    const row = list.current?.querySelector('.turn-review-files-row') ?? null;
-    if (!row) return;
-    const learn = () => {
-      const height = row.getBoundingClientRect().height;
-      if (height > 0) setRowHeight((current) => (Math.abs(height - current) > 0.5 ? height : current));
-    };
-    learn();
-    if (sizedRow.current?.row === row) return;
-    sizedRow.current?.observer?.disconnect();
-    const Observer = typeof window.ResizeObserver === 'function' ? window.ResizeObserver : null;
-    const observer = Observer ? new Observer(learn) : null;
-    observer?.observe(row);
-    sizedRow.current = { row, observer };
+    if (!open && focusedPath) setFocusedPath('');
   });
-  useEffect(() => () => sizedRow.current?.observer?.disconnect(), []);
+  useLearnedRowHeight(list, open, setRowHeight);
   // The requested row is in this commit (the request pins it): focus it.
   useLayoutEffect(() => {
     if (!focusRequest) return;
@@ -230,12 +291,8 @@ export function TurnReviewFilesMenu({
     let current = 0;
     if (row) current = Number(row.dataset.index);
     else if (footIndex >= 0) current = entries.length + footIndex;
-    let next: number;
-    if (event.key === 'ArrowDown') next = (current + 1) % total;
-    else if (event.key === 'ArrowUp') next = (current - 1 + total) % total;
-    else if (event.key === 'Home') next = 0;
-    else if (event.key === 'End') next = total - 1;
-    else return;
+    const next = menuNavigationTarget(event.key, current, total);
+    if (next === null) return;
     event.preventDefault();
     if (next >= entries.length) {
       foot[next - entries.length]?.focus();
@@ -255,49 +312,26 @@ export function TurnReviewFilesMenu({
   const menuSize = entries.length + FOOT_ITEMS;
   const fileRow = (index: number) => {
     const [path, entry] = entries[index] as [string, TurnReviewFileEntry];
-    const clean = path.replace(/\\/g, '/');
-    const slash = clean.lastIndexOf('/');
     return (
-      <button
+      <FileRowButton
         key={path}
-        type="button"
-        role="menuitem"
-        className="turn-review-files-row"
-        data-index={index}
-        aria-posinset={index + 1}
-        aria-setsize={menuSize}
-        title={clean}
+        index={index}
+        path={path}
+        entry={entry}
+        menuSize={menuSize}
         onFocus={() => setFocusedPath(path)}
         onPointerDown={() => prefetchSessionChanges(sessionId, { paneKey, focusPath: path })}
-        onClick={() => {
+        onOpen={() => {
           close(false);
           onOpenFile(path);
         }}
-      >
-        <span className="turn-review-files-path">
-          {slash >= 0 && <span className="turn-review-files-dir">{clean.slice(0, slash + 1)}</span>}
-          {clean.slice(slash + 1)}
-        </span>
-        {entry.lineStats && (
-          <span className="diff-stats">
-            {entry.additions > 0 && <i>+{entry.additions}</i>}
-            {entry.additions > 0 && entry.deletions > 0 && ' '}
-            {entry.deletions > 0 && <em>−{entry.deletions}</em>}
-          </span>
-        )}
-      </button>
+      />
     );
   };
   // The window plus the pinned rows, resolved from their paths to where they are now.
   const pinned = [focusedPath, focusRequest].map((path) => (path ? (indexOf.get(path) ?? -1) : -1));
   const listNodes = windowedRows(rowWindow, entries.length, pinned, fileRow);
   const deleteHistory = async () => {
-    // The segment counts the selected Changes source. A Git root's sources
-    // (uncommitted, branch, staged…) read the working tree, which deleting
-    // history leaves untouched, so the segment stays; the Last turn source
-    // and a non-Git root's session diff empty, and the segment hides. Either
-    // way typing continues in this pane's composer instead of focus falling
-    // to the document.
     let scope = trigger.current?.parentElement ?? null;
     while (scope && !scope.querySelector('.composer textarea')) scope = scope.parentElement;
     const composer = scope?.querySelector<HTMLTextAreaElement>('.composer textarea') ?? null;

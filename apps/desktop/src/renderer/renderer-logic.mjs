@@ -70,10 +70,6 @@ export function reconcileTurnFailures(_previous, items, _toasts, scope = '') {
 
   const failed = [];
   for (const [turnKey, outcome] of outcomes) {
-    // A turndone item is the core's authoritative final outcome. Cancelled turns
-    // are intentionally not converted to failures; TranscriptRow renders those
-    // as interrupted. Before turndone exists, an explicit transcript error may
-    // still surface a pending failure. Ephemeral UI toasts never affect either.
     if (outcome.terminalStatus === 'failed' || (!outcome.terminalStatus && outcome.explicitFailure))
       failed.push(turnKey);
   }
@@ -196,11 +192,7 @@ export function normalizeApplyPatch(value) {
 
 const RANGED_HUNK_HEADER = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/;
 
-// V4A apply_patch hunks carry bare `@@` (or `@@ <context>`) headers with no
-// line ranges. The Shiki diff renderer rejects rangeless headers, so every
-// consumer fell back to the raw <pre> patch text. renderPatch rewrites those
-// headers with synthetic ranges (counts are accurate, positions approximate)
-// for RENDERING ONLY; `patch` stays byte-faithful for copy actions.
+// The Shiki diff renderer rejects the rangeless `@@` headers of V4A hunks: they get synthetic ranges (counts exact, positions approximate), for rendering only.
 function renderablePatch(section, hunks) {
   if (hunks.length === 0 || hunks.every((hunk) => RANGED_HUNK_HEADER.test(hunk))) return section;
   const headerEnd = section.search(/^@@/m);
@@ -401,10 +393,9 @@ export function mergePatchDigests(digests) {
   };
 }
 
-// First `max` lines of a patch that still parses: a cut inside a hunk leaves
-// header counts the diff view rejects (it then fell back to raw text), so the
-// last hunk's counts are rewritten to the lines kept, and a file section left
-// without any hunk body is dropped.
+// First `max` lines of a patch that still parses: the last hunk's header counts
+// are rewritten to the lines kept, and a file section left without any hunk body
+// is dropped.
 export function capPatchLines(patch, max) {
   const lines = String(patch || '').split('\n');
   // A "\ No newline at end of file" marker is not a drawn row: a patch whose
@@ -467,15 +458,10 @@ export function capPatchLines(patch, max) {
   return { text: kept.join('\n'), cut: true };
 }
 
-// Startup/reload navigation restore plan. The persisted LAST VIEWED selection
-// (localStorage) outranks the host engine's current session: the engine-first
-// order made every renderer reload (crash recovery, dev HMR) yank a draft or
-// other view onto whatever session the engine happened to hold — perceived as
-// the window force-switching to a background session. An absent
-// stored id is MEANINGFUL: the user last viewed a non-session surface (New
-// task draft), so no session is restored. A stale or not-yet-confirmed stored
-// id also stays on New task: a partial startup catalog must never make the
-// engine's unrelated current session steal the user's selection.
+// Startup/reload navigation restore plan. The persisted last viewed selection
+// outranks the host engine's current session. An absent stored id means the
+// user last viewed a non-session surface (New task draft): no session is
+// restored. A stale or not-yet-confirmed stored id also stays on New task.
 export function startupRestorePlan({ storedSessionId = '', storedSessionKnown = false, engineSessionId = '' } = {}) {
   const stored = String(storedSessionId || '');
   const engine = String(engineSessionId || '');

@@ -48,18 +48,16 @@ export function registerSourceControlIpc({
     }
     return absolute;
   };
+  const targetFile = async (cwd: unknown, path: unknown, accessToken: unknown): Promise<string> =>
+    typeof accessToken === 'string' && accessToken
+      ? (await grantedFile(accessToken, cwd, path)).absolute
+      : resolveInsideProject(cwd, path);
   handle(DESKTOP_IPC.revealFile, async (_event, cwd, path, accessToken) => {
-    const absolute =
-      typeof accessToken === 'string' && accessToken
-        ? (await grantedFile(accessToken, cwd, path)).absolute
-        : resolveInsideProject(cwd, path);
+    const absolute = await targetFile(cwd, path, accessToken);
     shell.showItemInFolder(absolute);
   });
   handle(DESKTOP_IPC.openFilePath, async (_event, cwd, path, accessToken, confirmedPath) => {
-    const absolute =
-      typeof accessToken === 'string' && accessToken
-        ? (await grantedFile(accessToken, cwd, path)).absolute
-        : resolveInsideProject(cwd, path);
+    const absolute = await targetFile(cwd, path, accessToken);
     return launchFile(absolute, (file) => shell.openPath(file), confirmedPath);
   });
   handle(DESKTOP_IPC.openAttachmentImage, async (_event, dataUrl, name) => {

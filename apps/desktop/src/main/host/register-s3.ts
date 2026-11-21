@@ -1,14 +1,7 @@
-/**
- * Every `host/computer/*` handler of this desktop and the report of the desktop's own transitions, registered at once with
- * what each needs handed in (`registerComputerHost`): the screen reads and the whole-command relay of the desktop's own
- * computer host (only while one runs), the foreground lease, the internal windows, the pointer feedback and cursor
- * readiness, the app windows and app input, the pixels and the permissions, and the lock / suspend / display reports that
- * take the user's hold in the core. The arrow of the input into the desktop's own windows is the presence mirror's, like
- * the arrow of the helper's pointer progress, so one overlay draws both.
- */
 import type { ComputerPresence } from '../computer/presence/mirror';
 import { registerComputerHandlers, type ComputerControlSource, type ComputerHostDeps } from './computer';
 import { registerComputerCommand, type ComputerCommandHostSource } from './computer-command';
+import { registerComputerProcessFate, type ProcessFateSource } from './computer-process-fate';
 import { type ComputerSwitch, registerComputerScopes } from './computer-scope';
 import { bindComputerEnvironment } from './computer-environment';
 import { registerComputerPermissions, type ComputerPermissionReads } from './computer-permissions';
@@ -35,6 +28,8 @@ export interface ComputerHostWiring {
   desktopHostScreen: ComputerControlSource;
   /** The same host's bridge answer (`host/computer/command`) while it runs, else null. */
   desktopHostCommand: ComputerCommandHostSource;
+  /** The same host's reading of one process (`host/computer/processFate`) while it runs, else null. */
+  desktopHostProcessFate: ProcessFateSource;
   /** Computer Use's switch: every handler commits its effects under the request's automation scope, which follows it, and
    *  `host/computer/revokeScopes` is always served (`computer-scope.ts`). */
   computerSwitch: ComputerSwitch;
@@ -62,6 +57,7 @@ export function registerComputerHost(connection: HostConnection, wiring: Compute
   });
   registerComputerPermissions(connection, wiring.permissions);
   registerComputerCommand(connection, wiring.desktopHostCommand, scopes);
+  registerComputerProcessFate(connection, wiring.desktopHostProcessFate);
   let stopped = false;
   let unbind: () => void = () => undefined;
   void environment.ready.then(() => {

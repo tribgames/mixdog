@@ -1,10 +1,3 @@
-/**
- * Task-owned tab lifecycle over the live bridge: no agent work but `open`
- * opens the dock, finishing a turn leaves its page hidden instead of creating
- * an empty foreground one, an explicit open keeps the page for the user, and
- * closing the session's last page folds the panel. Every command here carries
- * its own session and turn id.
- */
 import assert from 'node:assert/strict';
 import type { WebContents } from 'electron';
 import type { DesktopBrowserOpenRequest } from '../../shared/contract';

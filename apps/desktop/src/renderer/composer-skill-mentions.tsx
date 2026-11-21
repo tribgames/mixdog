@@ -1,8 +1,3 @@
-// Inline `$name` skill mentions on the desktop/mobile composer: the skill
-// catalog the composer recognises, the `$` palette filter, the highlight layer
-// mirrored behind the textarea, and the sent-message rendering. Recognition is
-// the shared parser's (src/runtime/shared/skill-mentions.mjs); this module only
-// decides which names count and paints them.
 import React, {
   useEffect,
   useLayoutEffect,
@@ -57,11 +52,6 @@ export function composerSkillCatalog(value: unknown): ComposerSkillCatalog {
 const catalogKey = (sessionId?: string | null, projectPath?: string | null) =>
   sessionId || `draft:${projectPath || ''}`;
 
-/** skillsStatus as the runtime would apply it to this composer's prompt. A
- *  session's own runtime answers for its folder (`readCapabilities` always
- *  goes to the control session, so a session read is addressed through
- *  invokeCapability). A draft names its Project; the host resolves it to the
- *  folder the task would run in, and the control session answers for that. */
 async function readSkillsStatus(sessionId?: string | null, projectPath?: string | null): Promise<unknown> {
   if (sessionId) {
     return (await window.mixdogDesktop.invokeCapability({ capability: 'skillsStatus', sessionId })).value;
@@ -97,10 +87,6 @@ export function cachedSkillCatalog(
 const startedReads = new Map<string, number>();
 const appliedReads = new Map<string, number>();
 
-// Concurrent reads of one catalog share a promise, and a catalog read within
-// SKILL_CATALOG_MIN_AGE_MS is served as is. A skill-changing signal passes
-// `force` to start a fresh read regardless (so it is never answered by one
-// that began before the change).
 const SKILL_CATALOG_MIN_AGE_MS = 2000;
 const inflightReads = new Map<string, Promise<ComposerSkillCatalog>>();
 const readFinishedAt = new Map<string, number>();
@@ -186,11 +172,6 @@ export function invalidateSkillCatalogForMutation(capability: string): boolean {
   return true;
 }
 
-/** The catalog for a session, or (no session) for a new-task draft's
- *  `projectPath`. Read when the catalog changes and re-read on every app signal
- *  that skills may have changed: a settings mutation, a setup-tool or
- *  host/other-client settings change, and a remote reconnect or state gap.
- *  Never on keystrokes or focus changes. */
 export function useSkillCatalog(
   sessionId: string | null | undefined,
   projectPath: string | null | undefined
@@ -228,10 +209,6 @@ export function useSkillCatalog(
 
 export type SkillMentionResult = { skill: ComposerSkill; start: number };
 
-/** Palette rows for `query`: name-prefix matches first, then names that
- *  contain it, each group in the catalog's order. `start` locates the match.
- *  Names reserved for inline mentions (env vars, numbers) are left out: the
- *  runtime ignores them when typed, so they stay `+`-chip only. */
 export function filterSkillMentions(skills: ComposerSkill[], query: string): SkillMentionResult[] {
   const needle = query.toLowerCase();
   const prefix: SkillMentionResult[] = [];
@@ -362,10 +339,6 @@ function mirrorTextareaBox(source: HTMLTextAreaElement, layer: HTMLDivElement) {
   layer.scrollTop = source.scrollTop;
 }
 
-/** Recognised mentions painted on a layer behind the textarea. While it is
- *  active the textarea's own ink is transparent (caret and selection stay
- *  native); an IME composition hands the ink back to the textarea until it
- *  commits, so the composing syllable is never drawn from stale state. */
 export function useComposerSkillHighlight({
   textarea,
   text,

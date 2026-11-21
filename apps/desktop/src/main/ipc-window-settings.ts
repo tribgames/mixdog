@@ -47,11 +47,6 @@ export function registerWindowSettingsIpc({
     window.webContents.send(DESKTOP_IPC.zoomFactorChanged, factor);
     return factor;
   });
-  // Renderer-resolved DESKTOP theme (system preference / stored preference)
-  // is the only owner of the native band, caption symbols, and the DWM frame
-  // theme. The engine/TUI theme is a separate user setting — the old
-  // getTheme/setTheme capability hook let it overwrite this band with a
-  // mismatched palette, so capabilities stay theme-neutral now.
   let appliedTheme: string | undefined;
   handle(DESKTOP_IPC.applyTitleBarTheme, async (_event, theme, systemPreference) => {
     const resolved = requiredString(theme, 'theme');

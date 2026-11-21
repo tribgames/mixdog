@@ -1,12 +1,3 @@
-/**
- * transcript-ending-cold-parser.test.mjs — a reply that ends before the
- * main-thread markdown parser has loaded. Its own file: the parser loads
- * once per module graph, and this case needs it not loaded yet.
- *
- * The row keeps its streaming presentation while the parser's import is in
- * flight, then ends with the whole tail in the commit that ends it, fading in:
- * the final text never waits on a worker round trip.
- */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';

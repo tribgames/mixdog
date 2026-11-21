@@ -1,8 +1,3 @@
-// The live-view sender window in a real Electron with a real display:
-// src/main/remote-webrtc/sender-window.integration.ts. The real sender
-// document is built with Vite and the real CSP plugin (a file:// page, as in
-// the packaged app), and its preload is bundled beside the entry the way the
-// built app lays them out.
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 

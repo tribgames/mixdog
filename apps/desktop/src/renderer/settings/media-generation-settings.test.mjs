@@ -425,12 +425,15 @@ test('the model field sheet opens below its trigger with the right edges aligned
   }
 });
 
-test('only the latest save of a kind sets or rolls back its pin', async () => {
+const SAVE_GROK = { lane: 'grok-oauth', model: 'grok-imagine-image', account: '' };
+const SAVE_OPENAI = { lane: 'openai-oauth', model: 'gpt-image-2', account: '' };
+
+async function withSaveProbe(savedImagePin, body) {
   const replies = [];
   const api = {
     async invokeCapability({ capability, args }) {
       if (capability === 'listMediaLanes') return { value: LANES };
-      if (capability === 'getMediaPins') return { value: { image: null, video: null } };
+      if (capability === 'getMediaPins') return { value: { image: savedImagePin, video: null } };
       if (capability === 'setMediaPin') {
         return new Promise((resolve, reject) => replies.push({ pin: args[0], resolve, reject }));
       }
@@ -447,62 +450,71 @@ test('only the latest save of a kind sets or rolls back its pin', async () => {
   const root = createRoot(host);
   try {
     await act(async () => root.render(React.createElement(Probe)));
-    const grok = { lane: 'grok-oauth', model: 'grok-imagine-image', account: '' };
-    const openai = { lane: 'openai-oauth', model: 'gpt-image-2', account: '' };
-    let first;
-    let second;
-    await act(async () => {
-      first = data.save('image', grok);
-      second = data.save('image', openai);
-    });
-    await act(async () => {
-      replies[1].resolve({ value: { kind: 'image', ...openai } });
-      await second;
-    });
-    await act(async () => {
-      replies[0].resolve({ value: { kind: 'image', ...grok } });
-      await first;
-    });
-    assert.equal(data.pins.image.lane, 'openai-oauth', 'a late older reply does not undo the newer pick');
-
-    let third;
-    let fourth;
-    await act(async () => {
-      third = data.save('image', grok);
-      fourth = data.save('image', null);
-    });
-    await act(async () => {
-      replies[3].reject(new Error('host refused'));
-      await fourth;
-    });
-    assert.equal(data.pins.image?.lane, 'openai-oauth', 'a failed latest save rolls back to what the host kept');
-    assert.equal(data.error, 'host refused');
-    await act(async () => {
-      replies[2].reject(new Error('stale'));
-      await third;
-    });
-    assert.equal(data.error, 'host refused', 'a stale failure neither rolls back nor reports');
-
-    let fifth;
-    let sixth;
-    await act(async () => {
-      fifth = data.save('image', grok);
-      sixth = data.save('image', null);
-    });
-    await act(async () => {
-      replies[5].reject(new Error('host refused again'));
-      await sixth;
-    });
-    await act(async () => {
-      replies[4].resolve({ value: { kind: 'image', ...grok } });
-      await fifth;
-    });
-    assert.equal(data.pins.image?.lane, 'grok-oauth', 'an older save that lands after a failed newer one is shown');
+    await body({ replies, data: () => data });
   } finally {
     await act(async () => root.unmount());
     host.remove();
   }
-});
+}
+
+test('a late reply to an older save does not undo the newer pick', () =>
+  withSaveProbe(null, async ({ replies, data }) => {
+    let first;
+    let second;
+    await act(async () => {
+      first = data().save('image', SAVE_GROK);
+      second = data().save('image', SAVE_OPENAI);
+    });
+    await act(async () => {
+      replies[1].resolve({ value: { kind: 'image', ...SAVE_OPENAI } });
+      await second;
+    });
+    await act(async () => {
+      replies[0].resolve({ value: { kind: 'image', ...SAVE_GROK } });
+      await first;
+    });
+    assert.equal(data().pins.image.lane, 'openai-oauth');
+  }));
+
+test('a failed latest save rolls back to what the host kept and a stale failure neither rolls back nor reports', () =>
+  withSaveProbe(SAVE_OPENAI, async ({ replies, data }) => {
+    let older;
+    let latest;
+    await act(async () => {
+      older = data().save('image', SAVE_GROK);
+      latest = data().save('image', null);
+    });
+    await act(async () => {
+      replies[1].reject(new Error('host refused'));
+      await latest;
+    });
+    assert.equal(data().pins.image?.lane, 'openai-oauth');
+    assert.equal(data().error, 'host refused');
+    await act(async () => {
+      replies[0].reject(new Error('stale'));
+      await older;
+    });
+    assert.equal(data().error, 'host refused');
+  }));
+
+test('an older save that lands after a failed newer one is shown', () =>
+  withSaveProbe(SAVE_OPENAI, async ({ replies, data }) => {
+    let older;
+    let latest;
+    await act(async () => {
+      older = data().save('image', SAVE_GROK);
+      latest = data().save('image', null);
+    });
+    await act(async () => {
+      replies[1].reject(new Error('host refused again'));
+      await latest;
+    });
+    await act(async () => {
+      replies[0].resolve({ value: { kind: 'image', ...SAVE_GROK } });
+      await older;
+    });
+    assert.equal(data().pins.image?.lane, 'grok-oauth');
+  }));
 
 async function checkPinRetry(failLatestBeforeRead) {
   const cachedPin = { lane: 'openai-oauth', model: 'gpt-image-2', account: '' };

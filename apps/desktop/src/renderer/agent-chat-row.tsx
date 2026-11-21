@@ -1,8 +1,3 @@
-// One transcript row in agent mode (agent-chat-mode.ts): the same row node
-// coding mode paints, framed as a messenger line — an agent's run of bubbles
-// on the left under one face and name, the user's on the right, the time at
-// the run's last bubble, a date pill where the day changes. Tool rounds and
-// notices stay compact rows in the bubble column.
 import { Link2, Timer } from 'lucide-react';
 import {
   cloneElement,
@@ -69,10 +64,6 @@ const STATUS_LABEL: Record<RoutineStatus, () => string> = {
   delivery: () => t('Delivery failed'),
 };
 
-// A live routine row (running, undelivered, a result posted while the thread
-// is open) carries no time of its own until the thread is reloaded: the time
-// it first reached this window stands in, kept per run so a row the result
-// replaces keeps it.
 const liveRunAt = new Map<string, number>();
 function routineAt(item: TranscriptItem): number {
   if (typeof item.at === 'number' && item.at > 0) return item.at;
@@ -135,11 +126,14 @@ function RoutineFailure({ routine }: { routine: { summary: string; reason: strin
   );
 }
 
-/** One routine's consecutive results as one card in the bubble column (the
- *  question card's grammar): the head names the routine and opens the 루틴
- *  tab; the latest run is expanded with its status, time and summary, older
- *  runs fold to one line each that opens in place; the foot carries what the
- *  latest run needs (run again, sign in again) and the run history. */
+type RoutineCapabilityRequest = Parameters<NonNullable<NonNullable<Window['mixdogDesktop']>['invokeCapability']>>[0];
+
+function invokeRoutineCapability(capability: string, args: unknown[]): void {
+  void Promise.resolve(
+    window.mixdogDesktop?.invokeCapability?.({ capability, args } as RoutineCapabilityRequest)
+  ).catch((error: unknown) => showDesktopToast(errorMessageText(error), 'error'));
+}
+
 export function AgentRoutineCard({ runs, sessionId }: { runs: readonly TranscriptItem[]; sessionId: string }) {
   const [opened, setOpened] = useState<number | null>(null);
   const latest = runs.at(-1);
@@ -147,20 +141,9 @@ export function AgentRoutineCard({ runs, sessionId }: { runs: readonly Transcrip
   if (!latest || !routine) return null;
   const { status, site } = routineStatus(latest);
   const runAgain = () =>
-    void Promise.resolve(
-      window.mixdogDesktop?.invokeCapability?.({
-        capability: routine.kind === 'webhook' ? 'runWebhookNow' : 'runScheduleNow',
-        args: [routine.name],
-      } as Parameters<NonNullable<typeof window.mixdogDesktop>['invokeCapability']>[0])
-    ).catch((error: unknown) => showDesktopToast(errorMessageText(error), 'error'));
+    invokeRoutineCapability(routine.kind === 'webhook' ? 'runWebhookNow' : 'runScheduleNow', [routine.name]);
   // Re-sends the finished run's result without running it again.
-  const retryDelivery = () =>
-    void Promise.resolve(
-      window.mixdogDesktop?.invokeCapability?.({
-        capability: 'retryRoutineDelivery',
-        args: [routine.kind, routine.name],
-      } as Parameters<NonNullable<typeof window.mixdogDesktop>['invokeCapability']>[0])
-    ).catch((error: unknown) => showDesktopToast(errorMessageText(error), 'error'));
+  const retryDelivery = () => invokeRoutineCapability('retryRoutineDelivery', [routine.kind, routine.name]);
   const chip = (state: RoutineStatus) => (
     <span className="mx-routine-chip" data-status={state}>
       {STATUS_LABEL[state]()}
@@ -268,10 +251,6 @@ export function AgentRoutineCard({ runs, sessionId }: { runs: readonly Transcrip
   );
 }
 
-/** A routine fire delivered as a turn: one compact marker row — the
- *  routine's glyph and name (a webhook's event after it), its time, and its
- *  instructions behind a disclosure — where a user bubble would be. The bot's
- *  reply below it is the run's result. */
 export function AgentRoutineTrigger({ item, sessionId }: { item: TranscriptItem; sessionId: string }) {
   const [open, setOpen] = useState(false);
   const trigger = chatRoutineTriggerOf(item);
@@ -322,10 +301,6 @@ function OpenSessionButton({ sessionId }: { sessionId: string }) {
   );
 }
 
-/** Another bot's words in this chat (its message, or its answer to this chat's
- *  send): one folded line with the start of the text, the words behind a
- *  disclosure as a quote, and for an answer a link to the whole reply in the
- *  answering session (the summary is cut). */
 export function AgentBotFolded({ text, sessionId }: { text: string; sessionId?: string }) {
   const [open, setOpen] = useState(false);
   const preview = oneLine(text.replace(/^\s*(?:#{1,6}|>|[-*+]|\d+\.)\s+/gm, '').replace(/\*\*|__|`/g, ''), 200);

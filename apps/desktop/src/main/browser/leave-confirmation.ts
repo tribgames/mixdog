@@ -89,10 +89,6 @@ export function createBrowserLeaveConfirmation() {
       if (!waiting || waiting.id !== id) return false;
       pending.delete(guest);
       if (leave) {
-        // The approval covers only this repeat: the page vetoes it again
-        // (consuming the approval), it navigates (settled), it started
-        // nothing or failed and the approval goes with it, or a newer
-        // request or an agent's command replaces it.
         const approval = {};
         approved.set(guest, approval);
         unlessStarted(approved, guest, approval, waiting.leave());

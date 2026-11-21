@@ -1,9 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-// Whether the connected host lets every paired client use the provider, MCP
-// and developer lanes (`remoteOpenAccess` in its challenge). An older host
-// still refuses them, so those pages stay hidden until it says otherwise. This
-// only drives what the UI offers; the host enforces on every call.
+// `remoteOpenAccess` in the host's challenge; an older host still refuses these lanes.
 const CHANGED_EVENT = 'mixdog:remote-host-access-changed';
 let openAccess = false;
 

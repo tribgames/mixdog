@@ -3,13 +3,9 @@ import type { Root } from 'react-dom/client';
 
 const pendingSurfaceRenders = new WeakMap<Root, number>();
 
-/** Renders a persistent surface's own root. The slot registers in the dock's
- *  layout effect, so a plain render flushed the whole terminal/browser tree
- *  synchronously inside the tap's commit, and a browser opened from the header
- *  rendered its root ahead of the app's own transition: the phone sheet's
- *  first frame waited for either. The phone renders it from the next frame as
- *  a transition instead (the newest element of a frame wins), so the sheet and
- *  the surface's placed container paint first, the tree right after. */
+/** Renders a persistent surface's own root; on the phone from the next frame
+ *  as a transition (the newest element of a frame wins), so the sheet and the
+ *  placed container paint before the tree. */
 export function renderSurfaceRoot(root: Root, element: ReactNode): void {
   if (!document.documentElement.hasAttribute('data-mixdog-mobile-tabs')) {
     root.render(element);
@@ -47,12 +43,9 @@ export function preferredSurfaceSlot<Slot extends { active: boolean; foreground:
   return active.find(([, slot]) => slot.foreground) ?? active.find(([, slot]) => !slot.exiting) ?? active[0] ?? null;
 }
 
-/** A persistent surface's semantics, applied to its own container in the
- *  commit that places or parks it (its root renders later on the phone,
- *  renderSurfaceRoot). Only a surface shown over an open slot is interactive.
- *  A parked one (off screen or beneath the UI) and one whose sheet is sliding
- *  closed (`exiting`, its pixels kept) are inert and aria-hidden with focus
- *  inside let go, so Tab never reaches them; a genuine reopen restores it. */
+/** Only a surface shown over an open slot is interactive; a parked or
+ *  `exiting` one is inert and aria-hidden with focus inside released, so Tab
+ *  never reaches it. */
 export function applySurfaceInteractivity(container: HTMLElement, interactive: boolean): void {
   if (interactive) {
     container.removeAttribute('inert');
@@ -67,12 +60,10 @@ export function applySurfaceInteractivity(container: HTMLElement, interactive: b
 
 type SurfaceRect = { left: number; top: number; width: number; height: number };
 
-/** Pins a fixed surface container over `rect` (viewport coordinates). The
- *  phone body follows the visual viewport through `transform`
- *  (mobile-web-runtime.css), which makes it the containing block of every
- *  fixed descendant: viewport coordinates written as-is applied the body's
- *  offset a second time once the visual viewport panned (keyboard, pinch),
- *  shifting the terminal/browser body off the sheet header. */
+/** Pins a fixed surface container over `rect` (viewport coordinates). The phone
+ *  body follows the visual viewport through `transform` (mobile-web-runtime.css),
+ *  which makes it the containing block of fixed descendants, so its origin is
+ *  taken out of the coordinates. */
 export function placeFixedSurface(container: HTMLElement, rect: SurfaceRect, slot?: HTMLElement): void {
   const doc = container.ownerDocument;
   const phone = doc.documentElement.hasAttribute('data-mixdog-mobile-tabs');
@@ -89,14 +80,10 @@ export function placeFixedSurface(container: HTMLElement, rect: SurfaceRect, slo
 
 const SHEET_SLIDE_FOLLOW_ID = 'mx-sheet-slide-follow';
 
-/** The phone sheet slides in through a compositor `transform` transition, and
- *  a fixed surface chasing the slot's rect frame by frame from the main thread
- *  would shift layout on every step, lag the sheet behind each long task, and
- *  pan the visual viewport when a terminal is focused while still half
- *  off-screen. The surface sits at the slot's
- *  settled rect (the slide's current offset taken out) and runs the sheet's
- *  own transition as a copy started at the same time, so both move as one
- *  layer. Returns the sheet's current horizontal offset. */
+/** Runs a copy of the sheet's running `transform` transition on the container,
+ *  started with it, so the surface moves on the compositor with the sheet
+ *  instead of chasing the slot's rect from the main thread. Returns the
+ *  sheet's current horizontal offset. */
 function followSheetSlide(container: HTMLElement, slot: HTMLElement): number {
   const sheet = slot.closest<HTMLElement>('.pane-side-dock[data-open="true"]');
   const view = container.ownerDocument.defaultView;
@@ -126,13 +113,9 @@ function restoreDockHeader(header: HTMLElement): void {
   header.style.removeProperty('width');
 }
 
-/** The main panel's CONTENT box for an expanded surface. Desktop: the panel's
- *  frame is one 1px border on top, right and bottom (plus the left when the
- *  sidebar is folded; with it open the left panel's border is the divider).
- *  The frame is a constant here, NOT read from computed style: expanding the
- *  dock flips the panel from "cells draw the frame" back to "panel draws it",
- *  and a rect measured before that flip covered the border pixels. Fixed and
- *  native surfaces paint above the DOM, so they must stay inside the frame. */
+/** The main panel's content box for an expanded surface. On desktop the frame
+ *  is a 1px border (left only with the sidebar folded), a constant because
+ *  computed style is read before expanding flips which element draws it. */
 const EXPANDED_FRAME_WIDTH = 1;
 export function expandedSheetBounds(panelNode: Element): { left: number; top: number; width: number; bottom: number } {
   const bounds = panelNode.getBoundingClientRect();

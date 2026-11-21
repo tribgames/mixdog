@@ -49,11 +49,11 @@ export function worktreeRowState(row: DesktopManagedWorktreeRow, settings: Deskt
   return { kind: 'ok', text };
 }
 
-export function WorktreeList({ active = true }: { active?: boolean }) {
+/** The managed worktree rows and the settings that shape them, re-read on every change signal while active.
+ *  `shownEpoch` equals `readEpoch.current` only while the rows on screen answer the latest signal. */
+function useWorktreeRows(active: boolean) {
   const [settings, setSettings] = useState(peekConfirmedWorktreeSettings);
   const [rows, setRows] = useState<DesktopManagedWorktreeRow[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState('');
   const [readError, setReadError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   const [shownEpoch, setShownEpoch] = useState<number | null>(null);
@@ -146,6 +146,36 @@ export function WorktreeList({ active = true }: { active?: boolean }) {
       for (const stop of stops) stop();
     };
   }, [active, paths, refresh]);
+  return { settings, rows, readError, reading, shownEpoch, readEpoch, action, refresh };
+}
+
+type DeletedWorktree = {
+  removed?: { branchDeleted?: boolean; preservedBranch?: { name: string; head: string }; recoveryRefs?: string[] };
+};
+
+/** The wording of a finished worktree deletion: what happened to the branch and where the commits stay. */
+function deletedWorktreeMessage(deleted: DeletedWorktree | null, name: string): string {
+  const kept = deleted?.removed?.preservedBranch;
+  let message: string;
+  if (kept) {
+    message = t(
+      'Deleted worktree {{branch}}. Its branch {{kept}} was kept: only a branch created by the app is deleted automatically, once git considers it merged. Delete it from the branch menu.',
+      { branch: name, kept: kept.name }
+    );
+  } else if (deleted?.removed?.branchDeleted) {
+    message = t(
+      'Deleted worktree {{branch}} and the branch created for it, which git considers merged; its commits stay reachable.',
+      { branch: name }
+    );
+  } else message = t('Deleted worktree {{branch}}.', { branch: name });
+  const refs = deleted?.removed?.recoveryRefs ?? [];
+  return refs.length ? `${message} ${t('Its commits are kept at {{refs}}.', { refs: refs.join(', ') })}` : message;
+}
+
+export function WorktreeList({ active = true }: { active?: boolean }) {
+  const { settings, rows, readError, reading, shownEpoch, readEpoch, action, refresh } = useWorktreeRows(active);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
 
   /** The action's receipt and the read error are independent. */
   const run = async (work: (signal: AbortSignal) => Promise<string | null>) => {
@@ -185,16 +215,9 @@ export function WorktreeList({ active = true }: { active?: boolean }) {
       ) {
         return null;
       }
-      type Deleted = {
-        removed?: {
-          branchDeleted?: boolean;
-          preservedBranch?: { name: string; head: string };
-          recoveryRefs?: string[];
-        };
-      };
-      let deleted: Deleted;
+      let deleted: DeletedWorktree;
       try {
-        deleted = await invokeWorktree<Deleted>('deleteWorktree', [{ entryId: row.id }]);
+        deleted = await invokeWorktree<DeletedWorktree>('deleteWorktree', [{ entryId: row.id }]);
       } catch (reason) {
         const failure = worktreeFailure(reason);
         if (failure.code !== 'WORKTREE_DIRTY' && failure.code !== 'WORKTREE_UNMERGED') throw reason;
@@ -207,22 +230,9 @@ export function WorktreeList({ active = true }: { active?: boolean }) {
           { danger: true, confirmLabel: t('Delete anyway'), key: `worktree-force-delete:${row.id}`, signal }
         );
         if (!forced || signal.aborted) return null;
-        deleted = await invokeWorktree<Deleted>('deleteWorktree', [{ entryId: row.id, force: true }]);
+        deleted = await invokeWorktree<DeletedWorktree>('deleteWorktree', [{ entryId: row.id, force: true }]);
       }
-      const kept = deleted?.removed?.preservedBranch;
-      const message = kept
-        ? t(
-            'Deleted worktree {{branch}}. Its branch {{kept}} was kept: only a branch created by the app is deleted automatically, once git considers it merged. Delete it from the branch menu.',
-            { branch: name, kept: kept.name }
-          )
-        : deleted?.removed?.branchDeleted
-          ? t(
-              'Deleted worktree {{branch}} and the branch created for it, which git considers merged; its commits stay reachable.',
-              { branch: name }
-            )
-          : t('Deleted worktree {{branch}}.', { branch: name });
-      const refs = deleted?.removed?.recoveryRefs ?? [];
-      return refs.length ? `${message} ${t('Its commits are kept at {{refs}}.', { refs: refs.join(', ') })}` : message;
+      return deletedWorktreeMessage(deleted, name);
     });
 
   const projects = [...new Set((rows ?? []).map((row) => row.projectPath))];

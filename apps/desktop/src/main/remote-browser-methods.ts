@@ -1,6 +1,3 @@
-// The remote browser pane's methods. The service (daemon) side
-// validates a paired client's call and forwards it to the window process, which
-// owns the Browser Use host; `runBrowserRemoteRequest` is that window-side end.
 // Saved passwords never travel: the host fills them straight into its guest.
 import type { DesktopRemoteBrowserControl, DesktopRemoteBrowserStreamOptions } from '../shared/contract';
 import {

@@ -7,10 +7,6 @@ export function diffSnapshotElements(
   previous: BrowserRefSet
 ): {
   changed: BrowserSnapshotElement[];
-  /** The subset of `changed` the earlier observation never named at all. When
-   *  that observation covered the whole page these are genuinely new; when it
-   *  was capped or filtered they may be untouched elements it simply left out,
-   *  which is why they are marked instead of merged into one "new" list. */
   unseen: BrowserSnapshotElement[];
   unchanged: number;
   /** Earlier elements with no counterpart now, named so a reply can say what

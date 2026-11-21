@@ -1,8 +1,3 @@
-/**
- * What keeps a stream's frames true to its session's page: the page's facts
- * pushed as frames, and the screencast and driven viewport reconciled with the
- * session's current guest, document and size.
- */
 import type { WebContents } from 'electron';
 
 import type { DesktopRemoteBrowserStreamFrame } from '../../shared/contract';
@@ -218,12 +213,6 @@ function createStreamFeed(
     if (geometry) host.captured?.(sessionId, { documentId: run.documentId, geometry, mimeType: 'image/jpeg', data });
   }
 
-  /** Push the session page's facts if they changed. This needs no screencast
-   *  and no debugger: a dialog may hold back painting, even debugger
-   *  initialization, until the client answers the card these facts carry.
-   *  The picture described is the image the screencast of this page, this
-   *  document and the current size has sent, or none (0×0) until it sends
-   *  one, so the client maps no input through the image it still shows. */
   function publishFacts(sessionId: string, stream: RemoteStream): void {
     if (streams.get(sessionId) !== stream) return;
     const guest = host.currentGuest(sessionId);

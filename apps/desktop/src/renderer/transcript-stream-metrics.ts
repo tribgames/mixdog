@@ -1,14 +1,6 @@
 /**
  * Opt-in streamed-text smoothness metrics, behind the transcript scroll
- * diagnostics flag (transcript-scroll-diagnostics.ts) and free while it is off.
- *
- * One run spans one streamed reply: it opens on the first live tail the lane
- * store receives and closes one second after the reply settled on screen.
- * Every boundary the text crosses is timestamped — IPC receipt, lane publish,
- * the live markdown commit, worker parse round trips, main-thread parses — and
- * a per-frame sampler reads what is actually painted: visible graphemes,
- * empty frames while text is waiting, live-row height shrinks, long tasks and
- * long animation frames, and the transcript's scroll writes.
+ * diagnostics flag; one run spans one streamed reply.
  *
  *   window.__mixdogStreamMetrics.summary()   // last (or current) run
  *   window.__mixdogStreamMetrics.reset()

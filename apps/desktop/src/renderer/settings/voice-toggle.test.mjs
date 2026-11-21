@@ -474,115 +474,101 @@ test('an uninstalled built-in installs through the shared capability', async () 
   }
 });
 
-test('Local Provider shows hardware and chat installation guidance before runtime installation', async () => {
+async function renderLocalProvider(userAgent, localProvider, assertions) {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
   const originalUserAgent = navigator.userAgent;
   const setUserAgent = (value) => Object.defineProperty(navigator, 'userAgent', { configurable: true, value });
-  setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+  setUserAgent(userAgent);
 
   try {
     await act(async () => {
       root.render(
         React.createElement(CategoryPanel, {
           category: 'builtins',
-          context: context({
-            run: async () => ({}),
-            toolModules: {
-              localProvider: {
-                available: true,
-                enabled: false,
-                installed: false,
-                runtime: { installed: false, version: 'b10621', downloadBytes: 641_907_910 },
-                hardware: { gpu: { name: 'NVIDIA GeForce RTX 3090' } },
-                models: [
-                  {
-                    id: 'qwen3.8-27b-q4-k-m',
-                    name: 'Qwen3.8 27B Q4_K_M',
-                    description: 'Recommended coding and tool-use model.',
-                    sizeBytes: 18_973_870_432,
-                    estimatedVramBytes: 23_622_320_128,
-                    contextWindow: 32_768,
-                    recommended: true,
-                    compatible: true,
-                    installed: false,
-                  },
-                ],
-              },
-            },
-          }),
+          context: context({ run: async () => ({}), toolModules: { localProvider } }),
         })
       );
     });
-    await openFeature('localProvider');
-    const detail = document.querySelector('[data-feature-id="localProvider"]');
-    assert.ok(detail);
-    assert.match(detail.textContent, /NVIDIA GeForce RTX 3090/);
-    assert.match(detail.textContent, /No models installed/);
-    assert.match(detail.textContent, /Install through chat/);
-    assert.match(detail.textContent, /b10621 · 0\.6 GB/);
-    assert.match(detail.textContent, /Available runtime/);
-
-    // A host with no pinned runtime build (here an Intel Mac) cannot run the
-    // feature, and both the list and the dialog say so instead of offering a
-    // chat install that cannot succeed.
-    await act(async () => root.unmount());
-    setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)');
-    const macRoot = createRoot(host);
-    await act(async () => {
-      macRoot.render(
-        React.createElement(CategoryPanel, {
-          category: 'builtins',
-          context: context({
-            run: async () => ({}),
-            toolModules: {
-              localProvider: { platformSupported: false, available: false, enabled: false, installed: false },
-            },
-          }),
-        })
-      );
-    });
-    assert.match(document.querySelector('[data-built-in-feature="localProvider"]').textContent, /Unavailable/);
-    await openFeature('localProvider');
-    const macDetail = document.querySelector('[data-feature-id="localProvider"]');
-    assert.match(macDetail.textContent, /Unavailable/);
-    assert.doesNotMatch(macDetail.textContent, /Install through chat/);
-    await act(async () => macRoot.unmount());
-
-    // Apple Silicon runs it on Metal: the chat install is offered there too.
-    const siliconRoot = createRoot(host);
-    await act(async () => {
-      siliconRoot.render(
-        React.createElement(CategoryPanel, {
-          category: 'builtins',
-          context: context({
-            run: async () => ({}),
-            toolModules: {
-              localProvider: {
-                platformSupported: true,
-                available: true,
-                enabled: false,
-                installed: false,
-                runtime: { installed: false, version: 'b10621', backend: 'Metal', downloadBytes: 10_954_823 },
-                hardware: { gpu: { name: 'Apple M4' } },
-              },
-            },
-          }),
-        })
-      );
-    });
-    assert.doesNotMatch(document.querySelector('[data-built-in-feature="localProvider"]').textContent, /Unavailable/);
-    await openFeature('localProvider');
-    const siliconDetail = document.querySelector('[data-feature-id="localProvider"]');
-    assert.match(siliconDetail.textContent, /Install through chat/);
-    assert.match(siliconDetail.textContent, /Apple M4/);
-    assert.match(siliconDetail.textContent, /Metal/);
-    await act(async () => siliconRoot.unmount());
+    await assertions();
   } finally {
     setUserAgent(originalUserAgent);
+    await act(async () => root.unmount());
     host.remove();
   }
+}
+
+test('Local Provider shows hardware and chat installation guidance before runtime installation', async () => {
+  await renderLocalProvider(
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+    {
+      available: true,
+      enabled: false,
+      installed: false,
+      runtime: { installed: false, version: 'b10621', downloadBytes: 641_907_910 },
+      hardware: { gpu: { name: 'NVIDIA GeForce RTX 3090' } },
+      models: [
+        {
+          id: 'qwen3.8-27b-q4-k-m',
+          name: 'Qwen3.8 27B Q4_K_M',
+          description: 'Recommended coding and tool-use model.',
+          sizeBytes: 18_973_870_432,
+          estimatedVramBytes: 23_622_320_128,
+          contextWindow: 32_768,
+          recommended: true,
+          compatible: true,
+          installed: false,
+        },
+      ],
+    },
+    async () => {
+      await openFeature('localProvider');
+      const detail = document.querySelector('[data-feature-id="localProvider"]');
+      assert.ok(detail);
+      assert.match(detail.textContent, /NVIDIA GeForce RTX 3090/);
+      assert.match(detail.textContent, /No models installed/);
+      assert.match(detail.textContent, /Install through chat/);
+      assert.match(detail.textContent, /b10621 · 0\.6 GB/);
+      assert.match(detail.textContent, /Available runtime/);
+    }
+  );
+});
+
+test('Local Provider on a host with no pinned runtime build is unavailable in the list and the dialog', async () => {
+  await renderLocalProvider(
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+    { platformSupported: false, available: false, enabled: false, installed: false },
+    async () => {
+      assert.match(document.querySelector('[data-built-in-feature="localProvider"]').textContent, /Unavailable/);
+      await openFeature('localProvider');
+      const detail = document.querySelector('[data-feature-id="localProvider"]');
+      assert.match(detail.textContent, /Unavailable/);
+      assert.doesNotMatch(detail.textContent, /Install through chat/);
+    }
+  );
+});
+
+test('Local Provider on Apple Silicon offers the chat install on Metal', async () => {
+  await renderLocalProvider(
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+    {
+      platformSupported: true,
+      available: true,
+      enabled: false,
+      installed: false,
+      runtime: { installed: false, version: 'b10621', backend: 'Metal', downloadBytes: 10_954_823 },
+      hardware: { gpu: { name: 'Apple M4' } },
+    },
+    async () => {
+      assert.doesNotMatch(document.querySelector('[data-built-in-feature="localProvider"]').textContent, /Unavailable/);
+      await openFeature('localProvider');
+      const detail = document.querySelector('[data-feature-id="localProvider"]');
+      assert.match(detail.textContent, /Install through chat/);
+      assert.match(detail.textContent, /Apple M4/);
+      assert.match(detail.textContent, /Metal/);
+    }
+  );
 });
 
 test('built-in feature switches route to their existing authoritative settings', async () => {

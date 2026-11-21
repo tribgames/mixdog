@@ -17,10 +17,6 @@ interface SessionOpenProps {
   activateSelection: (selection: NavigationSelection, title: string, replaceKey?: string) => void;
 }
 
-/** A navigation that is not a session open (entering a project) supersedes
- *  one in flight: its epoch moves on, so the open's own clear of the
- *  requested id no longer runs, and the id is dropped here instead. Left set it
- *  kept the sidebar on the abandoned session's row. */
 export function beginProjectNavigation(
   navigationEpoch: React.MutableRefObject<number>,
   setRequestedSessionId: (id: string) => void
@@ -73,10 +69,6 @@ export function useAppSessionOpen({
       id: sessionId,
       ...(pinnedTitle ? { title: pinnedTitle } : {}),
     };
-    // The click's selection, tab, sidebar row and incoming pane commit
-    // together: a transition (or an announced tab ahead of it) committed the
-    // strip and sidebar first, leaving the outgoing transcript painted for
-    // the frames the incoming pane took to render.
     activateSelection(
       selection,
       pinnedTitle || (session ? sessionDisplayTitle(session, t('Untitled session')) : t('Untitled session')),

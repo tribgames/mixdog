@@ -1,5 +1,5 @@
 import { MessageCircle, Search } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopSessionContentMatch, DesktopSessionSummary } from '../shared/contract';
@@ -35,17 +35,12 @@ function pathName(path: string | null | undefined): string {
   );
 }
 
-function SessionSearchDialog({ sessions, onOpenSession, onClose }: SessionSearchProps & { onClose(): void }) {
-  const surfaceRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  useMobileBack(true, onClose);
-  const [query, setQuery] = useState('');
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [rowLimit, setRowLimit] = useState(PAGE_ROWS);
-
+/** Holds the modal layer while open: Escape closes, Tab keeps focus in the input, focus returns on release. */
+function useSearchModalLayer(
+  surfaceRef: RefObject<HTMLDivElement | null>,
+  inputRef: RefObject<HTMLInputElement | null>,
+  onCloseRef: { readonly current: () => void }
+) {
   useEffect(() => {
     const prior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const shell = document.querySelector<HTMLElement>('.app-shell');
@@ -71,8 +66,10 @@ function SessionSearchDialog({ sessions, onOpenSession, onClose }: SessionSearch
       layer.release();
       prior?.focus({ preventScroll: true });
     };
-  }, []);
+  }, [surfaceRef, inputRef, onCloseRef]);
+}
 
+function useSessionContentSearch(query: string) {
   const [contentHits, setContentHits] = useState<readonly DesktopSessionContentMatch[]>([]);
   const [contentPending, setContentPending] = useState(false);
   useEffect(() => {
@@ -100,6 +97,22 @@ function SessionSearchDialog({ sessions, onOpenSession, onClose }: SessionSearch
       window.clearTimeout(timer);
     };
   }, [query]);
+  return { contentHits, contentPending };
+}
+
+function SessionSearchDialog({ sessions, onOpenSession, onClose }: SessionSearchProps & { onClose(): void }) {
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useMobileBack(true, onClose);
+  const [query, setQuery] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [rowLimit, setRowLimit] = useState(PAGE_ROWS);
+
+  useSearchModalLayer(surfaceRef, inputRef, onCloseRef);
+  const { contentHits, contentPending } = useSessionContentSearch(query);
 
   const matches = useMemo(
     () => mergeSessionContentMatches(sessions, sessionSearchResults(sessions, query), contentHits),

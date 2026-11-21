@@ -7,7 +7,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 // Paging rides the scroller's scroll events (no IntersectionObserver, which
 // kept Chromium producing a main-thread frame every vsync while any
 // compositor animation ran).
-test('archived sessions page without narrowing bulk actions', async () => {
+async function mountArchived() {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><div id="root"></div>',
     jsdom: { url: 'http://localhost/' },
@@ -56,10 +56,27 @@ test('archived sessions page without narrowing bulk actions', async () => {
   const rows = () => document.querySelectorAll('.archived-session-list .session-row').length;
   const scroller = () => document.querySelector('.sidebar-archived').closest('.session-sidebar-scroll');
   const page = async () => act(async () => scroller().dispatchEvent(new dom.window.Event('scroll')));
+  await render();
+  assert.equal(rows(), 0);
+  await click('.sidebar-archived-toggle');
+  return {
+    sessions,
+    restored,
+    deleted,
+    render,
+    click,
+    rows,
+    page,
+    close: async () => {
+      await act(async () => root.unmount());
+      restore();
+    },
+  };
+}
+
+test('archived sessions page in as the list scrolls; reopening shows the first page again', async () => {
+  const { sessions, click, rows, page, close } = await mountArchived();
   try {
-    await render();
-    assert.equal(rows(), 0);
-    await click('.sidebar-archived-toggle');
     const initial = rows();
     assert.ok(initial > 0 && initial < sessions.length);
     await page();
@@ -68,33 +85,57 @@ test('archived sessions page without narrowing bulk actions', async () => {
     assert.equal(rows(), 0);
     await click('.sidebar-archived-toggle');
     assert.equal(rows(), initial, 'reopening does not remount the accumulated pages');
+  } finally {
+    await close();
+  }
+});
 
+test('restore-all unarchives every archived session although only some are mounted', async () => {
+  const { sessions, restored, click, close } = await mountArchived();
+  try {
     await click('.sidebar-archived .row-overflow-trigger');
     await click('[data-action-id="restore-all"]');
     assert.deepEqual(new Set(restored.map(([id]) => id)), new Set(sessions.map(({ id }) => id)));
     assert.ok(restored.every(([, archived]) => archived === false));
+  } finally {
+    await close();
+  }
+});
+
+test('delete-all-archived deletes every archived session only after confirmation', async () => {
+  const { sessions, deleted, click, close } = await mountArchived();
+  try {
     await click('.sidebar-archived .row-overflow-trigger');
     await click('[data-action-id="delete-all-archived"]');
     assert.equal(deleted.length, 0);
     await click('[data-action-id="confirm-delete-all-archived"]');
     assert.deepEqual(new Set(deleted), new Set(sessions.map(({ id }) => id)));
+  } finally {
+    await close();
+  }
+});
 
+test('the fully revealed archived list is windowed with spacers past the viewport', async () => {
+  const { sessions, rows, page, close } = await mountArchived();
+  try {
     const sentinel = () => document.querySelector('.archived-session-list .session-list-sentinel');
     for (let attempts = 0; sentinel() && attempts < 10; attempts++) await page();
     assert.equal(sentinel(), null, 'every page is revealed');
-    // The revealed list is windowed: rows past the viewport are spacers.
     assert.ok(rows() < sessions.length, 'only the rows near the viewport are mounted');
     assert.ok(document.querySelector('.archived-session-list .session-list-spacer'));
+  } finally {
+    await close();
+  }
+});
 
+test('an active archived session beyond the first page remains reachable', async () => {
+  const { sessions, render, click, close } = await mountArchived();
+  try {
     await click('.sidebar-archived-toggle');
     await render({ selection: { kind: 'session', id: sessions.at(-1).id } });
     await click('.sidebar-archived-toggle');
-    assert.ok(
-      document.querySelector(`[data-session-id="${sessions.at(-1).id}"]`),
-      'an active archived session beyond the first page remains reachable'
-    );
+    assert.ok(document.querySelector(`[data-session-id="${sessions.at(-1).id}"]`));
   } finally {
-    await act(async () => root.unmount());
-    restore();
+    await close();
   }
 });

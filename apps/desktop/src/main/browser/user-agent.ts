@@ -1,11 +1,4 @@
-/** The default agent string carries the app and the framework that embeds
- *  Chromium. Sites read that as an unsupported or automated browser and answer
- *  with a login wall or a "browser not supported" page, so pages see the Chrome
- *  build that is actually rendering them, in the reduced form Chrome itself
- *  sends (major version only). Emulation still overrides it. The string is the
- *  same in every context of the partition (pages, workers, other processes)
- *  and the brands stay the engine's own: a site compares them, and Cloudflare
- *  Turnstile fails verification (error 600010) when they disagree. */
+/** Sites treat the app and Electron tokens as an unsupported or automated browser. The brands stay the engine's own: Cloudflare Turnstile fails verification (error 600010) when they disagree with the user agent. */
 export function browserPartitionUserAgent(defaultAgent: string): string {
   return defaultAgent
     .replace(/\s*\b(?:mixdog[\w-]*|Electron)\/\S+/gi, '')

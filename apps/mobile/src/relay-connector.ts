@@ -11,9 +11,7 @@
 // `binaryFrames`) and the page can run WebRTC, the session upgrades: the stream
 // core in `remote-transport-peer` carries every message over the relay lane and,
 // once negotiated, the direct data-channel carrier (the desktop side of that
-// negotiation is the core's carrier, SPEC §4.7). One socket's life lives in
-// `relay-session.ts`; this module owns what outlives a socket: the page
-// lifecycle hooks, the hold while the page is away, and the parked socket.
+// negotiation is the core's carrier, SPEC §4.7).
 import type { Connector, Target, TransportWriter } from '../../../packages/protocol-client/src/index.ts';
 import type { RelayE2EEPairingMaterial } from '../../desktop/src/shared/remote-e2ee.ts';
 import { CLOSE_NORMAL, RelaySession, closeParked, type ConnectorState } from './relay-session.ts';
@@ -150,4 +148,3 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
     },
   };
 }
-

@@ -31,11 +31,33 @@ export function sidebarDiffColumnAvailable(): boolean {
   }
 }
 
-/** Diff column paired to the RIGHT of the left sidebar, as the right-hand
- *  session changes dock extends right — the same column grammar as
- *  the pane dock's `.pane-dock-diff-column`: draggable width, hidden (not
- *  unmounted) on close, and an overlay over the workspace when the pair no
- *  longer leaves the conversation its floor. */
+function useColumnGeometry(hostRef: { readonly current: HTMLDivElement | null }, visible: boolean) {
+  const [geometry, setGeometry] = useState({ left: 0, room: Number.POSITIVE_INFINITY });
+  useEffect(() => {
+    if (!visible) return undefined;
+    const host = hostRef.current;
+    const body = host?.closest<HTMLElement>('.desktop-body');
+    if (!host || !body) return undefined;
+    const measure = () => {
+      const bodyRect = body.getBoundingClientRect();
+      const previous = host.previousElementSibling as HTMLElement | null;
+      const left = previous
+        ? previous.getBoundingClientRect().right - bodyRect.left
+        : host.getBoundingClientRect().left - bodyRect.left;
+      const room = bodyRect.width - left - DESKTOP_WORKSPACE_MIN_WIDTH;
+      setGeometry((current) => (current.left === left && current.room === room ? current : { left, room }));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(body);
+    const previous = host.previousElementSibling;
+    if (previous) observer.observe(previous);
+    return () => observer.disconnect();
+  }, [hostRef, visible]);
+  return geometry;
+}
+
 export function SidebarDiffColumn({
   diff,
   showing,
@@ -65,29 +87,7 @@ export function SidebarDiffColumn({
   // Room to the right of the sidebar: the workbench width minus the column's
   // own left edge and the conversation floor. Below the column's minimum the
   // column floats over the workspace instead of crushing it.
-  const [geometry, setGeometry] = useState({ left: 0, room: Number.POSITIVE_INFINITY });
-  useEffect(() => {
-    if (!visible) return undefined;
-    const host = hostRef.current;
-    const body = host?.closest<HTMLElement>('.desktop-body');
-    if (!host || !body) return undefined;
-    const measure = () => {
-      const bodyRect = body.getBoundingClientRect();
-      const previous = host.previousElementSibling as HTMLElement | null;
-      const left = previous
-        ? previous.getBoundingClientRect().right - bodyRect.left
-        : host.getBoundingClientRect().left - bodyRect.left;
-      const room = bodyRect.width - left - DESKTOP_WORKSPACE_MIN_WIDTH;
-      setGeometry((current) => (current.left === left && current.room === room ? current : { left, room }));
-    };
-    measure();
-    if (typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(measure);
-    observer.observe(body);
-    const previous = host.previousElementSibling;
-    if (previous) observer.observe(previous);
-    return () => observer.disconnect();
-  }, [visible]);
+  const geometry = useColumnGeometry(hostRef, visible);
   if (!columnDiff) return null;
   const desired = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(pref, PANE_SIDE_DOCK_MAX_WIDTH));
   const overlay = visible && geometry.room < desired;

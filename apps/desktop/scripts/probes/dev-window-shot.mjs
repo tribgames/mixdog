@@ -1,10 +1,5 @@
-// Screenshot the running dev app's main renderer page over CDP (no OS input).
 // Usage (from apps/desktop): node scripts/probes/dev-window-shot.mjs <cdpPort> <out.png> [--url=<page-url>]
-//
-// The app also exposes detached helper pages (for example the browser cookie
-// target at about:blank). They never composite a frame, so
-// Page.captureScreenshot on them never answers; the shared target selector
-// skips them instead of taking the first page in /json/list.
+// Page.captureScreenshot never answers on detached helper pages, which never composite a frame.
 import { writeFile } from 'node:fs/promises';
 
 import { optionValue } from '../cli-args.mjs';

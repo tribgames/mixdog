@@ -1,12 +1,3 @@
-// The phone typing bars' "send at once" field (the whole-PC screen bar and the
-// remote browser bar on a phone): what is typed, an IME composition included,
-// stays in the bar and nothing goes to the PC until Send (the round button) or
-// the soft keyboard's Enter, which delivers the bar's whole text in one piece
-// and clears the bar. An empty bar sends no text: Send / Enter becomes an
-// Enter key and Backspace a Backspace key, so the PC can still be submitted
-// to or deleted from without a second control. Pure: no DOM, so each rule is
-// tested on plain objects.
-
 /** The field always holds this one invisible character while it has focus and
  *  no text, so an empty bar still has something for a soft keyboard's
  *  Backspace to delete: the deletion arrives as an `input` event, which is the

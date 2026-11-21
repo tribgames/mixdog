@@ -221,271 +221,299 @@ test('appliedSkills is read defensively', () => {
   for (const item of [{}, null, { appliedSkills: 'pptx' }]) assert.deepEqual(appliedSkillsOf(item), []);
 });
 
-test('composer: $ palette opens, filters, inserts; tokens highlight; off skills get a status line', async () => {
+const composerProps = (id, overrides = {}) => ({
+  turnBusy: false,
+  commandBusy: false,
+  transitioning: false,
+  focusRequest: 0,
+  historyScope: id,
+  identityScope: id,
+  recoveryScope: id,
+  projectScope: 'C:/project',
+  sessionId: id,
+  hasConversation: true,
+  provider: 'openai-oauth',
+  model: 'test-model',
+  effort: 'medium',
+  fast: false,
+  fastCapable: false,
+  paneActive: true,
+  submit: async () => true,
+  abort: async () => {},
+  invokeResult: (action) => action(),
+  applySnapshot() {},
+  onNewTask() {},
+  onResumeSession() {},
+  onOpenSessions() {},
+  onOpenProjects() {},
+  onOpenSettings() {},
+  onOpenCommandSurface() {},
+  dropTargetRef: { current: null },
+  ...overrides,
+});
+
+const typeInto = async (input, value, caret = value.length) => {
+  await act(async () => {
+    input.focus();
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(input, value);
+    input.setSelectionRange(caret, caret);
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+  });
+};
+
+async function mountSkillComposer(t, id, { status = STATUS, ...overrides } = {}) {
   const reads = [];
   const settingsOpened = [];
-  let currentStatus = STATUS;
+  const catalog = { status };
   window.mixdogDesktop = {
-    // A session's skills are read from that session (its cwd decides scope);
-    // a draft's from the control session.
     invokeCapability: async (request) => {
       if (request.capability === 'skillsStatus') {
         reads.push([request]);
-        return { value: currentStatus };
+        return { value: catalog.status };
       }
       return request.capability === 'getVoiceStatus' ? { value: { installed: false } } : { value: {} };
     },
     readCapabilities: async (requests) => {
       reads.push(requests);
-      return [{ ok: true, value: currentStatus }];
+      return [{ ok: true, value: catalog.status }];
     },
     searchProjectFiles: async () => ['src/app.ts'],
     rendererDiagnostic() {},
   };
-  const props = {
-    turnBusy: false,
-    commandBusy: false,
-    transitioning: false,
-    focusRequest: 0,
-    historyScope: 'skill-mention-test',
-    identityScope: 'skill-mention-test',
-    recoveryScope: 'skill-mention-test',
-    projectScope: 'C:/project',
-    sessionId: 'skill-mention-test',
-    hasConversation: true,
-    provider: 'openai-oauth',
-    model: 'test-model',
-    effort: 'medium',
-    fast: false,
-    fastCapable: false,
-    paneActive: true,
-    submit: async () => true,
-    abort: async () => {},
-    invokeResult: (action) => action(),
-    applySnapshot() {},
-    onNewTask() {},
-    onResumeSession() {},
-    onOpenSessions() {},
-    onOpenProjects() {},
-    onOpenSettings: (section) => settingsOpened.push(section),
-    onOpenCommandSurface() {},
-    dropTargetRef: { current: null },
-  };
-  const host = document.querySelector('main');
-  const root = createRoot(host);
-  const palette = () => document.getElementById('composer-skill-mention-palette');
-  const rows = () =>
-    Array.from(palette()?.querySelectorAll('[role="option"] .skill-mention-name') || [], (node) => node.textContent);
-  const tokens = () =>
-    Array.from(document.querySelectorAll('.composer-skill-highlight .skill-mention-token'), (node) => node.textContent);
-  const status = () => document.querySelector('.composer-skill-status')?.textContent || '';
+  const props = composerProps(id, { onOpenSettings: (section) => settingsOpened.push(section), ...overrides });
+  const root = createRoot(document.querySelector('main'));
+  t.after(() => act(async () => root.unmount()));
   let input;
-  const type = async (value, caret = value.length) => {
-    await act(async () => {
-      input.focus();
-      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(input, value);
-      input.setSelectionRange(caret, caret);
-      input.dispatchEvent(new window.Event('input', { bubbles: true }));
-    });
+  const show = async (next = {}) => {
+    await act(async () => root.render(React.createElement(Composer, { ...props, ...next })));
+    input = document.querySelector('textarea');
+    await act(async () => input.blur());
   };
-  const key = async (name) => {
-    await act(async () => {
-      input.dispatchEvent(new window.KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }));
-      await new Promise((resolve) => window.setTimeout(resolve, 0));
-    });
+  await show();
+  return {
+    reads,
+    settingsOpened,
+    catalog,
+    show,
+    get input() {
+      return input;
+    },
+    palette: () => document.getElementById('composer-skill-mention-palette'),
+    rows: () =>
+      Array.from(
+        document
+          .getElementById('composer-skill-mention-palette')
+          ?.querySelectorAll('[role="option"] .skill-mention-name') || [],
+        (node) => node.textContent
+      ),
+    tokens: () =>
+      Array.from(
+        document.querySelectorAll('.composer-skill-highlight .skill-mention-token'),
+        (node) => node.textContent
+      ),
+    status: () => document.querySelector('.composer-skill-status')?.textContent || '',
+    flush: (ms = 0) => act(async () => new Promise((resolve) => window.setTimeout(resolve, ms))),
+    type: (value, caret) => typeInto(input, value, caret),
+    key: async (name) => {
+      await act(async () => {
+        input.dispatchEvent(new window.KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }));
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      });
+    },
   };
-  try {
-    await act(async () => root.render(React.createElement(Composer, props)));
-    input = document.querySelector('textarea');
-    assert.deepEqual(reads[0], [{ capability: 'skillsStatus', sessionId: 'skill-mention-test' }]);
+}
 
-    // A: mid-sentence `$` lists the custom skills only (pptx is typed, not listed).
-    await type('이번 주 커밋 정리해서 $');
-    assert.ok(palette(), 'skill palette opens mid-sentence');
-    assert.equal(palette().getAttribute('aria-label'), 'Skills');
-    assert.equal(palette().querySelector('header').textContent, 'Skills');
-    assert.deepEqual(rows(), ['$release-notes', '$api-review']);
-    // Same structure as the `@` palette: header and rows, no footer hint.
-    assert.equal(palette().querySelector('kbd'), null);
-    assert.equal(palette().querySelector('p'), null);
-    assert.equal(input.getAttribute('aria-controls'), 'composer-skill-mention-palette');
-    assert.equal(input.getAttribute('aria-expanded'), 'true');
-    assert.equal(input.getAttribute('aria-activedescendant'), 'composer-skill-mention-option-0');
-    await key('ArrowDown');
-    assert.equal(input.getAttribute('aria-activedescendant'), 'composer-skill-mention-option-1');
+const compositionEvent = (view, type) =>
+  act(async () => view.input.dispatchEvent(new window.CompositionEvent(type, { bubbles: true })));
 
-    // B: the query narrows the list and bolds the matched part.
-    await type('이번 주 커밋 정리해서 $rel');
-    assert.deepEqual(rows(), ['$release-notes']);
-    assert.equal(palette().querySelector('[role="option"] b').textContent, 'rel');
-    await type('이번 주 커밋 정리해서 $zzz');
-    assert.deepEqual(rows(), []);
-    assert.equal(palette().querySelector('p[role="status"]').textContent, 'No matching skills.');
-    assert.equal(palette().querySelector('.skill-mention-settings'), null);
+test('composer: the $ palette opens mid-sentence, filters, inserts on Tab or click, and Escape dismisses', async (t) => {
+  const view = await mountSkillComposer(t, 'skill-mention-test');
+  const { palette, rows, tokens, type, key } = view;
+  assert.deepEqual(view.reads[0], [{ capability: 'skillsStatus', sessionId: 'skill-mention-test' }]);
 
-    // C: Tab inserts `$name ` over the fragment and keeps the caret after it.
-    await type('이번 주 커밋 정리해서 $rel 형식으로', '이번 주 커밋 정리해서 $rel'.length);
-    await key('Tab');
-    assert.equal(input.value, '이번 주 커밋 정리해서 $release-notes 형식으로');
-    assert.equal(input.selectionStart, '이번 주 커밋 정리해서 $release-notes '.length);
-    assert.equal(palette(), null);
-    assert.deepEqual(tokens(), ['$release-notes']);
-    assert.ok(input.classList.contains('has-skill-mentions'));
-    assert.equal(document.querySelector('.composer-skill-highlight').textContent.replace('\u200b', ''), input.value);
+  // `$` mid-sentence lists the custom skills only (pptx is typed, not listed).
+  await type('이번 주 커밋 정리해서 $');
+  assert.ok(palette(), 'skill palette opens mid-sentence');
+  assert.equal(palette().getAttribute('aria-label'), 'Skills');
+  assert.equal(palette().querySelector('header').textContent, 'Skills');
+  assert.deepEqual(rows(), ['$release-notes', '$api-review']);
+  // Same structure as the `@` palette: header and rows, no footer hint.
+  assert.equal(palette().querySelector('kbd'), null);
+  assert.equal(palette().querySelector('p'), null);
+  assert.equal(view.input.getAttribute('aria-controls'), 'composer-skill-mention-palette');
+  assert.equal(view.input.getAttribute('aria-expanded'), 'true');
+  assert.equal(view.input.getAttribute('aria-activedescendant'), 'composer-skill-mention-option-0');
+  await key('ArrowDown');
+  assert.equal(view.input.getAttribute('aria-activedescendant'), 'composer-skill-mention-option-1');
 
-    // Mouse selection inserts the same way; Escape dismisses.
-    await type('보고 $');
-    await act(async () => palette().querySelectorAll('[role="option"]')[1].click());
-    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 0)));
-    assert.equal(input.value, '보고 $api-review ');
-    await type('보고 $a');
-    await key('Escape');
-    assert.equal(palette(), null);
-    assert.equal(input.value, '보고 $a');
+  // The query narrows the list and bolds the matched part.
+  await type('이번 주 커밋 정리해서 $rel');
+  assert.deepEqual(rows(), ['$release-notes']);
+  assert.equal(palette().querySelector('[role="option"] b').textContent, 'rel');
+  await type('이번 주 커밋 정리해서 $zzz');
+  assert.deepEqual(rows(), []);
+  assert.equal(palette().querySelector('p[role="status"]').textContent, 'No matching skills.');
+  assert.equal(palette().querySelector('.skill-mention-settings'), null);
 
-    // D: built-ins are recognised when typed; $HOME, prices and unknown names stay plain.
-    await type('$api-review 기준, $pptx 한 장. $HOME/reports, $300, $unknown-skill도 ');
-    assert.deepEqual(tokens(), ['$api-review', '$pptx']);
-    assert.equal(status(), '');
+  // Tab inserts `$name ` over the fragment and keeps the caret after it.
+  await type('이번 주 커밋 정리해서 $rel 형식으로', '이번 주 커밋 정리해서 $rel'.length);
+  await key('Tab');
+  assert.equal(view.input.value, '이번 주 커밋 정리해서 $release-notes 형식으로');
+  assert.equal(view.input.selectionStart, '이번 주 커밋 정리해서 $release-notes '.length);
+  assert.equal(palette(), null);
+  assert.deepEqual(tokens(), ['$release-notes']);
+  assert.ok(view.input.classList.contains('has-skill-mentions'));
+  assert.equal(document.querySelector('.composer-skill-highlight').textContent.replace('\u200b', ''), view.input.value);
 
-    // `@` and `$` never open together.
-    await type('see @src');
-    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 150)));
-    assert.ok(document.getElementById('composer-mention-palette'));
-    assert.equal(palette(), null);
+  // Mouse selection inserts the same way; Escape dismisses.
+  await type('보고 $');
+  await act(async () => palette().querySelectorAll('[role="option"]')[1].click());
+  await view.flush();
+  assert.equal(view.input.value, '보고 $api-review ');
+  await type('보고 $a');
+  await key('Escape');
+  assert.equal(palette(), null);
+  assert.equal(view.input.value, '보고 $a');
+});
 
-    // F: an existing-but-off skill stays plain and gets the status line.
-    await type('$figma-handoff 로 스펙 정리해 줘');
-    assert.deepEqual(tokens(), []);
-    assert.equal(input.classList.contains('has-skill-mentions'), false);
-    assert.equal(status(), 'figma-handoff skill is off, so it is sent as plain text. Turn it on in Settings → Skills.');
-    assert.equal(document.querySelector('button.send-button').disabled, false);
+test('composer: built-ins are highlighted when typed; $HOME, prices and unknown names stay plain', async (t) => {
+  const view = await mountSkillComposer(t, 'skill-mention-plain');
+  await view.type('$api-review 기준, $pptx 한 장. $HOME/reports, $300, $unknown-skill도 ');
+  assert.deepEqual(view.tokens(), ['$api-review', '$pptx']);
+  assert.equal(view.status(), '');
+});
 
-    // IME composition hands the ink back to the textarea.
-    await type('$pptx ');
-    assert.ok(input.classList.contains('has-skill-mentions'));
-    await act(async () => input.dispatchEvent(new window.CompositionEvent('compositionstart', { bubbles: true })));
-    assert.equal(input.classList.contains('has-skill-mentions'), false);
-    assert.equal(document.querySelector('.composer-skill-highlight'), null);
-    await act(async () => input.dispatchEvent(new window.CompositionEvent('compositionend', { bubbles: true })));
-    assert.ok(input.classList.contains('has-skill-mentions'));
+test('composer: the @ and $ palettes never open together', async (t) => {
+  const view = await mountSkillComposer(t, 'skill-mention-exclusive');
+  await view.type('see @src');
+  await view.flush(150);
+  assert.ok(document.getElementById('composer-mention-palette'));
+  assert.equal(view.palette(), null);
+});
 
-    // A recognised leading /command takes the accent ink; the mirror text is identical.
-    const slashTokens = () =>
-      Array.from(document.querySelectorAll('.composer-skill-highlight .composer-slash-token'), (n) => n.textContent);
-    await type('/btw hello');
-    assert.deepEqual(slashTokens(), ['/btw']);
-    assert.equal(document.querySelector('.composer-skill-highlight').textContent.replace('\u200b', ''), input.value);
-    await type('/bt');
-    assert.equal(document.querySelector('.composer-skill-highlight'), null);
-    await type('/foo x');
-    assert.equal(document.querySelector('.composer-skill-highlight'), null);
-    await type('/btw 안녕');
-    await act(async () => input.dispatchEvent(new window.CompositionEvent('compositionstart', { bubbles: true })));
-    assert.equal(document.querySelector('.composer-skill-highlight'), null);
-    await act(async () => input.dispatchEvent(new window.CompositionEvent('compositionend', { bubbles: true })));
-    assert.deepEqual(slashTokens(), ['/btw']);
+test('composer: an existing-but-off skill stays plain and gets the status line', async (t) => {
+  const view = await mountSkillComposer(t, 'skill-mention-off');
+  await view.type('$figma-handoff 로 스펙 정리해 줘');
+  assert.deepEqual(view.tokens(), []);
+  assert.equal(view.input.classList.contains('has-skill-mentions'), false);
+  assert.equal(
+    view.status(),
+    'figma-handoff skill is off, so it is sent as plain text. Turn it on in Settings → Skills.'
+  );
+  assert.equal(document.querySelector('button.send-button').disabled, false);
+});
 
-    // No custom skill on: one status line with an inline link to Settings › Skills.
-    currentStatus = { skills: STATUS.skills.filter((skill) => skill.source === 'builtin') };
-    const empty = { ...props, sessionId: 'skill-mention-empty', identityScope: 'skill-mention-empty' };
-    await act(async () => root.render(React.createElement(Composer, empty)));
-    input = document.querySelector('textarea');
-    // The identity switch drops the focus flag; focus the field afresh.
-    await act(async () => input.blur());
-    await type('$');
-    assert.deepEqual(rows(), []);
-    const line = palette().querySelector('p[role="status"]');
-    assert.equal(line.textContent, 'No skills are on. Open skill settings');
-    await act(async () => line.querySelector('button').click());
-    assert.deepEqual(settingsOpened, ['skills']);
+test('composer: IME composition hands the skill highlight ink back to the textarea', async (t) => {
+  const view = await mountSkillComposer(t, 'skill-mention-ime');
+  await view.type('$pptx ');
+  assert.ok(view.input.classList.contains('has-skill-mentions'));
+  await compositionEvent(view, 'compositionstart');
+  assert.equal(view.input.classList.contains('has-skill-mentions'), false);
+  assert.equal(document.querySelector('.composer-skill-highlight'), null);
+  await compositionEvent(view, 'compositionend');
+  assert.ok(view.input.classList.contains('has-skill-mentions'));
+});
 
-    // A skill toggled elsewhere while the composer keeps focus: the palette,
-    // highlight and off-skill notice follow the app's change signals, and
-    // typing alone never re-reads the catalog.
-    currentStatus = STATUS;
-    const live = { ...props, sessionId: 'skill-mention-live', identityScope: 'skill-mention-live' };
-    await act(async () => root.render(React.createElement(Composer, live)));
-    input = document.querySelector('textarea');
-    await act(async () => input.blur());
-    await type('$api-review 보고 $');
-    assert.deepEqual(rows(), ['$release-notes', '$api-review']);
-    assert.deepEqual(tokens(), ['$api-review']);
-    const settle = () => act(async () => new Promise((resolve) => window.setTimeout(resolve, 0)));
-    const readsBefore = reads.length;
-    await type('$api-review 보고 $r');
-    await type('$api-review 보고 $');
-    assert.equal(reads.length, readsBefore, 'keystrokes do not re-read skills');
-    assert.equal(invalidateSkillCatalogForMutation('setTheme'), false);
-    await settle();
-    assert.equal(reads.length, readsBefore, 'unrelated mutations do not re-read skills');
+test('composer: a recognised leading /command takes the accent ink and the mirror text is identical', async (t) => {
+  const view = await mountSkillComposer(t, 'skill-mention-slash');
+  const slashTokens = () =>
+    Array.from(document.querySelectorAll('.composer-skill-highlight .composer-slash-token'), (n) => n.textContent);
+  await view.type('/btw hello');
+  assert.deepEqual(slashTokens(), ['/btw']);
+  assert.equal(document.querySelector('.composer-skill-highlight').textContent.replace('\u200b', ''), view.input.value);
+  await view.type('/bt');
+  assert.equal(document.querySelector('.composer-skill-highlight'), null);
+  await view.type('/foo x');
+  assert.equal(document.querySelector('.composer-skill-highlight'), null);
+  await view.type('/btw 안녕');
+  await compositionEvent(view, 'compositionstart');
+  assert.equal(document.querySelector('.composer-skill-highlight'), null);
+  await compositionEvent(view, 'compositionend');
+  assert.deepEqual(slashTokens(), ['/btw']);
+});
 
-    const toggled = (name, enabled) => ({
-      skills: STATUS.skills.map((skill) => (skill.name === name ? { ...skill, enabled } : skill)),
-    });
-    currentStatus = toggled('api-review', false);
-    assert.equal(document.activeElement, input);
-    await act(async () => {
-      assert.equal(invalidateSkillCatalogForMutation('setDisabledSkills'), true);
-    });
-    await settle();
-    assert.equal(document.activeElement, input);
-    assert.deepEqual(rows(), ['$release-notes']);
-    assert.deepEqual(tokens(), []);
-    assert.equal(status(), 'api-review skill is off, so it is sent as plain text. Turn it on in Settings → Skills.');
+test('composer: with no custom skill on, the palette shows one status line linking to Settings › Skills', async (t) => {
+  const view = await mountSkillComposer(t, 'skill-mention-empty', {
+    status: { skills: STATUS.skills.filter((skill) => skill.source === 'builtin') },
+  });
+  await view.type('$');
+  assert.deepEqual(view.rows(), []);
+  const line = view.palette().querySelector('p[role="status"]');
+  assert.equal(line.textContent, 'No skills are on. Open skill settings');
+  await act(async () => line.querySelector('button').click());
+  assert.deepEqual(view.settingsOpened, ['skills']);
+});
 
-    // A setup-tool (or host settings) change brings it back the same way.
-    currentStatus = STATUS;
-    await act(async () =>
-      window.dispatchEvent(new window.CustomEvent('mixdog:setup-changed', { detail: { action: 'x' } }))
-    );
-    await settle();
-    assert.deepEqual(rows(), ['$release-notes', '$api-review']);
-    assert.deepEqual(tokens(), ['$api-review']);
-    assert.equal(status(), '');
+test('composer: a skill toggled elsewhere updates palette, highlight and off notice from change signals, never from typing', async (t) => {
+  const view = await mountSkillComposer(t, 'skill-mention-live');
+  const { rows, tokens, status, type, flush } = view;
+  await type('$api-review 보고 $');
+  assert.deepEqual(rows(), ['$release-notes', '$api-review']);
+  assert.deepEqual(tokens(), ['$api-review']);
+  const readsBefore = view.reads.length;
+  await type('$api-review 보고 $r');
+  await type('$api-review 보고 $');
+  assert.equal(view.reads.length, readsBefore, 'keystrokes do not re-read skills');
+  assert.equal(invalidateSkillCatalogForMutation('setTheme'), false);
+  await flush();
+  assert.equal(view.reads.length, readsBefore, 'unrelated mutations do not re-read skills');
 
-    // So does a remote state gap.
-    currentStatus = toggled('release-notes', false);
-    await act(async () => window.dispatchEvent(new window.Event('mixdog:remote-state-gap')));
-    await settle();
-    assert.deepEqual(rows(), ['$api-review']);
+  const toggled = (name, enabled) => ({
+    skills: STATUS.skills.map((skill) => (skill.name === name ? { ...skill, enabled } : skill)),
+  });
+  view.catalog.status = toggled('api-review', false);
+  assert.equal(document.activeElement, view.input);
+  await act(async () => {
+    assert.equal(invalidateSkillCatalogForMutation('setDisabledSkills'), true);
+  });
+  await flush();
+  assert.equal(document.activeElement, view.input);
+  assert.deepEqual(rows(), ['$release-notes']);
+  assert.deepEqual(tokens(), []);
+  assert.equal(status(), 'api-review skill is off, so it is sent as plain text. Turn it on in Settings → Skills.');
 
-    // Scope: a skill the session's project does not see is neither listed,
-    // highlighted nor reported as off; one it sees (here via its plugin) is.
-    currentStatus = SCOPED_STATUS;
-    const scoped = { ...props, sessionId: 'skill-mention-scoped', identityScope: 'skill-mention-scoped' };
-    await act(async () => root.render(React.createElement(Composer, scoped)));
-    input = document.querySelector('textarea');
-    await act(async () => input.blur());
-    await type('$elsewhere $plugin-here $');
-    assert.deepEqual(rows(), ['$release-notes', '$plugin-here']);
-    assert.deepEqual(tokens(), ['$plugin-here']);
-    assert.equal(status(), '');
+  // A setup-tool (or host settings) change brings it back the same way.
+  view.catalog.status = STATUS;
+  await act(async () =>
+    window.dispatchEvent(new window.CustomEvent('mixdog:setup-changed', { detail: { action: 'x' } }))
+  );
+  await flush();
+  assert.deepEqual(rows(), ['$release-notes', '$api-review']);
+  assert.deepEqual(tokens(), ['$api-review']);
+  assert.equal(status(), '');
 
-    // A new-task draft has no session yet: it names its selected Project and
-    // the host answers for the folder that task would run in.
-    const draftReads = reads.length;
-    const draft = { ...props, sessionId: '', identityScope: 'draft:scoped', projectScope: 'C:/project' };
-    await act(async () => root.render(React.createElement(Composer, draft)));
-    input = document.querySelector('textarea');
-    await act(async () => input.blur());
-    assert.deepEqual(reads[draftReads], [{ capability: 'skillsStatus', args: [{ projectPath: 'C:/project' }] }]);
-    await type('$elsewhere $plugin-here $');
-    assert.deepEqual(rows(), ['$release-notes', '$plugin-here']);
-    assert.deepEqual(tokens(), ['$plugin-here']);
-    assert.equal(status(), '');
+  // So does a remote state gap.
+  view.catalog.status = toggled('release-notes', false);
+  await act(async () => window.dispatchEvent(new window.Event('mixdog:remote-state-gap')));
+  await flush();
+  assert.deepEqual(rows(), ['$api-review']);
+});
 
-    // Switching the draft's Project re-reads for the new one; a draft with no
-    // Project (task workspace) sends no argument.
-    const switched = reads.length;
-    await act(async () => root.render(React.createElement(Composer, { ...draft, projectScope: 'C:/other' })));
-    assert.deepEqual(reads[switched], [{ capability: 'skillsStatus', args: [{ projectPath: 'C:/other' }] }]);
-    const local = reads.length;
-    await act(async () => root.render(React.createElement(Composer, { ...draft, projectScope: '' })));
-    assert.deepEqual(reads[local], [{ capability: 'skillsStatus' }]);
-  } finally {
-    await act(async () => root.unmount());
-  }
+test('composer: a skill the session project does not see is neither listed, highlighted nor reported as off', async (t) => {
+  const view = await mountSkillComposer(t, 'skill-mention-scoped', { status: SCOPED_STATUS });
+  await view.type('$elsewhere $plugin-here $');
+  assert.deepEqual(view.rows(), ['$release-notes', '$plugin-here']);
+  assert.deepEqual(view.tokens(), ['$plugin-here']);
+  assert.equal(view.status(), '');
+});
+
+test('composer: a new-task draft reads skills for its selected Project, and re-reads when the Project changes', async (t) => {
+  // A draft has no session: it names its Project and the host answers for the folder the task would run in.
+  const draft = { sessionId: '', identityScope: 'draft:scoped', projectScope: 'C:/project' };
+  const view = await mountSkillComposer(t, 'skill-mention-draft', { status: SCOPED_STATUS, ...draft });
+  assert.deepEqual(view.reads[0], [{ capability: 'skillsStatus', args: [{ projectPath: 'C:/project' }] }]);
+  await view.type('$elsewhere $plugin-here $');
+  assert.deepEqual(view.rows(), ['$release-notes', '$plugin-here']);
+  assert.deepEqual(view.tokens(), ['$plugin-here']);
+  assert.equal(view.status(), '');
+
+  // A draft with no Project (task workspace) sends no argument.
+  const switched = view.reads.length;
+  await view.show({ projectScope: 'C:/other' });
+  assert.deepEqual(view.reads[switched], [{ capability: 'skillsStatus', args: [{ projectPath: 'C:/other' }] }]);
+  const local = view.reads.length;
+  await view.show({ projectScope: '' });
+  assert.deepEqual(view.reads[local], [{ capability: 'skillsStatus' }]);
 });
 
 test('skill catalog reads are single-flight with a minimum age; focus never re-reads, signals force', async () => {
@@ -555,48 +583,9 @@ test('@ palette keeps the previous rows while the next query searches, and Enter
   const settle = () => act(async () => new Promise((resolve) => window.setTimeout(resolve, 150)));
   const answer = (query, paths) => act(async () => pending.get(query)(paths));
   let input;
-  const type = async (value) => {
-    await act(async () => {
-      input.focus();
-      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(input, value);
-      input.setSelectionRange(value.length, value.length);
-      input.dispatchEvent(new window.Event('input', { bubbles: true }));
-    });
-  };
+  const type = (value) => typeInto(input, value);
   try {
-    await act(async () =>
-      root.render(
-        React.createElement(Composer, {
-          turnBusy: false,
-          commandBusy: false,
-          transitioning: false,
-          focusRequest: 0,
-          historyScope: 'mention-test',
-          identityScope: 'mention-test',
-          recoveryScope: 'mention-test',
-          projectScope: 'C:/project',
-          sessionId: 'mention-test',
-          hasConversation: true,
-          provider: 'openai-oauth',
-          model: 'test-model',
-          effort: 'medium',
-          fast: false,
-          fastCapable: false,
-          paneActive: true,
-          submit: async () => true,
-          abort: async () => {},
-          invokeResult: (action) => action(),
-          applySnapshot() {},
-          onNewTask() {},
-          onResumeSession() {},
-          onOpenSessions() {},
-          onOpenProjects() {},
-          onOpenSettings() {},
-          onOpenCommandSurface() {},
-          dropTargetRef: { current: null },
-        })
-      )
-    );
+    await act(async () => root.render(React.createElement(Composer, composerProps('mention-test'))));
     input = host.querySelector('textarea');
     await type('see @a');
     await settle();

@@ -96,7 +96,7 @@
 .visualize-tweaks-actions button.is-primary {
   border-color: transparent;
   background: var(--mx-accent);
-  color: var(--mx-accent-contrast, #fff);
+  color: var(--mx-grey-50);
 }
 .visualize-tweaks-actions button:disabled {
   opacity: 0.4;

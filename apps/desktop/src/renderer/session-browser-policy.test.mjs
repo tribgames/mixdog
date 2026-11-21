@@ -14,27 +14,30 @@ import {
   roomSessionId,
 } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 
-test('a child, task or room-member session reveals in the owner conversation on screen, never a guessed pane', () => {
-  const home = agentHomeSessionId('watcher');
-  const member = roomMemberSessionId('abc123', 'watcher');
-  const room = roomSessionId('abc123');
+const home = agentHomeSessionId('watcher');
+const member = roomMemberSessionId('abc123', 'watcher');
+const room = roomSessionId('abc123');
+const sources = {
+  sessions: [{ id: 'task-1', taskAgent: 'watcher', taskFrom: 'home', title: 'Report' }],
+  pool: [
+    { sessionId: 'sub-2', parentSessionId: 'sub-1', ownerSessionId: 'lead', title: '', tag: 'w2' },
+    { sessionId: 'sub-1', parentSessionId: 'lead', ownerSessionId: 'lead', title: '시장 조사', tag: 'w1' },
+    { sessionId: 'task-sub', parentSessionId: 'task-1', ownerSessionId: 'task-1', title: '', tag: 'reviewer' },
+    { sessionId: 'room-sub', parentSessionId: member, ownerSessionId: member, title: '', tag: 'helper' },
+  ],
+};
+
+test('a child, task or room-member session belongs to its owner conversation chain', () => {
   assert.ok(home && member && room);
-  const sources = {
-    sessions: [{ id: 'task-1', taskAgent: 'watcher', taskFrom: 'home', title: 'Report' }],
-    pool: [
-      { sessionId: 'sub-2', parentSessionId: 'sub-1', ownerSessionId: 'lead', title: '', tag: 'w2' },
-      { sessionId: 'sub-1', parentSessionId: 'lead', ownerSessionId: 'lead', title: '시장 조사', tag: 'w1' },
-      { sessionId: 'task-sub', parentSessionId: 'task-1', ownerSessionId: 'task-1', title: '', tag: 'reviewer' },
-      { sessionId: 'room-sub', parentSessionId: member, ownerSessionId: member, title: '', tag: 'helper' },
-    ],
-  };
   assert.deepEqual(surfaceOwnerChain('sub-2', sources), ['sub-2', 'sub-1', 'lead']);
   assert.deepEqual(surfaceOwnerChain('task-sub', sources), ['task-sub', 'task-1', home]);
   assert.deepEqual(surfaceOwnerChain('task-1', sources), ['task-1', home]);
   assert.deepEqual(surfaceOwnerChain(member, sources), [member, room]);
   assert.deepEqual(surfaceOwnerChain('room-sub', sources), ['room-sub', member, room]);
   assert.deepEqual(surfaceOwnerChain('lead', sources), ['lead']);
+});
 
+test('a surface reveals in the nearest owner conversation on screen, never a guessed pane', () => {
   const chain = surfaceOwnerChain('sub-2', sources);
   assert.deepEqual(surfaceRevealTarget([{ leafId: 'pane-a', sessionId: 'lead' }], chain, 'pane-a'), {
     leafId: 'pane-a',
@@ -60,6 +63,9 @@ test('a child, task or room-member session reveals in the owner conversation on 
     leafId: null,
     sessionId: 'sub-2',
   });
+});
+
+test('a child session is named by its pool title or tag, else its catalog title', () => {
   assert.equal(surfaceSessionName('sub-1', sources), '시장 조사');
   assert.equal(surfaceSessionName('sub-2', sources), 'w2');
   assert.equal(surfaceSessionName('task-1', sources), 'Report');

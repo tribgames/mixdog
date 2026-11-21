@@ -161,19 +161,30 @@ export class LinkHealth {
 
   private heartbeat(): void {
     this.timer = undefined;
-    if (!this.host.ready()) return this.stop();
-    if (this.host.pending() <= 0 && this.waiters.length === 0) return this.rest();
+    if (!this.host.ready()) {
+      this.stop();
+      return;
+    }
+    if (this.host.pending() <= 0 && this.waiters.length === 0) {
+      this.rest();
+      return;
+    }
     if (this.clock() - this.dueAt > this.gapMs) {
       // The timer was held back far past its due time: whatever it was measuring is void.
       this.cycle = null;
       this.seen = this.progressCount;
-      return this.arm();
+      this.arm();
+      return;
     }
     // A probe that has not left yet is no silence to judge.
-    if (this.cycle) return this.arm();
+    if (this.cycle) {
+      this.arm();
+      return;
+    }
     if (this.progressCount !== this.seen) {
       this.seen = this.progressCount;
-      return this.arm();
+      this.arm();
+      return;
     }
     this.begin();
   }
@@ -203,7 +214,8 @@ export class LinkHealth {
 
   private left(id: number): void {
     const cycle = this.cycle;
-    if (!cycle || cycle.id !== id || cycle.connection !== this.host.connection() || cycle.progress0 !== undefined) return;
+    if (!cycle || cycle.id !== id || cycle.connection !== this.host.connection() || cycle.progress0 !== undefined)
+      return;
     cycle.progress0 = this.progressCount;
     cycle.startedAt = this.clock();
     this.cancel();
@@ -216,7 +228,10 @@ export class LinkHealth {
     const cycle = this.cycle;
     if (!cycle || cycle.id !== id) return;
     const at = this.clock();
-    if (at - this.dueAt > this.gapMs) return this.begin();
+    if (at - this.dueAt > this.gapMs) {
+      this.begin();
+      return;
+    }
     void this.decide(cycle, at);
   }
 

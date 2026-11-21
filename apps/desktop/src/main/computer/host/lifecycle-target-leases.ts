@@ -1,8 +1,3 @@
-/**
- * Target leases: a mutation may only touch windows this session holds. A
- * lease that had to wait is refused even once acquired — the action was
- * planned against a desktop another agent has since changed.
- */
 import type { ComputerUseCoordinator } from '../session/coordinator';
 
 export async function claimComputerTargets(

@@ -1,9 +1,3 @@
-/**
- * What every action handler receives. The host resolves the target page,
- * budget, postcondition and ref-recovery context once; a handler only reads
- * the command, drives the page through the shared services, and returns the
- * reply. Handlers never reach the debugger or state maps directly.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserGuestCdp } from '../cdp';

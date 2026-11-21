@@ -1,9 +1,3 @@
-// Split-pane workspace model (editor groups). The workspace is a
-// binary split tree whose leaves are TAB GROUPS: an ordered list of
-// NavigationSelections plus the active tab's navigationKey — the 1:1
-// counterpart of an editor-group model (editor list + active index).
-// All operations are immutable — callers keep the returned root — and the
-// tree is JSON-safe for persistence.
 import type { WorkspaceSelection } from './nav-types';
 import { navigationKey } from './text-format';
 
@@ -295,6 +289,109 @@ function placeTabAt(
   return next.every((tab, at) => tab === tabs[at]) ? tabs : next;
 }
 
+function promoteReplacedTab(
+  leaf: PaneLeaf,
+  selection: WorkspaceSelection,
+  key: string,
+  replaceKey: string,
+  preview: boolean
+): PaneLeaf | null {
+  const replaced = leaf.tabs.findIndex((tab) => navigationKey(tab) === replaceKey);
+  if (replaced < 0) return null;
+  const tabs = leaf.tabs
+    .map((tab, index) => (index === replaced ? selection : tab))
+    .filter((tab, index) => index === replaced || navigationKey(tab) !== key);
+  return {
+    ...leaf,
+    tabs,
+    activeKey: leaf.activeKey === replaceKey ? key : leaf.activeKey,
+    previewKey: leaf.previewKey === replaceKey ? (preview ? key : undefined) : leaf.previewKey,
+  };
+}
+
+function reactivateExistingTab(
+  leaf: PaneLeaf,
+  selection: WorkspaceSelection,
+  key: string,
+  preview: boolean,
+  index: number | undefined
+): PaneLeaf | null {
+  const existingIndex = leaf.tabs.findIndex(
+    (tab) =>
+      navigationKey(tab) === key ||
+      (tab.kind === 'file' &&
+        selection.kind === 'file' &&
+        tab.project === selection.project &&
+        tab.rel === selection.rel)
+  );
+  if (existingIndex < 0) return null;
+  const existing = leaf.tabs[existingIndex];
+  let nextSelection = existing;
+  if (existing.kind === 'file' && selection.kind === 'file') {
+    const accessToken = selection.accessToken || existing.accessToken;
+    nextSelection = accessToken ? { ...selection, accessToken } : { ...selection };
+  }
+  const selectionChanged =
+    nextSelection !== existing &&
+    (nextSelection.kind !== 'file' || existing.kind !== 'file' || nextSelection.accessToken !== existing.accessToken);
+  const resolvedKey = navigationKey(nextSelection);
+  let previewKey = leaf.previewKey;
+  if (!preview && leaf.previewKey === resolvedKey) previewKey = undefined;
+  let retabbed: readonly WorkspaceSelection[] = leaf.tabs;
+  if (selectionChanged) {
+    const replaced = [...leaf.tabs];
+    replaced[existingIndex] = nextSelection;
+    retabbed = replaced;
+  }
+  const tabs = placeTabAt(retabbed, resolvedKey, index);
+  if (leaf.activeKey === resolvedKey && !selectionChanged && previewKey === leaf.previewKey && tabs === leaf.tabs)
+    return leaf;
+  return { ...leaf, tabs, activeKey: resolvedKey, previewKey };
+}
+
+function replacePreviewTab(
+  leaf: PaneLeaf,
+  selection: WorkspaceSelection,
+  key: string,
+  preview: boolean
+): PaneLeaf | null {
+  if (!preview || !leaf.previewKey) return null;
+  const previewIndex = leaf.tabs.findIndex((tab) => navigationKey(tab) === leaf.previewKey);
+  if (previewIndex < 0) return null;
+  const tabs = leaf.tabs.map((tab, index) => (index === previewIndex ? selection : tab));
+  return { ...leaf, tabs, activeKey: key, previewKey: key };
+}
+
+function replaceLonePlaceholder(
+  leaf: PaneLeaf,
+  selection: WorkspaceSelection,
+  key: string,
+  preview: boolean,
+  replaceKey: string
+): PaneLeaf | null {
+  if (replaceKey || selection.kind === 'new' || leaf.tabs.length !== 1 || leaf.tabs[0].kind !== 'new') return null;
+  return { ...leaf, tabs: [selection], activeKey: key, previewKey: preview ? key : undefined };
+}
+
+function appendTab(
+  leaf: PaneLeaf,
+  selection: WorkspaceSelection,
+  key: string,
+  preview: boolean,
+  index: number | undefined
+): PaneLeaf {
+  const nextPreviewKey = preview ? key : leaf.previewKey;
+  const appended = [...leaf.tabs];
+  appended.splice(index === undefined ? appended.length : Math.max(0, Math.min(index, appended.length)), 0, selection);
+  const { previewKey: _previewKey, ...withoutPreviewKey } = leaf;
+  return {
+    ...withoutPreviewKey,
+    tabs: appended,
+    activeKey: key,
+    ...(nextPreviewKey ? { previewKey: nextPreviewKey } : {}),
+  };
+}
+
 /** Open a selection in one group: activate the existing tab, or append a new
  *  one. `replaceKey` promotes in place (draft → its materialized session) at
  *  the replaced tab's exact strip position, dropping any older copy of the
@@ -310,94 +407,15 @@ export function openTabInPaneLeaf(
   return mapPaneLeaf(root, leafId, (leaf) => {
     const key = navigationKey(selection);
     const preview = options.preview === true && selection.kind === 'file';
-    if (replaceKey && replaceKey !== key) {
-      const replaced = leaf.tabs.findIndex((tab) => navigationKey(tab) === replaceKey);
-      if (replaced >= 0) {
-        const tabs = leaf.tabs
-          .map((tab, index) => (index === replaced ? selection : tab))
-          .filter((tab, index) => index === replaced || navigationKey(tab) !== key);
-        const replacedPreviewKey = preview ? key : undefined;
-        return {
-          ...leaf,
-          tabs,
-          // Background materialization replaces the draft tab in place but
-          // must not steal the group back from a tab the user selected while
-          // the submit acknowledgement was in flight.
-          activeKey: leaf.activeKey === replaceKey ? key : leaf.activeKey,
-          previewKey: leaf.previewKey === replaceKey ? replacedPreviewKey : leaf.previewKey,
-        };
-      }
-    }
-    const existingIndex = leaf.tabs.findIndex(
-      (tab) =>
-        navigationKey(tab) === key ||
-        (tab.kind === 'file' &&
-          selection.kind === 'file' &&
-          tab.project === selection.project &&
-          tab.rel === selection.rel)
+    const promoted =
+      replaceKey && replaceKey !== key ? promoteReplacedTab(leaf, selection, key, replaceKey, preview) : null;
+    return (
+      promoted ??
+      reactivateExistingTab(leaf, selection, key, preview, options.index) ??
+      replacePreviewTab(leaf, selection, key, preview) ??
+      replaceLonePlaceholder(leaf, selection, key, preview, replaceKey) ??
+      appendTab(leaf, selection, key, preview, options.index)
     );
-    if (existingIndex >= 0) {
-      const existing = leaf.tabs[existingIndex];
-      // Reopening an externally selected file may carry a freshly minted
-      // permission token. Conversely, pane focus routes omit the token and
-      // must not erase the one already attached to the tab.
-      let nextSelection = existing;
-      if (existing.kind === 'file' && selection.kind === 'file') {
-        const accessToken = selection.accessToken || existing.accessToken;
-        nextSelection = accessToken ? { ...selection, accessToken } : { ...selection };
-      }
-      const selectionChanged =
-        nextSelection !== existing &&
-        (nextSelection.kind !== 'file' ||
-          existing.kind !== 'file' ||
-          nextSelection.accessToken !== existing.accessToken);
-      const resolvedKey = navigationKey(nextSelection);
-      let previewKey = leaf.previewKey;
-      if (!preview && leaf.previewKey === resolvedKey) previewKey = undefined;
-      let retabbed: readonly WorkspaceSelection[] = leaf.tabs;
-      if (selectionChanged) {
-        const replaced = [...leaf.tabs];
-        replaced[existingIndex] = nextSelection;
-        retabbed = replaced;
-      }
-      const tabs = placeTabAt(retabbed, resolvedKey, options.index);
-      if (leaf.activeKey === resolvedKey && !selectionChanged && previewKey === leaf.previewKey && tabs === leaf.tabs)
-        return leaf;
-      return { ...leaf, tabs, activeKey: resolvedKey, previewKey };
-    }
-    if (preview && leaf.previewKey) {
-      const previewIndex = leaf.tabs.findIndex((tab) => navigationKey(tab) === leaf.previewKey);
-      if (previewIndex >= 0) {
-        const tabs = leaf.tabs.map((tab, index) => (index === previewIndex ? selection : tab));
-        return { ...leaf, tabs, activeKey: key, previewKey: key };
-      }
-    }
-    // A lone NEW TASK is a placeholder, not a kept tab: the first real tab
-    // takes its strip slot instead of stacking beside it. Another draft
-    // (Ctrl+N) still appends so unsent input is never discarded, and an
-    // explicit replaceKey promotion keeps owning its path.
-    if (!replaceKey && selection.kind !== 'new' && leaf.tabs.length === 1 && leaf.tabs[0].kind === 'new') {
-      return {
-        ...leaf,
-        tabs: [selection],
-        activeKey: key,
-        previewKey: preview ? key : undefined,
-      };
-    }
-    const nextPreviewKey = preview ? key : leaf.previewKey;
-    const appended = [...leaf.tabs];
-    appended.splice(
-      options.index === undefined ? appended.length : Math.max(0, Math.min(options.index, appended.length)),
-      0,
-      selection
-    );
-    const { previewKey: _previewKey, ...withoutPreviewKey } = leaf;
-    return {
-      ...withoutPreviewKey,
-      tabs: appended,
-      activeKey: key,
-      ...(nextPreviewKey ? { previewKey: nextPreviewKey } : {}),
-    };
   });
 }
 
@@ -420,10 +438,6 @@ export function reorderTabInPaneLeaf(
   return mapPaneLeaf(root, leafId, (leaf) => {
     const keys = leaf.tabs.map((tab) => navigationKey(tab));
     const from = keys.indexOf(sourceKey);
-    // A numeric target is the strip drop index (resolved
-    // against the CURRENT list with the source still in
-    // place — tab half rule, container drop = count — so an index past the
-    // source shifts down by one after removal.
     let to = typeof target === 'string' ? keys.indexOf(target) : -1;
     if (typeof target === 'number') {
       const dropIndex = target > from ? target - 1 : target;

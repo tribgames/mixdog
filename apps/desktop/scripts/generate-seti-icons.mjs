@@ -1,12 +1,5 @@
-// Regenerates src/renderer/seti-icons.ts and src/renderer/seti.woff from the
-// bundled "theme-seti" icon theme. Attribution and license details live in
-// LICENSES/editor-assets-NOTICE.txt and THIRD-PARTY-NOTICES.txt.
-//
-//   node scripts/generate-seti-icons.mjs [path-to-theme-seti]
-//
-// Only the dark-theme glyph/colour set is emitted. The theme resolves its
-// languageIds through every built-in language contribution, so those derived
-// extensions/file names must be folded back in alongside explicit overrides.
+// node scripts/generate-seti-icons.mjs [path-to-theme-seti]
+// Attribution and license: LICENSES/editor-assets-NOTICE.txt and THIRD-PARTY-NOTICES.txt.
 import { copyFileSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

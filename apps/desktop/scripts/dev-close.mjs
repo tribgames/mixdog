@@ -1,6 +1,3 @@
-// Close a dev app gracefully over CDP so Chromium flushes its profile
-// (localStorage, window state) before exit. Killing the process loses it.
-//
 //   node scripts/dev-close.mjs --port=9342
 import { optionValue } from './cli-args.mjs';
 

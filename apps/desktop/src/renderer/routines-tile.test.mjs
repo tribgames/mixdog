@@ -89,19 +89,22 @@ test('the Routines view exists only on an agent home thread', () => {
   assert.deepEqual(paneRightGroupsFor(groups, ''), [['session-diff'], ['browser']]);
 });
 
-test('pane headers: Visualize takes the Changes slot in agent chats and coding panes', async () => {
-  const layout = [['routines'], ['room'], ['session-diff'], ['visualize'], ['browser'], ['terminal']];
-  assert.deepEqual(agentChatStripGroups(paneRightGroupsFor(layout, 'sess_home_lead')), [
+const PANE_LAYOUT = [['routines'], ['room'], ['session-diff'], ['visualize'], ['browser'], ['terminal']];
+
+test('agent chat headers offer routines or room, Visualize and browser', () => {
+  assert.deepEqual(agentChatStripGroups(paneRightGroupsFor(PANE_LAYOUT, 'sess_home_lead')), [
     ['routines'],
     ['visualize'],
     ['browser'],
   ]);
-  assert.deepEqual(agentChatStripGroups(paneRightGroupsFor(layout, 'sess_room_abc123')), [
+  assert.deepEqual(agentChatStripGroups(paneRightGroupsFor(PANE_LAYOUT, 'sess_room_abc123')), [
     ['room'],
     ['visualize'],
     ['browser'],
   ]);
+});
 
+const mountDockToggles = async (t) => {
   const { PaneDockToggles } = await import('./pane-dock-toggles.tsx');
   const Icon = () => React.createElement('svg');
   const descriptors = new Map(
@@ -115,6 +118,7 @@ test('pane headers: Visualize takes the Changes slot in agent chats and coding p
   );
   const host = document.getElementById('root');
   const root = createRoot(host);
+  t.after(() => act(async () => root.unmount()));
   const calls = [];
   const render = (groups, activeRoot = null) =>
     act(async () =>
@@ -130,10 +134,15 @@ test('pane headers: Visualize takes the Changes slot in agent chats and coding p
       )
     );
   const shown = () => [...host.querySelectorAll('.pane-dock-toggle')].map((button) => button.dataset.view);
-  const agentGroups = agentChatStripGroups(paneRightGroupsFor(layout, 'sess_home_lead'));
+  const visualize = () => host.querySelector('.pane-dock-toggle[data-view="visualize"]');
+  return { calls, render, shown, visualize };
+};
+
+test('an agent chat header toggles the session’s visualize panel', async (t) => {
+  const { calls, render, shown, visualize } = await mountDockToggles(t);
+  const agentGroups = agentChatStripGroups(paneRightGroupsFor(PANE_LAYOUT, 'sess_home_lead'));
   await render(agentGroups);
   assert.deepEqual(shown(), ['routines', 'visualize', 'browser']);
-  const visualize = () => host.querySelector('.pane-dock-toggle[data-view="visualize"]');
   assert.equal(visualize().getAttribute('aria-label'), 'Visualize');
   await act(async () => visualize().click());
   assert.deepEqual(calls, [['select', 'visualize']], 'opens the session’s visualize panel');
@@ -141,12 +150,14 @@ test('pane headers: Visualize takes the Changes slot in agent chats and coding p
   assert.equal(visualize().getAttribute('aria-pressed'), 'true');
   await act(async () => visualize().click());
   assert.deepEqual(calls.at(-1), ['close'], 'pressed again, it folds the panel');
-  // Coding: Visualize in the Changes slot, then browser and terminal.
-  await render(codingStripGroups(paneRightGroupsFor(layout, 'sess_0193abc')));
+});
+
+test('a coding pane header puts Visualize in the Changes slot, then browser and terminal', async (t) => {
+  const { calls, render, shown, visualize } = await mountDockToggles(t);
+  await render(codingStripGroups(paneRightGroupsFor(PANE_LAYOUT, 'sess_0193abc')));
   assert.deepEqual(shown(), ['visualize', 'browser', 'terminal']);
   await act(async () => visualize().click());
   assert.deepEqual(calls.at(-1), ['select', 'visualize'], 'a coding pane opens its visualize panel too');
-  await act(async () => root.unmount());
 });
 
 test('before any toggle the tile opens only where the agent owns a routine; a toggle then persists', () => {
@@ -230,74 +241,57 @@ const WEBHOOKS = [
   { name: 'prs', parser: 'github', enabled: true, owner: 'reviewer', hasLastPayload: true },
 ];
 
-test('the tile renders the owned webhooks below the schedules and re-runs the last payload', async () => {
-  const calls = [];
-  const api = {
-    invokeCapability: async ({ capability, args }) => {
-      calls.push([capability, args]);
-      if (capability === 'getChannelSetup') return { value: { schedules: SCHEDULES, webhooks: WEBHOOKS } };
-      return { value: { ok: true } };
-    },
-  };
-  const root = createRoot(document.getElementById('root'));
-  await act(async () =>
-    root.render(React.createElement(RoutinesPane, { sessionId: 'sess_home_lead', active: true, api }))
+test('the tile renders the owned webhooks below the schedules', async (t) => {
+  await mountTile(t, { schedules: SCHEDULES, webhooks: WEBHOOKS });
+  const heads = [...document.querySelectorAll('.conn-group-head h4')].map((node) => node.textContent);
+  assert.deepEqual(heads, ['Schedules2', 'Webhooks2']);
+  const section = document.querySelectorAll('.conn-group')[1];
+  const rows = [...section.querySelectorAll('.routines-row')];
+  assert.deepEqual(
+    rows.map((row) => row.querySelector('.routines-title b').textContent),
+    ['issues', 'alerts']
   );
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  try {
-    const heads = [...document.querySelectorAll('.conn-group-head h4')].map((node) => node.textContent);
-    assert.deepEqual(heads, ['Schedules2', 'Webhooks2']);
-    const section = document.querySelectorAll('.conn-group')[1];
-    const rows = [...section.querySelectorAll('.routines-row')];
-    assert.deepEqual(
-      rows.map((row) => row.querySelector('.routines-title b').textContent),
-      ['issues', 'alerts']
-    );
-    const [issues, alerts] = rows;
-    assert.match(issues.querySelector('.routines-sub').textContent, /^GitHub events · Latest .+$/);
-    assert.equal(issues.querySelector('.routines-tag').textContent, 'Failed');
-    assert.equal(alerts.querySelector('.routines-sub').textContent, 'No events');
-    assert.equal(alerts.querySelector('.routines-tag'), null);
-    assert.equal(alerts.dataset.state, 'paused');
-    assert.equal(issues.dataset.state, 'failed');
-    assert.equal(issues.querySelector('input[type="checkbox"]'), null, 'no on/off switch');
-    // No payload yet: the menu's run is disabled and says why.
-    await openMenu(alerts);
-    assert.equal(menuItem('run').disabled, true);
-    assert.equal(menuItem('run').title, 'No payload received yet.');
-    assert.equal(menuItem('toggle').textContent, 'Resume routine');
-    await closeMenu();
+  const [issues, alerts] = rows;
+  assert.match(issues.querySelector('.routines-sub').textContent, /^GitHub events · Latest .+$/);
+  assert.equal(issues.querySelector('.routines-tag').textContent, 'Failed');
+  assert.equal(alerts.querySelector('.routines-sub').textContent, 'No events');
+  assert.equal(alerts.querySelector('.routines-tag'), null);
+  assert.equal(alerts.dataset.state, 'paused');
+  assert.equal(issues.dataset.state, 'failed');
+  assert.equal(issues.querySelector('input[type="checkbox"]'), null, 'no on/off switch');
+});
 
-    await openMenu(issues);
-    assert.equal(menuItem('run').disabled, false);
-    assert.equal(menuItem('toggle').textContent, 'Pause routine');
-    await act(async () => menuItem('toggle').click());
-    assert.deepEqual(
-      calls.find(([name]) => name === 'setWebhookEnabled'),
-      ['setWebhookEnabled', ['issues', false]]
-    );
-    await openMenu(issues);
-    await act(async () => menuItem('run').click());
-    assert.deepEqual(
-      calls.find(([name]) => name === 'runWebhookNow'),
-      ['runWebhookNow', ['issues']]
-    );
-    // Delete asks for a second press, then calls the webhook capability.
-    await openMenu(issues);
-    await act(async () => menuItem('delete').click());
-    assert.equal(
-      calls.some(([name]) => name === 'deleteWebhook'),
-      false
-    );
-    assert.equal(menuItem('delete').textContent, 'Confirm delete');
-    await act(async () => menuItem('delete').click());
-    assert.deepEqual(
-      calls.find(([name]) => name === 'deleteWebhook'),
-      ['deleteWebhook', ['issues']]
-    );
-  } finally {
-    await act(async () => root.unmount());
-  }
+test('a webhook with no payload yet has its run disabled with the reason', async (t) => {
+  await mountTile(t, { schedules: SCHEDULES, webhooks: WEBHOOKS });
+  const alerts = document.querySelectorAll('.conn-group')[1].querySelectorAll('.routines-row')[1];
+  await openMenu(alerts);
+  assert.equal(menuItem('run').disabled, true);
+  assert.equal(menuItem('run').title, 'No payload received yet.');
+  assert.equal(menuItem('toggle').textContent, 'Resume routine');
+});
+
+test('a webhook row menu pauses it and re-runs the last payload', async (t) => {
+  const tile = await mountTile(t, { schedules: SCHEDULES, webhooks: WEBHOOKS });
+  const issues = document.querySelectorAll('.conn-group')[1].querySelectorAll('.routines-row')[0];
+  await openMenu(issues);
+  assert.equal(menuItem('run').disabled, false);
+  assert.equal(menuItem('toggle').textContent, 'Pause routine');
+  await act(async () => menuItem('toggle').click());
+  assert.deepEqual(tile.callOf('setWebhookEnabled'), ['setWebhookEnabled', ['issues', false]]);
+  await openMenu(issues);
+  await act(async () => menuItem('run').click());
+  assert.deepEqual(tile.callOf('runWebhookNow'), ['runWebhookNow', ['issues']]);
+});
+
+test('deleting a webhook asks for a second press, then calls the webhook capability', async (t) => {
+  const tile = await mountTile(t, { schedules: SCHEDULES, webhooks: WEBHOOKS });
+  const issues = document.querySelectorAll('.conn-group')[1].querySelectorAll('.routines-row')[0];
+  await openMenu(issues);
+  await act(async () => menuItem('delete').click());
+  assert.equal(tile.callOf('deleteWebhook'), undefined);
+  assert.equal(menuItem('delete').textContent, 'Confirm delete');
+  await act(async () => menuItem('delete').click());
+  assert.deepEqual(tile.callOf('deleteWebhook'), ['deleteWebhook', ['issues']]);
 });
 
 test('a refused result delivery offers a retry; a self-paused routine says why', async () => {
@@ -348,14 +342,13 @@ test('a refused result delivery offers a retry; a self-paused routine says why',
       calls.find(([name]) => name === 'retryRoutineDelivery'),
       ['retryRoutineDelivery', ['schedule', 'digest']]
     );
-    assert.equal(
-      routineNoticeText({ omitted: 3 }),
-      '⏱ Routine results omitted: 3',
-      'the full-queue notice reads as a routine row'
-    );
   } finally {
     await act(async () => root.unmount());
   }
+});
+
+test('the full-queue notice reads as a routine row', () => {
+  assert.equal(routineNoticeText({ omitted: 3 }), '⏱ Routine results omitted: 3');
 });
 
 test('a webhook routine result notice reads as a webhook row', () => {
@@ -388,63 +381,64 @@ test('a routine result notice reads as a schedule row, failures included', () =>
   );
   assert.equal(routineNoticeText(undefined), null);
 });
-
-test('the tile renders each owned schedule and drives its switch and run action', async () => {
+const mountTile = async (t, setup) => {
   const calls = [];
   const api = {
     invokeCapability: async ({ capability, args }) => {
       calls.push([capability, args]);
-      if (capability === 'getChannelSetup') return { value: { schedules: SCHEDULES } };
-      return { value: { ok: true } };
+      return { value: capability === 'getChannelSetup' ? setup : { ok: true } };
     },
   };
   const root = createRoot(document.getElementById('root'));
+  t.after(() => act(async () => root.unmount()));
   await act(async () =>
     root.render(React.createElement(RoutinesPane, { sessionId: 'sess_home_lead', active: true, api }))
   );
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  try {
-    const rows = [...document.querySelectorAll('.routines-row')];
-    assert.deepEqual(
-      rows.map((row) => row.querySelector('.routines-title b').textContent),
-      ['new-issues', 'legacy']
-    );
-    const first = rows[0];
-    assert.match(first.querySelector('.routines-sub').textContent, /^Weekdays at 10:00 · Next .+$/);
-    assert.equal(first.dataset.state, 'ok');
-    assert.equal(first.querySelector('.routines-tag'), null);
-    assert.equal(rows[1].querySelector('.routines-tag').textContent, 'Failed');
-    assert.match(rows[1].querySelector('.routines-sub').textContent, / · Paused$/);
-    assert.equal(first.querySelector('input[type="checkbox"]'), null, 'no on/off switch');
-    assert.equal(first.querySelector('.conn-tile'), null, 'no icon tile');
-    assert.equal(document.querySelector('.conn-group-head h4').textContent, 'Schedules2');
-    assert.equal(document.querySelector('.conn-note'), null, 'no guidance line');
-    assert.equal(document.querySelector('form'), null, 'no create form');
+  return { callOf: (name) => calls.find(([called]) => called === name), calls };
+};
 
-    await openMenu(first);
-    assert.equal(menuItem('toggle').textContent, 'Pause routine');
-    await act(async () => menuItem('toggle').click());
-    assert.deepEqual(
-      calls.find(([name]) => name === 'setScheduleEnabled'),
-      ['setScheduleEnabled', ['new-issues', false]]
-    );
+test('the tile renders each owned schedule without a switch, icon tile, guidance or form', async (t) => {
+  await mountTile(t, { schedules: SCHEDULES });
+  const rows = [...document.querySelectorAll('.routines-row')];
+  assert.deepEqual(
+    rows.map((row) => row.querySelector('.routines-title b').textContent),
+    ['new-issues', 'legacy']
+  );
+  const first = rows[0];
+  assert.match(first.querySelector('.routines-sub').textContent, /^Weekdays at 10:00 · Next .+$/);
+  assert.equal(first.dataset.state, 'ok');
+  assert.equal(first.querySelector('.routines-tag'), null);
+  assert.equal(rows[1].querySelector('.routines-tag').textContent, 'Failed');
+  assert.match(rows[1].querySelector('.routines-sub').textContent, / · Paused$/);
+  assert.equal(first.querySelector('input[type="checkbox"]'), null, 'no on/off switch');
+  assert.equal(first.querySelector('.conn-tile'), null, 'no icon tile');
+  assert.equal(document.querySelector('.conn-group-head h4').textContent, 'Schedules2');
+  assert.equal(document.querySelector('.conn-note'), null, 'no guidance line');
+  assert.equal(document.querySelector('form'), null, 'no create form');
+});
 
-    await openMenu(rows[1]);
-    assert.equal(menuItem('toggle').textContent, 'Resume routine');
-    await act(async () => menuItem('run').click());
-    assert.deepEqual(
-      calls.find(([name]) => name === 'runScheduleNow'),
-      ['runScheduleNow', ['legacy']]
-    );
+test('a schedule row menu pauses a running schedule', async (t) => {
+  const tile = await mountTile(t, { schedules: SCHEDULES });
+  await openMenu(document.querySelectorAll('.routines-row')[0]);
+  assert.equal(menuItem('toggle').textContent, 'Pause routine');
+  await act(async () => menuItem('toggle').click());
+  assert.deepEqual(tile.callOf('setScheduleEnabled'), ['setScheduleEnabled', ['new-issues', false]]);
+});
 
-    await openMenu(first);
-    await act(async () => menuItem('delete').click());
-    await act(async () => menuItem('delete').click());
-    assert.deepEqual(
-      calls.find(([name]) => name === 'deleteSchedule'),
-      ['deleteSchedule', ['new-issues']]
-    );
-  } finally {
-    await act(async () => root.unmount());
-  }
+test('a schedule row menu offers to resume a paused schedule and runs it now', async (t) => {
+  const tile = await mountTile(t, { schedules: SCHEDULES });
+  await openMenu(document.querySelectorAll('.routines-row')[1]);
+  assert.equal(menuItem('toggle').textContent, 'Resume routine');
+  await act(async () => menuItem('run').click());
+  assert.deepEqual(tile.callOf('runScheduleNow'), ['runScheduleNow', ['legacy']]);
+});
+
+test('deleting a schedule from its row menu needs a second press', async (t) => {
+  const tile = await mountTile(t, { schedules: SCHEDULES });
+  await openMenu(document.querySelectorAll('.routines-row')[0]);
+  await act(async () => menuItem('delete').click());
+  assert.equal(tile.callOf('deleteSchedule'), undefined);
+  await act(async () => menuItem('delete').click());
+  assert.deepEqual(tile.callOf('deleteSchedule'), ['deleteSchedule', ['new-issues']]);
 });

@@ -12,11 +12,6 @@ const MAX_PRETTY_CHARS = 5_000_000;
 const MAX_PRETTY_DEPTH = 64;
 const MAX_PRETTY_OUTPUT_CHARS = 5_000_000;
 
-/** Runs in the page: a document that is one <pre> of JSON text becomes its
- *  indented form. Anything else (not JSON, too large or too deep to indent
- *  within budget, a normal page) is left.
- *  Only the whitespace between tokens changes: numbers and strings keep their
- *  original spelling (a parse/stringify round trip would round big integers). */
 export const JSON_PRETTY_PRINT_SCRIPT = `(() => {
   const body = document.body;
   const pre = body && body.firstElementChild;

@@ -375,7 +375,7 @@ html[data-mixdog-mobile-tabs] .routines-row .row-overflow-trigger {
   place-items: center;
   border-radius: 50%;
   color: var(--mx-chart-gold);
-  background: var(--mx-bg-panel, var(--mx-bg-base));
+  background: var(--mx-bg-base);
 }
 .agent-profile-name {
   color: var(--mx-text);

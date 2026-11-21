@@ -10,13 +10,6 @@ import type { TranscriptItem } from './desktop-types';
 const NO_PENDING_PROMPTS: PendingPromptItem[] = [];
 const NO_PROMPT_IDS: string[] = [];
 
-/**
- * Every prompt sent from this pane, split by where it shows: a prompt that
- * starts a turn is the transcript's optimistic row; a message sent behind a
- * running turn is a steering bubble at the transcript's end (with the
- * session runtime's own queue, whatever surface typed it) until the model
- * reads it and its durable row lands.
- */
 export function useConversationSteering(
   optimisticPrompts: PendingPromptItem[],
   settledItems: TranscriptItem[],

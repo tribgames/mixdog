@@ -1,9 +1,3 @@
-/**
- * Waiting for the page to settle and for a postcondition to become true. The
- * waits run together: a postcondition that turns true may cut the settle
- * short — unless it was already true before the gesture, in which case it
- * proves nothing about this one and may never shorten the wait.
- */
 import type { WebContents } from 'electron';
 
 import { type BrowserCommand, type BrowserSnapshotResultOptions, POSTCONDITION_POLL_MS } from './host-types';

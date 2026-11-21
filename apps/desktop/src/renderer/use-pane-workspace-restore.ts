@@ -9,9 +9,9 @@ import {
   initialPaneWorkspaceState,
   paneLayoutFileStorage,
   readStoredPaneLayout,
-  safeLocalStorage,
   type PaneWorkspaceState,
 } from './pane-workspace-storage';
+import { safeLocalStorage } from './local-storage';
 import { reportRendererFailure } from './RendererRecovery';
 import { sectionStoreFor } from './section-store';
 import type { DesktopSessionSummary } from '../shared/contract';
@@ -77,10 +77,6 @@ export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | nul
     };
   }
   const restorePlan = startupRestore.current;
-  // The stored layout is the initial value only, restored whole on the first
-  // frame: restoring is local, so nothing waits on the core. From then on the
-  // user owns the layout; an unconfirmed session tab stays in place and shows
-  // its own unavailable state if its content cannot be read.
   const restorePending = false;
   const restoredFromStorage = Boolean(restorePlan.stored);
   const [state, render] = useState<PaneWorkspaceState>(() =>
@@ -97,17 +93,6 @@ export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | nul
     render(next);
   }, []);
 
-  // Bootstrap validation, once. The restored session tabs stay unresolved (kept,
-  // shown, persisted) until the catalog and the pool are both known; then the
-  // ones still unresolved are judged in the live tree, and the obligation ends:
-  // from there on tabs close only through the session lifecycle's own rules
-  // (`use-app-session-activity.ts`). A restored tab the user closes or replaces
-  // first leaves the obligation; the same id reopened later is the lifecycle's.
-  // Unknown is not invalid: a missing `agentPool` entry, or no sections at all,
-  // leaves validation unresolved, never the UI or persistence; a published
-  // empty pool is known. The session list is read once, at mount; a push
-  // carries the whole catalog and, once one has arrived, outranks the mount
-  // read. The pool is never requested: the core pushes it.
   const unresolved = useRef<Set<string> | null>(null);
   if (!unresolved.current) {
     unresolved.current = new Set(
@@ -124,75 +109,7 @@ export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | nul
   useEffect(() => {
     const pending = unresolved.current!;
     if (!pending.size) return undefined;
-    let active = true;
-    let catalog: DesktopSessionSummary[] | undefined;
-    let pool: PoolRows | undefined;
-    let pushed = false;
-    const stops: Array<(() => void) | undefined> = [];
-    const finish = () => {
-      active = false;
-      for (const stop of stops.splice(0)) stop?.();
-    };
-    const validate = () => {
-      if (!active || !catalog || !pool) return;
-      const established = restorableSessionIds(catalog, pool);
-      // An agent's home keeps its fixed id for good: emptied by a clear, the
-      // catalog leaves it out, yet it is that agent's chat.
-      const rejected = new Set([...pending].filter((id) => !isAgentHomeSessionId(id) && !established.has(id)));
-      pending.clear();
-      finish();
-      if (!rejected.size) return;
-      setState((prev) => {
-        const keep = new Set(sessionIdsOf(prev.layout).filter((id) => !rejected.has(id)));
-        const pruned = filterPaneLayoutSessions(prev.layout, keep);
-        if (pruned === prev.layout) return prev;
-        const layout = pruned ?? createNewTaskPaneLeaf();
-        const leaves = paneLeaves(layout);
-        return {
-          layout,
-          focusedLeafId: leaves.some((leaf) => leaf.id === prev.focusedLeafId) ? prev.focusedLeafId : leaves[0].id,
-        };
-      });
-    };
-    const takeCatalog = (rows: DesktopSessionSummary[]) => {
-      catalog = rows;
-      validate();
-    };
-    const api = window.mixdogDesktop;
-    // Subscribed before the read is issued: a push that lands meanwhile is not lost.
-    stops.push(
-      api?.subscribeSessions?.((rows) => {
-        pushed = true;
-        takeCatalog(rows);
-      })
-    );
-    const sections = sectionStoreFor(api);
-    const takePool = () => {
-      const entry = sections?.get('agentPool');
-      pool = entry ? (entry.value as PoolRows) : undefined;
-      validate();
-    };
-    stops.push(sections?.subscribe('agentPool', takePool));
-    takePool();
-    const listSessions = api?.listSessions;
-    if (typeof listSessions === 'function') {
-      void Promise.resolve()
-        .then(listSessions)
-        .then(
-          (rows) => {
-            // A first page is not the catalog (a pane of a later page's session would be judged missing): the whole list follows by push.
-            if (active && !pushed && !isPartialCatalog(rows)) takeCatalog(rows);
-          },
-          (error: unknown) => {
-            if (!active) return;
-            reportRendererFailure('unhandled-rejection', error, {
-              components: ['PaneWorkspaceRestore'],
-              failureCode: 'pane-catalog-unavailable',
-            });
-          }
-        );
-    }
-    return finish;
+    return validateRestoredSessions(pending, setState);
   }, []);
 
   const fileCopy = useRef<string | null>(null);
@@ -219,4 +136,84 @@ export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | nul
   }, [persistState]);
 
   return { state, current, setState, restorePending, restoredFromStorage };
+}
+
+function withoutSessions(prev: PaneWorkspaceState, rejected: ReadonlySet<string>): PaneWorkspaceState {
+  const keep = new Set(sessionIdsOf(prev.layout).filter((id) => !rejected.has(id)));
+  const pruned = filterPaneLayoutSessions(prev.layout, keep);
+  if (pruned === prev.layout) return prev;
+  const layout = pruned ?? createNewTaskPaneLeaf();
+  const leaves = paneLeaves(layout);
+  return {
+    layout,
+    focusedLeafId: leaves.some((leaf) => leaf.id === prev.focusedLeafId) ? prev.focusedLeafId : leaves[0].id,
+  };
+}
+
+/** Judges the restored session tabs in `pending` once the catalog and the pool
+ *  are both known, pruning the ones neither knows from the live layout; empties
+ *  `pending` when it judged. Returns the teardown. */
+function validateRestoredSessions(
+  pending: Set<string>,
+  setState: (transition: (prev: PaneWorkspaceState) => PaneWorkspaceState) => void
+): () => void {
+  let active = true;
+  let catalog: DesktopSessionSummary[] | undefined;
+  let pool: PoolRows | undefined;
+  let pushed = false;
+  const stops: Array<(() => void) | undefined> = [];
+  const finish = () => {
+    active = false;
+    for (const stop of stops.splice(0)) stop?.();
+  };
+  const validate = () => {
+    if (!active || !catalog || !pool) return;
+    const established = restorableSessionIds(catalog, pool);
+    // An agent's home keeps its fixed id for good: emptied by a clear, the
+    // catalog leaves it out, yet it is that agent's chat.
+    const rejected = new Set([...pending].filter((id) => !isAgentHomeSessionId(id) && !established.has(id)));
+    pending.clear();
+    finish();
+    if (!rejected.size) return;
+    setState((prev) => withoutSessions(prev, rejected));
+  };
+  const takeCatalog = (rows: DesktopSessionSummary[]) => {
+    catalog = rows;
+    validate();
+  };
+  const api = window.mixdogDesktop;
+  // Subscribed before the read is issued: a push that lands meanwhile is not lost.
+  stops.push(
+    api?.subscribeSessions?.((rows) => {
+      pushed = true;
+      takeCatalog(rows);
+    })
+  );
+  const sections = sectionStoreFor(api);
+  const takePool = () => {
+    const entry = sections?.get('agentPool');
+    pool = entry ? (entry.value as PoolRows) : undefined;
+    validate();
+  };
+  stops.push(sections?.subscribe('agentPool', takePool));
+  takePool();
+  const listSessions = api?.listSessions;
+  if (typeof listSessions === 'function') {
+    void Promise.resolve()
+      .then(listSessions)
+      .then(
+        (rows) => {
+          // A first page is not the catalog (a pane of a later page's session would be judged missing): the whole list follows by push.
+          if (active && !pushed && !isPartialCatalog(rows)) takeCatalog(rows);
+        },
+        (error: unknown) => {
+          if (!active) return;
+          reportRendererFailure('unhandled-rejection', error, {
+            components: ['PaneWorkspaceRestore'],
+            failureCode: 'pane-catalog-unavailable',
+          });
+        }
+      );
+  }
+  return finish;
 }

@@ -1,11 +1,3 @@
-/**
- * Maps a viewer's `RemoteScreenInput` to desktop host commands: pointer and
- * wheel points go through the display's geometry mapping, keys and text pass
- * straight to the injector. This layer is pure — it holds no state and tracks
- * no presses. Which backend each command reaches, and the guaranteed release
- * of every held key/button, belong to the router (screen-input-router.ts),
- * which owns presses per desktop so a release is never sent to the wrong one.
- */
 import type { RemoteScreenButton, RemoteScreenInput } from '../../shared/remote-webrtc';
 import { mapScreenPointer, type ScreenPointerMapping } from './screen-geometry';
 import type { ScreenHostButton, ScreenHostCommand } from './screen-input-host';

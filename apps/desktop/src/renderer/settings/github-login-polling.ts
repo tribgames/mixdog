@@ -1,6 +1,71 @@
-import { useEffect, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 
-import type { DesktopApi, DesktopGithubCliLoginFlow, DesktopGithubCliStatus } from '../../shared/contract';
+import type {
+  DesktopApi,
+  DesktopGithubCliAccount,
+  DesktopGithubCliLoginFlow,
+  DesktopGithubCliStatus,
+} from '../../shared/contract';
+import { errorMessage } from '../editor-pane-session-errors';
+import { getCachedGitPanelInfo, patchCachedGitPanelInfo, preloadGitPanelInfo } from './git-panel-info';
+
+/** The GitHub CLI status and the signed-in account: the cached snapshot first, reconciled by the background probe;
+ *  the account is read whenever gh reports authenticated and dropped when it does not. */
+export function useGithubCliStatus(
+  host: Partial<DesktopApi> | undefined,
+  supported: boolean,
+  setError: (message: string) => void
+) {
+  const cached = getCachedGitPanelInfo(host);
+  const [status, setStatus] = useState<DesktopGithubCliStatus | null>(cached?.status ?? null);
+  const [account, setAccount] = useState<DesktopGithubCliAccount | null>(cached?.account ?? null);
+  const refreshStatus = useCallback(async () => {
+    if (!host?.githubCliStatus) return;
+    try {
+      const next = await host.githubCliStatus();
+      setStatus(next);
+      patchCachedGitPanelInfo(host, { status: next });
+    } catch (reason) {
+      setError(errorMessage(reason));
+    }
+  }, [host, setError]);
+  useEffect(() => {
+    if (!supported) return undefined;
+    let live = true;
+    void preloadGitPanelInfo(host).then((info) => {
+      if (!live || !info) return;
+      setStatus(info.status);
+      setAccount(info.account);
+    });
+    return () => {
+      live = false;
+    };
+  }, [host, supported]);
+  const authenticated = status?.authenticated === true;
+  useEffect(() => {
+    if (!supported) return undefined;
+    if (!authenticated) {
+      setAccount(null);
+      patchCachedGitPanelInfo(host, { account: null });
+      return undefined;
+    }
+    let live = true;
+    void host
+      ?.githubCliAccount?.()
+      .then((next) => {
+        if (!live) return;
+        setAccount(next || null);
+        patchCachedGitPanelInfo(host, { account: next || null });
+      })
+      .catch(() => {
+        /* the status row still shows the login */
+      });
+    return () => {
+      live = false;
+    };
+  }, [host, authenticated, supported]);
+  return { status, setStatus, account, setAccount, refreshStatus, authenticated };
+}
 
 /** Follows the scoped login feed, or reads the host's flow status if the feed is missing or lost. */
 export function useGithubLoginPolling({
@@ -35,10 +100,6 @@ export function useGithubLoginPolling({
         return next;
       });
       if (next.state === 'success') {
-        // The core reports success only after `gh auth status` confirmed the
-        // account: adopt it now. Waiting for the refresh probe flashed the
-        // Sign-in button back for ~1s, and a click there started a second
-        // device flow (a new 8-character code).
         setStatus((current) => ({
           installed: true,
           ...current,

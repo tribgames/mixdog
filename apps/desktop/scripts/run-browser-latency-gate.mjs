@@ -1,12 +1,6 @@
-// The latency gate of the engine path: the browser tool runs through the core's engine (Electron is the host role, the core
-// is a test-hooks mixdogd on an isolated profile) and each scenario's median `commandMs` is held to its baseline.
 //   node apps/desktop/scripts/run-browser-latency-gate.mjs [--reps 10] [--warmup 1] [--out <file.json>]
 // The core binary is MIXDOGD_TEST_BIN (a build with --features test-hooks), else MIXDOGD_BIN. Run it on an idle machine:
 // CPU load above 20% before or after the run makes the timings invalid (exit 2). Exit 0: every scenario passed; 1: one failed.
-//
-// commandMs is read from the core's `browser_timing` rows (MIXDOG_AGENT_TRACE_TIMING, written to a file this script names),
-// joined to the calls by `turn_id`. The harness side (src/main/browser/latency-scenarios.ts) writes one row per call with the
-// events and the `host/browser/*` requests it saw; both are reported.
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { readFile, rm, writeFile } from 'node:fs/promises';

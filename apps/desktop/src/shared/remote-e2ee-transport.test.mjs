@@ -319,7 +319,12 @@ test('control domain: replay is checked per FIFO lane; lanes are independent', a
   assert.deepEqual(await server.openControl(onRelay[0], RELAY), { stale: false, sequence: 1, value: { r: 1 } });
   assert.deepEqual(await server.openControl(onA[2], A), { stale: false, sequence: 6, value: { a: 3 } });
   assert.deepEqual(await server.openControl(onRelay[2], RELAY), { stale: false, sequence: 5, value: { r: 3 } });
-  // Concurrent opens on one lane run in call order, so none races the high-water.
+});
+
+test('control domain: concurrent opens on one lane run in call order', async () => {
+  const { client, server } = await session();
+  const A = lane(1, 'conn-a');
+  promote([client, server], A);
   const more = [];
   for (let index = 0; index < 20; index += 1) more.push(await client.sealControl({ m: index }, A));
   const opened = await Promise.all(more.map((box) => server.openControl(box, A)));
@@ -327,7 +332,10 @@ test('control domain: replay is checked per FIFO lane; lanes are independent', a
     opened.map((result) => result.stale),
     more.map(() => false)
   );
-  // Concurrent seals resolve in sequence order.
+});
+
+test('control domain: concurrent seals resolve in sequence order', async () => {
+  const { client } = await session();
   const resolved = [];
   await Promise.all(
     Array.from({ length: 20 }, (_, index) =>
@@ -340,20 +348,27 @@ test('control domain: replay is checked per FIFO lane; lanes are independent', a
     resolved,
     [...resolved].sort((a, b) => a - b)
   );
-  // Tampered ciphertext throws rather than reading as stale; so does a bad lane.
+});
+
+test('control domain: a tampered box or an invalid lane throws rather than reading as stale', async () => {
+  const { client, server } = await session();
+  const A = lane(1, 'conn-a');
+  promote([client, server], A);
+  const onA = await client.sealControl({ a: 1 }, A);
   const forged = (await client.sealControl({ f: 1 }, RELAY)).slice();
   forged[forged.length - 1] ^= 1;
   await assert.rejects(() => server.openControl(forged, RELAY));
-  await assert.rejects(() => server.openControl(onA[2], 'relay'), /lane/);
-  await assert.rejects(() => server.openControl(onA[2], { kind: 'direct', epoch: 0, connectionId: 'x' }), /lane/);
-  // Another session's control box never opens here.
+  await assert.rejects(() => server.openControl(onA, 'relay'), /lane/);
+  await assert.rejects(() => server.openControl(onA, { kind: 'direct', epoch: 0, connectionId: 'x' }), /lane/);
+});
+
+test("control domain: another session's control box never opens here", async () => {
   const other = await session();
   const foreign = await other.client.sealControl({ n: 9 }, RELAY);
   const fresh = await session();
   await assert.rejects(() => fresh.server.openControl(foreign, RELAY));
   assert.deepEqual(await other.server.openControl(foreign, RELAY), { stale: false, sequence: 1, value: { n: 9 } });
 });
-
 test('control lanes are authenticated: a box sealed for one lane or epoch never opens on another', async () => {
   const { client, server } = await session();
   const A = lane(1, 'conn-a');

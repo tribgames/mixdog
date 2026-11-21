@@ -1,12 +1,3 @@
-// The page bridge of a remote visualize page. The page runs in an opaque
-// origin frame with no address of its own for the project's files, so its
-// own `fetch`/XHR of project files (data files, JSON, textures…) has nowhere
-// to go. A script injected first in the page answers those requests from the
-// parent instead: it posts the reference, this side resolves it against the
-// page with the same containment as an inlined asset and reads it through the
-// pane's own range method (the host re-checks every read). Anything else (an
-// outside URL) goes to the real fetch, which the frame's CSP refuses unless
-// the tab allowed network (visualize-blocked-network.ts).
 import { withHeadScript } from '../shared/sandbox-storage-shim';
 
 export const PAGE_FETCH_REQUEST = 'mixdog-page-fetch';
@@ -182,10 +173,6 @@ export function pageFetchBridgeScript(page: string): string {
       });
     };
   }
-  // Images and sounds a script loads (new Image(), new Audio(), el.src = …)
-  // name project files the same way: each file is read through the bridge
-  // once and handed to the element as a blob: URL. A refused file gets its
-  // original address, so the element fails as it would have.
   var objectUrls = Object.create(null);
   function objectUrl(ref) {
     if (!objectUrls[ref]) {

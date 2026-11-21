@@ -1,14 +1,6 @@
 import * as React from 'react';
 import type { SVGProps } from 'react';
 
-// Hand-drawn 24-unit artwork shared by capability lists, detail headers, and
-// composer skill selections. Capabilities that wrap a product wear that
-// product's mark and colour (Git, Chrome, Windows, Microsoft 365, Word, Excel,
-// PowerPoint, Acrobat red) so the row is recognised at a glance. Everything
-// else shares one language: a single object, 1.5 stroke with round joins,
-// drawn inside the 3…21 frame so no per-icon transform is needed, and at most
-// one quiet plate (fillOpacity .14) for silhouette. Keep navigation/status
-// glyphs in MxIcon.
 const CAPABILITY_ARTWORK = {
   git: '#f05033',
   memory: '#b49bf2',
@@ -69,14 +61,7 @@ const SKILL_ARTWORK: Record<string, CapabilityArtwork> = {
 
 const PLATE = { fill: 'currentColor', fillOpacity: 0.14, stroke: 'none' } as const;
 const SOLID = { fill: 'currentColor', stroke: 'none' } as const;
-// Office document: the page outline in the format's brand colour, with the
-// brand tile (Word W, Excel X, PowerPoint P, Acrobat loop) anchored bottom-left
-// exactly as the Microsoft 365 file icons place it.
 const PAGE = 'M8.5 3.5h6L19.5 8.5V19a1.5 1.5 0 0 1-1.5 1.5H8.5A1.5 1.5 0 0 1 7 19V5a1.5 1.5 0 0 1 1.5-1.5Z';
-// Geometry-generated outlines (hand-placed coordinates drifted off-symmetry and
-// read as dented at 16px). Gear: 8 teeth, tip R 8.6 / root R 6.7, 18° tips and
-// 27° roots about (12,12). Wrench: R 4.4 head with a 3.1-wide open jaw on a
-// 3-wide handle, drawn axis-aligned then rotated -45° about the centre.
 const GEAR =
   'M10.44 5.49 10.65 3.51A8.6 8.6 0 0 1 13.35 3.51L13.56 5.49A6.7 6.7 0 0 1 15.5 6.29L17.05 5.04A8.6 8.6 0 0 1 18.96 6.95L17.71 8.5A6.7 6.7 0 0 1 18.51 10.44L20.49 10.65A8.6 8.6 0 0 1 20.49 13.35L18.51 13.56A6.7 6.7 0 0 1 17.71 15.5L18.96 17.05A8.6 8.6 0 0 1 17.05 18.96L15.5 17.71A6.7 6.7 0 0 1 13.56 18.51L13.35 20.49A8.6 8.6 0 0 1 10.65 20.49L10.44 18.51A6.7 6.7 0 0 1 8.5 17.71L6.95 18.96A8.6 8.6 0 0 1 5.04 17.05L6.29 15.5A6.7 6.7 0 0 1 5.49 13.56L3.51 13.35A8.6 8.6 0 0 1 3.51 10.65L5.49 10.44A6.7 6.7 0 0 1 6.29 8.5L5.04 6.95A8.6 8.6 0 0 1 6.95 5.04L8.5 6.29A6.7 6.7 0 0 1 10.44 5.49Z';
 const WRENCH =
@@ -124,8 +109,6 @@ function Artwork({ kind }: { kind: CapabilityArtwork }) {
           <path d="M9.5 9h5" />
         </>
       );
-    // Chrome's ring-and-hub, monochrome in Google blue: the three dividers
-    // leave the hub tangentially like the real mark, not radially.
     case 'browser':
       return (
         <>
@@ -145,9 +128,6 @@ function Artwork({ kind }: { kind: CapabilityArtwork }) {
           <path d="m10 7.25 5 3-2.15.6-.95 2.15Z" {...SOLID} />
         </>
       );
-    // A document page carrying the Word / Excel / PowerPoint brand bars: the
-    // Office capability is that format family behind one switch; a four-tile
-    // mark would read as the Windows logo on Linux and macOS.
     case 'office':
       return (
         <>
@@ -250,9 +230,6 @@ function Artwork({ kind }: { kind: CapabilityArtwork }) {
           <path d="M12.5 12.5 21 15.6l-3.6 1.5-1.5 3.6Z" />
         </>
       );
-    // Generic skill: a full-frame hexagon module with a sparkle; a flat layer
-    // stack only uses half the frame's height and reads undersized beside the
-    // brand marks.
     default:
       return (
         <>

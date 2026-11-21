@@ -1,8 +1,3 @@
-// The renderer's desktop operations (`invokeDesktopOperation(name, args)`) over the one protocol connection
-// (desktop-services.md §12.5, protocol.md §12.5): each operation with a Rust op becomes that op's named params,
-// filled from the operation's positional arguments (see `desktop-operations.ts`, `desktop-service.ts`
-// `createServiceOperationRouter`, `notification-center.ts`, `server-file-operations.ts`). Expected params come from
-// the Rust `v2/params.rs` structs and `operations_map.json`, not from this table.
 import { normalizeBrowserPermissionPolicy } from '../browser-permission-policy';
 import { isSessionRetentionSettingKey } from '../contract-settings';
 import { announcedEvent } from '../core-announcements';
@@ -299,12 +294,8 @@ type Reply = (reply: unknown, context: ReplyContext) => unknown;
 type Prepare = (args: readonly unknown[], context: { entries(): readonly SectionEntry[] }) => Promise<unknown[]>;
 
 const PREPARERS: Readonly<Record<string, Prepare>> = {
-  // A phone app paired at or after the store was first written starts from bot chats only:
-  // the mode names which default the core merges the patch onto. A device that is not paired is refused.
-  // The paired device is a row of the `remote` section's `clients` (mixdog-remote `ClientInfo`: id, name, platform,
-  // browser, createdAt, lastSeenAt, online, and pendingRemoval while an unpair is queued); `migratedAt` is the one of
-  // `config.notifications`: an unwritten subtree is a store Node would stamp `now` on first load, a written one without
-  // the stamp reads 0 (`migratedAtOf`, notification-preferences.ts:228 and :120), as the notification state reads it.
+  // The write mode names which default the core merges the patch onto: a phone paired at or after the store was first
+  // written starts from bot chats only. A device that is not paired is refused.
   setNotificationPreferences: async (args, { entries }) => {
     const remote = entries().find((entry) => entry.section === 'remote' && entry.key === null)?.value;
     const notifications = entries().find((entry) => entry.section === 'config' && entry.key === 'notifications')?.value;
@@ -552,26 +543,13 @@ export function watchAnnouncements(
   });
 }
 
-export function createOperationLane({
-  protocol,
-  host,
-  platform,
-}: {
-  /** The host's OS: it decides whether folder keys fold case (Windows paths are case-insensitive). */
-  platform: 'win32' | 'darwin' | 'linux';
-  protocol: Pick<ProtocolConnection, 'call' | 'notify' | 'attach' | 'watchFiles' | 'unwatchFiles'> &
-    Partial<Pick<ProtocolConnection, 'snapshot' | 'whenSynced'>>;
-  /** The host's own answers; `hostName` is the machine's name, which this module reads from no process. */
-  host: Partial<OperationHost> & Pick<OperationHost, 'hostName'>;
-}): OperationLane {
-  const call = (method: string, params: unknown): Promise<unknown> =>
-    protocol.call(method, params).catch((error: unknown) => {
-      throw coreErrorForWindow(error);
-    });
-  // `folderWatch`/`folderUnwatch` for callers that hold no window of their own (the paired phones, through the relay's
-  // remote methods): the same project watch registry the windows use (`fs/watch`) raises `folder-changed` for the
-  // directory. This lane owns the watches, as one window of the
-  // connection, and they end with the last unwatch.
+/** Watches for callers with no window of their own (the paired phones, through the relay); this lane owns them as one
+ *  window of the connection, and they end with the last unwatch. */
+const createFolderOperations = (
+  protocol: Pick<ProtocolConnection, 'attach' | 'watchFiles' | 'unwatchFiles'>,
+  host: Pick<Partial<OperationHost>, 'emitDesktopEvent'>,
+  platform: 'win32' | 'darwin' | 'linux'
+): ((name: string, args: readonly unknown[]) => null) => {
   const folderWatchIds = new Map<string, () => void>();
   const folderSubscriptions = new Map<string, { count: number; off: () => void }>();
   let nextFolderWatch = 1;
@@ -628,6 +606,26 @@ export function createOperationLane({
     }
     return null;
   };
+  return folderOperation;
+};
+
+export function createOperationLane({
+  protocol,
+  host,
+  platform,
+}: {
+  /** The host's OS: it decides whether folder keys fold case (Windows paths are case-insensitive). */
+  platform: 'win32' | 'darwin' | 'linux';
+  protocol: Pick<ProtocolConnection, 'call' | 'notify' | 'attach' | 'watchFiles' | 'unwatchFiles'> &
+    Partial<Pick<ProtocolConnection, 'snapshot' | 'whenSynced'>>;
+  /** The host's own answers; `hostName` is the machine's name, which this module reads from no process. */
+  host: Partial<OperationHost> & Pick<OperationHost, 'hostName'>;
+}): OperationLane {
+  const call = (method: string, params: unknown): Promise<unknown> =>
+    protocol.call(method, params).catch((error: unknown) => {
+      throw coreErrorForWindow(error);
+    });
+  const folderOperation = createFolderOperations(protocol, host, platform);
   const lane: OperationLane = {
     async invoke(name, args = []) {
       if (name === 'folderWatch' || name === 'folderUnwatch') return folderOperation(name, args);

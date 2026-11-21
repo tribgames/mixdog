@@ -1,14 +1,3 @@
-// The production dependencies of the remote JS runtime, derived from what its entry points can load,
-// so the list cannot drift from the code: a package some entry reaches is a root, a package nothing
-// reaches is not shipped.
-//
-// Entries: the pptxgenjs authoring script entry (the native office worker starts it on the install's interpreter), the skill
-// script entry and every shipped skill script (`remoteJsEntries`). The walk follows
-// relative imports and `new URL('./x.mjs', import.meta.url)` workers inside the directories the
-// authoring script runs (`SCOPE`); a file outside them that those files import is a helper: its own bare
-// imports count, its imports are not followed. Following them is not sound: office/index.mjs reaches the
-// agent runtime through a barrel whose packages (MCP, mail, providers) are loaded only by code the
-// authoring script never calls. The trimmed-bundle test, run against the staged payload, confirms the set.
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { builtinModules } from 'node:module';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -92,6 +81,7 @@ export function deriveRemoteRoots({ packageRootDir, entries = remoteJsEntries(pa
       const target = resolveFile(resolve(dirname(file), match[2] ?? match[4] ?? match[6] ?? match[8]));
       if (!target || NOT_SHIPPED.test(relative(target))) continue;
       if (all || SCOPE.test(relative(target))) queue.push({ file: target, all });
+      // A helper outside SCOPE: its bare imports count, its own imports are not followed (office/index.mjs's barrel reaches MCP, mail and provider packages the authoring script never calls).
       else if (!visited.has(target)) {
         visited.add(target);
         note(target);
@@ -116,6 +106,24 @@ export function trimManifest({ manifest, lock, roots, target }) {
       throw new Error(`${name} is reached from the remote entry points but is not in package-lock.json`);
     dependencies[name] = wanted;
   }
+  const { keep, inapplicable } = lockClosure(lock, Object.keys(dependencies), target);
+  const packages = { '': { ...lock.packages[''], dependencies } };
+  delete packages[''].devDependencies;
+  delete packages[''].optionalDependencies;
+  for (const path of Object.keys(lock.packages)) if (keep.has(path)) packages[path] = lock.packages[path];
+  const trimmed = {
+    ...manifest,
+    dependencies,
+    devDependencies: undefined,
+    optionalDependencies: undefined,
+    scripts: undefined,
+    overrides: Object.fromEntries(Object.entries(manifest.overrides ?? {}).filter(([name]) => keepsName(keep, name))),
+  };
+  return { manifest: JSON.parse(JSON.stringify(trimmed)), lock: { ...lock, packages }, kept: keep.size, inapplicable };
+}
+
+/** Lockfile paths reachable from the `roots` that fit `target`, and the names left out for not fitting it. */
+function lockClosure(lock, roots, target) {
   const lookup = (from, name) => {
     for (let at = from; ; ) {
       const candidate = `${at}${at ? '/' : ''}node_modules/${name}`;
@@ -131,11 +139,7 @@ export function trimManifest({ manifest, lock, roots, target }) {
     if (keep.has(path)) return;
     keep.add(path);
     const entry = lock.packages[path];
-    for (const [kind, group] of [
-      ['dependency', entry.dependencies],
-      ['optional dependency', entry.optionalDependencies],
-      ['peer dependency', entry.peerDependencies],
-    ]) {
+    for (const [kind, group] of dependencyGroups(entry)) {
       for (const name of Object.keys(group ?? {})) {
         const found = lookup(path, name);
         if (found) {
@@ -151,21 +155,15 @@ export function trimManifest({ manifest, lock, roots, target }) {
       }
     }
   };
-  for (const name of Object.keys(dependencies)) visit(`node_modules/${name}`);
-  const packages = { '': { ...lock.packages[''], dependencies } };
-  delete packages[''].devDependencies;
-  delete packages[''].optionalDependencies;
-  for (const path of Object.keys(lock.packages)) if (keep.has(path)) packages[path] = lock.packages[path];
-  const trimmed = {
-    ...manifest,
-    dependencies,
-    devDependencies: undefined,
-    optionalDependencies: undefined,
-    scripts: undefined,
-    overrides: Object.fromEntries(Object.entries(manifest.overrides ?? {}).filter(([name]) => keepsName(keep, name))),
-  };
-  return { manifest: JSON.parse(JSON.stringify(trimmed)), lock: { ...lock, packages }, kept: keep.size, inapplicable };
+  for (const name of roots) visit(`node_modules/${name}`);
+  return { keep, inapplicable };
 }
+
+const dependencyGroups = (manifest) => [
+  ['dependency', manifest.dependencies],
+  ['optional dependency', manifest.optionalDependencies],
+  ['peer dependency', manifest.peerDependencies],
+];
 
 const allowed = (list, value) =>
   !list ||
@@ -192,12 +190,10 @@ export const fitsTarget = (name, entry, target) =>
  * The package directories `roots` need in an installed tree: every root, and every dependency, optional
  * dependency and required peer of what is reached, found the way Node finds it from the owner's directory
  * upward. `modulesDir` is the tree's `node_modules`; the roots are resolved from the `mixdog` package inside
- * it (the owner of the entry points). Returns `{ dirs: absolute package directories, missing: messages,
- * skipped: names }`. A dependency absent from the tree is a miss, unless `tolerate(name, kind)` accepts it
- * (then its name is in `skipped`) or it is an optional peer. What an installer left out of an installed tree
- * because the platform does not fit (npm's own os/cpu/libc judgement, which the lockfile does not always
- * record: it has no libc for the musl variants) is what a staging run tolerates, records, and a later check
- * of the staged tree tolerates by that record only.
+ * it. Returns `{ dirs: absolute package directories, missing: messages, skipped: names }`. A dependency absent
+ * from the tree is a miss, unless `tolerate(name, kind)` accepts it (then it is in `skipped`) or it is an
+ * optional peer. `tolerate` is for what npm left out because os/cpu/libc does not fit, which the lockfile does
+ * not always record (it has no libc for the musl variants).
  */
 export function installedClosure(modulesDir, roots, tolerate = () => false) {
   // `modulesDir` is the tree's top `node_modules` whatever it is called (the desktop stages it as `native-modules`).
@@ -216,11 +212,7 @@ export function installedClosure(modulesDir, roots, tolerate = () => false) {
     if (dirs.has(dir)) return;
     dirs.add(dir);
     const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
-    for (const [kind, group] of [
-      ['dependency', manifest.dependencies],
-      ['optional dependency', manifest.optionalDependencies],
-      ['peer dependency', manifest.peerDependencies],
-    ]) {
+    for (const [kind, group] of dependencyGroups(manifest)) {
       for (const name of Object.keys(group ?? {})) {
         const found = find(dir, name);
         if (found) visit(found);
@@ -295,11 +287,7 @@ export function verifyInstalledTree(pkgDir, inapplicable) {
     ...installedPackages(modulesDir),
   ];
   for (const [owner, dir, manifest] of owners) {
-    for (const [kind, group] of [
-      ['dependency', manifest.dependencies],
-      ['optional dependency', manifest.optionalDependencies],
-      ['peer dependency', manifest.peerDependencies],
-    ]) {
+    for (const [kind, group] of dependencyGroups(manifest)) {
       for (const name of Object.keys(group ?? {})) {
         if (resolves(dir, name)) continue;
         if (kind === 'optional dependency' && inapplicable.has(name)) continue;

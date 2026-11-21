@@ -1,14 +1,3 @@
-/** Opt-in native presentation (MIXDOG_BROWSER_NATIVE_VIEW): the Browser pane
- *  shows the page itself over its surface, so a person scrolls, clicks and
- *  types on the real page instead of a sampled image.
- *
- *  Every page is a view in its own frameless window (see page-window), parked
- *  off-screen, where it keeps rendering for the agent and the pixel display.
- *  While the pane shows a page, the shell adopts that view into its own
- *  content: shell and page then compose in one window, so the page follows
- *  panel resizing in the same frame instead of trailing it as a separate
- *  window would. Agent CDP input to a shown page leaves the shell's focused
- *  element and selection untouched. */
 import type { BrowserWindow, WebContents } from 'electron';
 import { agentInputInFlight } from './agent-input';
 import { browserPageView, browserPageWindow } from './page-window';

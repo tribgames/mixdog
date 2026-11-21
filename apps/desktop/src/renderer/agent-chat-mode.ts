@@ -1,10 +1,3 @@
-// Agent mode (에이전트 모드): a Lead made as an agent — an agent's home thread
-// or a group room — reads as a messenger chat instead of a coding task: no
-// tabs, a contact header, bubbles and a one-line composer. Coding sessions
-// never take any of it. ONE helper decides which sessions it is: the
-// session's persisted mode (`sessionMode: 'agent'`, session/agent-mode.mjs)
-// when the catalog carries it, else the reserved home / room ids. The bubble
-// runs live in agent-chat-place.ts.
 import { useSyncExternalStore } from 'react';
 import {
   agentIdOfHomeSession,

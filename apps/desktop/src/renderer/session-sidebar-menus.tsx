@@ -206,10 +206,6 @@ function projectMenuItems(
  *  or project folder), plus the inline project rename a folder menu starts. */
 export function useSidebarMenus(actions: SessionMenuActions & ProjectMenuActions) {
   const [contextMenu, setContextMenu] = useState<ScmContextMenuState | null>(null);
-  // The session whose row opened the last session menu (right-click, long-press,
-  // Menu key). A windowed list keeps that row mounted: the menu hands focus
-  // back to it on close, and Rename/Delete run on it after the menu is gone,
-  // so the pin outlives the menu until another menu opens.
   const [menuOriginId, setMenuOriginId] = useState('');
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
   // One identity for the memoised rows; the menu reads the current actions.

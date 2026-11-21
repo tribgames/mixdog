@@ -1,8 +1,3 @@
-// Per-session terminal tab state. The first tab keeps the session's original
-// terminal id; later tabs are `<first>:<n>` with n = 2, 3, … never reused
-// within a session. Open tabs, their shells and the active tab persist in
-// localStorage, like the other per-session pane preferences.
-
 export interface SessionTerminalTab {
   id: string;
   n: number;
@@ -117,10 +112,7 @@ export function openSessionTerminalTab(sessionId: string, shell = '', cwd = ''):
   return tab;
 }
 
-/** Build this device's tab list from the terminals main runs for the session:
- *  a listed terminal this device lacks gets a tab (in main's root, default
- *  shell); tabs without a process yet stay, they start when shown. The active
- *  tab is left alone — the caller selects the one it wants. */
+/** Adds a tab for each listed terminal this device lacks; the active tab is unchanged. */
 export function adoptSessionTerminalTabs(
   sessionId: string,
   listed: readonly { id: string; tab: number; cwd?: string | null }[]

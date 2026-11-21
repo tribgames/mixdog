@@ -1,11 +1,3 @@
-/**
- * Snapshot-free element targeting. A caller that already knows what it wants
- * ("the Save button", "the Email field") names it by role and accessible name
- * or by a CSS selector; the host takes the observation itself, insists on
- * exactly one match, and hands back a live ref. An ambiguous target fails
- * with the candidates and their fresh refs, so the next call can pick one
- * without another observation.
- */
 import type { WebContents } from 'electron';
 
 import { BrowserActionabilityError, waitForBrowserActionable } from './actionability';
@@ -14,6 +6,7 @@ import type { BrowserCdpPort } from './cdp';
 import type { BrowserCommand } from './host-types';
 import type { BrowserGuestStateStore } from './host-state';
 import { redactBrowserText } from './redaction';
+import type { AccessibilityRefSnapshot } from './snapshot-ref-calls';
 import { timedBrowserOperation } from './timing';
 
 export interface BrowserTargetSpec {
@@ -180,6 +173,20 @@ interface BrowserTargetResolverHost {
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T>;
 }
 
+interface SelectorScope {
+  guest: WebContents;
+  selector: string;
+  payload: BrowserSnapshotPayload;
+  signal?: AbortSignal;
+  byRef: Map<string, BrowserSnapshotElement>;
+  /** A selector match the snapshot did not list joins its ref set. */
+  registerCssRef(ref: string, role: string, name: string): BrowserSnapshotElement;
+}
+
+function invalidSelector(reason: string): Error {
+  return new Error(`target.selector is not a valid CSS selector: ${redactBrowserText(reason)}`);
+}
+
 export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
   function checkSelectorMatchCount(count: number): void {
     if (count > MAX_SELECTOR_MATCHES) {
@@ -200,77 +207,91 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
     signal?: AbortSignal
   ): Promise<BrowserSnapshotElement[]> {
     const record = host.state.for(guest);
-    const byRef = new Map(payload.elements.map((element) => [element.ref, element]));
-    const invalid = (reason: string) =>
-      new Error(`target.selector is not a valid CSS selector: ${redactBrowserText(reason)}`);
-    /** A selector match the snapshot did not list joins its ref set. */
-    const registerCssRef = (ref: string, role: string, name: string): BrowserSnapshotElement => {
-      record.refSet?.refs.set(ref, {
-        ref,
-        snapshotId: payload.snapshotId,
-        url: payload.url,
-        role,
-        name,
-        href: '',
-      });
-      return { ref, role, name, tag: 'css' };
+    const scope: SelectorScope = {
+      guest,
+      selector,
+      payload,
+      signal,
+      byRef: new Map(payload.elements.map((element) => [element.ref, element])),
+      registerCssRef: (ref, role, name) => {
+        record.refSet?.refs.set(ref, {
+          ref,
+          snapshotId: payload.snapshotId,
+          url: payload.url,
+          role,
+          name,
+          href: '',
+        });
+        return { ref, role, name, tag: 'css' };
+      },
     };
     const accessibility = record.accessibilityRefs;
     if (accessibility && accessibility.snapshotId === payload.snapshotId) {
-      const document = await host.cdp.call<{ root: { nodeId: number } }>(
-        guest,
-        'DOM.getDocument',
-        { depth: 0 },
-        signal
-      );
-      let nodeIds: number[];
-      try {
-        ({ nodeIds } = await host.cdp.call<{ nodeIds: number[] }>(
-          guest,
-          'DOM.querySelectorAll',
-          { nodeId: document.root.nodeId, selector },
-          signal
-        ));
-      } catch (error) {
-        if (signal?.aborted) throw signal.reason || error;
-        throw invalid((error as Error).message || String(error));
-      }
-      checkSelectorMatchCount(nodeIds.length);
-      const byBackend = new Map<number, string>();
-      for (const [ref, target] of accessibility.refs) {
-        if (!target.sessionId) byBackend.set(target.backendNodeId, ref);
-      }
-      const out: BrowserSnapshotElement[] = [];
-      for (const nodeId of nodeIds) {
-        const described = await host.cdp.call<{
-          node: { backendNodeId: number; nodeName?: string; attributes?: string[] };
-        }>(guest, 'DOM.describeNode', { nodeId }, signal);
-        const backendNodeId = described.node.backendNodeId;
-        const known = byBackend.get(backendNodeId);
-        const element = known ? byRef.get(known) : undefined;
-        if (element) {
-          out.push(element);
-          continue;
-        }
-        const attributes = described.node.attributes || [];
-        const attribute = (wanted: string) => {
-          const index = attributes.findIndex((value, position) => position % 2 === 0 && value === wanted);
-          return index >= 0 ? compact(attributes[index + 1]).slice(0, 120) : '';
-        };
-        // Top-document backend ids stay unique across every target in this
-        // observation; a selector-local counter can alias two batch fields.
-        const ref = `${payload.snapshotId}-t${backendNodeId}`;
-        accessibility.refs.set(ref, { backendNodeId });
-        out.push(
-          registerCssRef(
-            ref,
-            attribute('role') || String(described.node.nodeName || 'element').toLowerCase(),
-            attribute('aria-label') || attribute('title') || attribute('id')
-          )
-        );
-      }
-      return out;
+      return cdpSelectorCandidates(scope, accessibility);
     }
+    return pageSelectorCandidates(scope);
+  }
+
+  async function cdpSelectorCandidates(
+    { guest, selector, payload, signal, byRef, registerCssRef }: SelectorScope,
+    accessibility: AccessibilityRefSnapshot
+  ): Promise<BrowserSnapshotElement[]> {
+    const document = await host.cdp.call<{ root: { nodeId: number } }>(guest, 'DOM.getDocument', { depth: 0 }, signal);
+    let nodeIds: number[];
+    try {
+      ({ nodeIds } = await host.cdp.call<{ nodeIds: number[] }>(
+        guest,
+        'DOM.querySelectorAll',
+        { nodeId: document.root.nodeId, selector },
+        signal
+      ));
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason || error;
+      throw invalidSelector((error as Error).message || String(error));
+    }
+    checkSelectorMatchCount(nodeIds.length);
+    const byBackend = new Map<number, string>();
+    for (const [ref, target] of accessibility.refs) {
+      if (!target.sessionId) byBackend.set(target.backendNodeId, ref);
+    }
+    const out: BrowserSnapshotElement[] = [];
+    for (const nodeId of nodeIds) {
+      const described = await host.cdp.call<{
+        node: { backendNodeId: number; nodeName?: string; attributes?: string[] };
+      }>(guest, 'DOM.describeNode', { nodeId }, signal);
+      const backendNodeId = described.node.backendNodeId;
+      const known = byBackend.get(backendNodeId);
+      const element = known ? byRef.get(known) : undefined;
+      if (element) {
+        out.push(element);
+        continue;
+      }
+      const attributes = described.node.attributes || [];
+      const attribute = (wanted: string) => {
+        const index = attributes.findIndex((value, position) => position % 2 === 0 && value === wanted);
+        return index >= 0 ? compact(attributes[index + 1]).slice(0, 120) : '';
+      };
+      const ref = `${payload.snapshotId}-t${backendNodeId}`;
+      accessibility.refs.set(ref, { backendNodeId });
+      out.push(
+        registerCssRef(
+          ref,
+          attribute('role') || String(described.node.nodeName || 'element').toLowerCase(),
+          attribute('aria-label') || attribute('title') || attribute('id')
+        )
+      );
+    }
+    return out;
+  }
+
+  async function pageSelectorCandidates({
+    guest,
+    selector,
+    payload,
+    signal,
+    byRef,
+    registerCssRef,
+  }: SelectorScope): Promise<BrowserSnapshotElement[]> {
     const found = await host.evaluate<{
       error?: string;
       count: number;
@@ -306,7 +327,7 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
       signal
     );
     if (found?.error === 'stale') throw new Error('the page changed while resolving the target; try again');
-    if (found?.error) throw invalid(found.error.replace(/^invalid:/, ''));
+    if (found?.error) throw invalidSelector(found.error.replace(/^invalid:/, ''));
     checkSelectorMatchCount(found.count);
     return (found?.matches || []).map((match) => {
       return byRef.get(match.ref) ?? registerCssRef(match.ref, match.role, match.name);

@@ -17,10 +17,7 @@ export function useTranscriptRowRegistration({
   const measureRow = useCallback(
     (element: HTMLDivElement | null) => {
       if (!element) {
-        // An unmounted row leaves the core's element cache only through its
-        // ResizeObserver, which never fires while the window is hidden: every
-        // row mounted then stayed cached, detached, with its whole subtree.
-        // The sweep runs after the commit has removed the row from the DOM.
+        // A hidden window delivers no ResizeObserver callbacks, the core's only way to drop an unmounted row.
         if (sweepQueued.current) return;
         sweepQueued.current = true;
         queueMicrotask(() => {

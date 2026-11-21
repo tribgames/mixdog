@@ -1,14 +1,10 @@
 // What the phone has open on the core: the threads its panes show, plus the app feed. A thread is subscribed with `thread/resume` and dropped with `thread/unsubscribe`.
-//
-// The state machine that decides when the app's calls may leave is `phone-view-sync.ts`: this file only says what one
-// "sync" is in the protocol's dialect -- the app feed and every wanted thread attached on the connection that is up -- and tells the machine
-// when a connection began and ended. Nothing else (no subscription event, no status of the client) opens or closes the gate.
-//
-// On a reconnect the client library re-attaches what was open on its own (`app/subscribe`, `thread/resume` with `resumeFrom`); that re-attachment
-// is the first sync of the new connection: it succeeds only when every one of them was restored, and a refusal (`state: 'lost'`) fails it, so
-// the machine retries on its backoff -- with this file's own attach, which re-subscribes what the refusal dropped -- and recycles the connection
-// after three failures in a row, exactly as for a refused resync.
-import type { ClientEvent, ProtocolClient, SessionFold, StoreChange } from '../../../packages/protocol-client/src/index.ts';
+import type {
+  ClientEvent,
+  ProtocolClient,
+  SessionFold,
+  StoreChange,
+} from '../../../packages/protocol-client/src/index.ts';
 import { armCallWatch } from '../../desktop/src/renderer/remote-shim-call-watch.ts';
 import { remoteConnectionInterruptedError } from '../../desktop/src/renderer/remote-connection-state.ts';
 import { createViewSync } from './phone-view-sync.ts';
@@ -41,11 +37,18 @@ function newGate() {
 }
 
 function threadGone(error: unknown): boolean {
-  const detail = ((error as { detail?: unknown } | null)?.detail ?? error) as { kind?: string; reason?: string; data?: { reason?: string } } | null;
+  const detail = ((error as { detail?: unknown } | null)?.detail ?? error) as {
+    kind?: string;
+    reason?: string;
+    data?: { reason?: string };
+  } | null;
   return detail?.kind === 'rpc' && (detail.reason === 'threadNotFound' || detail.data?.reason === 'threadNotFound');
 }
 
-export type ViewClient = Pick<ProtocolClient<SessionFold>, 'resumeThread' | 'unsubscribeThread' | 'subscribeApp' | 'confirmFeeds' | 'status' | 'on'> & {
+export type ViewClient = Pick<
+  ProtocolClient<SessionFold>,
+  'resumeThread' | 'unsubscribeThread' | 'subscribeApp' | 'confirmFeeds' | 'status' | 'on'
+> & {
   readonly store: Pick<ProtocolClient<SessionFold>['store'], 'subscribe'>;
 };
 
@@ -190,33 +193,42 @@ export function createViewManager(
       const watch = armCallWatch(inFlight, id, reject, options.probe, options.silentSince, timers);
       // This sync's own claim, carried by its own frames (the first one it writes): a reconnect between the claim and the write cannot hand the
       // frame to another sync.
-      const own = scopeClient(client, firstFrame((sent) => void sent.then(watch.transmitted, () => undefined)));
+      const own = scopeClient(
+        client,
+        firstFrame((sent) => void sent.then(watch.transmitted, () => undefined))
+      );
       const done = (): void => {
         watch.cancel();
         inFlight.delete(id);
       };
       run(own).then(
-        (value) => (done(), resolve(value)),
-        (error: unknown) => (done(), reject(error))
+        (value) => {
+          done();
+          resolve(value);
+        },
+        (error: unknown) => {
+          done();
+          reject(error);
+        }
       );
     });
   const sync = createViewSync({
     synchronize: () =>
       underDeadline(async (c) => {
-      const force = refresh;
-      const mine = connection;
-      refresh = false;
-      try {
-        if (reattach) {
-          reattach = false;
-          await reattached();
+        const force = refresh;
+        const mine = connection;
+        refresh = false;
+        try {
+          if (reattach) {
+            reattach = false;
+            await reattached();
+          }
+          await attach(force, c);
+        } catch (error) {
+          if (force && mine === connection) refresh = true;
+          throw error;
         }
-        await attach(force, c);
-      } catch (error) {
-        if (force && mine === connection) refresh = true;
-        throw error;
-      }
-      restored = [];
+        restored = [];
       }),
     state: (state) => {
       if (state === 'syncing') return options.syncing();

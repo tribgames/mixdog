@@ -1,7 +1,3 @@
-// Opening and saving a sent attachment by id: the desktop reads the host's
-// stored file and opens it in the side panel (never the OS viewer, never a
-// blob tab); a paired device opens the same file through the remote preview
-// grant and downloads it through the download grant.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 

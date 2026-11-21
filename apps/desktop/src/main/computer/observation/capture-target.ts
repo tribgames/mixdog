@@ -1,8 +1,3 @@
-/**
- * Which window (or screen) a capture command is about: the shape rules a
- * command must satisfy and the lookups that turn window/app/foreground into an
- * exact window id.
- */
 import { assertOcrLanguageTag, captureMode } from './analysis';
 import type { CaptureEngineHost } from './capture';
 import type { ComputerCommand } from '../shared/types';
@@ -55,11 +50,6 @@ export type CaptureAttemptHost = Pick<
   'sessionIdFor' | 'forgetObservedWindowScope' | 'framesBySession' | 'elementTargetsBySession'
 >;
 
-/** Open a capture attempt: validate the command's target shape and retire the
- *  observation it replaces. A valid capture attempt replaces the actionable
- *  observation, so its frames, element targets, and window scope are cleared
- *  before target resolution: a failed lookup or screen-only capture cannot
- *  authorize older input. */
 export function beginCaptureAttempt(
   host: CaptureAttemptHost,
   command: ComputerCommand,

@@ -92,13 +92,7 @@ function copiedMessage(copied: string): string {
   return '\u00a0';
 }
 
-/**
- * "View log" for one SSH server: the connection log kept in memory (ssh runs,
- * stderr, results, timings, tunnel restarts) or, on request, the tail of the
- * server's daemon.log. Copy and "Copy diagnostics" put redacted text on the
- * clipboard. `reference` is the server's id or address; a server window passes
- * '' (main answers with that window's own server).
- */
+/** `reference` is the server's id or address; '' means the server window's own server. */
 export function SshLogDialog({ reference, name, onClose }: { reference: string; name: string; onClose(): void }) {
   const [mode, setMode] = useState<Mode>('connection');
   const { loaded, copied, copy } = useSshLog(reference, mode);

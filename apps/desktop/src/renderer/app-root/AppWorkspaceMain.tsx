@@ -62,7 +62,6 @@ export interface AppWorkspaceMainProps {
   openConversationCommandSurface: ReturnType<typeof useAppShellPanels>['openConversationCommandSurface'];
 
   paneWorkspace: ReturnType<typeof usePaneWorkspace>;
-  observedAgentSessionIds: readonly string[];
   /** Sub-agents shown in a pane's side panel (useAppWorkbenchViews). */
   dockSessionIds?: readonly string[];
   paneStripFor: ReturnType<typeof useAppPaneChrome>['paneStripFor'];
@@ -120,7 +119,6 @@ export function AppWorkspaceMain({
   openFileTab,
   openConversationCommandSurface,
   paneWorkspace,
-  observedAgentSessionIds,
   dockSessionIds,
   paneStripFor,
   paneConversationSurface,
@@ -195,7 +193,6 @@ export function AppWorkspaceMain({
   return (
     <PaneWorkspace
       workspace={paneWorkspace}
-      observedSessionIds={observedAgentSessionIds}
       dockSessionIds={dockSessionIds}
       renderStrip={paneStripFor}
       renderConversation={paneConversationSurface}

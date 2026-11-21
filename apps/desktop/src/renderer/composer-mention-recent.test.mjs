@@ -225,21 +225,23 @@ const gitStatusOf = (root, ...paths) => ({
   files: paths.map((path) => ({ path, index: ' ', worktree: 'M' })),
 });
 
-test('@ palette: Recent group with chips, filtered and highlighted, one index across both groups', async (t) => {
+async function mountRecentComposer(t) {
   const gitCalls = [];
   const statCalls = [];
-  let gitStatus = async () => ({
-    repository: true,
-    root: 'C:/project',
-    files: [
-      { path: 'app/src/old.ts', index: ' ', worktree: 'M' },
-      { path: 'app/src/changed.ts', index: ' ', worktree: 'M' },
-      { path: 'app/new.txt', index: '?', worktree: '?', untracked: true },
-      { path: 'app/c1.ts', index: ' ', worktree: 'M' },
-      { path: 'app/c2.ts', index: ' ', worktree: 'M' },
-      { path: 'outside/skip.ts', index: ' ', worktree: 'M' },
-    ],
-  });
+  const git = {
+    status: async () => ({
+      repository: true,
+      root: 'C:/project',
+      files: [
+        { path: 'app/src/old.ts', index: ' ', worktree: 'M' },
+        { path: 'app/src/changed.ts', index: ' ', worktree: 'M' },
+        { path: 'app/new.txt', index: '?', worktree: '?', untracked: true },
+        { path: 'app/c1.ts', index: ' ', worktree: 'M' },
+        { path: 'app/c2.ts', index: ' ', worktree: 'M' },
+        { path: 'outside/skip.ts', index: ' ', worktree: 'M' },
+      ],
+    }),
+  };
   const view = await mountComposer(t, {
     userMessages: [
       { id: 'm1', text: 'look at @src/old.ts' },
@@ -248,7 +250,7 @@ test('@ palette: Recent group with chips, filtered and highlighted, one index ac
     api: {
       gitStatus: (cwd, options) => {
         gitCalls.push([cwd, options]);
-        return gitStatus();
+        return git.status();
       },
       statProjectFile: async (project, path) => {
         statCalls.push([project, path]);
@@ -257,11 +259,21 @@ test('@ palette: Recent group with chips, filtered and highlighted, one index ac
       },
     },
   });
+  return { ...view, git, gitCalls, statCalls };
+}
+
+const openRecent = async (view, query = '', paths = ['apps/', 'new.txt']) => {
+  await view.type(`@${query}`);
+  await view.settle();
+  await view.answer(PROJECT, query, paths);
+};
+
+test('@ palette: Recent group with chips, filtered and highlighted, one index across both groups', async (t) => {
+  const view = await mountRecentComposer(t);
+  const { gitCalls, statCalls } = view;
 
   // `@` alone: five Recent rows (mentioned newest first, then changed), then the root entries.
-  await view.type('@');
-  await view.settle();
-  await view.answer(PROJECT, '', ['apps/', 'new.txt']);
+  await openRecent(view);
   assert.deepEqual(view.headers(), ['Recent work', 'Project']);
   assert.deepEqual(view.rows(), ['Makefile', 'docs/guide.md', 'src/old.ts', 'src/changed.ts', 'new.txt', 'apps/']);
   assert.deepEqual(view.chips(), ['Mentioned', 'Mentioned', 'Mentioned', 'Changed', 'Changed']);
@@ -271,9 +283,7 @@ test('@ palette: Recent group with chips, filtered and highlighted, one index ac
   assert.ok(statCalls.every(([project]) => project === PROJECT));
 
   // A query filters and highlights Recent, then lists results not already shown.
-  await view.type('@ch');
-  await view.settle();
-  await view.answer(PROJECT, 'ch', ['src/changed.ts', 'lib/chart.ts']);
+  await openRecent(view, 'ch', ['src/changed.ts', 'lib/chart.ts']);
   assert.deepEqual(view.rows(), ['src/changed.ts', 'lib/chart.ts']);
   assert.deepEqual(view.headers(), ['Recent work', 'Project']);
   assert.deepEqual(view.chips(), ['Changed']);
@@ -282,8 +292,11 @@ test('@ palette: Recent group with chips, filtered and highlighted, one index ac
   assert.equal(view.palette().querySelector('#composer-mention-option-1 strong b').textContent, 'ch');
   assert.equal(gitCalls.length, 1, 'git is read once per opening, not per keystroke');
   assert.equal(statCalls.length, 4, 'files are checked once per opening, not per keystroke');
+});
 
-  // Arrow keys run across both groups; Enter inserts the selected row.
+test('@ palette: arrow keys run across both groups and wrap; Enter inserts the selected row', async (t) => {
+  const view = await mountRecentComposer(t);
+  await openRecent(view, 'ch', ['src/changed.ts', 'lib/chart.ts']);
   await view.key('ArrowDown');
   assert.equal(view.active(), 'composer-mention-option-1');
   assert.deepEqual(view.selected(), ['lib/chart.ts']);
@@ -293,21 +306,25 @@ test('@ palette: Recent group with chips, filtered and highlighted, one index ac
   assert.equal(view.active(), 'composer-mention-option-1', 'wraps over the groups');
   await view.key('Enter');
   assert.equal(view.input.value, '@lib/chart.ts ');
+});
 
-  // A new opening reads again; a failed git read leaves only the mentioned rows.
-  gitStatus = async () => {
+test('@ palette: a new opening reads again; a failed git read leaves only the mentioned rows', async (t) => {
+  const view = await mountRecentComposer(t);
+  await openRecent(view);
+  view.git.status = async () => {
     throw new Error('not a repository');
   };
   await view.type('');
-  await view.type('@');
-  await view.settle();
-  await view.answer(PROJECT, '', ['apps/']);
-  assert.equal(gitCalls.length, 2);
-  assert.equal(statCalls.length, 8);
+  await openRecent(view, '', ['apps/']);
+  assert.equal(view.gitCalls.length, 2);
+  assert.equal(view.statCalls.length, 8);
   assert.deepEqual(view.rows(), ['Makefile', 'docs/guide.md', 'src/old.ts', 'apps/']);
   assert.deepEqual(view.chips(), ['Mentioned', 'Mentioned', 'Mentioned']);
+});
 
-  // Clicking a Recent row inserts it.
+test('@ palette: clicking a Recent row inserts it', async (t) => {
+  const view = await mountRecentComposer(t);
+  await openRecent(view);
   await act(async () => view.palette().querySelector('#composer-mention-option-1').click());
   assert.equal(view.input.value, '@docs/guide.md ');
 });

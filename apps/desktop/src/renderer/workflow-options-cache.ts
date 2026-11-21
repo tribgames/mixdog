@@ -1,14 +1,3 @@
-// Shared option list for the composer's workflow picker. Workflow packs change
-// rarely, so one fetch serves every composer remount (session/tab switches)
-// inside a short TTL.
-//
-// It is PERSISTED, unlike the sidebar reference cache, for one reason: the
-// picker removes itself from the context row when a workspace has a single
-// pack, so the count has to be known in the FIRST painted frame. A reserved
-// placeholder that later resolves to "one pack" would shift the whole row —
-// exactly the movement hiding the control is meant to avoid. Only a never-seen workspace
-// starts without an answer; it paints nothing and gains the control if a
-// second pack really exists.
 import { catalogStorageKey } from './catalog-storage-scope';
 import { asRecord } from './text-format';
 
@@ -63,10 +52,7 @@ export function storeWorkflowOptions(options: WorkflowOption[]): void {
   }
 }
 
-/** Pack edits must not serve a stale list for the remaining TTL window. With a
- *  single-pack workspace hiding the control entirely, a created or deleted
- *  pack decides whether the picker exists at all, so mounted pickers are woken
- *  instead of waiting for a remount. */
+/** Drops the shared list and wakes every subscribed picker. */
 export function invalidateWorkflowOptions(): void {
   cache = null;
   for (const listener of [...listeners]) {

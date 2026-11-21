@@ -5,11 +5,6 @@ import { outputFactsOf, REMOTE_OUTPUT_FACTS_FIELD } from '../renderer/tool-outpu
 import { REMOTE_TRANSCRIPT_TAIL_BYTES } from '../shared/desktop-transcript-limits';
 import { wholeOutputRevision } from '../shared/tool-output-revision';
 
-// Provider replay material, not display data: `thinkingBlocks` are Anthropic's
-// thinking/redacted_thinking blocks, kept so a later request can hand the model
-// its own prior reasoning back verbatim. No renderer reads them, and in a long
-// session they are a THIRD of the stored transcript — bytes a phone pays for on
-// every join and can never show.
 const REMOTE_TRANSCRIPT_DROP_FIELDS = ['thinkingBlocks', 'providerReplay'] as const;
 /** A row's phone copy and its serialized size (UTF-8 bytes of its JSON). */
 export interface RemoteTranscriptRow {
@@ -42,10 +37,6 @@ export const REMOTE_HISTORY_OUTPUT_CHARS = 600;
 const HISTORY_OUTPUT_LINES = 5;
 const HISTORY_COMMAND_LINES = 6;
 const HISTORY_COMMAND_TOOLS = new Set(['shell', 'bash', 'bash_session', 'shell_command']);
-// Outputs whose open body is parsed from their text as a whole stay as they
-// are (the output facts do not cover those parses): JSON and an ask_user
-// answer (structured rows), a background task's status envelope, an agent's
-// report, a task notification.
 const HISTORY_WHOLE_OUTPUT =
   /^\s*(?:\{|\[\s*(?:[[{"\]\d-]|true|false|null)|background tasks?\b|agent task:|User (?:has answered|replied in chat))|task-notification>/i;
 /** Set on a capped tool row: the length of its longest output before the cut. */
@@ -60,10 +51,6 @@ const REMOTE_DIFF_DIGEST_FIELD = 'uiDiffSummary';
 const REMOTE_OUTPUT_NOTES_FIELD = 'remoteOutputNotes';
 export type RemoteOutputNote = { kind: 'omitted'; at: number; omitted: number };
 
-/** The first and last characters of an output over the cap joined, and where
- *  and how much was cut between them. The cut is by length alone and never
- *  splits a surrogate pair; the end of a shell or build log is kept because
- *  that is where its exit status and errors are. */
 function capToolOutput(text: string): { text: string; note: RemoteOutputNote } {
   let headEnd = REMOTE_TOOL_OUTPUT_HEAD_CHARS;
   const lastHead = text.charCodeAt(headEnd - 1);
@@ -77,10 +64,6 @@ function capToolOutput(text: string): { text: string; note: RemoteOutputNote } {
   };
 }
 
-/** A history row's output cut to its first `lines` lines, at most
- *  REMOTE_HISTORY_OUTPUT_CHARS characters (never splitting a surrogate pair),
- *  and where the cut is; null when the output keeps its text (see
- *  HISTORY_WHOLE_OUTPUT) or already fits. */
 function capHistoryOutput(text: string, lines: number): { text: string; note: RemoteOutputNote } | null {
   if (HISTORY_WHOLE_OUTPUT.test(text)) return null;
   let end = Math.min(text.length, REMOTE_HISTORY_OUTPUT_CHARS);
@@ -107,11 +90,6 @@ function wholeOutputFacts(whole: Record<string, unknown>, cut: Record<string, un
   return changed.length ? Object.fromEntries(changed) : null;
 }
 
-/** Whether a digest can stand in for `diff`: it is git-form, every section
- *  starting at a `diff --git` header. The renderer picks sections by header
- *  name (`patchForTarget`) and the session review joins patches at section
- *  starts, so such a diff reads the same per section as it does whole. A plain
- *  `---/+++` patch or one with leading text is sent whole. */
 function isDigestibleDiff(diff: string): boolean {
   return /^diff --git /.test(diff);
 }
@@ -204,11 +182,6 @@ export const REMOTE_TRANSCRIPT_ROW_MAX_BYTES = REMOTE_TRANSCRIPT_TAIL_BYTES;
 const utf8 = new TextEncoder();
 const serializedBytes = (value: unknown): number => utf8.encode(JSON.stringify(value ?? null) ?? 'null').length;
 
-/** `record` with each output field (REMOTE_TOOL_OUTPUT_FIELDS) longer than `cap`
- *  cut to `cap` characters: a head and the end of the text (a build log's exit
- *  status and errors are at its end; never splitting a surrogate pair), an
- *  `omitted` note at the seam (counting what an earlier cut already left out)
- *  and the whole length in `remoteOutputTruncated`; `record` when none is longer. */
 function headCutRecord(record: Record<string, unknown>, cap: number): Record<string, unknown> {
   let cut: Record<string, unknown> | null = null;
   const prior = asRecord(record[REMOTE_OUTPUT_NOTES_FIELD]) ?? {};
@@ -241,13 +214,6 @@ function headCutRecord(record: Record<string, unknown>, cap: number): Record<str
   return cut;
 }
 
-/** An oversized tool row's phone copy — one whose copy alone is over
- *  REMOTE_TRANSCRIPT_ROW_MAX_BYTES: the row and its aggregate members keep
- *  every field, their outputs cut to one shared head length, the longest that
- *  fits (`headCutRecord`: notes and `remoteOutputTruncated` say what was left
- *  out, and "Show full output" reads the whole outputs, `remoteToolOutput`).
- *  A row whose other fields alone are over the ceiling goes with empty heads,
- *  still over it. Message rows are never cut: their text has no way back. */
 function oversizedRow(row: Record<string, unknown>): Record<string, unknown> {
   const cutAt = (cap: number): Record<string, unknown> => {
     const cut = headCutRecord(row, cap);

@@ -1,9 +1,3 @@
-/**
- * What an engine method handler reaches the desktop through. The wiring task
- * builds one `EngineContext` from the live guest registry, the guest CDP and
- * the event router; the scaffold (registry.ts, precondition.ts) and the
- * handlers see only this seam, so each is testable against a fake.
- */
 import type { WebContents } from 'electron';
 
 import type { PageFacts } from '../../../../../../packages/protocol/src/index.ts';

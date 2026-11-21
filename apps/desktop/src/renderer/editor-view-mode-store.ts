@@ -1,7 +1,3 @@
-// Which view a file opens in. A Markdown file reopens in the mode last chosen
-// for its (normalized, absolute) path, else the default-view setting; SVG opens
-// rendered and tables open as source. The per-path memory is a bounded
-// recency list kept in localStorage (in memory when storage is unavailable).
 import type { DesktopEditorSettings } from '../shared/contract';
 import type { EditorViewMode, editorViewKindForPath } from './editor-delimited';
 

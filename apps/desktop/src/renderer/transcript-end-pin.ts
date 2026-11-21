@@ -1,6 +1,27 @@
 import type { Virtualizer } from '@tanstack/react-virtual';
 import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
 
+type VirtualizerCore = {
+  scrollOffset: number | null;
+  scrollAdjustments: number;
+  _intendedScrollOffset: number | null;
+  _iosDeferredAdjustment: number;
+  _deferredFlushTimerId: number | null;
+  targetWindow: (Window & typeof globalThis) | null;
+};
+
+/** The pin's write already includes every measured delta in the commit, so the
+ *  core's pending compensation and its native timer are stale. */
+function dropCoreCompensation(instance: Virtualizer<HTMLDivElement, HTMLDivElement>): VirtualizerCore {
+  const core = instance as unknown as VirtualizerCore;
+  if (core._deferredFlushTimerId != null && core.targetWindow) {
+    core.targetWindow.clearTimeout(core._deferredFlushTimerId);
+    core._deferredFlushTimerId = null;
+  }
+  core._iosDeferredAdjustment = 0;
+  core.scrollAdjustments = 0;
+  return core;
+}
 /** Coalesce append, row measurement, and composer resize into one native end.
  * Intermediate core offsets are estimates of different stages of the same
  * commit; exposing them to Chromium can reverse scrolling before paint. */
@@ -58,26 +79,9 @@ export function createTranscriptEndPin({
         // Reading scrollHeight right after that write forced a synchronous
         // layout of the whole list; the virtual geometry already knows it.
         const target = getMaxScrollTop();
-        // Cancel stale core compensation as well as its pending native timer:
-        // this write already includes every measured delta in the commit.
-        const core = instance as unknown as {
-          scrollOffset: number | null;
-          scrollAdjustments: number;
-          _intendedScrollOffset: number | null;
-          _iosDeferredAdjustment: number;
-          _deferredFlushTimerId: number | null;
-          targetWindow: (Window & typeof globalThis) | null;
-        };
-        if (core._deferredFlushTimerId != null && core.targetWindow) {
-          core.targetWindow.clearTimeout(core._deferredFlushTimerId);
-          core._deferredFlushTimerId = null;
-        }
-        core._iosDeferredAdjustment = 0;
-        core.scrollAdjustments = 0;
-        // A replacement can briefly shrink the spacer and Chromium clamps
-        // scrollTop before delivering its scroll event. The cached offset
-        // still equals the target then: skipping the write loses the tail. Read the
-        // actual offset once per coalesced pin, after committing the spacer.
+        const core = dropCoreCompensation(instance);
+        // Chromium clamps scrollTop before delivering its scroll event when a replacement shrinks the spacer,
+        // so the cached offset can still equal the target: read the actual offset after committing the spacer.
         const diagnose = transcriptScrollDiagnosticsEnabled();
         dropDeviation?.();
         const before = element.scrollTop;

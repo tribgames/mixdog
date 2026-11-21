@@ -132,42 +132,57 @@ for (const listOnly of [true, false]) {
   });
 }
 
-test('inline accounts support click selection, drag-and-drop priority, keyboard reorder and auto toggle', async (t) => {
-  const render = harness(t);
-  let pool = {
-    selectedId: 'a',
-    auto: true,
-    accounts: ['a', 'b', 'c'].map((id) => ({
-      id,
-      label: id,
-      authenticated: true,
-      usage: { windows: [{ usedPct: 12 }] },
-    })),
+function inlineAccountsFixture() {
+  const state = {
+    pool: {
+      selectedId: 'a',
+      auto: true,
+      accounts: ['a', 'b', 'c'].map((id) => ({
+        id,
+        label: id,
+        authenticated: true,
+        usage: { windows: [{ usedPct: 12 }] },
+      })),
+    },
+    writes: [],
   };
-  const writes = [];
   const api = {
     async invokeCapability({ capability, args }) {
       if (capability === 'getUsageDashboard') return { value: { rows: [] } };
       if (capability === 'updateProviderAccounts') {
-        writes.push(args[1]);
+        state.writes.push(args[1]);
         if (args[1].order)
-          pool = { ...pool, accounts: args[1].order.map((id) => pool.accounts.find((row) => row.id === id)) };
-        else pool = { ...pool, ...args[1] };
+          state.pool = {
+            ...state.pool,
+            accounts: args[1].order.map((id) => state.pool.accounts.find((row) => row.id === id)),
+          };
+        else state.pool = { ...state.pool, ...args[1] };
       }
-      return { value: structuredClone(pool) };
+      return { value: structuredClone(state.pool) };
     },
   };
+  return { state, api };
+}
+
+test('inline accounts list in a popup without a dialog and select an account on click', async (t) => {
+  const render = harness(t);
+  const { state, api } = inlineAccountsFixture();
   await render(React.createElement(ProviderAccountsList, { api, provider: 'openai-oauth', listOnly: true }));
   assert.equal(document.querySelector('[role="dialog"]'), null);
   assert.equal(document.querySelectorAll('.provider-accounts-list li').length, 3);
+  assert.equal(document.querySelector('.provider-account-auto'), null);
   await act(async () => document.querySelector('[data-account-id="b"] .provider-account-choice').click());
-  assert.equal(pool.selectedId, 'b');
+  assert.equal(state.pool.selectedId, 'b');
   assert.equal(
     document.querySelector('[data-account-id="b"] .provider-account-choice').getAttribute('aria-pressed'),
     'true'
   );
-  // Pointer reorder against a stubbed 32px row grid: grab row c (y 64..96),
-  // lift it past the threshold, drag its center over slot 0, release.
+});
+
+test('inline accounts support drag-and-drop priority and keyboard reorder', async (t) => {
+  const render = harness(t);
+  const { state, api } = inlineAccountsFixture();
+  await render(React.createElement(ProviderAccountsList, { api, provider: 'openai-oauth', listOnly: true }));
   const ROW = 32;
   const rect = (top, height) => ({
     x: 0,
@@ -212,25 +227,24 @@ test('inline accounts support click selection, drag-and-drop priority, keyboard 
     /translateY\(32px\)/,
     'displaced row shifts down'
   );
-  assert.equal(writes.length, 1, 'no order write until release');
+  assert.equal(state.writes.length, 0, 'no order write until release');
   await act(async () => grip.dispatchEvent(pointer('pointerup', 10)));
   assert.deepEqual(
-    pool.accounts.map((row) => row.id),
+    state.pool.accounts.map((row) => row.id),
     ['c', 'a', 'b']
   );
   assert.equal(document.querySelector('.is-lifted') === null, true);
-  assert.equal(pool.selectedId, 'b', 'reordering does not unexpectedly change the active account');
+  assert.equal(state.pool.selectedId, 'a', 'reordering does not unexpectedly change the active account');
   await act(async () =>
     document
       .querySelector('[data-account-id="b"] .provider-account-grip')
       .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true }))
   );
   assert.deepEqual(
-    pool.accounts.map((row) => row.id),
+    state.pool.accounts.map((row) => row.id),
     ['c', 'b', 'a']
   );
-  assert.equal(document.querySelector('.provider-account-auto'), null);
-  assert.equal(writes.length, 3);
+  assert.equal(state.writes.length, 2);
 });
 
 test('a rejected reorder keeps the saved order and displays the failure', async (t) => {
@@ -571,7 +585,7 @@ test('account rows show every usage window, the limit holding them and the switc
   const render = harness(t);
   const now = Date.now();
   const at = (hours, minutes = 0) => now + hours * 3_600_000 + minutes * 60_000 - 1_000;
-  let pool = {
+  const pool = {
     selectedId: 'codex',
     auto: true,
     accounts: [
@@ -606,14 +620,9 @@ test('account rows show every usage window, the limit holding them and the switc
       },
     ],
   };
-  const writes = [];
   const api = {
-    async invokeCapability({ capability, args }) {
+    async invokeCapability({ capability }) {
       if (capability === 'getUsageDashboard') return { value: { rows: [] } };
-      if (capability === 'updateProviderAccounts') {
-        writes.push(args[1]);
-        if (args[1].policy) pool = { ...pool, policy: args[1].policy, auto: args[1].policy !== 'manual' };
-      }
       return { value: structuredClone(pool) };
     },
   };
@@ -651,7 +660,27 @@ test('account rows show every usage window, the limit holding them and the switc
     [...row('codex').querySelector('.provider-account-row').children].map((cell) => cell.className),
     ['provider-account-grip', 'provider-account-identity', 'provider-account-usage', 'settings-resource-actions']
   );
+});
 
+test('the switching policy menu shows the current policy, survives a programmatic scroll, persists a choice and refreshes usage', async (t) => {
+  const render = harness(t);
+  let pool = {
+    selectedId: 'a',
+    auto: true,
+    accounts: ['a', 'b'].map((id) => ({ id, label: id, authenticated: true })),
+  };
+  const writes = [];
+  const api = {
+    async invokeCapability({ capability, args }) {
+      if (capability === 'getUsageDashboard') return { value: { rows: [] } };
+      if (capability === 'updateProviderAccounts') {
+        writes.push(args[1]);
+        if (args[1].policy) pool = { ...pool, policy: args[1].policy, auto: args[1].policy !== 'manual' };
+      }
+      return { value: structuredClone(pool) };
+    },
+  };
+  await render(React.createElement(ProviderAccountsList, { api, provider: 'anthropic-oauth', title: 'Anthropic' }));
   const policy = () => document.querySelector('.provider-accounts-policy');
   assert.equal(policy().textContent, 'SwitchSwitch at limit');
   assert.equal(document.querySelector('[role="menu"]'), null);

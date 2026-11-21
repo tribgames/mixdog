@@ -1,8 +1,3 @@
-// A failing comparison between rendered JSDOM elements must fail with a short
-// message, fast and without allocating the inspected document/React graph.
-// Unbounded, node:assert inspects and diffs both operands at depth 1000 — the
-// 16 GB failure of `assert.equal(document.activeElement, high)`. The bounded
-// comparisons come from the desktop test preload (scripts/test-env.mjs).
 import assert, { AssertionError } from 'node:assert/strict';
 import test, { after } from 'node:test';
 import React, { act } from 'react';

@@ -1,35 +1,4 @@
-// Encrypted media lane, service worker half. The relay serves `/media/<asset>`
-// as AES-GCM frames it cannot read (shared/remote-media-crypto.ts is the host
-// half and defines the format). An <img>/<video>/<audio> cannot decrypt, so
-// this worker answers those requests itself: it fetches segment-aligned
-// encrypted windows with Range, decrypts them with the session's media key and
-// replies with ordinary 200/206 responses the element can stream and seek.
-//
-// The key is a non-extractable CryptoKey the page derived during the E2EE
-// handshake and posts here (structured clone). It lives in this worker's memory
-// only and is never part of any request: the request carries the public `sid`
-// label. A worker the browser stopped asks the open windows for the key again.
-//
-// File downloads (shared/file-downloads.ts) use the same lane: the page opens
-// a worker-only `/__mixdog-download__/<lease asset id>` URL (built by
-// remote-media-lane.ts fileDownloadLaneUrl) and this worker streams the
-// lease's `download` variant back as a decrypted attachment, window by window,
-// holding one segment at a time. The relay never serves that path, so a
-// navigation this worker did not take cannot hand ciphertext to the
-// browser's downloader.
-//
-// Direct transport (docs/remote-transport.md §3 "Media adapter"): while a
-// window's session runs the transport, the page hands this worker a
-// MessagePort for that session (`mixdog:media-transport`, built by
-// remote-file-preview.ts createRemoteTransportMediaClient). A window is then
-// asked for over that port instead of the relay's HTTP route: the same
-// request, answered with the same head status and the same encrypted frames,
-// so everything below the fetch is unchanged. Without a port (an older host
-// or page, a legacy session, a restarted worker) or when the page says its
-// transport is gone, the window takes the HTTP route exactly as before.
-//
-// Loaded by sw.js through importScripts('/sw-media.js'); everything is behind
-// the one global below so it cannot collide with sibling scripts.
+// Wire format: shared/remote-media-crypto.ts. Direct transport: docs/remote-transport.md §3 "Media adapter".
 // biome-ignore lint/correctness/noUnusedVariables: read by sw.js and sw-media.slow.test.mjs as a worker global.
 const mixdogMediaLane = (() => {
   const ROUTE = /^\/media\/([0-9a-fA-F-]{8,64})$/;
@@ -217,13 +186,6 @@ const mixdogMediaLane = (() => {
     };
   }
 
-  /**
-   * One window asked for over the page's transport `port`: resolves a
-   * response like the relay's (the head's status; on 200 a body of the
-   * encrypted frames), or null when the page has no transport for it any
-   * more, so the HTTP route serves it. Cancelling the body or aborting the
-   * window cancels the stream at the host.
-   */
   function directWindow(port, lane, range) {
     return new Promise((resolve, reject) => {
       const reply = new MessageChannel();
@@ -305,13 +267,6 @@ const mixdogMediaLane = (() => {
     });
   }
 
-  /**
-   * One encrypted window starting at the segment containing `start`, no
-   * further than `last` (inclusive, plaintext). Resolves `{ status }` when the
-   * host or relay refused (412 when the window is not of the expected file),
-   * else `{ meta, next(), cancel() }` where next() yields decrypted segments
-   * `{ offset, bytes }` and then null.
-   */
   async function openWindow(lane, start, last) {
     const aligned = Math.floor(start / SEGMENT_BYTES) * SEGMENT_BYTES;
     const wanted = Math.min(last, aligned + lane.window - 1);
@@ -395,10 +350,6 @@ const mixdogMediaLane = (() => {
     return mime;
   }
 
-  /** `attachment` with the name as an ASCII fallback and RFC 5987 UTF-8. The
-   *  name is the host's (already a bare file name), cleaned again here: no
-   *  path separators, controls, bidi/invisible marks, lone surrogates,
-   *  reserved Windows names or leading/trailing dots and spaces. */
   function attachmentDisposition(name) {
     let clean = '';
     let count = 0;

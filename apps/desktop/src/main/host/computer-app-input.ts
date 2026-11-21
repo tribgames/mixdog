@@ -243,35 +243,48 @@ export function registerComputerAppInput(connection: HostConnection, deps: Compu
       },
     };
     try {
-      let presses: number | undefined;
-      let response: PowerShellResponse;
-      if (input.op === 'type') response = await dispatchElectronText(dispatch);
-      else if (input.op === 'key') {
-        presses = electronKeyPresses(input.keys).length;
-        response = await dispatchElectronInput(dispatch);
-      } else if (input.op === 'wheel') response = await dispatchElectronInput(dispatch);
-      else {
-        response = await dispatchElectronPointer(dispatch, {
-          kind: input.op,
-          button: input.button,
-          clicks: input.clicks,
-          modifiers: input.modifiers,
-        });
-      }
+      const { response, presses } = await deliver(input, dispatch);
       return answerOf(input, response, presses, cursor);
     } catch (error) {
-      if (signal.aborted || error instanceof HostRpcError) {
-        if (error instanceof HostRpcError && error.message === 'computer_window_gone') {
-          return { delivered: false, effect: 'window_gone' };
-        }
-        throw error;
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      if (gone(renderer)) return { delivered: false, effect: 'window_gone' };
-      if (message.startsWith('background_unsupported')) {
-        return { delivered: false, effect: 'refused', code: 'background_unsupported', text: message };
-      }
-      throw new HostRpcError(HOST_COMMAND_FAILED, message);
+      return failureAnswer(error, signal, renderer);
     }
   });
+}
+
+async function deliver(
+  input: Validated,
+  dispatch: ElectronTextDispatch
+): Promise<{ response: PowerShellResponse; presses: number | undefined }> {
+  if (input.op === 'type') return { response: await dispatchElectronText(dispatch), presses: undefined };
+  if (input.op === 'key') {
+    const presses = electronKeyPresses(input.keys).length;
+    return { response: await dispatchElectronInput(dispatch), presses };
+  }
+  if (input.op === 'wheel') return { response: await dispatchElectronInput(dispatch), presses: undefined };
+  const response = await dispatchElectronPointer(dispatch, {
+    kind: input.op,
+    button: input.button,
+    clicks: input.clicks,
+    modifiers: input.modifiers,
+  });
+  return { response, presses: undefined };
+}
+
+function failureAnswer(
+  error: unknown,
+  signal: AbortSignal,
+  renderer: Parameters<typeof gone>[0]
+): ComputerAppInputAnswer {
+  if (signal.aborted || error instanceof HostRpcError) {
+    if (error instanceof HostRpcError && error.message === 'computer_window_gone') {
+      return { delivered: false, effect: 'window_gone' };
+    }
+    throw error;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  if (gone(renderer)) return { delivered: false, effect: 'window_gone' };
+  if (message.startsWith('background_unsupported')) {
+    return { delivered: false, effect: 'refused', code: 'background_unsupported', text: message };
+  }
+  throw new HostRpcError(HOST_COMMAND_FAILED, message);
 }

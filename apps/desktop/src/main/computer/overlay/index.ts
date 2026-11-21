@@ -1,9 +1,3 @@
-/**
- * The banner and controls the user sees while an agent drives the desktop,
- * on every display at once. It is the user's only signal that their computer
- * is being used, so a render that dies never vanishes without a trace, and
- * the Stop shortcut works whenever the banner is up or the user holds control.
- */
 import { errorMessage } from '../shared/common';
 import { screen } from 'electron';
 
@@ -46,10 +40,7 @@ export function createComputerUseOverlay(
   seams: ComputerUseOverlaySeams = {},
   source: ComputerUseSnapshotSource = computerUseCoordinator
 ): ComputerUseOverlay {
-  // On GNOME Wayland no Electron window may exist while an agent drives: a
-  // client window cannot refuse focus there and would take it from the target.
-  // The shell extension draws the pill instead, and the virtual cursor surface
-  // is skipped (the real pointer is moved, and is visible).
+  // GNOME Wayland: a client window cannot refuse focus, so no Electron window may exist while an agent drives.
   const gnome = Boolean(seams.indicator) || usesGnomeHelper();
   const indicator = seams.indicator ?? (gnome ? createGnomeIndicator(locale) : null);
   const cursorOverlay = gnome ? { dispose(): void {} } : createComputerUseCursorOverlay(source);
@@ -79,10 +70,6 @@ export function createComputerUseOverlay(
     },
   });
 
-  /** A hidden pill window still holds its own renderer process (tens of MiB
-   *  plus GPU surfaces) for as long as the app runs. Once nothing has been
-   *  shown for a while the windows are destroyed; the next visible render
-   *  makes them again (`syncToDisplays`), costing one window creation. */
   let retireTimer: NodeJS.Timeout | null = null;
   const cancelIdleRetire = (): void => {
     if (retireTimer) clearTimeout(retireTimer);
@@ -102,11 +89,7 @@ export function createComputerUseOverlay(
     void controller.invoke('stop', latestPresentation.sessionIds);
   };
 
-  /** Windows lays out a transparent always-on-top window only once it actually
-   * appears, so the DPI and frame correction arrives after the first show and
-   * leaves the pill a few pixels off the bounds it was created with, which reads
-   * as the overlay jumping into place. Re-assert the position once that show has
-   * gone through the message loop. */
+  // Windows applies DPI and frame correction to a transparent window only after its first show.
   const settleShownBounds = (): void => {
     if (settleTimer) return;
     settleTimer = setTimeout(() => {

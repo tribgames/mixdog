@@ -1,9 +1,3 @@
-// A bot's per-tool connector permissions, under the connector's row in its
-// profile: every tool with the permission it has (the tool's own, so a
-// connector switched off does not change it) and a three-way choice that saves
-// at once (setAgentConnectorToolPermission). A paired remote client may only
-// narrow what a bot may do (remote-authority.ts), so there the choices that
-// would widen are disabled; the host judges the same rule when it writes.
 import type { DesktopApi } from '../shared/contract';
 import { t } from './i18n';
 import { createKeyedReadCache } from './keyed-read-cache';

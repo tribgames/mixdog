@@ -113,6 +113,7 @@ const worker = (tag, overrides = {}) => ({
   stage: 'idle',
   startedAt: NOW - 50_000,
   idleSince: iso(NOW - 10_000),
+  settledAt: iso(NOW - 10_000),
   ...overrides,
 });
 
@@ -154,7 +155,11 @@ test('the Agents pane shows the failure with its reason, and Clear finished remo
   const tags = () => [...document.querySelectorAll('.agent-pool-row')].map((row) => row.dataset.agentTag);
   assert.deepEqual(tags(), ['lead:lead-a', 'busy']);
   // A cleared agent comes back once it settles again (new work, new outcome).
-  await publishPool([lead, worker('rested', { idleSince: iso(NOW) }), worker('busy', { status: 'running' })]);
+  await publishPool([
+    lead,
+    worker('rested', { idleSince: iso(NOW), settledAt: iso(NOW) }),
+    worker('busy', { status: 'running' }),
+  ]);
   assert.deepEqual(tags().sort(), ['busy', 'lead:lead-a', 'rested']);
 });
 

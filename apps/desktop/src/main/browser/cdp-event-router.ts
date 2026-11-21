@@ -1,9 +1,3 @@
-/**
- * Routing CDP events into the guest's state record: child-target attachment,
- * paused requests (dialog bridge, intercept rules, plain continuation),
- * dialogs, file choosers, console/log entries, the network ledger, tracing and
- * crashes.
- */
 import type { WebContents } from 'electron';
 
 import {
@@ -197,11 +191,6 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     'Inspector.targetCrashed': targetCrashed,
   };
 
-  /** Engine lane: the core reads the page's events, so the ledger-only ones
-   *  are forwarded instead of recorded, after the host's own filters (Chromium's
-   *  bundled components, replayed entries, the dialog bridge's notices). The
-   *  events the host's own state also needs (contexts, dialogs, file choosers)
-   *  run their local route first. Returns whether the event was handled. */
   function routeToEngine(
     engine: EngineEventSink,
     guest: WebContents,
@@ -211,10 +200,6 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     sessionId: string | undefined,
     diagnostics: GuestRecord
   ): boolean {
-    // Every network event the lane carries reaches the core, also those the
-    // host's own ledger never read (cache hits, data chunks, extra info). The
-    // host keeps only the type of each request in flight: a paused request is
-    // answered here, by the intercept rule that type selects.
     if (name.startsWith('Network.')) {
       diagnostics.requestTypes.follow(name, params, sessionId);
       if (engine.carries(name)) engine.forward(guest, name, params, sessionId);

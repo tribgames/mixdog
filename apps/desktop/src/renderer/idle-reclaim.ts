@@ -1,15 +1,6 @@
-// Idle memory reclaim (renderer half); main/idle-reclaim.ts owns the trigger.
-//
-// The renderer warms aggressively on purpose — markdown, panel chunks and
-// sidebar reference data all stage themselves once the first frame is out —
-// but nothing ever gave that memory back. Measured across an ordinary working
-// day, the renderer idled at ~330 MB, climbed past 1.0 GB while sessions ran,
-// and stayed there because the host still had free RAM for V8 to sit on.
-//
-// Main dispatches this event ONLY while the window is unfocused with no turn
-// running, so a task registered here may drop nothing but purely recomputable
-// state: never a scroll measurement, a draft, or a preview whose bytes cannot
-// be rebuilt from what is still on screen.
+// Main dispatches this event only while the window is unfocused with no turn running, so a registered
+// task may drop only recomputable state: never a scroll measurement, a draft, or a preview that
+// cannot be rebuilt from what is on screen.
 export const IDLE_RECLAIM_EVENT = 'mixdog:idle-reclaim';
 
 const tasks = new Set<() => void>();

@@ -35,7 +35,10 @@ function members(touched: Set<number>): AggregateCall[] {
 }
 
 /** Runs a stepped pass; returns its value and the most members any one step touched. */
-function drive<T>(steps: Generator<void, T, void>, touched: Set<number>): { value: T; widest: number; stepCount: number } {
+function drive<T>(
+  steps: Generator<void, T, void>,
+  touched: Set<number>
+): { value: T; widest: number; stepCount: number } {
   let widest = 0;
   let stepCount = 0;
   for (;;) {

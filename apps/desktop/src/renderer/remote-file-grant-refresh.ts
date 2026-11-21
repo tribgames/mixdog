@@ -1,12 +1,3 @@
-// A linked file outside every project opens with a one-file grant token from
-// `resolveLocalPaths`. Surfaces keep that token (file tabs, cached links,
-// previews) while the host's grant can end under them: it expires, is evicted
-// or is gone after the host restarts. This wraps the relay call so such a
-// refusal asks the host for the file's grant again, through the same
-// `resolveLocalPaths` policy, and retries the call once. The host restarting
-// (its grants are gone), a long sleep (they expired) and a client reload (the
-// records are kept in per-device storage) all recover the same way.
-
 import { fileErrorCode, SELECTED_FILE_GRANT_UNAVAILABLE } from '../shared/file-error-codes';
 
 type Call = <T = unknown>(method: string, params?: unknown[]) => Promise<T>;

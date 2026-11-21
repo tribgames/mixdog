@@ -1,8 +1,3 @@
-// The capabilities the core replaced by pushed sections, for the main process (D-desktop-core-2, group 1). The lane of
-// `desktop-core-route-1` refuses them (nothing to send); this one answers them from the connection's section store, so
-// every reader of the service client on a core connection (the approval grants' `listAgents`, the SSH server logins'
-// `getProviderSetup`/`getProviderAccounts`, the window's `getOnboardingStatus`) gets the section's value. A section not
-// published yet is waited for; no host is asked.
 import type {
   DesktopCapability,
   DesktopCapabilityReadRequest,

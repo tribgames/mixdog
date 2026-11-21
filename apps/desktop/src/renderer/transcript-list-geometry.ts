@@ -29,16 +29,8 @@ export function rememberRowHeight(element: HTMLElement, height: number): number 
   return height;
 }
 
-/** Row sizes come from the ResizeObserver's border box only. Every other call
- *  (ref registration, a detached node, a headless layout reporting no box)
- *  keeps the size the timeline already holds: a synchronous rect read per
- *  mounted row forced a layout of the whole list inside every commit.
- *  A laid-out row (it has a width) may observe zero height: the agent chat's
- *  live band collapses to nothing once the reply streams above it. Ignoring
- *  that box left the band's 62px typing-bubble slot in the total for the whole
- *  reply, and the followed transcript dropped by 62px when the band left. A
- *  hidden pane reports no width, and a row waiting for its parser no real
- *  box; both keep the held size. */
+/** The size observed by the ResizeObserver's border box; every other call keeps the size already held. A laid-out row may
+ *  observe zero height; a hidden pane (no width) and a row pending its parser keep the held size. */
 export function measureTranscriptRow(
   element: Element,
   entry: ResizeObserverEntry | undefined,
@@ -56,10 +48,7 @@ export function measureTranscriptRow(
   return instance.itemSizeCache.get(key) ?? instance.measurementsCache[index]?.size ?? TRANSCRIPT_ROW_ESTIMATE;
 }
 
-/** Where the timeline starts inside the scroll content: the thread's top
- *  padding (its only in-flow content above the spacer). Row offsets
- *  (`style.top`, virtual starts) are spacer-relative, so a scroll offset maps
- *  to them by subtracting this. A style read, not a layout read. */
+/** The thread's top padding: the offset between the scroll origin and the spacer-relative row offsets. */
 export function transcriptThreadInset(thread: Element): number {
   return Number.parseFloat(window.getComputedStyle(thread).paddingTop) || 0;
 }
@@ -91,11 +80,8 @@ function positionalRowKey(row: TranscriptRowModel): boolean {
   return false;
 }
 
-/** The first row under the reading offset that `nextRows` still carries, or
- *  the next one after it that does. Must run before the virtualizer resolves
- *  `nextRows`: its measurement cache still describes `previousRows`, whose
- *  keys are read from the rows themselves (the cache resolves keys lazily
- *  through the CURRENT rows). */
+/** The first row under the reading offset that `nextRows` still carries, or the next one after it that does. Must run
+ *  before the virtualizer resolves `nextRows`: its measurement cache still describes `previousRows`. */
 export function captureReadingAnchor(
   instance: TranscriptVirtualizer,
   previousRows: readonly TranscriptRowModel[],
@@ -132,20 +118,8 @@ export function captureReadingAnchor(
   return null;
 }
 
-/** Native reader motion is the only scroll authority until it becomes idle.
- *
- *  Ownership means READER ownership, never "the core happens to be moving".
- *  The core sets isScrolling for its OWN corrective writes too, and those can
- *  carry a backward direction with nobody touching the transcript, so deferring
- *  on that flag withheld compensation from an idle reader: rows above the
- *  viewport grew uncompensated, their deltas queued, and the flush then landed
- *  the whole batch in one step — the desktop transcript bounced while no one
- *  was scrolling.
- *
- *  An Android fling that outlives the gesture window is held by the touch latch
- *  in use-transcript-follow (touchScrollLatchOpen). That IS reader ownership and
- *  already arrives through this argument, so no core-direction probe is needed
- *  for the "items jump while scrolling up" shake it was added for. */
+/** Native reader motion is the only scroll authority until idle: virtual-core also sets isScrolling for its own
+ *  corrective writes, so the core's scroll flag never decides. */
 export function shouldDeferTranscriptScrollAdjustment(hasReaderGesture: boolean): boolean {
   return hasReaderGesture;
 }

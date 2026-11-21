@@ -1,14 +1,8 @@
-// Pair a headless, phone-emulated Chromium with an isolated dev instance over
-// the LOCAL relay (probes/phone-relay.mjs) and screenshot the phone UI.
-//
-// Usage (from apps/desktop):
+// Usage (from apps/desktop; needs probes/phone-relay.mjs running):
 //   node scripts/probes/phone-shot.mjs --port=<cdpPort> --out=<dir> [--eval=<file.eval> ...]
 //     [--width=412 --height=915 --scale=1] [--chrome=<exe>]
-// Writes <out>/phone-home.png after pairing, then for each --eval file runs it
-// in the phone page (an async function BODY, e.g. click a button; its `return`
-// value is printed under "results"), waits for it to settle and writes
-// <out>/phone-<file name>.png. The instance's
-// own desktop window is only read (relay URL) and asked to approve the pairing.
+// Writes <out>/phone-home.png, then for each --eval file (an async function body; its `return` value is
+// printed under "results") writes <out>/phone-<file name>.png.
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

@@ -112,7 +112,7 @@ foreach ($request in @(@{ window_id = 'hwnd:0x1' }, @{ window_id = 'hwnd:0x1'; c
 /** A packaged app has only a stub executable, so the name has to reach the
  *  activation route; an unpackaged Start entry goes through its catalogue id, and
  *  anything that names a file or a URL stays with the plain shell. */
-async function launchRouting() {
+test('launch routes packaged apps, unpackaged Start entries, files and URLs to their own route', windows, async () => {
   const routed = await nativeFixture(String.raw`
 Add-Type -TypeDefinition @'
 using System;
@@ -200,7 +200,7 @@ $catalogue = Do-ListInstalledApps @{ query = 'Calc' }
     catalogue.installed.map((entry) => entry.name),
     ['Calculator']
   );
-}
+});
 
 test('a launch failure keeps its shell error category through the native wrapper', windows, async () => {
   const result = await nativeFixture(String.raw`
@@ -228,7 +228,6 @@ foreach ($code in 2, 5, 31, 1223, 87) {
   // A native call arrives wrapped, so the category depends on unwrapping it.
   assert.equal(result.messages.length, 5);
   assert.match(result.messages[0], /launch failed \[target_not_found\/2\]/);
-  await launchRouting();
   assert.match(result.messages[1], /launch failed \[access_denied\/5\]/);
   assert.match(result.messages[2], /launch failed \[no_file_association\/31\]/);
   assert.match(result.messages[3], /launch failed \[launch_cancelled\/1223\]/);
@@ -889,11 +888,8 @@ $rows | ConvertTo-Json -Compress
   }
 );
 
-test(
-  'ref clicks expand and collapse through UIA and reject disabled UIA/MSAA controls before input',
-  windows,
-  async () => {
-    const rows = await nativeFixture(`
+const clickModeRows = (modes) =>
+  nativeFixture(`
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -ReferencedAssemblies @('System.dll',
@@ -929,7 +925,7 @@ function Get-RefRecord($ref) { return $script:record }
 function Assert-ExecutionAuthorization($request,$handle) { $script:authorizations++ }
 function Get-PointArg($request) { throw 'unexpected native fallback' }
 $rows = @()
-foreach ($mode in @('collapsed','expanded','partial','unchanged','disabled-uia','disabled-msaa')) {
+foreach ($mode in @(${modes})) {
   $script:authorizations = 0
   $element = [ElementFixture]::new()
   switch ($mode) {
@@ -949,24 +945,30 @@ foreach ($mode in @('collapsed','expanded','partial','unchanged','disabled-uia',
 }
 $rows | ConvertTo-Json -Compress -Depth 6
 `);
-    const cases = Object.fromEntries(rows.map((row) => [row.mode, row]));
-    for (const mode of ['collapsed', 'expanded', 'partial']) {
-      assert.equal(cases[mode].reply.action, 'click');
-      assert.equal(cases[mode].reply.path, 'uia_expand_collapse');
-      assert.equal(cases[mode].reply.verified, true);
-      assert.equal(cases[mode].calls, 1);
-      assert.equal(cases[mode].authorizations, 1);
-      assert.equal(cases[mode].state, mode === 'expanded' ? 'Collapsed' : 'Expanded');
-    }
-    assert.equal(cases.unchanged.reply.verified, false);
-    assert.equal(cases.unchanged.reply.effect, 'unverifiable');
-    assert.equal(cases.unchanged.calls, 1);
-    for (const mode of ['disabled-uia', 'disabled-msaa']) {
-      assert.equal(cases[mode].reply.code, 'element_disabled');
-      assert.equal(cases[mode].reply.delivery_accepted, false);
-      assert.equal(cases[mode].calls, 0);
-      assert.equal(cases[mode].queries, 0);
-      assert.equal(cases[mode].authorizations, 0);
-    }
+
+test('ref clicks expand and collapse through UIA', windows, async () => {
+  const rows = await clickModeRows(`'collapsed','expanded','partial','unchanged'`);
+  const cases = Object.fromEntries(rows.map((row) => [row.mode, row]));
+  for (const mode of ['collapsed', 'expanded', 'partial']) {
+    assert.equal(cases[mode].reply.action, 'click');
+    assert.equal(cases[mode].reply.path, 'uia_expand_collapse');
+    assert.equal(cases[mode].reply.verified, true);
+    assert.equal(cases[mode].calls, 1);
+    assert.equal(cases[mode].authorizations, 1);
+    assert.equal(cases[mode].state, mode === 'expanded' ? 'Collapsed' : 'Expanded');
   }
-);
+  assert.equal(cases.unchanged.reply.verified, false);
+  assert.equal(cases.unchanged.reply.effect, 'unverifiable');
+  assert.equal(cases.unchanged.calls, 1);
+});
+
+test('ref clicks reject disabled UIA and MSAA controls before any input', windows, async () => {
+  const rows = await clickModeRows(`'disabled-uia','disabled-msaa'`);
+  for (const row of rows) {
+    assert.equal(row.reply.code, 'element_disabled');
+    assert.equal(row.reply.delivery_accepted, false);
+    assert.equal(row.calls, 0);
+    assert.equal(row.queries, 0);
+    assert.equal(row.authorizations, 0);
+  }
+});

@@ -34,13 +34,24 @@ async function setup(turn?: FakeTurn) {
   client.store.subscribe((c) => changes.push(c));
   return { net, conn, client, changes };
 }
-const section = (name: string, key: string | null, revision: number, value: unknown) => ({ section: name, key, revision, value });
-const snapshot = (sections: unknown[], seq: number) => ({ method: 'app/snapshot', params: { sections }, feed: { id: 'app', epoch: 'ae', seq } });
+const section = (name: string, key: string | null, revision: number, value: unknown) => ({
+  section: name,
+  key,
+  revision,
+  value,
+});
+const snapshot = (sections: unknown[], seq: number) => ({
+  method: 'app/snapshot',
+  params: { sections },
+  feed: { id: 'app', epoch: 'ae', seq },
+});
 
 test('a 1 MB app snapshot folds in bounded turns, swaps in whole, and announces what it removed', async () => {
   const turn = new FakeTurn();
   const { conn, client, changes } = await setup(turn);
-  conn.serverSend(snapshot([section('ports', null, 1, [1]), section('notice', 'x', 1, 'old'), section('update', 'k', 1, 'old')], 0));
+  conn.serverSend(
+    snapshot([section('ports', null, 1, [1]), section('notice', 'x', 1, 'old'), section('update', 'k', 1, 'old')], 0)
+  );
   for (let i = 0; i < 5; i++) await tick();
   assert.deepEqual(changes.at(-1), { type: 'appSnapshot' });
   changes.length = 0;
@@ -79,10 +90,15 @@ test('a 1 MB app snapshot folds in bounded turns, swaps in whole, and announces 
   // Announcing: no turn holds more than the budget plus the one step that found it spent.
   const announced = turn.all();
   assert.ok(Math.max(...announced) <= UNITS_PER_TURN, `announced ${Math.max(...announced)} changes in one turn`);
-  assert.ok(announced.filter((u) => u > 0).length >= Math.floor(2403 / UNITS_PER_TURN), 'announcements spread over many turns');
+  assert.ok(
+    announced.filter((u) => u > 0).length >= Math.floor(2403 / UNITS_PER_TURN),
+    'announcements spread over many turns'
+  );
   assert.equal(client.store.section('notice', 'x'), undefined);
   assert.equal(client.store.section('update', 'k')?.value, 'new');
-  const names = changes.filter((c) => c.type === 'section').map((c) => `${(c as { section: string }).section}/${(c as { key: string | null }).key}`);
+  const names = changes
+    .filter((c) => c.type === 'section')
+    .map((c) => `${(c as { section: string }).section}/${(c as { key: string | null }).key}`);
   assert.ok(names.includes('notice/x'), 'removed section announced');
   assert.equal(names.length, 2400 + 2 + 1);
   assert.deepEqual(changes.at(-1), { type: 'appSnapshot' });
@@ -98,14 +114,20 @@ test('a connection that ends mid-fold discards the staging: the store keeps the 
   conn.serverClose(1006);
   for (let i = 0; i < 40; i++) await tick();
   assert.equal(client.store.section('ports')?.value, 'old');
-  assert.equal(changes.some((c) => c.type === 'appSnapshot'), false);
+  assert.equal(
+    changes.some((c) => c.type === 'appSnapshot'),
+    false
+  );
 });
 
 test('restoring or losing a subscription after a reconnect is a store change', async () => {
   const { net, conn, client, changes } = await setup();
   const resumed = client.resumeThread('t1', { lastItems: 10 });
   const req = JSON.parse(await conn.nextSent());
-  conn.serverSend({ id: req.id, result: { thread: { id: 't1' }, subscription: { id: 's', mode: 'snapshot', epoch: 'e1', startSeq: 1 } } });
+  conn.serverSend({
+    id: req.id,
+    result: { thread: { id: 't1' }, subscription: { id: 's', mode: 'snapshot', epoch: 'e1', startSeq: 1 } },
+  });
   await resumed;
   conn.serverClose(1006);
   const again = await net.accept();
@@ -114,13 +136,24 @@ test('restoring or losing a subscription after a reconnect is a store change', a
   await again.nextSent();
   for (let i = 0; i < 2; i++) {
     const r = JSON.parse(await again.nextSent());
-    if (r.method === 'thread/resume') again.serverSend({ id: r.id, error: { code: -32004, message: 'notice', data: { reason: 'threadNotFound' } } });
-    else again.serverSend({ id: r.id, result: { subscription: { id: 'as2', mode: 'snapshot', epoch: 'ae', startSeq: 1 } } });
+    if (r.method === 'thread/resume')
+      again.serverSend({ id: r.id, error: { code: -32004, message: 'notice', data: { reason: 'threadNotFound' } } });
+    else
+      again.serverSend({
+        id: r.id,
+        result: { subscription: { id: 'as2', mode: 'snapshot', epoch: 'ae', startSeq: 1 } },
+      });
   }
   for (let i = 0; i < 10; i++) await tick();
   const subs = changes.filter((c) => c.type === 'subscription');
-  assert.deepEqual(subs.map((c) => `${(c as { feedId: string }).feedId}:${(c as { state: string }).state}`).sort(), ['app:restored', 't1:lost']);
-  assert.equal((subs.find((c) => (c as { state: string }).state === 'lost') as { error: { kind: string } }).error.kind, 'rpc');
+  assert.deepEqual(subs.map((c) => `${(c as { feedId: string }).feedId}:${(c as { state: string }).state}`).sort(), [
+    'app:restored',
+    't1:lost',
+  ]);
+  assert.equal(
+    (subs.find((c) => (c as { state: string }).state === 'lost') as { error: { kind: string } }).error.kind,
+    'rpc'
+  );
   assert.equal(client.store.thread('t1'), undefined);
 });
 
@@ -141,7 +174,11 @@ test('a disconnect during the announcements: the reconnect completes them, ahead
   conn.serverSend(snapshot(sections, 1));
   for (let i = 0; i < 60; i++) await tick();
   assert.ok(announced >= 50 && announced < 301, `announced ${announced} before the disconnect took effect`);
-  assert.equal(changes.some((c) => c.type === 'appSnapshot'), false, 'the abandoned announcement did not complete');
+  assert.equal(
+    changes.some((c) => c.type === 'appSnapshot'),
+    false,
+    'the abandoned announcement did not complete'
+  );
 
   // Reconnect. The store holds the snapshot, so the cursor is its own: the resume asks for what is newer than it.
   const again = await net.accept();
@@ -151,12 +188,21 @@ test('a disconnect during the announcements: the reconnect completes them, ahead
   const resume = JSON.parse(await again.nextSent());
   assert.equal(resume.method, 'app/subscribe');
   assert.equal(resume.params.resumeFrom.seq, 1);
-  again.serverSend({ id: resume.id, result: { subscription: { id: 'as2', mode: 'resume', epoch: 'ae', startSeq: 2 } } });
+  again.serverSend({
+    id: resume.id,
+    result: { subscription: { id: 'as2', mode: 'resume', epoch: 'ae', startSeq: 2 } },
+  });
   // A newer notification right behind the response must come after the owed announcements.
-  again.serverSend({ method: 'config/updated', params: section('config', null, 1, 'newer'), feed: { id: 'app', epoch: 'ae', seq: 2 } });
+  again.serverSend({
+    method: 'config/updated',
+    params: section('config', null, 1, 'newer'),
+    feed: { id: 'app', epoch: 'ae', seq: 2 },
+  });
   for (let i = 0; i < 100; i++) await tick();
 
-  const names = changes.filter((c) => c.type === 'section').map((c) => `${(c as { section: string }).section}/${(c as { key: string | null }).key}`);
+  const names = changes
+    .filter((c) => c.type === 'section')
+    .map((c) => `${(c as { section: string }).section}/${(c as { key: string | null }).key}`);
   const owedSet = ['notice/x', 'ports/null', ...sections.slice(1).map((s) => `agents/${s.key}`)];
   for (const n of owedSet) assert.ok(names.includes(n), `${n} announced`);
   const snapshotAt = changes.findIndex((c) => c.type === 'appSnapshot');
@@ -175,7 +221,11 @@ test('what a resumed app subscription replays from the time away is not live; wh
   client.store.subscribe((c) => {
     if (c.type === 'section' && c.section === 'notice') live.push([c.key, client.store.appLive()]);
   });
-  conn.serverSend({ method: 'notice/updated', params: section('notice', 'b', 1, 'raised'), feed: { id: 'app', epoch: 'ae', seq: 1 } });
+  conn.serverSend({
+    method: 'notice/updated',
+    params: section('notice', 'b', 1, 'raised'),
+    feed: { id: 'app', epoch: 'ae', seq: 1 },
+  });
   for (let i = 0; i < 5; i++) await tick();
   conn.serverClose(1006);
   const again = await net.accept();
@@ -185,12 +235,32 @@ test('what a resumed app subscription replays from the time away is not live; wh
   const resume = JSON.parse(await again.nextSent());
   assert.equal(resume.params.resumeFrom.seq, 1);
   // Seqs 2 and 3 were published while the client was away; 4 is the first after the resumed attach.
-  again.serverSend({ id: resume.id, result: { subscription: { id: 'as2', mode: 'replay', epoch: 'ae', startSeq: 2, liveSeq: 4 } } });
-  again.serverSend({ method: 'notice/updated', params: section('notice', 'c', 1, 'away'), feed: { id: 'app', epoch: 'ae', seq: 2 } });
-  again.serverSend({ method: 'notice/updated', params: section('notice', 'd', 1, 'away'), feed: { id: 'app', epoch: 'ae', seq: 3 } });
-  again.serverSend({ method: 'notice/updated', params: section('notice', 'e', 1, 'back'), feed: { id: 'app', epoch: 'ae', seq: 4 } });
+  again.serverSend({
+    id: resume.id,
+    result: { subscription: { id: 'as2', mode: 'replay', epoch: 'ae', startSeq: 2, liveSeq: 4 } },
+  });
+  again.serverSend({
+    method: 'notice/updated',
+    params: section('notice', 'c', 1, 'away'),
+    feed: { id: 'app', epoch: 'ae', seq: 2 },
+  });
+  again.serverSend({
+    method: 'notice/updated',
+    params: section('notice', 'd', 1, 'away'),
+    feed: { id: 'app', epoch: 'ae', seq: 3 },
+  });
+  again.serverSend({
+    method: 'notice/updated',
+    params: section('notice', 'e', 1, 'back'),
+    feed: { id: 'app', epoch: 'ae', seq: 4 },
+  });
   for (let i = 0; i < 10; i++) await tick();
-  assert.deepEqual(live, [['b', true], ['c', false], ['d', false], ['e', true]]);
+  assert.deepEqual(live, [
+    ['b', true],
+    ['c', false],
+    ['d', false],
+    ['e', true],
+  ]);
   assert.ok(changes.length > 0);
 });
 
@@ -200,7 +270,9 @@ test('scanning the old store and resolving a deep value are budgeted too', async
   // 5000 entries already held and all kept: the swap announces nothing for them but must still look at each.
   const held = Array.from({ length: 5000 }, (_, i) => section('agents', `k${i}`, 1, i));
   let first = false;
-  client.store.subscribe((c) => void (first ||= c.type === 'appSnapshot'));
+  client.store.subscribe((c) => {
+    first ||= c.type === 'appSnapshot';
+  });
   conn.serverSend(snapshot(held, 0));
   while (!first) await tick();
   turn.reset();
@@ -211,11 +283,23 @@ test('scanning the old store and resolving a deep value are budgeted too', async
     if (c.type === 'appSnapshot') done = true;
   });
   // The new snapshot keeps the 5000 and adds one section holding 20000 numbers.
-  conn.serverSend(snapshot([...held.map((s) => ({ ...s, revision: 2 })), section('config', null, 1, Array.from({ length: 20000 }, (_, i) => i))], 1));
+  conn.serverSend(
+    snapshot(
+      [
+        ...held.map((s) => ({ ...s, revision: 2 })),
+        section(
+          'config',
+          null,
+          1,
+          Array.from({ length: 20000 }, (_, i) => i)
+        ),
+      ],
+      1
+    )
+  );
   while (!done) await tick();
   // staging: 5000 sections (one check each) + 20000/64 checks for the array; scan: 5000 steps. Each unit of fake time is a step,
   // so neither may pass without yielding about once per UNITS_PER_TURN of them.
   const units = 5000 + Math.floor(20000 / 64) + 5000;
   assert.ok(atFirst >= Math.floor(units / (UNITS_PER_TURN + 1)), `${atFirst} yields before the first announcement`);
 });
-

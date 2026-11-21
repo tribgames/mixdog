@@ -252,6 +252,31 @@ export function browserHeaderActions({
  *  borrowed (use-session-pane-surfaces dismissBrowserSurface). */
 const closeBorrowedPaneDock = (viewerSessionId: string) => requestPaneDockClose('browser', viewerSessionId);
 
+/** The owner closed the borrowed page (its last one included): the panel
+ *  closes rather than fall back to (or make) a page of this conversation's own. */
+function useBorrowedPageGone(
+  webviewRef: { current: BrowserPageElement | null },
+  borrowed: boolean,
+  stripTabCount: number,
+  paneSessionId: string
+) {
+  // Whether the host has sent the owner's tab list at all: before that an
+  // empty list means "not loaded", after it "no tabs left".
+  const [tabsReceived, setTabsReceived] = useState(false);
+  useEffect(() => {
+    const view = webviewRef.current;
+    if (!view) return undefined;
+    const received = () => setTabsReceived(true);
+    view.addEventListener('tabs-changed', received);
+    return () => view.removeEventListener('tabs-changed', received);
+  }, []);
+  const borrowedGone = borrowed && tabsReceived && !stripTabCount;
+  useEffect(() => {
+    if (!borrowedGone) return;
+    closeBorrowedPaneDock(paneSessionId);
+  }, [borrowedGone, paneSessionId]);
+}
+
 /** `sessionId` is the conversation whose panel this is; `borrowed` names
  *  another session's page shown in it, which the page itself is then read
  *  from (never a page of this conversation's own). */
@@ -348,23 +373,7 @@ function DesktopBrowserPane({
 
   const activeTabTitle = tabs.find((tab) => tab.active)?.title ?? '';
   const stripTabs = borrowed ? borrowedStripTabs(tabs, borrowed) : tabs;
-  // Whether the host has sent the owner's tab list at all: before that an
-  // empty list means "not loaded", after it "no tabs left".
-  const [tabsReceived, setTabsReceived] = useState(false);
-  useEffect(() => {
-    const view = webviewRef.current;
-    if (!view) return undefined;
-    const received = () => setTabsReceived(true);
-    view.addEventListener('tabs-changed', received);
-    return () => view.removeEventListener('tabs-changed', received);
-  }, []);
-  // The owner closed the borrowed page (its last one included): the panel
-  // closes rather than fall back to (or make) a page of this conversation's own.
-  const borrowedGone = Boolean(borrowed && tabsReceived && !stripTabs.length);
-  useEffect(() => {
-    if (!borrowedGone) return;
-    closeBorrowedPaneDock(paneSessionId);
-  }, [borrowedGone, paneSessionId]);
+  useBorrowedPageGone(webviewRef, Boolean(borrowed), stripTabs.length, paneSessionId);
   useMainTabPageReport(mainTab, currentUrl, activeTabTitle, onPageChange);
 
   // Header ⋯ menu: everything that is not page navigation lives here.

@@ -94,10 +94,6 @@ function setup({ store = memoryStore(), refs = {}, fields = {}, onError, now } =
   const tab = (id) => {
     const guest = fakeGuest(id);
     linked.watch(guest);
-    /** One main-frame navigation: started by `by` (this tab's main frame by
-     *  default; null for an address the agent sent; another frame), its
-     *  form_post `body`, redirected through the rest of `urls`, committing the
-     *  last one with `status` unless `commit` is false. */
     guest.go = (urls, { by = guest.mainFrame, body, commit = true, status = 200 } = {}) => {
       guest.emit('did-start-navigation', { url: urls[0], isMainFrame: true, isSameDocument: false, initiator: by });
       if (body !== undefined) linked.navigationPost(guest.id, urls[0], [Buffer.from(body)]);

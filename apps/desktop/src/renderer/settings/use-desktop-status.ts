@@ -1,7 +1,3 @@
-// Settings a renderer surface shows, hides or defaults from. They are read from the core over a connection that can be
-// late or fail at start, so a missing or failed read stays UNKNOWN (never the "off" or "absent" value) and every
-// settings announcement reads again. Callers that also need to recover from a lost announcement can request a
-// background reread while their surface is active.
 import { useEffect, useRef, useState } from 'react';
 
 import type { DesktopApi } from '../../shared/contract';

@@ -417,11 +417,7 @@ export function createTouchGestures(options: TouchGestureOptions): TouchGestures
       clearTimer();
     }
     if (mode === 'two' || mode === 'pinch' || mode === 'scroll') {
-      // A gesture whose touch lists arrive moves only through `contacts`;
-      // without them, pointer reports swipe and never zoom (partial reports
-      // cannot tell a zoom from a swipe). Both move one shared centroid, so
-      // no motion is dispatched twice; lists that stop coming hand the
-      // gesture back to the pointer reports.
+      // Partial pointer reports cannot tell a zoom from a swipe: while touch lists arrive the gesture moves only through `contacts`.
       if (snapshotSeen) {
         if (!movedSinceSnapshot.has(id) || movedSinceSnapshot.size < touches.size) {
           movedSinceSnapshot.add(id);

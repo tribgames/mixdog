@@ -1,8 +1,3 @@
-/**
- * One persistent terminal root per conversation session. The root stays under
- * one parking host and is positioned over the preferred visible dock slot, so
- * duplicate session tabs never fight over the same xterm DOM.
- */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 
@@ -277,9 +272,6 @@ export function useSessionTerminalSurfaces(
   );
 }
 
-/** After boot, once idle: the shell list (and with it the default shell's
- *  name) is detected before the first terminal opens, so its tab is named
- *  right in the frame it appears. */
 const SHELL_PREFETCH_DELAY_MS = 2_000;
 
 export function SessionTerminalParkingHost({ controller }: { controller: SessionTerminalSurfaceController }) {

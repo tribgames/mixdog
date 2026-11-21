@@ -1,9 +1,4 @@
-// Local update feed for the dev loop: serves the electron-builder output
-// (latest.yml + installer + blockmap) over 127.0.0.1 so the SHIPPING updater
-// code path (electron-updater generic provider) can run against a build made
-// from this working tree. Range requests are honoured because the differential
-// downloader asks for them; anything it cannot use falls back to a full
-// download on its own.
+// Range requests are honoured because electron-updater's differential downloader asks for them.
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';

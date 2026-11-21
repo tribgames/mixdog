@@ -28,14 +28,11 @@ const { createRoot } = await import('react-dom/client');
 const { ComposerAddMenu } = await import('./ComposerAddMenu.tsx');
 const { agentAvatar } = await import('../shared/core-src/runtime/shared/agent-avatar.mjs');
 
-test('add menu selects without submitting, supports keyboard dismissal, and starts a goal only on confirmation', async () => {
+async function mountSkillMenu() {
   const selected = [];
   const goals = [];
-  const acceptGoal = false;
-  let attached = 0;
+  const attached = { count: 0 };
   window.mixdogDesktop = {
-    // The session answers for its own project, so scope is decided there (a
-    // session ignores the draft-only projectPath).
     invokeCapability: async (request) => {
       assert.deepEqual(request, { capability: 'skillsStatus', sessionId: 'menu-session' });
       return {
@@ -62,12 +59,12 @@ test('add menu selects without submitting, supports keyboard dismissal, and star
         sessionId: 'menu-session',
         projectPath: 'C:/project',
         onAttach: () => {
-          attached += 1;
+          attached.count += 1;
         },
         onSkill: (name) => selected.push(name),
         onGoal: async (command) => {
           goals.push(command);
-          return acceptGoal;
+          return false;
         },
         onMore() {},
       })
@@ -77,42 +74,78 @@ test('add menu selects without submitting, supports keyboard dismissal, and star
   document.body.append(host);
   const root = createRoot(host);
   const click = async (node) => act(async () => node.click());
+  await act(async () => root.render(React.createElement(Harness)));
+  const trigger = host.querySelector('button');
+  const items = () => [...document.querySelectorAll('[role="menuitem"]')];
+  const close = async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  };
+  return { selected, goals, attached, click, trigger, items, close };
+}
+
+test('add menu lists only the skills in scope here', async () => {
+  const { goals, click, trigger, items, close } = await mountSkillMenu();
   try {
-    await act(async () => root.render(React.createElement(Harness)));
-    const trigger = host.querySelector('button');
     await click(trigger);
-    assert.equal(document.querySelectorAll('[role="menuitem"]').length, 4);
+    assert.equal(items().length, 4);
     for (const name of ['elsewhere', 'plugin-elsewhere']) {
-      assert.ok(
-        ![...document.querySelectorAll('[role="menuitem"]')].some((node) => node.textContent === name),
-        `${name} is out of scope here`
-      );
+      assert.ok(!items().some((node) => node.textContent === name), `${name} is out of scope here`);
     }
     assert.equal(goals.length, 0);
-    const pdf = [...document.querySelectorAll('[role="menuitem"]')].find((node) => node.textContent === 'PDF');
+  } finally {
+    await close();
+  }
+});
+
+test('add menu selects a skill without submitting and closes', async () => {
+  const { selected, click, trigger, items, close } = await mountSkillMenu();
+  try {
+    await click(trigger);
+    const pdf = items().find((node) => node.textContent === 'PDF');
     assert.ok(pdf.querySelector('svg'));
     await click(pdf);
     assert.deepEqual(selected, ['pdf']);
     assert.equal(document.querySelector('[role="menu"]'), null);
+  } finally {
+    await close();
+  }
+});
+
+test('add menu attaches files from its first item', async () => {
+  const { attached, click, trigger, items, close } = await mountSkillMenu();
+  try {
     await click(trigger);
-    await click(document.querySelector('[role="menuitem"]'));
-    assert.equal(attached, 1);
+    await click(items()[0]);
+    assert.equal(attached.count, 1);
+  } finally {
+    await close();
+  }
+});
+
+test('add menu closes on Escape', async () => {
+  const { click, trigger, close } = await mountSkillMenu();
+  try {
     await click(trigger);
     await act(async () =>
       document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     );
     assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+  } finally {
+    await close();
+  }
+});
+
+test('add menu hands the /goal command over and closes without opening a dialog', async () => {
+  const { goals, click, trigger, items, close } = await mountSkillMenu();
+  try {
     await click(trigger);
-    await click(document.querySelectorAll('[role="menuitem"]')[1]);
-    // The goal dialog is pane-scoped and lives in the composer
-    // (composer-goal-dialog.slow.test.mjs); the menu only hands over the
-    // /goal command and closes.
+    await click(items()[1]);
     assert.deepEqual(goals, ['/goal']);
     assert.equal(document.querySelector('[role="menu"]'), null);
     assert.equal(document.querySelector('[role="dialog"]'), null);
   } finally {
-    await act(async () => root.unmount());
-    host.remove();
+    await close();
   }
 });
 

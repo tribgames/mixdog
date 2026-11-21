@@ -4,12 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// The phone drawer (rail + list panel, 07-mobile-chrome.css "Drawer inset
-// system"): header, search, chips, section headings, cards and footer pills
-// open on ONE box line; row highlights bleed past it by the same amount on both
-// sides. The pages below mirror the real markup (AgentActivityPane,
-// SchedulesView, SessionSidebar) closely enough for the CSS to resolve.
-
 const rowShell = (inner) => `
   <div class="sidebar-drawer-frame" data-state="open" data-motion="instant">
     <nav class="activity-rail"></nav>
@@ -118,7 +112,7 @@ const MEASURE = () => {
   return out;
 };
 
-test('every phone drawer page opens on one inset line, highlights bleed equally, nothing overflows', async (t) => {
+async function openDrawerPages(t) {
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
   const styles = await build({
     stdin: {
@@ -156,28 +150,37 @@ test('every phone drawer page opens on one inset line, highlights bleed equally,
     await page.evaluate(() => new Promise((done) => setTimeout(done, 300)));
     return page.evaluate(MEASURE);
   };
-  const near = (actual, expected, message) =>
-    assert.ok(Math.abs(actual - expected) <= 0.6, `${message}: ${round(actual)} vs ${round(expected)}`);
+  t.after(() => assert.deepEqual(errors, []));
+  return measure;
+}
 
-  // A measured scrollbar gutter must not move anything: the phone hides its bars.
-  for (const gutter of [0, 8]) {
-    const frameLabel = `gutter ${gutter}`;
-    const agents = await measure('agents', gutter);
-    const schedules = await measure('schedules', gutter);
-    const sessions = await measure('sessions', gutter);
+const near = (actual, expected, message) =>
+  assert.ok(Math.abs(actual - expected) <= 0.6, `${message}: ${round(actual)} vs ${round(expected)}`);
 
-    for (const [name, m] of Object.entries({ agents, schedules, sessions })) {
-      const line = m.frame.left + 48 + 12;
-      const lineRight = m.frame.right - 12;
-      const label = `${name}, ${frameLabel}`;
+const BLEED = 4;
+const GUTTERS = [0, 8];
+const insetLine = (m) => ({ line: m.frame.left + 48 + 12, lineRight: m.frame.right - 12 });
+
+test('every phone drawer page header opens and closes on the inset line', async (t) => {
+  const measure = await openDrawerPages(t);
+  for (const gutter of GUTTERS) {
+    for (const name of Object.keys(PAGES)) {
+      const m = await measure(name, gutter);
+      const { line, lineRight } = insetLine(m);
+      const label = `${name}, gutter ${gutter}`;
       near(m.title.left, line, `${label}: header title opens on the line`);
       near(m.actions.right, lineRight, `${label}: header actions close on the line`);
     }
+  }
+});
 
-    const bleed = 4;
-    const line = agents.frame.left + 48 + 12;
-    const lineRight = agents.frame.right - 12;
-    // Bots page: Mixy, a plain row and the selected row share one highlight box and one avatar line.
+test('the bots page rows bleed equally past the inset line and nothing overflows', async (t) => {
+  const measure = await openDrawerPages(t);
+  for (const gutter of GUTTERS) {
+    const frameLabel = `gutter ${gutter}`;
+    const agents = await measure('agents', gutter);
+    const { line, lineRight } = insetLine(agents);
+    const bleed = BLEED;
     for (const row of ['leadRow', 'plainRow', 'selectedRow']) {
       near(agents[row].left, line - bleed, `agents, ${frameLabel}: ${row} highlight starts one bleed outside the line`);
       near(
@@ -191,8 +194,15 @@ test('every phone drawer page opens on one inset line, highlights bleed equally,
     near(agents.pill.left, line, `agents, ${frameLabel}: the connectors pill starts on the line`);
     near(agents.pill.right, lineRight, `agents, ${frameLabel}: the connectors pill ends on the line (no overflow)`);
     assert.ok(agents.pill.right <= agents.frame.right, 'the connectors pill stays inside the panel');
+  }
+});
 
-    // Schedules: the search field, chips and card share the line; the pinned bar paints the sheet tone.
+test('the schedules page search, chips and card share the inset line', async (t) => {
+  const measure = await openDrawerPages(t);
+  for (const gutter of GUTTERS) {
+    const frameLabel = `gutter ${gutter}`;
+    const schedules = await measure('schedules', gutter);
+    const { line, lineRight } = insetLine(schedules);
     near(schedules.search.left, line, `schedules, ${frameLabel}: search starts on the line`);
     near(schedules.search.right, lineRight, `schedules, ${frameLabel}: search ends on the line`);
     near(schedules.chip.left, line, `schedules, ${frameLabel}: the first chip starts on the line`);
@@ -204,8 +214,16 @@ test('every phone drawer page opens on one inset line, highlights bleed equally,
       schedules.sheetTone,
       'schedules: the pinned search bar paints the drawer sheet tone'
     );
+  }
+});
 
-    // Sessions: headings and row text on the line; row highlights bleed equally.
+test('the sessions page headings and row text sit on the inset line and row highlights bleed equally', async (t) => {
+  const measure = await openDrawerPages(t);
+  for (const gutter of GUTTERS) {
+    const frameLabel = `gutter ${gutter}`;
+    const sessions = await measure('sessions', gutter);
+    const { line, lineRight } = insetLine(sessions);
+    const bleed = BLEED;
     near(sessions.heading.left, line, `sessions, ${frameLabel}: the section heading starts on the line`);
     near(sessions.rowText.left, line, `sessions, ${frameLabel}: row text starts on the line`);
     for (const key of ['plainRow', 'selectedRow']) {
@@ -221,5 +239,4 @@ test('every phone drawer page opens on one inset line, highlights bleed equally,
       );
     }
   }
-  assert.deepEqual(errors, []);
 });

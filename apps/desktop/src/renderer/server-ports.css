@@ -51,10 +51,5 @@
   color: var(--mx-text-muted);
 }
 .session-panel-action.is-busy svg {
-  animation: server-ports-spin 0.9s linear infinite;
-}
-@keyframes server-ports-spin {
-  to {
-    transform: rotate(360deg);
-  }
+  animation: var(--mx-motion-spin);
 }

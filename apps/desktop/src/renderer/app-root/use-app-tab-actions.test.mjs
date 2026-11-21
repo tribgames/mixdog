@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { installTestDom } from '../test-support/test-dom.mjs';
 import { useAppTabActions } from './use-app-tab-actions.ts';
 
-test('useAppTabActions manages utility, studio, terminal, and diff tab opening', async () => {
+async function mountBasicActions() {
   const { dom } = installTestDom(null, {
     jsdom: { url: 'about:blank' },
     expose: ['navigator', 'HTMLElement', 'Event', 'CustomEvent'],
@@ -69,22 +69,34 @@ test('useAppTabActions manages utility, studio, terminal, and diff tab opening',
   });
 
   assert.notEqual(hookResult, null);
+  return {
+    actions: hookResult,
+    tabs,
+    focusedSelections,
+    terminalSelected: () => terminalSelected,
+    unmount: () =>
+      act(async () => {
+        root.unmount();
+      }),
+  };
+}
 
-  // 1. openTerminalTab for a session leaf sets terminal side surface
-  hookResult.openTerminalTab('leaf-1');
-  assert.equal(terminalSelected, true);
+test('openTerminalTab for a session leaf sets the terminal side surface', async () => {
+  const mounted = await mountBasicActions();
+  mounted.actions.openTerminalTab('leaf-1');
+  assert.equal(mounted.terminalSelected(), true);
+  await mounted.unmount();
+});
 
-  // 2. openDiffTab adds diff tab and opens in focused pane
-  hookResult.openDiffTab('/repo', '\\src\\index.ts', { source: 'working' });
-  assert.equal(tabs.length, 1);
-  assert.equal(tabs[0].selection.kind, 'diff');
-  assert.equal(tabs[0].selection.rel, 'src/index.ts');
-  assert.equal(focusedSelections.length, 1);
-  assert.equal(focusedSelections[0].kind, 'diff');
-
-  await act(async () => {
-    root.unmount();
-  });
+test('openDiffTab adds a diff tab and opens it in the focused pane', async () => {
+  const mounted = await mountBasicActions();
+  mounted.actions.openDiffTab('/repo', '\\src\\index.ts', { source: 'working' });
+  assert.equal(mounted.tabs.length, 1);
+  assert.equal(mounted.tabs[0].selection.kind, 'diff');
+  assert.equal(mounted.tabs[0].selection.rel, 'src/index.ts');
+  assert.equal(mounted.focusedSelections.length, 1);
+  assert.equal(mounted.focusedSelections[0].kind, 'diff');
+  await mounted.unmount();
 });
 
 /** The real session surfaces and pane docks under useAppTabActions, over one
@@ -96,7 +108,7 @@ async function mountShell(t, { tabs, active, host = {} }) {
   });
   window.mixdogDesktop = host;
   const { useSessionPaneSurfaces } = await import('../use-session-pane-surfaces.ts');
-  const { usePaneSideDocks } = await import('../pane-side-dock.tsx');
+  const { usePaneSideDocks } = await import('../pane-side-dock-state.ts');
   const { sessionSideDockEntryForSession } = await import('../session-side-surface-policy.ts');
   const { agentPoolStore, startAgentPool } = await import('../agent-activity-model.ts');
   const { sectionStoreFor } = await import('../section-store.ts');

@@ -1,8 +1,3 @@
-// The file actions a server (ssh) window offers in place of this PC's shell:
-// uploads of this PC's files into the server, "download to this PC and open",
-// revealing an entry in the window's own file tree and deleting through the
-// server's trash. Running transfers show in one small
-// panel with progress and a cancel button per file.
 import { useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Download, Upload, X } from 'lucide-react';

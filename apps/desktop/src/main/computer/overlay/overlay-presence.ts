@@ -1,8 +1,3 @@
-/**
- * Whether the Computer Use pill is on screen, for the pills that stack under
- * it. "On screen" runs from the render that shows it to the end of its fade,
- * so a pill still fading is never drawn over.
- */
 const listeners = new Set<() => void>();
 /** Each surface that can draw the pill owns its own flag, so one finishing
  *  never clears the other's presence. */

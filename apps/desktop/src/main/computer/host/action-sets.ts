@@ -1,7 +1,3 @@
-/**
- * Action classification for the Computer Use host: which commands read, which
- * mutate, which need a fresh observation, and which lanes they run on.
- */
 import type { ComputerCommand } from '../shared/types';
 import { computerActionsWith, computerActionHas } from '../../../shared/core-src/runtime/computer-bridge/actions.mjs';
 

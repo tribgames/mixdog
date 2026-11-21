@@ -1,7 +1,3 @@
-// A bot room's "Create routine": asks the app to open the Schedules panel's
-// new-schedule editor with that bot preselected as the bot to run. The shell opens
-// the panel on the event; the panel (mounted by then or on its way) takes the
-// pending bot and opens its editor.
 import { useEffect } from 'react';
 
 export const NEW_SCHEDULE_REQUEST_EVENT = 'mixdog:new-schedule-request';

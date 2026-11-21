@@ -94,11 +94,6 @@ export function useAppPersistentPaneSurfaces({
   sidebarOpen: boolean;
   toggleSidebar(): void;
 }) {
-  // An activation latch is WORKSPACE-wide, so it may only be pruned against
-  // every matching tab in every leaf, and only closing a tab releases it.
-  // Pruning against ONE leaf's tabs evicted the other panes' surfaces:
-  // Monaco instances remounted, LSP state churned, and unsaved-backup
-  // restoration raced the remount.
   const pruneActivationLatch = (latched: Set<string>, owns: (selection: WorkspaceSelection) => boolean): void => {
     const openKeys = new Set<string>();
     for (const leaf of paneWorkspace.leaves) {
@@ -192,10 +187,6 @@ export function useAppPersistentPaneSurfaces({
         );
       });
   };
-  // Unmounting a utility surface (Studio/terminal/diff/PR) when its tab leaves
-  // the ACTIVE selection would replay the cold "Preparing …" cover on every
-  // re-entry. Once a surface has been activated it stays mounted — hidden and
-  // inert — for as long as its tab remains open; closing the tab disposes it.
   const activatedUtilitySurfaceKeys = useRef(new Set<string>());
   const paneUtilityTabs = (leaf: PaneLeaf, focused: boolean, focusPane: () => void) => {
     const active = paneActiveSelection(leaf);

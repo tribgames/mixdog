@@ -1,7 +1,3 @@
-// A paired device has no file manager, default app or loopback of the PC's:
-// its OS actions must not look available and do nothing (#1), and a loopback
-// address must reach the PC, not the device itself (#2). The desktop keeps
-// its own behaviour; each test pins both sides.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';

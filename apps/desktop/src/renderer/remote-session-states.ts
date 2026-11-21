@@ -1,15 +1,3 @@
-// The page's session states on the phone: what Node's host pushed as `sessionState` frames (remote-shim-dispatch.ts:227-256 at
-// v1.4.5), here read from this client's own fold of each thread it follows.
-//
-// A thread's states are its framed states (`subscribeFramedSessionStates`): the first fold, one per `thread/frame`, and the first
-// fold of every snapshot that replaces it. Two lane ends follow, and they are not interchangeable (session-lane-store.ts keeps the
-// transcript of an unloaded lane and forgets the identity baseline of a gone one):
-// - `laneEnd: 'unloaded'`, once, when the client stops following a thread the page was shown while the thread still exists: the
-//   page's view let go of it (told when a `setVisibleSessions` settles; the page knows which threads its panes name, so no shell
-//   callback is involved). The page keeps that baseline, so the thread stays known here as released.
-// - `laneEnd: 'gone'`, once, when the thread is deleted or the core no longer has it for this connection: the deletion this client
-//   hears (`thread/deleted`, whichever device deleted it), the page's own delete, or a restore after a reconnect that lost it. It
-//   ends a shown lane and a released one alike, and after it nothing of the thread is kept here.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { subscribeFramedSessionStates } from '../../../../packages/protocol-client/src/index.ts';
 import type {

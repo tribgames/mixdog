@@ -1,9 +1,3 @@
-// The Routines tile of an agent's home thread: the schedules that agent owns,
-// then its webhooks, each kind one grouped list. A row is a status dot, the
-// name (with a Failed / Paused tag) and one line — cadence and next run, or the
-// sender and latest event; run now, pause / resume, retry delivery and delete
-// live in its ⋯ menu. Routines are added and changed by asking the agent in
-// the chat.
 import { type ReactNode, useState } from 'react';
 
 import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';

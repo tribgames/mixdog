@@ -1,11 +1,4 @@
-// Stage the built desktop renderer beside the relay for web-app deployment.
-//
-// Text assets are precompressed here rather than on the VPS: a phone pays for
-// every byte over a mobile link, brotli lands well under on-the-fly gzip, and
-// the 1GB relay box stops re-compressing the same megabyte stylesheet for
-// every visitor (which also cuts the wait before the first byte). Build
-// filenames carry a content hash, so compressed output is reusable — a
-// redeploy only pays for the chunks that actually changed.
+// Stage the built desktop renderer beside the relay for web-app deployment, with text assets precompressed (brotli) here rather than on the VPS. Build filenames carry a content hash, so compressed output is reusable across deploys.
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -82,10 +75,6 @@ async function precompress(file) {
   const cacheKey = relativeName.split(sep).join('_');
   const cacheable = HASHED_ASSET_NAME.test(relativeName);
   const quality = raw.length >= LARGE_FILE_BYTES ? 10 : 11;
-  // Brotli only. A staged .gz would add ~4.6MB of already-compressed bytes to
-  // every deploy upload for the vanishingly rare client that negotiates gzip
-  // but not brotli — and the relay still answers that client from its
-  // on-the-fly gzip path.
   const brotliBody = await encode(`${cacheKey}.br`, cacheable, () =>
     compressBrotli(raw, {
       params: {

@@ -1,8 +1,3 @@
-/**
- * Main ↔ sender renderer: the hidden trusted window that owns every
- * RTCPeerConnection of the live view. Main decides; the sender only runs the
- * peer connections, feeds the per-source video tracks and reports back.
- */
 import type {
   REMOTE_WEBRTC_ICE_TRANSPORT_POLICY,
   RemoteScreenCapturePlan,

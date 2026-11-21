@@ -1,14 +1,3 @@
-// One place decides which zoom host a keyboard zoom (Ctrl/Cmd + = / − / 0)
-// belongs to. Every zoom host (an editor preview, the Visualize panel)
-// registers a target; the single document listener below hands the key to
-// exactly ONE of them - the target holding focus first, the hovered one only
-// as a fallback - and skips a key someone else already handled. Without this
-// every host listened on its own and a focus in one pane with the pointer over
-// another zoomed both.
-//
-// Gestures a frame swallowed arrive here too (`dispatchZoomAt` for ones that
-// know where they happened, `dispatchZoomKey` for keys).
-
 export type ZoomKey = 'in' | 'out' | 'reset';
 export interface ZoomPoint {
   x: number;

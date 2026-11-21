@@ -1,8 +1,3 @@
-// The sessions with a Browser Use approval waiting on the PC, as paired
-// devices learn them: the full list on every change and on each connection's
-// handshake, empty once none waits. Session ids only — the card, its page and
-// its answer never leave the PC.
-
 /** `hostState` keys for the core's cards and the desktop's own dialogs. */
 export const BROWSER_APPROVAL_SESSIONS_KEY = 'browserApprovalSessions';
 export const BROWSER_DIALOG_APPROVAL_SESSIONS_KEY = 'browserDialogApprovalSessions';

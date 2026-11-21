@@ -1,9 +1,3 @@
-// One boot's spawn capture: the launcher hands the child an APPEND FILE
-// DESCRIPTOR for fd 2 instead of a pipe, so native fatal output lands in a
-// file even when the launcher is long gone; a JSON sidecar records the
-// correlated lifecycle (pid, spawn/ready/exit timestamps, exit code/signal)
-// as far as the launcher can observe it, and new stderr bytes are mirrored
-// into the launcher's log once per lifecycle event.
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -41,18 +35,6 @@ function boundedMessage(value) {
 function heapFlags(execArgv) {
   return (Array.isArray(execArgv) ? execArgv : []).map((arg) => String(arg)).filter((arg) => HEAP_FLAG_RE.test(arg));
 }
-
-// ---------------------------------------------------------------------------
-// Capture state, shared by every step below:
-//   record        — the sidecar document (pid, timestamps, exit, stderrBytes…)
-//   log, now      — launcher log sink and clock
-//   startedAtMs   — spawn time the uptime is measured from
-//   stem, capturePath, recordPath — boot identity; null when unavailable
-//   writeFd       — the launcher's copy of the fd 2 descriptor until released
-//   readOffset    — bytes already mirrored into the launcher log
-//   removed       — the capture was dropped as uninteresting
-//   pipeDrained   — resolves when a fallback stderr pipe has ended
-//   stderrStdio   — what the launcher puts in stdio[2]: the fd or 'pipe'
 
 // EXCLUSIVE create: a colliding identity must never adopt, reuse or overwrite
 // somebody else's evidence.
@@ -226,11 +208,6 @@ function noteExit(capture, { code = null, signal = null } = {}) {
   );
 }
 
-/** The supervisor killed the daemon this record follows (its main thread
- *  stopped answering) and started `pid` in its place, on the same fd 2. The
- *  replaced boot is closed out in a sidecar of its own (an exclusive new
- *  identity, sharing this boot's raw file), and this record is re-pointed at
- *  the replacement: its pid, boot time and ready state, and later its exit. */
 function noteReplaced(capture, pid) {
   const { record } = capture;
   if (record.exitedAt || !record.pid || record.pid === pid) return;

@@ -203,10 +203,6 @@ test('saved_login_type is refused without expect in engine mode and checked besi
   assert.equal(dispatched.length, 1);
 });
 
-/**
- * A stand-in for everything a handler reaches the desktop through: any property is another stand-in, a call answers an
- * object whose strings carry the secret, so whatever a handler forwards or throws would leak it if the exits did not mask it.
- */
 function leaky() {
   const answer = () => ({
     text: SECRET,

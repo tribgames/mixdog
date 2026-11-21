@@ -193,8 +193,6 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
     [commitProjectedRows, projectSessionRows]
   );
 
-  // Freshness is pushed (`thread/summary/updated` on the app feed); a read happens on return to the window and
-  // when a schedule surface announces a new background session.
   useEffect(() => {
     const refresh = () => {
       if (document.visibilityState !== 'visible') return;
@@ -218,13 +216,6 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
     };
   }, [refreshSessions]);
 
-  // Instant sidebar: main watches the on-disk session store and pushes fresh
-  // catalogs (~0.5s debounce), so activity from any mixdog process lands here
-  // without waiting for a poll tick or an extra list round-trip.
-  // NOTE: this never re-resumes. The engine owns viewer sync; re-resuming on
-  // every store push swapped the transcript to the DISK state (in-flight turn
-  // missing) and the live pipe swapped it back — the violent up-down shaking
-  // the user saw when entering a session mid-turn.
   useEffect(() => {
     const host = window.mixdogDesktop;
     if (typeof host?.subscribeSessions !== 'function') return;

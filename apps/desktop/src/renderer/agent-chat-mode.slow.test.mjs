@@ -149,20 +149,21 @@ test('posted messages hours apart are separate runs; two within one minute still
   );
 });
 
-test('bubble runs: face and name on the first bubble, the time on the last, a day pill per date', () => {
-  const rows = [
-    user('u1', DAY1),
-    reply('a1', DAY1),
-    tools,
-    reply('a2', DAY1),
-    compacted,
-    reply('a3', DAY1),
-    user('u2', DAY2),
-  ];
-  const place = (index) => agentChatPlace(rows, index);
+const runRows = [
+  user('u1', DAY1),
+  reply('a1', DAY1),
+  tools,
+  reply('a2', DAY1),
+  compacted,
+  reply('a3', DAY1),
+  user('u2', DAY2),
+];
+const runPlace = (index) => agentChatPlace(runRows, index);
+
+test('bubble runs: first, last and day divider per row', () => {
   assert.deepEqual(
-    rows.map((_, index) => {
-      const at = place(index);
+    runRows.map((_, index) => {
+      const at = runPlace(index);
       return at && [at.side, at.first, at.last, at.newDay];
     }),
     [
@@ -175,8 +176,9 @@ test('bubble runs: face and name on the first bubble, the time on the last, a da
       ['user', true, true, true],
     ]
   );
-  // Separate turns join only within one minute: a later message opens its own
-  // run (face, name) and the earlier one keeps its own time.
+});
+
+test('separate turns join only within one minute', () => {
   const proactive = (id, at) => ({ ...reply(id, at), turnKey: id });
   const later = [
     proactive('p1', DAY1),
@@ -198,7 +200,9 @@ test('bubble runs: face and name on the first bubble, the time on the last, a da
       [false, true],
     ]
   );
-  // A room: each member's own run; a pass is a compact row that ends a run.
+});
+
+test('a room: each member has its own run', () => {
   const room = [speech('s1', 'rel', DAY1), speech('s2', 'rel', DAY1), speech('s3', 'bench', DAY1)];
   assert.deepEqual(
     room.map((_, index) => {
@@ -211,28 +215,30 @@ test('bubble runs: face and name on the first bubble, the time on the last, a da
       ['bench', true, true],
     ]
   );
+});
 
-  // Routine results group per routine into one card (success and failure
-  // alike); an old result row without the marker stays a bubble.
-  const routine = (id, status, name = 'morning-brief', summary = 'Done.') => ({
-    _tag: 'AssistantPart',
-    key: id,
-    turnKey: id,
-    item: { kind: 'notice', id, at: DAY1, text: 'x', routine: { name, status, summary } },
-  });
-  const old = {
-    _tag: 'AssistantPart',
-    key: 'o',
-    turnKey: 'o',
-    item: { kind: 'notice', at: DAY1, text: '⏱ Schedule · x' },
-  };
-  const routines = [
-    reply('r0', DAY1),
-    routine('r1', 'completed'),
-    routine('r2', 'failed'),
-    routine('r3', 'completed', 'shop-check'),
-    old,
-  ];
+const routine = (id, status, name = 'morning-brief', summary = 'Done.') => ({
+  _tag: 'AssistantPart',
+  key: id,
+  turnKey: id,
+  item: { kind: 'notice', id, at: DAY1, text: 'x', routine: { name, status, summary } },
+});
+const old = {
+  _tag: 'AssistantPart',
+  key: 'o',
+  turnKey: 'o',
+  item: { kind: 'notice', at: DAY1, text: '⏱ Schedule · x' },
+};
+const routines = [
+  reply('r0', DAY1),
+  routine('r1', 'completed'),
+  routine('r2', 'failed'),
+  routine('r3', 'completed', 'shop-check'),
+  old,
+];
+const member = { id: 'github-watcher', name: 'GitHub 감시', avatar: { kind: 'mascot' } };
+
+test('routine results group per routine, success and failure alike; an old marker-less row stays a bubble', () => {
   assert.deepEqual(
     routines.map((_, index) => {
       const at = agentChatPlace(routines, index);
@@ -250,11 +256,12 @@ test('bubble runs: face and name on the first bubble, the time on the last, a da
   assert.deepEqual(routineGroupOf(routines, 2), [1, 2]);
   assert.deepEqual(routineGroupOf(routines, 3), [3]);
   assert.equal(routineGroupOf(routines, 0), null);
+});
 
-  const member = { id: 'github-watcher', name: 'GitHub 감시', avatar: { kind: 'mascot' } };
+test('chat row: face and name on the first bubble, the time on the last, a day pill per date', () => {
   const row = (index) =>
     renderToStaticMarkup(
-      React.createElement(AgentChatRow, { place: place(index), member }, React.createElement('p', null, 'body'))
+      React.createElement(AgentChatRow, { place: runPlace(index), member }, React.createElement('p', null, 'body'))
     );
   assert.match(row(1), /mx-chat-face/);
   assert.match(row(1), /GitHub 감시/);
@@ -265,9 +272,9 @@ test('bubble runs: face and name on the first bubble, the time on the last, a da
   assert.match(row(5), /<\/p><\/div><time class="mx-chat-time">/);
   assert.match(row(0), /mx-chat-day/);
   assert.equal(row(4), '');
+});
 
-  // The card: head (name, status chip, time), older runs folded to a line,
-  // the latest's summary, and the foot's actions for its status.
+test('routine card: head, folded older runs, latest summary, and the foot actions per status', () => {
   const card = renderToStaticMarkup(
     React.createElement(
       AgentChatRow,
@@ -373,152 +380,172 @@ function rowHarness(t) {
   };
 }
 
-test('a bot chat shows a reply whole when complete (dots while it streams); a coding chat still streams', async (t) => {
-  const render = rowHarness(t);
-  const thinking = { _tag: 'Thinking', key: 'think', turnKey: 't', active: true };
-  const tail = (text, streaming) => ({
-    ...reply('a2', DAY1),
-    live: true,
-    item: { kind: 'assistant', id: 'a2', text, streaming, at: DAY1 },
-  });
-  const show = (sessionId, rows, agentMode) => {
-    const options = {
-      snapshot: { sessionId, busy: true },
-      disclosureScope: sessionId,
-      readOnly: true,
-      transitioning: false,
-      renderAssistantRow: undefined,
-      onOpenSettings() {},
-      settledItems: [],
-      settledTurnKeys: [],
-      optimisticActivityStartedAt: DAY1,
-      submit: async () => true,
-      questionCard: null,
-    };
-    function Rows() {
-      const { renderTranscriptRow } = useConversationRowRenderer({ ...options, agentMode });
-      return React.createElement(
-        React.Fragment,
-        null,
-        rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
-      );
-    }
-    return render(React.createElement(Rows));
-  };
-  const dots = (html) => html.match(/class="mx-chat-dots"/g)?.length ?? 0;
-  const bubbles = (html) => html.match(/class="mx-chat-row" data-side="agent"/g)?.length ?? 0;
+const THINKING = { _tag: 'Thinking', key: 'think', turnKey: 't', active: true };
 
-  // Streaming: one typing bubble in the bot's place, none of the words.
+const DEV = 'sess_dev_1';
+const TASK = 'sess_daemon_7_task';
+const CLERK_HOME = 'sess_home_agent-a70d746b04';
+
+const rowOptions = (sessionId, overrides = {}) => ({
+  snapshot: { sessionId },
+  disclosureScope: sessionId,
+  readOnly: false,
+  transitioning: false,
+  renderAssistantRow: undefined,
+  onOpenSettings() {},
+  settledItems: [],
+  settledTurnKeys: [],
+  optimisticActivityStartedAt: 0,
+  submit: async () => true,
+  questionCard: null,
+  agentMode: true,
+  ...overrides,
+});
+
+const renderRows = (render, options, rows, { wrap = (children) => children, rowAttrs = () => ({}) } = {}) => {
+  function Rows() {
+    const { renderTranscriptRow } = useConversationRowRenderer(options);
+    return wrap(
+      rows.map((row, index) =>
+        React.createElement('div', { key: row.key, ...rowAttrs(row) }, renderTranscriptRow(row, index, rows))
+      )
+    );
+  }
+  return render(React.createElement(Rows));
+};
+
+function captureOpenedSessions(t) {
+  const opened = [];
+  const onOpen = (event) => opened.push(event.detail.sessionId);
+  const NodeCustomEvent = globalThis.CustomEvent;
+  globalThis.CustomEvent = window.CustomEvent;
+  window.addEventListener('mixdog:open-task-session', onOpen);
+  t.after(() => {
+    globalThis.CustomEvent = NodeCustomEvent;
+    window.removeEventListener('mixdog:open-task-session', onOpen);
+  });
+  return opened;
+}
+
+const showRows = (render, sessionId, rows, agentMode = true, settledItems = []) =>
+  renderRows(
+    render,
+    rowOptions(sessionId, {
+      snapshot: { sessionId, busy: true },
+      readOnly: true,
+      settledItems,
+      optimisticActivityStartedAt: DAY1,
+      agentMode,
+    }),
+    rows
+  );
+
+const streamingTail = (text, streaming) => ({
+  ...reply('a2', DAY1),
+  live: true,
+  item: { kind: 'assistant', id: 'a2', text, streaming, at: DAY1 },
+});
+const dots = (html) => html.match(/class="mx-chat-dots"/g)?.length ?? 0;
+const agentBubbles = (html) => html.match(/class="mx-chat-row" data-side="agent"/g)?.length ?? 0;
+
+test('a bot chat shows one typing bubble and none of the words while a reply streams', async (t) => {
+  const render = rowHarness(t);
   for (const partial of ['Hel', 'Hello there, how are']) {
-    const html = await show(HOME, [user('u1', DAY1), tail(partial, true), thinking], true);
+    const html = await showRows(render, HOME, [user('u1', DAY1), streamingTail(partial, true), THINKING]);
     assert.equal(dots(html), 1, 'the typing indicator');
-    assert.equal(bubbles(html), 1, 'in the bot’s bubble position, one bubble');
+    assert.equal(agentBubbles(html), 1, 'in the bot’s bubble position, one bubble');
     assert.doesNotMatch(html, new RegExp(partial));
     assert.match(html, /is typing…/);
   }
-  // Complete (the same row, no longer streaming): the whole message, no dots.
-  const whole = await show(HOME, [user('u1', DAY1), tail('Hello there, how are you?', false), thinking], true);
+});
+
+test('a bot chat shows a completed reply whole, without dots', async (t) => {
+  const render = rowHarness(t);
+  const whole = await showRows(render, HOME, [
+    user('u1', DAY1),
+    streamingTail('Hello there, how are you?', false),
+    THINKING,
+  ]);
   assert.match(whole, /Hello there, how are you\?/);
   assert.equal(dots(whole), 0);
-  assert.equal(bubbles(whole), 1);
-  // A turn's earlier message stays whole above the next one's typing bubble.
+  assert.equal(agentBubbles(whole), 1);
+});
+
+test("a turn's earlier message stays whole above the next one's typing bubble", async (t) => {
+  const render = rowHarness(t);
   const first = { ...reply('a1', DAY1), item: { ...reply('a1', DAY1).item, text: 'Checking first', streaming: false } };
-  const second = await show(HOME, [user('u1', DAY1), first, tail('Then', true), thinking], true);
+  const second = await showRows(render, HOME, [user('u1', DAY1), first, streamingTail('Then', true), THINKING]);
   assert.match(second, /Checking first/);
   assert.doesNotMatch(second, />Then</);
   assert.equal(dots(second), 1);
-  // A room's chat takes it too.
-  const inRoom = await show(ROOM, [user('u1', DAY1), tail('Partial words', true), thinking], true);
+});
+
+test("a room's chat holds back a streaming reply too", async (t) => {
+  const render = rowHarness(t);
+  const inRoom = await showRows(render, ROOM, [user('u1', DAY1), streamingTail('Partial words', true), THINKING]);
   assert.doesNotMatch(inRoom, /Partial words/);
-  // Coding mode keeps streaming into its own live bubble, no dots.
-  const coding = await show('sess_task_1', [user('u1', DAY1), tail('Hello there, how are', true), thinking], false);
+});
+
+test('coding mode keeps streaming into its own live bubble, no dots', async (t) => {
+  const render = rowHarness(t);
+  const coding = await showRows(
+    render,
+    'sess_task_1',
+    [user('u1', DAY1), streamingTail('Hello there, how are', true), THINKING],
+    false
+  );
   assert.match(coding, /<article class="message assistant\s+streaming/);
   assert.doesNotMatch(coding, /mx-chat/);
 });
 
 test('a bot chat row that shows nothing renders no node, so the list gives it no room or step', async (t) => {
   const render = rowHarness(t);
-  const thinking = { _tag: 'Thinking', key: 'think', turnKey: 't', active: true };
   const whole = { ...reply('a1', DAY1), live: true };
   const streaming = { ...reply('a2', DAY1), live: true, item: { ...reply('a2', DAY1).item, streaming: true } };
-  const toolRound = {
-    _tag: 'ToolActivity',
-    key: 'tools',
-    turnKey: 't',
-    items: [{ kind: 'tool', id: 'tc1', name: 'shell', args: { command: 'ls' }, status: 'done', at: DAY1 }],
-  };
-  const turnDone = {
-    _tag: 'AssistantPart',
-    key: 'td',
-    turnKey: 't',
-    item: { kind: 'turndone', id: 'd2', status: 'done', elapsedMs: 12000 },
-  };
+  const options = rowOptions(HOME, {
+    snapshot: { sessionId: HOME, busy: true },
+    readOnly: true,
+    optimisticActivityStartedAt: DAY1,
+  });
   const nodes = (rows) => {
     const out = [];
     function Rows() {
-      const { renderTranscriptRow } = useConversationRowRenderer({
-        snapshot: { sessionId: HOME, busy: true },
-        disclosureScope: HOME,
-        readOnly: true,
-        transitioning: false,
-        renderAssistantRow: undefined,
-        onOpenSettings() {},
-        settledItems: [],
-        settledTurnKeys: [],
-        optimisticActivityStartedAt: DAY1,
-        submit: async () => true,
-        questionCard: null,
-        agentMode: true,
-      });
+      const { renderTranscriptRow } = useConversationRowRenderer(options);
       out.length = 0;
       for (const [index, row] of rows.entries()) out.push(renderTranscriptRow(row, index, rows) !== null);
       return null;
     }
     return render(React.createElement(Rows)).then(() => out);
   };
-  // The unfinished part and the tool round paint nothing; the band paints the typing bubble.
-  assert.deepEqual(await nodes([user('u1', DAY1), streaming, toolRound, thinking]), [true, false, false, true]);
-  // Under a whole reply the band shows nothing; a turn status row never shows.
-  assert.deepEqual(await nodes([user('u1', DAY1), whole, thinking]), [true, true, false]);
-  assert.deepEqual(await nodes([user('u1', DAY1), reply('a1', DAY1), turnDone]), [true, true, false]);
+  assert.deepEqual(await nodes([user('u1', DAY1), streaming, shellToolRow, THINKING]), [true, false, false, true]);
+  assert.deepEqual(await nodes([user('u1', DAY1), whole, THINKING]), [true, true, false]);
+  assert.deepEqual(await nodes([user('u1', DAY1), reply('a1', DAY1), turnDoneRow]), [true, true, false]);
 });
 
-test('a task session shows nothing while it starts and one card without file cards once it ends', async (t) => {
+const taskSessionRow = (id, status, extra = {}) => ({
+  _tag: 'AssistantPart',
+  key: id,
+  turnKey: id,
+  item: {
+    kind: 'notice',
+    id,
+    text: '🛠 Agent task',
+    at: DAY1,
+    routine: { kind: 'task', name: 'Fence fix', status, sessionId: 'sess_task_9', ...extra },
+    attachments: [{ id: 'a1', attachmentRef: 'r1', kind: 'file', name: 'cdp.ts', mimeType: 'text/plain', size: 10 }],
+  },
+});
+const taskSessionFiles = [
+  { name: 'cdp.ts', path: 'src/cdp.ts', id: 'a1' },
+  { name: 'big.mp4', path: 'out/big.mp4' },
+];
+
+function mountTaskSessionRows(t) {
   const render = rowHarness(t);
-  const task = (id, status, extra = {}) => ({
-    _tag: 'AssistantPart',
-    key: id,
-    turnKey: id,
-    item: {
-      kind: 'notice',
-      id,
-      text: '🛠 Agent task',
-      at: DAY1,
-      routine: { kind: 'task', name: 'Fence fix', status, sessionId: 'sess_task_9', ...extra },
-      attachments: [{ id: 'a1', attachmentRef: 'r1', kind: 'file', name: 'cdp.ts', mimeType: 'text/plain', size: 10 }],
-    },
-  });
-  const files = [
-    { name: 'cdp.ts', path: 'src/cdp.ts', id: 'a1' },
-    { name: 'big.mp4', path: 'out/big.mp4' },
-  ];
   const nodes = [];
   const show = (rows) => {
     function Rows() {
-      const { renderTranscriptRow } = useConversationRowRenderer({
-        snapshot: { sessionId: HOME },
-        disclosureScope: HOME,
-        readOnly: true,
-        transitioning: false,
-        renderAssistantRow: undefined,
-        onOpenSettings() {},
-        settledItems: [],
-        settledTurnKeys: [],
-        optimisticActivityStartedAt: 0,
-        submit: async () => true,
-        questionCard: null,
-        agentMode: true,
-      });
+      const { renderTranscriptRow } = useConversationRowRenderer(rowOptions(HOME, { readOnly: true }));
       nodes.length = 0;
       return React.createElement(
         React.Fragment,
@@ -532,20 +559,24 @@ test('a task session shows nothing while it starts and one card without file car
     }
     return render(React.createElement(Rows));
   };
-  const host = () => document.querySelector('main');
+  return { show, nodes, host: () => document.querySelector('main') };
+}
 
-  // Started: no node at all, so the list gives it no room.
-  await show([user('u1', DAY1), task('s', 'started')]);
+test('a task session that has only started renders no node, so the list gives it no room', async (t) => {
+  const { show, nodes, host } = mountTaskSessionRows(t);
+  await show([user('u1', DAY1), taskSessionRow('s', 'started')]);
   assert.deepEqual(nodes, [true, false]);
   assert.equal(host().querySelector('.mx-task-card, .mx-chat-routine-failed'), null);
+});
 
-  // Ended: one card, its status, the changed-file count, no file cards or links.
+test('an ended task session is one card with its status and changed-file count, no file cards or links', async (t) => {
+  const { show, host } = mountTaskSessionRows(t);
   for (const [status, label] of [
     ['completed', 'Completed'],
     ['failed', 'Failed'],
     ['cancelled', 'Cancelled'],
   ]) {
-    await show([user('u1', DAY1), task(status, status, { files })]);
+    await show([user('u1', DAY1), taskSessionRow(status, status, { files: taskSessionFiles })]);
     const cards = host().querySelectorAll('.mx-task-card');
     assert.equal(cards.length, 1, status);
     assert.equal(cards[0].dataset.status, status);
@@ -553,25 +584,24 @@ test('a task session shows nothing while it starts and one card without file car
     assert.equal(cards[0].querySelector('.mx-task-card-meta').textContent, `Task session · ${label} · 2 files changed`);
     assert.equal(host().querySelector('.message-attachments, .message-body a'), null, `no files (${status})`);
   }
-  // One file reads in the singular.
-  await show([user('u1', DAY1), task('single', 'completed', { files: files.slice(0, 1) })]);
-  assert.equal(host().querySelector('.mx-task-card-meta').textContent, 'Task session · Completed · 1 file changed');
-  // No files: the count is left out.
-  await show([user('u1', DAY1), task('plain', 'completed')]);
-  assert.equal(host().querySelector('.mx-task-card-meta').textContent, 'Task session · Completed');
+});
 
-  // "Open session" opens the task session.
-  const opened = [];
-  const listener = (event) => opened.push(event.detail.sessionId);
-  const { OPEN_TASK_SESSION_EVENT } = await import('./agent-task-events.ts');
-  // The component builds its event with the global CustomEvent: jsdom's here.
-  const nodeCustomEvent = globalThis.CustomEvent;
-  globalThis.CustomEvent = window.CustomEvent;
-  t.after(() => {
-    globalThis.CustomEvent = nodeCustomEvent;
-  });
-  window.addEventListener(OPEN_TASK_SESSION_EVENT, listener);
-  t.after(() => window.removeEventListener(OPEN_TASK_SESSION_EVENT, listener));
+test('an ended task session with one changed file reads in the singular', async (t) => {
+  const { show, host } = mountTaskSessionRows(t);
+  await show([user('u1', DAY1), taskSessionRow('single', 'completed', { files: taskSessionFiles.slice(0, 1) })]);
+  assert.equal(host().querySelector('.mx-task-card-meta').textContent, 'Task session · Completed · 1 file changed');
+});
+
+test('an ended task session with no changed files leaves the count out', async (t) => {
+  const { show, host } = mountTaskSessionRows(t);
+  await show([user('u1', DAY1), taskSessionRow('plain', 'completed')]);
+  assert.equal(host().querySelector('.mx-task-card-meta').textContent, 'Task session · Completed');
+});
+
+test('a task session card’s "Open session" opens the task session', async (t) => {
+  const { show, host } = mountTaskSessionRows(t);
+  const opened = captureOpenedSessions(t);
+  await show([user('u1', DAY1), taskSessionRow('plain', 'completed')]);
   await act(async () => host().querySelector('.mx-task-card .turn-changes-view').click());
   assert.deepEqual(opened, ['sess_task_9']);
 });
@@ -622,173 +652,143 @@ test('coding mode renders its rows exactly as before; agent mode frames them', a
   assert.match(agent, /class="mx-chat-row" data-side="agent"/);
 });
 
-test('agent mode shows no working status: a typing bubble while the agent works, no tool or turn rows', async (t) => {
-  const render = rowHarness(t);
-  const done = { kind: 'turndone', id: 'd1', status: 'done', elapsedMs: 3000 };
-  const finished = { ...reply('a1', DAY1), completion: done };
-  const toolRow = {
-    _tag: 'ToolActivity',
-    key: 'tools',
-    turnKey: 't',
-    items: [{ kind: 'tool', id: 'tc1', name: 'shell', args: { command: 'ls' }, status: 'done', at: DAY1 }],
-  };
-  const turnDone = {
-    _tag: 'AssistantPart',
-    key: 'td',
-    turnKey: 't',
-    item: { kind: 'turndone', id: 'd2', status: 'done', elapsedMs: 12000 },
-  };
-  const thinking = { _tag: 'Thinking', key: 'think', turnKey: 't', active: true };
-  const live = { ...reply('a2', DAY1), live: true, item: { ...reply('a2', DAY1).item, streaming: true } };
-  const show = (sessionId, rows, agentMode = true, settledItems = []) => {
-    const options = {
-      snapshot: { sessionId, busy: true },
-      disclosureScope: sessionId,
-      readOnly: true,
-      transitioning: false,
-      renderAssistantRow: undefined,
-      onOpenSettings() {},
-      settledItems,
-      settledTurnKeys: [],
-      optimisticActivityStartedAt: DAY1,
-      submit: async () => true,
-      questionCard: null,
-    };
-    function Rows() {
-      const { renderTranscriptRow } = useConversationRowRenderer({ ...options, agentMode });
-      return React.createElement(
-        React.Fragment,
-        null,
-        rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
-      );
-    }
-    return render(React.createElement(Rows));
-  };
-  const typingRow = (html) => {
-    const host = document.createElement('div');
-    host.innerHTML = html;
-    return host.querySelector('.mx-chat-typing')?.closest('.mx-chat-row') ?? null;
-  };
+const finishedReply = {
+  ...reply('a1', DAY1),
+  completion: { kind: 'turndone', id: 'd1', status: 'done', elapsedMs: 3000 },
+};
+const shellToolRow = {
+  _tag: 'ToolActivity',
+  key: 'tools',
+  turnKey: 't',
+  items: [{ kind: 'tool', id: 'tc1', name: 'shell', args: { command: 'ls' }, status: 'done', at: DAY1 }],
+};
+const turnDoneRow = {
+  _tag: 'AssistantPart',
+  key: 'td',
+  turnKey: 't',
+  item: { kind: 'turndone', id: 'd2', status: 'done', elapsedMs: 12000 },
+};
+const typingRowOf = (html) => {
+  const host = document.createElement('div');
+  host.innerHTML = html;
+  return host.querySelector('.mx-chat-typing')?.closest('.mx-chat-row') ?? null;
+};
 
-  // Working after its words: the bubble joins the agent's run.
-  const working = await show(HOME, [user('u1', DAY1), finished, toolRow, turnDone, thinking]);
+test('agent mode shows no tool, turn or working-status rows while the agent works: only a typing bubble', async (t) => {
+  const render = rowHarness(t);
+  const working = await showRows(render, HOME, [user('u1', DAY1), finishedReply, shellToolRow, turnDoneRow, THINKING]);
   for (const status of ['tool-activity', 'turn-status', 'response-footer', 'live-activity', 'thinking-status']) {
     assert.doesNotMatch(working, new RegExp(status), status);
   }
   assert.match(working, /role="status" aria-label="github-watcher is typing…"/);
-  assert.equal(typingRow(working).querySelector('.mx-chat-face'), null);
-  // Right after the user's message: under the agent's face and name.
-  const fresh = typingRow(await show(HOME, [user('u1', DAY1), thinking]));
+  assert.equal(typingRowOf(working).querySelector('.mx-chat-face'), null);
+});
+
+test("a typing bubble right after the user's message carries the agent's face and name", async (t) => {
+  const render = rowHarness(t);
+  const fresh = typingRowOf(await showRows(render, HOME, [user('u1', DAY1), THINKING]));
   assert.ok(fresh.querySelector('.mx-chat-face'));
   assert.equal(fresh.querySelector('.mx-chat-name')?.textContent, 'github-watcher');
   assert.equal(fresh.dataset.side, 'agent');
-  // While text streams the typing bubble stands for the reply (see the
-  // whole-bubble test below); its words stay out.
-  const streamingNow = await show(HOME, [user('u1', DAY1), live, thinking]);
-  assert.ok(typingRow(streamingNow));
+});
+
+test('while text streams the typing bubble stands for the reply and its words stay out', async (t) => {
+  const render = rowHarness(t);
+  const streamingNow = await showRows(render, HOME, [user('u1', DAY1), streamingTail('a2', true), THINKING]);
+  assert.ok(typingRowOf(streamingNow));
   assert.doesNotMatch(streamingNow, />a2</);
-  // A reply part that opened before its first text paints no empty bubble:
-  // the typing bubble keeps its place, with the face and name it had.
-  const opened = { ...live, item: { ...live.item, text: '' } };
-  const beforeText = await show(HOME, [user('u1', DAY1), opened, thinking]);
+});
+
+test('a reply part opened before its first text paints no empty bubble: the typing bubble keeps its face and name', async (t) => {
+  const render = rowHarness(t);
+  const beforeText = await showRows(render, HOME, [user('u1', DAY1), streamingTail('', true), THINKING]);
   assert.equal(beforeText.match(/class="message assistant/g)?.length, 1, 'only the typing bubble');
-  assert.ok(typingRow(beforeText).querySelector('.mx-chat-face'));
-  assert.equal(typingRow(beforeText).querySelector('.mx-chat-name')?.textContent, 'github-watcher');
-  // A room: the band is the typing slot. It paints the member the trailing
-  // typing row names (that row opens no row of its own), with face and name.
+  assert.ok(typingRowOf(beforeText).querySelector('.mx-chat-face'));
+  assert.equal(typingRowOf(beforeText).querySelector('.mx-chat-name')?.textContent, 'github-watcher');
+});
+
+test('a room band paints the member the trailing typing row names, and nothing when nobody types', async (t) => {
+  const render = rowHarness(t);
   const memberTyping = {
     kind: 'notice',
     id: 'ty',
     text: '',
     room: { kind: 'typing', speaker: 'bench', name: 'Bench' },
   };
-  const roomRows = [user('u1', DAY1), thinking];
-  const room = await show(ROOM, roomRows, true, [user('u1', DAY1).item, memberTyping]);
+  const roomRows = [user('u1', DAY1), THINKING];
+  const room = await showRows(render, ROOM, roomRows, true, [user('u1', DAY1).item, memberTyping]);
   assert.equal(room.match(/mx-chat-typing"/g)?.length, 1);
-  assert.equal(typingRow(room).querySelector('.mx-chat-name')?.textContent, 'Bench');
-  assert.ok(typingRow(room).querySelector('.mx-chat-face'));
+  assert.equal(typingRowOf(room).querySelector('.mx-chat-name')?.textContent, 'Bench');
+  assert.ok(typingRowOf(room).querySelector('.mx-chat-face'));
   assert.doesNotMatch(room, /agent-room-typing|mx-chat-typing-idle/);
-  // Nobody typing: no bubble and no reserved slot.
-  const between = await show(ROOM, roomRows, true, [user('u1', DAY1).item]);
-  assert.equal(typingRow(between), null);
+  const between = await showRows(render, ROOM, roomRows, true, [user('u1', DAY1).item]);
+  assert.equal(typingRowOf(between), null);
   assert.doesNotMatch(between, /mx-chat-typing|role="status"/);
+});
 
-  // Coding mode keeps every one of them.
-  const coding = await show('sess_task_1', [user('u1', DAY1), finished, toolRow, turnDone], false);
+test('coding mode keeps its tool and turn-status rows', async (t) => {
+  const render = rowHarness(t);
+  const coding = await showRows(
+    render,
+    'sess_task_1',
+    [user('u1', DAY1), finishedReply, shellToolRow, turnDoneRow],
+    false
+  );
   assert.match(coding, /tool-activity/);
   assert.match(coding, /turn-status/);
   assert.doesNotMatch(coding, /mx-chat/);
 });
 
-test('a room draws the band the core supplies: a named speaker, the hand-off, or nothing, with one footprint', async (t) => {
-  const render = rowHarness(t);
-  const thinking = { _tag: 'Thinking', key: 'think', turnKey: 't', active: true };
-  const typing = (id, speaker) => ({ kind: 'notice', id, text: '', room: { kind: 'typing', speaker, name: speaker } });
-  const deciding = {
-    kind: 'notice',
-    id: 'room-deciding',
-    text: '',
-    room: { kind: 'typing', speaker: '', name: '', deciding: true },
-  };
-  const prompt = user('u1', DAY1);
-  const s1 = speech('s1', 'alpha', DAY1);
-  const s2 = speech('s2', 'beta', DAY1);
-  const pass = { kind: 'notice', id: 'p1', room: { kind: 'pass', speaker: 'gamma' } };
-  function Rows({ settled }) {
-    const { renderTranscriptRow } = useConversationRowRenderer({
-      snapshot: { sessionId: ROOM, busy: true },
-      disclosureScope: ROOM,
-      readOnly: true,
-      transitioning: false,
-      renderAssistantRow: undefined,
-      onOpenSettings() {},
-      settledItems: settled,
-      settledTurnKeys: [],
-      optimisticActivityStartedAt: DAY1,
-      submit: async () => true,
-      questionCard: null,
-      agentMode: true,
-    });
-    const said = [s1, s2].filter((row) => settled.includes(row.item));
-    const rows = [prompt, ...said, thinking];
-    return React.createElement(
-      React.Fragment,
-      null,
-      rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
-    );
-  }
-  const bandOf = async (settled) => {
-    const host = document.createElement('div');
-    host.innerHTML = await render(React.createElement(Rows, { settled }));
-    const bubble = host.querySelector('.mx-chat-typing');
-    if (!bubble) return null;
-    const row = bubble.closest('.mx-chat-row');
-    return {
-      name: row.querySelector('.mx-chat-name')?.textContent,
-      status: bubble.getAttribute('aria-label'),
-      // What the band occupies: its elements in order, whoever it names.
-      footprint: [
-        ...row.querySelectorAll(
-          '.mx-chat-face,.mx-chat-column,.mx-chat-name,.mx-chat-line,.mx-chat-typing,.mx-chat-dots'
-        ),
-      ].map((element) => element.className.split(' ')[0]),
-    };
-  };
-  const speaker = async (settled) => (await bandOf(settled))?.name ?? null;
-  assert.equal(await speaker([prompt.item, typing('ty-a', 'alpha')]), 'alpha');
-  // No typing row, no band: nothing is held across the moment a row leaves.
-  assert.equal(await speaker([prompt.item]), null);
-  // The words arrive with the hand-off band: it replaces the speaker's bubble, no member named.
-  assert.equal(await speaker([prompt.item, s1.item, deciding]), '');
-  assert.equal(await speaker([prompt.item, s1.item, typing('ty-b', 'beta')]), 'beta');
-  assert.equal(await speaker([prompt.item, s1.item, s2.item, deciding]), '');
-  assert.equal(await speaker([prompt.item, s1.item, s2.item]), null, 'the room finished');
-  assert.equal(await speaker([prompt.item, s1.item, s2.item, typing('ty-c', 'gamma')]), 'gamma');
-  assert.equal(await speaker([prompt.item, s1.item, s2.item, pass]), null, 'a pass is no band');
+const roomTyping = (id, speaker) => ({
+  kind: 'notice',
+  id,
+  text: '',
+  room: { kind: 'typing', speaker, name: speaker },
+});
+const roomDeciding = {
+  kind: 'notice',
+  id: 'room-deciding',
+  text: '',
+  room: { kind: 'typing', speaker: '', name: '', deciding: true },
+};
+const roomPrompt = user('u1', DAY1);
+const roomS1 = speech('s1', 'alpha', DAY1);
+const roomS2 = speech('s2', 'beta', DAY1);
+const roomPass = { kind: 'notice', id: 'p1', room: { kind: 'pass', speaker: 'gamma' } };
 
-  // Named -> deciding -> named keeps the band's rendered footprint, on the desktop and on the phone (the same renderer under
-  // the mobile tabs): the same elements, and the band's name line is one fixed line (measured in real Chrome by
-  // agent-chat-band-stability.slow.test.mjs).
+const roomBandOf = (render) => async (settled) => {
+  const said = [roomS1, roomS2].filter((row) => settled.includes(row.item));
+  const host = document.createElement('div');
+  host.innerHTML = await showRows(render, ROOM, [roomPrompt, ...said, THINKING], true, settled);
+  const bubble = host.querySelector('.mx-chat-typing');
+  if (!bubble) return null;
+  const row = bubble.closest('.mx-chat-row');
+  return {
+    name: row.querySelector('.mx-chat-name')?.textContent,
+    status: bubble.getAttribute('aria-label'),
+    footprint: [
+      ...row.querySelectorAll(
+        '.mx-chat-face,.mx-chat-column,.mx-chat-name,.mx-chat-line,.mx-chat-typing,.mx-chat-dots'
+      ),
+    ].map((element) => element.className.split(' ')[0]),
+  };
+};
+
+test('a room draws the band the core supplies: a named speaker, the hand-off, or nothing', async (t) => {
+  const bandOf = roomBandOf(rowHarness(t));
+  const speaker = async (settled) => (await bandOf(settled))?.name ?? null;
+  const [prompt, s1, s2] = [roomPrompt, roomS1, roomS2];
+  assert.equal(await speaker([prompt.item, roomTyping('ty-a', 'alpha')]), 'alpha');
+  assert.equal(await speaker([prompt.item]), null);
+  assert.equal(await speaker([prompt.item, s1.item, roomDeciding]), '');
+  assert.equal(await speaker([prompt.item, s1.item, roomTyping('ty-b', 'beta')]), 'beta');
+  assert.equal(await speaker([prompt.item, s1.item, s2.item, roomDeciding]), '');
+  assert.equal(await speaker([prompt.item, s1.item, s2.item]), null, 'the room finished');
+  assert.equal(await speaker([prompt.item, s1.item, s2.item, roomTyping('ty-c', 'gamma')]), 'gamma');
+  assert.equal(await speaker([prompt.item, s1.item, s2.item, roomPass]), null, 'a pass is no band');
+});
+
+test('the room band’s name is one truncated line', () => {
   const css = readFileSync(new URL('./agent-chat.css', import.meta.url), 'utf8');
   assert.match(
     css,
@@ -796,12 +796,17 @@ test('a room draws the band the core supplies: a named speaker, the hand-off, or
     'the band name is one truncated line'
   );
   assert.doesNotMatch(css, /mx-chat-name:empty/);
-  for (const phone of [false, true]) {
+});
+
+for (const phone of [false, true]) {
+  test(`a room band keeps its rendered footprint named → deciding → named (${phone ? 'phone' : 'desktop'})`, async (t) => {
+    const bandOf = roomBandOf(rowHarness(t));
+    const [prompt, s1] = [roomPrompt, roomS1];
     if (phone) document.documentElement.setAttribute('data-mixdog-mobile-tabs', '');
     t.after(() => document.documentElement.removeAttribute('data-mixdog-mobile-tabs'));
-    const named = await bandOf([prompt.item, typing('ty-a', 'alpha')]);
-    const handOff = await bandOf([prompt.item, s1.item, deciding]);
-    const next = await bandOf([prompt.item, s1.item, typing('ty-b', 'beta')]);
+    const named = await bandOf([prompt.item, roomTyping('ty-a', 'alpha')]);
+    const handOff = await bandOf([prompt.item, s1.item, roomDeciding]);
+    const next = await bandOf([prompt.item, s1.item, roomTyping('ty-b', 'beta')]);
     assert.deepEqual(
       handOff.footprint,
       named.footprint,
@@ -812,8 +817,8 @@ test('a room draws the band the core supplies: a named speaker, the hand-off, or
     // Its own status, not "<nobody> is typing".
     assert.equal(handOff.status, 'Choosing who speaks next…');
     assert.match(named.status, /alpha is typing…/);
-  }
-});
+  });
+}
 
 function composerProps(calls, overrides = {}) {
   return {
@@ -914,14 +919,14 @@ async function mountComposer(t) {
 const textOf = (content) =>
   typeof content === 'string' ? content : content.find((part) => part.type === 'text')?.text;
 
-test('the agent-mode composer: an editable route under it, `/` and `$` are text, `@` tags a room member', async (t) => {
+const publishReleaseRoom = (members = ['bench', 'release']) =>
   publishAgentRooms([
     {
       id: ROOM,
       agentRoom: {
         id: 'release01',
         name: '릴리스 점검',
-        members: ['bench', 'release'],
+        members,
         memberNames: { bench: 'Bench', release: '릴리스 관리' },
         maxRounds: 1,
         maxMessages: 6,
@@ -929,16 +934,21 @@ test('the agent-mode composer: an editable route under it, `/` and `$` are text,
       },
     },
   ]);
+
+async function mountReleaseRoomComposer(t, overrides = {}) {
+  publishReleaseRoom();
   t.after(() => publishAgentRooms([]));
   const calls = [];
-  const { host, type, key, render } = await mountComposer(t);
-  await render(
-    composerProps(calls, {
-      agentMode: true,
-      modelAside: React.createElement('i', { id: 'gauge' }),
-      usageReadout: React.createElement('i', { id: 'readout' }),
-    })
-  );
+  const mounted = await mountComposer(t);
+  await mounted.render(composerProps(calls, { agentMode: true, ...overrides }));
+  return { ...mounted, calls };
+}
+
+test('the agent-mode room composer: no picker or gauge inside the bar, the readout line under it', async (t) => {
+  const { host } = await mountReleaseRoomComposer(t, {
+    modelAside: React.createElement('i', { id: 'gauge' }),
+    usageReadout: React.createElement('i', { id: 'readout' }),
+  });
   const form = host.querySelector('form.composer');
   assert.equal(form.dataset.chatMode, 'agent');
   assert.equal(form.querySelector('.route-controls'), null, 'no model control inside the bar');
@@ -949,7 +959,10 @@ test('the agent-mode composer: an editable route under it, `/` and `$` are text,
   assert.equal(line.querySelector('.route-controls, .model-trigger, #gauge, .composer-model-aside'), null);
   assert.ok(form.querySelector('.composer-footer .composer-tool'), 'the room keeps its add menu');
   assert.ok(form.querySelector('.composer-footer .send-button'), 'the room keeps send');
+});
 
+test('the agent-mode composer: `/` and `$` are text', async (t) => {
+  const { type, key, calls } = await mountReleaseRoomComposer(t);
   await type('/');
   assert.equal(document.getElementById('composer-slash-palette'), null);
   await type('$de');
@@ -957,7 +970,10 @@ test('the agent-mode composer: an editable route under it, `/` and `$` are text,
   await type('/model');
   await key('Enter');
   assert.deepEqual(calls.map(textOf), ['/model'], 'a slash line goes out as typed');
+});
 
+test('the agent-mode room composer: `@` tags a member who then answers on the /ask path', async (t) => {
+  const { host, type, key, calls } = await mountReleaseRoomComposer(t);
   await type('@be');
   const palette = document.getElementById('composer-room-ask-palette');
   assert.ok(palette, '@ opens the member picker');
@@ -971,8 +987,10 @@ test('the agent-mode composer: an editable route under it, `/` and `$` are text,
   await key('Enter');
   assert.equal(textOf(calls.at(-1)), '/ask bench 서명 확인해 줘', 'the tagged member answers on the /ask path');
   assert.equal(host.querySelector('.mx-chat-tag'), null);
+});
 
-  // ↑/↓ move the highlight through the candidates; Enter tags the highlighted one.
+test('the agent-mode room composer: ↑/↓ move the highlight through the candidates; Enter tags the highlighted one', async (t) => {
+  const { host, type, key } = await mountReleaseRoomComposer(t);
   await type('@');
   const options = () => [...document.querySelectorAll('#composer-room-ask-palette [role="option"]')];
   assert.ok(options().length > 1, 'every member is a candidate');
@@ -987,8 +1005,11 @@ test('the agent-mode composer: an editable route under it, `/` and `$` are text,
   await key('ArrowDown');
   await key('Enter');
   assert.equal(host.querySelector('.mx-chat-tag')?.textContent, `@${second}`);
+});
 
-  // A bot's 1:1 chat keeps its model control and context gauge, and its `@` opens nothing (yet).
+test("a bot's 1:1 agent-mode chat keeps its model control and context gauge, and its `@` opens nothing", async (t) => {
+  const calls = [];
+  const { host, type, render } = await mountComposer(t);
   await render(
     composerProps(calls, {
       agentMode: true,
@@ -1007,26 +1028,7 @@ test('the agent-mode composer: an editable route under it, `/` and `$` are text,
 });
 
 test('a room composer’s @ offers Everyone: it addresses each current member once, never a bot that left', async (t) => {
-  const publish = (members) =>
-    publishAgentRooms([
-      {
-        id: ROOM,
-        agentRoom: {
-          id: 'release01',
-          name: '릴리스 점검',
-          members,
-          memberNames: { bench: 'Bench', release: '릴리스 관리' },
-          maxRounds: 1,
-          maxMessages: 6,
-          shareTools: false,
-        },
-      },
-    ]);
-  publish(['bench', 'release']);
-  t.after(() => publishAgentRooms([]));
-  const calls = [];
-  const { host, type, key, render } = await mountComposer(t);
-  await render(composerProps(calls, { agentMode: true }));
+  const { host, type, key, calls } = await mountReleaseRoomComposer(t);
   // The room's composer keeps its tags between mounts: start from none.
   await act(async () => host.querySelector('.mx-chat-tag')?.click());
   const options = () => [...document.querySelectorAll('#composer-room-ask-palette [role="option"]')];
@@ -1071,7 +1073,7 @@ test('a room composer’s @ offers Everyone: it addresses each current member on
   // Everyone means the room as it is when the message goes out.
   await type('@all');
   await key('Enter');
-  publish(['bench']);
+  publishReleaseRoom(['bench']);
   await type('@');
   assert.deepEqual(
     options().map((option) => option.textContent),
@@ -1084,24 +1086,7 @@ test('a room composer’s @ offers Everyone: it addresses each current member on
 });
 
 test('a room composer’s @all inside a Markdown code fence is text: no picker opens and Enter tags nobody', async (t) => {
-  publishAgentRooms([
-    {
-      id: ROOM,
-      agentRoom: {
-        id: 'release01',
-        name: '릴리스 점검',
-        members: ['bench', 'release'],
-        memberNames: { bench: 'Bench', release: '릴리스 관리' },
-        maxRounds: 1,
-        maxMessages: 6,
-        shareTools: false,
-      },
-    },
-  ]);
-  t.after(() => publishAgentRooms([]));
-  const calls = [];
-  const { host, type, key, render } = await mountComposer(t);
-  await render(composerProps(calls, { agentMode: true }));
+  const { host, type, key } = await mountReleaseRoomComposer(t);
   await act(async () => host.querySelector('.mx-chat-tag')?.click());
   const palette = () => document.getElementById('composer-room-ask-palette');
 
@@ -1252,26 +1237,15 @@ test('desktop agent rows open as tabs like sessions; the phone slot helper keeps
   assert.equal(agentChatSlotKey(leaf, session('sess_home_translator')), 'session:sess_home_lead');
 });
 
-test('a visualize open leaves one card at turn end, above the changed-files line; an earlier card opens its own version', async (t) => {
+async function mountVisualize(t, initialChangedPaths = ['src/b.ts']) {
   const { resyncVisualizeStates } = await import('./visualize-store.ts');
   const { TurnChangesContext } = await import('./TurnChangesCard.tsx');
   const { resetTurnChangesCache } = await import('./turn-changes-model.ts');
   const render = rowHarness(t);
   const SESSION = 'sess_home_lead';
   const commands = [];
-  // The turn's changed files (the visualized `site/a.html` is not one of them
-  // until the last check: a visualized file shows as its card, not a diff).
-  let changedPaths = ['src/b.ts'];
-  // The card's own picture reads (`thumbnail`) are not what is checked here.
-  const sent = {
-    get length() {
-      return commands.length;
-    },
-    set length(value) {
-      commands.length = value;
-    },
-    map: (fn) => commands.filter((command) => command.action !== 'thumbnail').map(fn),
-  };
+  let changedPaths = initialChangedPaths;
+  resetTurnChangesCache();
   const previous = window.mixdogDesktop;
   window.mixdogDesktop = {
     ...previous,
@@ -1330,48 +1304,50 @@ test('a visualize open leaves one card at turn end, above the changed-files line
         revision: newest,
         panes: [{ target: 'site/a.html' }],
         versions: Array.from({ length: newest }, (_, index) => ({ n: index + 1 })),
-        // The picture its last turn's end took, of its newest version.
         ...(newest > 1 ? { thumbnail: 'data:image/png;base64,VjI=', thumbnailVersion: newest } : {}),
       },
     ],
   });
-  const show = (rows, agentMode = true) => {
-    const options = {
-      snapshot: { sessionId: SESSION },
-      disclosureScope: SESSION,
-      readOnly: false,
-      transitioning: false,
-      renderAssistantRow: undefined,
-      onOpenSettings() {},
-      settledItems: [],
-      settledTurnKeys: [],
-      optimisticActivityStartedAt: 0,
-      submit: async () => true,
-      questionCard: null,
-    };
-    function Rows() {
-      const { renderTranscriptRow } = useConversationRowRenderer({ ...options, agentMode });
-      return React.createElement(
-        TurnChangesContext.Provider,
-        {
-          value: {
-            sessionId: SESSION,
-            busy: false,
-            turnRunning: false,
-            onOpenSessionDiff() {},
-            onOpenFile() {},
-          },
-        },
-        rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
-      );
-    }
-    return render(React.createElement(Rows));
+  const context = {
+    sessionId: SESSION,
+    busy: false,
+    turnRunning: false,
+    onOpenSessionDiff() {},
+    onOpenFile() {},
   };
+  const show = (rows, agentMode = true) =>
+    renderRows(render, rowOptions(SESSION, { agentMode }), rows, {
+      wrap: (children) => React.createElement(TurnChangesContext.Provider, { value: context }, children),
+    });
   const host = () => document.querySelector('main');
-  const cards = () => [...host().querySelectorAll('.transcript-visualize-tile')];
-  const turnCards = () => [...host().querySelectorAll('.transcript-visualize-turn[data-artifact="visualize"]')];
+  return {
+    show,
+    open,
+    host,
+    seedTab: (newest) => resyncVisualizeStates([tabAt(newest)]),
+    setChangedPaths: (paths) => {
+      changedPaths = paths;
+      resetTurnChangesCache();
+    },
+    cards: () => [...host().querySelectorAll('.transcript-visualize-tile')],
+    turnCards: () => [...host().querySelectorAll('.transcript-visualize-turn[data-artifact="visualize"]')],
+    sentCommands: () => commands.filter((command) => command.action !== 'thumbnail'),
+    clearCommands: () => {
+      commands.length = 0;
+    },
+  };
+}
 
-  resyncVisualizeStates([tabAt(1)]);
+const visualizeAnswer = {
+  ...reply('a9', DAY1),
+  turnKey: 'f',
+  turnChanges: { checkpointId: 'cp', boundary: 'done-f', trailing: false },
+};
+const nodeFollows = (a, b) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+test('a visualize open leaves one compact card in the bubble column at turn end', async (t) => {
+  const { show, open, host, cards, seedTab } = await mountVisualize(t);
+  seedTab(1);
   await show([user('u1', DAY1), open('e', 100)]);
   assert.equal(cards().length, 1);
   const [first] = cards();
@@ -1388,27 +1364,26 @@ test('a visualize open leaves one card at turn end, above the changed-files line
     'Show all'
   );
   assert.doesNotMatch(host().innerHTML, /tool-activity/);
+});
 
-  // A later turn opens the tab again (v2): two cards, the earlier on v1;
-  // a turn's cards close it, under its reply and above its changed files.
-  resyncVisualizeStates([tabAt(2)]);
-  const answer = {
-    ...reply('a9', DAY1),
-    turnKey: 'f',
-    turnChanges: { checkpointId: 'cp', boundary: 'done-f', trailing: false },
-  };
-  await show([user('u1', DAY1), open('e', 100), user('u2', DAY1), open('f', 200), answer]);
+test('a later turn opening the tab again leaves one card per turn, the latter closing its turn under the reply, with no changed-files card in a bot chat', async (t) => {
+  const { show, open, host, cards, turnCards, seedTab } = await mountVisualize(t);
+  seedTab(2);
+  await show([user('u1', DAY1), open('e', 100), user('u2', DAY1), open('f', 200), visualizeAnswer]);
   const rows = [...host().querySelectorAll('.mx-chat-row')];
-  // A bot chat shows no changed-files card; the visualize card closes the turn.
   assert.equal(host().querySelector('.turn-changes-card'), null, 'no changed-files card in a bot chat');
   assert.ok(rows.at(-1).contains(cards()[1]), 'the visualize card closes the turn');
   assert.equal(turnCards().length, 2, 'one card per turn');
   assert.equal(rows.at(-2)?.dataset.side, 'agent', 'under the reply');
+});
+
+test('each visualize card shows its own version: the earlier one folded on v1, the newest open on v2', async (t) => {
+  const { show, open, cards, seedTab } = await mountVisualize(t);
+  seedTab(2);
+  await show([user('u1', DAY1), open('e', 100), user('u2', DAY1), open('f', 200), visualizeAnswer]);
   assert.equal(cards()[0].querySelector('.transcript-visualize-badge.is-version').textContent, 'Version 1');
   assert.equal(cards()[0].querySelector('.transcript-visualize-status'), null, 'no status words, only the version');
   assert.equal(cards()[0].getAttribute('aria-label'), `${cards()[0].querySelector('b').textContent}, Version 1`);
-  // Each card on its own version's picture: the newest from the tab, the
-  // earlier one kept by the host for version 1 (never the tab's v2 picture).
   assert.deepEqual(
     cards().map((card) => card.querySelector('.transcript-visualize-thumb img')?.getAttribute('src')),
     ['data:image/png;base64,VjE=', 'data:image/png;base64,VjI=']
@@ -1420,91 +1395,105 @@ test('a visualize open leaves one card at turn end, above the changed-files line
       ['open', '2'],
     ]
   );
-  sent.length = 0;
+});
+
+test('clicking an earlier visualize card activates its tab at its version; the newest card shows live', async (t) => {
+  const { show, open, cards, seedTab, sentCommands, clearCommands } = await mountVisualize(t);
+  seedTab(2);
+  await show([user('u1', DAY1), open('e', 100), user('u2', DAY1), open('f', 200), visualizeAnswer]);
+  clearCommands();
   await act(async () => cards()[0].click());
   assert.deepEqual(
-    sent.map((command) => [command.action, command.tabId, command.version]),
+    sentCommands().map((command) => [command.action, command.tabId, command.version]),
     [
       ['activate', 'v1', undefined],
       ['version', 'v1', 1],
     ]
   );
-  sent.length = 0;
+  clearCommands();
   await act(async () => cards()[1].click());
   assert.deepEqual(
-    sent.map((command) => command.action),
+    sentCommands().map((command) => command.action),
     ['activate'],
     'the newest card shows live'
   );
+});
 
-  // Coding mode seats the same turn-end card (not compact), outside the tool group.
+test('coding mode seats the same turn-end card, not compact, outside the tool group', async (t) => {
+  const { show, open, host, seedTab } = await mountVisualize(t);
+  seedTab(2);
   await show([user('u1', DAY1), open('g', 300)], false);
   assert.equal(host().querySelector('.is-compact'), null);
   assert.ok(host().querySelector('.transcript-visualize-turn'));
   assert.equal(host().querySelector('.tool-activity .transcript-visualize-tile'), null);
+});
 
-  // No card while the turn runs, in either mode: not under its live band
-  // (thinking), not under a streaming reply.
-  const thinking = { _tag: 'Thinking', key: 'th', turnKey: 'f', active: true };
-  const streaming = { ...reply('live', DAY1), turnKey: 'f', active: true, live: true };
-  for (const agentMode of [true, false]) {
+for (const agentMode of [true, false]) {
+  test(`no visualize card while the turn runs, under its live band or a streaming reply (agentMode ${agentMode})`, async (t) => {
+    const { show, open, cards, seedTab } = await mountVisualize(t);
+    seedTab(2);
+    const thinking = { _tag: 'Thinking', key: 'th', turnKey: 'f', active: true };
+    const streaming = { ...reply('live', DAY1), turnKey: 'f', active: true, live: true };
     await show([user('u1', DAY1), open('f', 200), thinking], agentMode);
-    assert.equal(cards().length, 0, `no card while thinking (agentMode ${agentMode})`);
+    assert.equal(cards().length, 0, 'no card while thinking');
     await show([user('u1', DAY1), open('f', 200), streaming], agentMode);
-    assert.equal(cards().length, 0, `no card while streaming (agentMode ${agentMode})`);
-  }
+    assert.equal(cards().length, 0, 'no card while streaming');
+  });
+}
 
-  // Coding mode: reply → visualize card → changes card, by document order.
-  const follows = (a, b) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-  await show([user('u1', DAY1), open('f', 200), answer], false);
+test('coding mode orders reply, visualize card, then changes card', async (t) => {
+  const { show, open, host, cards, seedTab } = await mountVisualize(t);
+  seedTab(2);
+  await show([user('u1', DAY1), open('f', 200), visualizeAnswer], false);
   assert.equal(cards().length, 1);
   const replyText = [...host().querySelectorAll('*')].find(
     (node) => node.children.length === 0 && node.textContent === 'a9'
   );
   const codingChanges = host().querySelector('.turn-changes-card');
   assert.ok(replyText && codingChanges);
-  assert.ok(follows(replyText, cards()[0]), 'the card follows the reply');
-  assert.ok(follows(cards()[0], codingChanges), 'the changes card follows the card');
+  assert.ok(nodeFollows(replyText, cards()[0]), 'the card follows the reply');
+  assert.ok(nodeFollows(cards()[0], codingChanges), 'the changes card follows the card');
+});
 
-  // An error that ends the turn: its card also sits above the changed files.
-  const failed = {
-    _tag: 'Error',
-    key: 'err',
-    turnKey: 'f',
-    item: { kind: 'error', id: 'err', text: 'boom', at: DAY1 },
-    failures: [],
-    turnChanges: { checkpointId: 'cp', boundary: 'done-f', trailing: false },
-  };
-  for (const agentMode of [true, false]) {
+for (const agentMode of [true, false]) {
+  test(`an error that ends the turn still leaves its visualize card, above the changed files in coding mode (agentMode ${agentMode})`, async (t) => {
+    const { show, open, host, cards, seedTab } = await mountVisualize(t);
+    seedTab(2);
+    const failed = {
+      _tag: 'Error',
+      key: 'err',
+      turnKey: 'f',
+      item: { kind: 'error', id: 'err', text: 'boom', at: DAY1 },
+      failures: [],
+      turnChanges: { checkpointId: 'cp', boundary: 'done-f', trailing: false },
+    };
     await show([user('u1', DAY1), open('f', 200), failed], agentMode);
-    assert.equal(cards().length, 1, `one card (agentMode ${agentMode})`);
+    assert.equal(cards().length, 1, 'one card');
     const errorChanges = host().querySelector('.turn-changes-card');
     if (agentMode) {
       assert.equal(errorChanges, null, 'a bot chat shows no changes card');
-      continue;
+      return;
     }
     assert.ok(errorChanges, 'coding mode keeps its changes card');
-    assert.ok(follows(cards()[0], errorChanges), 'card above the changes');
-  }
+    assert.ok(nodeFollows(cards()[0], errorChanges), 'card above the changes');
+  });
+}
 
-  // The changed file is the one the turn visualized: its card stands in for
-  // the diff, so no changes card (either mode), and the card carries the Undo.
-  changedPaths = ['site/a.html'];
-  resetTurnChangesCache();
-  for (const agentMode of [true, false]) {
-    await show([user('u1', DAY1), open('f', 200), answer], agentMode);
-    assert.equal(cards().length, 1, `the visualize card stays (agentMode ${agentMode})`);
-    assert.equal(host().querySelector('.turn-changes-card'), null, `no changes card (agentMode ${agentMode})`);
-    assert.equal(
-      turnCards()[0].querySelector('.turn-changes-action')?.textContent,
-      'Undo',
-      `Undo on the card (agentMode ${agentMode})`
-    );
-  }
-  // Another file changed too: the changes card lists only that one, and Undo stays there.
-  changedPaths = ['site/a.html', 'src/b.ts'];
-  resetTurnChangesCache();
-  await show([user('u1', DAY1), open('f', 200), answer], false);
+for (const agentMode of [true, false]) {
+  test(`when the changed file is the visualized one its card stands in for the diff and carries Undo (agentMode ${agentMode})`, async (t) => {
+    const { show, open, host, cards, turnCards, seedTab } = await mountVisualize(t, ['site/a.html']);
+    seedTab(2);
+    await show([user('u1', DAY1), open('f', 200), visualizeAnswer], agentMode);
+    assert.equal(cards().length, 1, 'the visualize card stays');
+    assert.equal(host().querySelector('.turn-changes-card'), null, 'no changes card');
+    assert.equal(turnCards()[0].querySelector('.turn-changes-action')?.textContent, 'Undo', 'Undo on the card');
+  });
+}
+
+test('when another file changed too the changes card lists only that one and Undo stays there', async (t) => {
+  const { show, open, host, turnCards, seedTab } = await mountVisualize(t, ['site/a.html', 'src/b.ts']);
+  seedTab(2);
+  await show([user('u1', DAY1), open('f', 200), visualizeAnswer], false);
   assert.deepEqual(
     [...host().querySelectorAll('.turn-changes-base')].map((node) => node.textContent),
     ['b.ts']
@@ -1513,102 +1502,79 @@ test('a visualize open leaves one card at turn end, above the changed-files line
   assert.ok(host().querySelector('.turn-changes-card .turn-changes-action'));
 });
 
-test('a visualize card follows the whole reply: text before the call, the call, text after it (coding and agent mode)', async (t) => {
+const followFlowTab = {
+  sessionId: 'sess_home_lead',
+  active: 'v1',
+  tabs: [{ id: 'v1', label: 'Flow', revision: 1, panes: [{ target: 'a.html' }], versions: [{ n: 1 }] }],
+};
+const followFlowOpen = {
+  _tag: 'ToolActivity',
+  key: 'open',
+  turnKey: 'f',
+  items: [
+    {
+      id: 'open',
+      kind: 'tool',
+      name: 'visualize',
+      args: { action: 'open', input: { targets: ['a.html'], label: 'Flow' } },
+      result: 'Showing a.html (html) in the side panel as tab v1.',
+      status: 'done',
+      startedAt: 100,
+      completedAt: 101,
+    },
+  ],
+};
+const followFlowBefore = { ...reply('before-text', DAY1), turnKey: 'f' };
+const followFlowAfter = { ...reply('after-text', DAY1), turnKey: 'f' };
+
+async function mountFollowFlow(t, agentMode) {
   const { resyncVisualizeStates } = await import('./visualize-store.ts');
   const render = rowHarness(t);
-  const SESSION = 'sess_home_lead';
   const previous = window.mixdogDesktop;
   window.mixdogDesktop = { ...previous, visualizeCommand: async () => undefined };
   t.after(() => {
     window.mixdogDesktop = previous;
     resyncVisualizeStates([]);
   });
-  resyncVisualizeStates([
-    {
-      sessionId: SESSION,
-      active: 'v1',
-      tabs: [{ id: 'v1', label: 'Flow', revision: 1, panes: [{ target: 'a.html' }], versions: [{ n: 1 }] }],
-    },
-  ]);
-  const turn = (item) => ({ ...item, turnKey: 'f' });
-  const open = {
-    _tag: 'ToolActivity',
-    key: 'open',
-    turnKey: 'f',
-    items: [
-      {
-        id: 'open',
-        kind: 'tool',
-        name: 'visualize',
-        args: { action: 'open', input: { targets: ['a.html'], label: 'Flow' } },
-        result: 'Showing a.html (html) in the side panel as tab v1.',
-        status: 'done',
-        startedAt: 100,
-        completedAt: 101,
-      },
-    ],
-  };
-  const before = turn(reply('before-text', DAY1));
-  const after = turn(reply('after-text', DAY1));
-  const follows = (a, b) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-  const show = async (rows, agentMode) => {
-    const options = {
-      snapshot: { sessionId: SESSION },
-      disclosureScope: SESSION,
-      readOnly: false,
-      transitioning: false,
-      renderAssistantRow: undefined,
-      onOpenSettings() {},
-      settledItems: [],
-      settledTurnKeys: [],
-      optimisticActivityStartedAt: 0,
-      submit: async () => true,
-      questionCard: null,
-    };
-    function Rows() {
-      const { renderTranscriptRow } = useConversationRowRenderer({ ...options, agentMode });
-      return React.createElement(
-        'div',
-        null,
-        rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
-      );
-    }
-    await render(React.createElement(Rows));
-  };
+  resyncVisualizeStates([followFlowTab]);
+  const show = (rows) =>
+    renderRows(render, rowOptions('sess_home_lead', { agentMode }), rows, {
+      wrap: (children) => React.createElement('div', null, children),
+    });
   const textNode = (label) =>
     [...document.querySelectorAll('main *')].find((node) => node.children.length === 0 && node.textContent === label);
-  for (const agentMode of [false, true]) {
-    await show([user('u1', DAY1), before, open, after], agentMode);
-    const card = document.querySelector('main .transcript-visualize-turn');
-    assert.ok(card, `the card is drawn (agentMode ${agentMode})`);
-    assert.ok(
-      follows(textNode('before-text'), card),
-      `the card follows the text before the call (agentMode ${agentMode})`
-    );
-    assert.ok(
-      follows(textNode('after-text'), card),
-      `the card follows the text after the call (agentMode ${agentMode})`
-    );
-    // The call is the last row of the turn: the card closes it, under the earlier text.
-    await show([user('u1', DAY1), before, open], agentMode);
-    const closing = document.querySelector('main .transcript-visualize-turn');
-    assert.ok(closing, `a turn ending on the call still draws it (agentMode ${agentMode})`);
-    assert.ok(follows(textNode('before-text'), closing), `under the text before the call (agentMode ${agentMode})`);
-    // While the reply after the call streams, no card shows above or beside it.
-    await show([user('u1', DAY1), before, open, { ...after, active: true, live: true }], agentMode);
-    assert.equal(
-      document.querySelectorAll('main .transcript-visualize-turn').length,
-      0,
-      `none while streaming (agentMode ${agentMode})`
-    );
-  }
-});
+  return { show, textNode };
+}
 
-test('a turn leaves ONE visualize card: a tile per distinct tab on its final version, Show all brings them all up, the first last', async (t) => {
+for (const agentMode of [false, true]) {
+  test(`a visualize card follows the text before the call and the text after it (agentMode ${agentMode})`, async (t) => {
+    const { show, textNode } = await mountFollowFlow(t, agentMode);
+    await show([user('u1', DAY1), followFlowBefore, followFlowOpen, followFlowAfter]);
+    const card = document.querySelector('main .transcript-visualize-turn');
+    assert.ok(card, 'the card is drawn');
+    assert.ok(nodeFollows(textNode('before-text'), card), 'the card follows the text before the call');
+    assert.ok(nodeFollows(textNode('after-text'), card), 'the card follows the text after the call');
+  });
+
+  test(`a turn ending on the visualize call still draws the card under the earlier text (agentMode ${agentMode})`, async (t) => {
+    const { show, textNode } = await mountFollowFlow(t, agentMode);
+    await show([user('u1', DAY1), followFlowBefore, followFlowOpen]);
+    const closing = document.querySelector('main .transcript-visualize-turn');
+    assert.ok(closing, 'a turn ending on the call still draws it');
+    assert.ok(nodeFollows(textNode('before-text'), closing), 'under the text before the call');
+  });
+
+  test(`no visualize card shows while the reply after the call streams (agentMode ${agentMode})`, async (t) => {
+    const { show } = await mountFollowFlow(t, agentMode);
+    await show([user('u1', DAY1), followFlowBefore, followFlowOpen, { ...followFlowAfter, active: true, live: true }]);
+    assert.equal(document.querySelectorAll('main .transcript-visualize-turn').length, 0);
+  });
+}
+
+async function mountTurnCard(t, agentMode) {
   const { resyncVisualizeStates, setVisualizePanelOnScreen } = await import('./visualize-store.ts');
   const render = rowHarness(t);
   const SESSION = 'sess_home_lead_turncard';
-  // The panel is open on screen: its active tab's tile is outlined.
   setVisualizePanelOnScreen(SESSION, true);
   const commands = [];
   const previous = window.mixdogDesktop;
@@ -1632,16 +1598,13 @@ test('a turn leaves ONE visualize card: a tile per distinct tab on its final ver
     versions: [{ n: 1 }, { n: 2 }],
     ...extra,
   });
-  // v1 is shown in the panel (and has a page problem); v2 is open behind it; v3 was closed.
-  const seed = () =>
-    resyncVisualizeStates([
-      {
-        sessionId: SESSION,
-        active: 'v1',
-        tabs: [tab('v1', 'Login', 'a.html', { problems: [{ message: 'x' }] }), tab('v2', 'Settings', 'b.html')],
-      },
-    ]);
-
+  resyncVisualizeStates([
+    {
+      sessionId: SESSION,
+      active: 'v1',
+      tabs: [tab('v1', 'Login', 'a.html', { problems: [{ message: 'x' }] }), tab('v2', 'Settings', 'b.html')],
+    },
+  ]);
   const call = (id, file, tabId, label, at) => ({
     id,
     kind: 'tool',
@@ -1664,46 +1627,32 @@ test('a turn leaves ONE visualize card: a tile per distinct tab on its final ver
       _tag: 'ToolActivity',
       key: 'g2',
       turnKey: 'f',
-      // The same tab opened again later in the turn: still one tile.
       items: [call('c3', 'a.html', 'v1', 'Login', 120), call('c4', 'c.html', 'v3', 'Closed one', 130)],
     },
     { ...reply('done', DAY1), turnKey: 'f' },
   ];
-  for (const agentMode of [false, true]) {
-    seed();
-    commands.length = 0;
-    const options = {
-      snapshot: { sessionId: SESSION },
-      disclosureScope: SESSION,
-      readOnly: false,
-      transitioning: false,
-      renderAssistantRow: undefined,
-      onOpenSettings() {},
-      settledItems: [],
-      settledTurnKeys: [],
-      optimisticActivityStartedAt: 0,
-      submit: async () => true,
-      questionCard: null,
-    };
-    function Rows() {
-      const { renderTranscriptRow } = useConversationRowRenderer({ ...options, agentMode });
-      return React.createElement(
-        'div',
-        null,
-        rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
-      );
-    }
-    await render(React.createElement(Rows));
-    const cards = [...document.querySelectorAll('main .transcript-visualize-turn')];
-    assert.equal(cards.length, 1, `one card for the turn (agentMode ${agentMode})`);
+  await renderRows(render, rowOptions(SESSION, { agentMode }), rows, {
+    wrap: (children) => React.createElement('div', null, children),
+  });
+  const cards = [...document.querySelectorAll('main .transcript-visualize-turn')];
+  return { cards, tiles: [...(cards[0]?.querySelectorAll('.transcript-visualize-tile') ?? [])], commands };
+}
+
+for (const agentMode of [false, true]) {
+  test(`a turn leaves ONE visualize card with a tile per distinct tab, the reopened one counted once (agentMode ${agentMode})`, async (t) => {
+    const { cards, tiles } = await mountTurnCard(t, agentMode);
+    assert.equal(cards.length, 1, 'one card for the turn');
     assert.equal(cards[0].classList.contains('is-compact'), agentMode);
     assert.equal(cards[0].querySelector('.transcript-visualize-title').textContent, 'Previews 3');
-    const tiles = [...cards[0].querySelectorAll('.transcript-visualize-tile')];
     assert.deepEqual(
       tiles.map((tile) => tile.dataset.visualizeTab),
       ['v2', 'v1', 'v3'],
       'a tile per tab; the reopened one counted once'
     );
+  });
+
+  test(`visualize tiles show the tab on its final version: shown, closed, current, problem badge, no status words (agentMode ${agentMode})`, async (t) => {
+    const { tiles } = await mountTurnCard(t, agentMode);
     assert.deepEqual(
       tiles.map((tile) => [tile.classList.contains('is-shown'), tile.classList.contains('is-closed')]),
       [
@@ -1724,7 +1673,10 @@ test('a turn leaves ONE visualize card: a tile per distinct tab on its final ver
       'no status words'
     );
     assert.ok(tiles[1].querySelector('.transcript-visualize-badge.is-problem'), 'page problems badge');
-    // A tile reveals its own tab; a closed one opens again.
+  });
+
+  test(`a visualize tile reveals its own tab and a closed one opens again (agentMode ${agentMode})`, async (t) => {
+    const { tiles, commands } = await mountTurnCard(t, agentMode);
     await act(async () => tiles[0].click());
     assert.deepEqual(
       commands.map((command) => [command.action, command.tabId]),
@@ -1736,8 +1688,10 @@ test('a turn leaves ONE visualize card: a tile per distinct tab on its final ver
       commands.map((command) => [command.action, command.tabId, command.targets]),
       [['reopen', 'v3', ['c.html']]]
     );
-    // Show all: every tab comes up, the first tile's tab shown last.
-    commands.length = 0;
+  });
+
+  test(`Show all brings every tab up, the first tile's tab shown last (agentMode ${agentMode})`, async (t) => {
+    const { cards, commands } = await mountTurnCard(t, agentMode);
     await act(async () => cards[0].querySelector('.transcript-visualize-all').click());
     assert.deepEqual(
       commands.map((command) => [command.action, command.tabId]),
@@ -1747,8 +1701,8 @@ test('a turn leaves ONE visualize card: a tile per distinct tab on its final ver
         ['activate', 'v2'],
       ]
     );
-  }
-});
+  });
+}
 
 test('a connect card shows in a bot chat even when the round also holds an answered question', async (t) => {
   const render = rowHarness(t);
@@ -1771,31 +1725,7 @@ test('a connect card shows in a bot chat even when the round also holds an answe
     at: DAY1,
   });
   const round = (items) => ({ _tag: 'ToolActivity', key: 'tools', turnKey: 'c', items });
-  const options = {
-    snapshot: { sessionId: HOME },
-    disclosureScope: HOME,
-    readOnly: false,
-    transitioning: false,
-    renderAssistantRow: undefined,
-    onOpenSettings() {},
-    settledItems: [],
-    settledTurnKeys: [],
-    optimisticActivityStartedAt: 0,
-    submit: async () => true,
-    questionCard: null,
-    agentMode: true,
-  };
-  const show = async (rows) => {
-    function Rows() {
-      const { renderTranscriptRow } = useConversationRowRenderer(options);
-      return React.createElement(
-        React.Fragment,
-        null,
-        rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
-      );
-    }
-    return render(React.createElement(Rows));
-  };
+  const show = (rows) => renderRows(render, rowOptions(HOME), rows);
   const cards = () => document.querySelectorAll('main [data-connector-card="gmail"]').length;
   await show([{ ...user('c', DAY1), turnKey: 'c' }, round([connect('s1')])]);
   assert.equal(cards(), 1, 'a connect-only round shows its card');
@@ -1819,31 +1749,7 @@ test("a bot chat shows a terminal card for a completed run, which reveals that r
   });
   const reply = `Terminal run: ${terminalId} · 2 pwsh running C:\\work · cursor=42\nCommand sent to the side terminal.`;
   const round = (items) => ({ _tag: 'ToolActivity', key: 'tools', turnKey: 'c', items });
-  const options = {
-    snapshot: { sessionId: HOME },
-    disclosureScope: HOME,
-    readOnly: false,
-    transitioning: false,
-    renderAssistantRow: undefined,
-    onOpenSettings() {},
-    settledItems: [],
-    settledTurnKeys: [],
-    optimisticActivityStartedAt: 0,
-    submit: async () => true,
-    questionCard: null,
-    agentMode: true,
-  };
-  const show = async (rows) => {
-    function Rows() {
-      const { renderTranscriptRow } = useConversationRowRenderer(options);
-      return React.createElement(
-        React.Fragment,
-        null,
-        rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
-      );
-    }
-    return render(React.createElement(Rows));
-  };
+  const show = (rows) => renderRows(render, rowOptions(HOME), rows);
   const revealed = [];
   let stop = () => {};
   await act(async () => {
@@ -1878,26 +1784,73 @@ test("a bot chat shows a terminal card for a completed run, which reveals that r
   assert.equal(cards().length, 1, 'the terminal card is not dropped by the connector card');
 });
 
-test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sent to" line, the reply the answering bot', async (t) => {
+const MARKETER = 'agent-12c3dee5bf';
+const botMessage = (id, extra = {}) => ({
+  _tag: 'UserMessage',
+  key: id,
+  turnKey: id,
+  item: {
+    kind: 'user',
+    id,
+    text: 'Hello from the marketer',
+    at: DAY1,
+    sender: 'lead',
+    fromAgent: MARKETER,
+    ...extra,
+  },
+});
+const botTaskReply = (id, routine) => ({
+  _tag: 'AssistantPart',
+  key: id,
+  turnKey: id,
+  item: {
+    kind: 'notice',
+    id,
+    text: '🛠 Session completed',
+    at: DAY1,
+    routine: { kind: 'task', name: 'x', ...routine },
+  },
+});
+const botTaskReplies = [
+  botTaskReply('r1', {
+    status: 'completed',
+    summary: 'Got it',
+    agentId: MARKETER,
+    target: 'session',
+    sessionId: CLERK_HOME,
+  }),
+  botTaskReply('r2', { status: 'started', summary: '', agentId: MARKETER, target: 'session' }),
+  botTaskReply('r3', { status: 'completed', summary: 'Plain', target: 'session' }),
+];
+const botSend = (id, extra = {}) => ({
+  kind: 'tool',
+  id,
+  name: 'session',
+  args: { action: 'send', session_id: CLERK_HOME, prompt: 'Please watch the mailbox', ...extra },
+  result: '{"sessionId":"x","accepted":true,"reportsBack":true}',
+  status: 'done',
+  startedAt: DAY1,
+});
+const botAsk = {
+  kind: 'tool',
+  id: 'q1',
+  name: 'ask_user',
+  args: { questions: [{ question: 'Which?', header: 'H', options: [{ label: 'A' }] }] },
+  result: 'User has answered your questions: "Which?"="A".',
+  status: 'done',
+  at: DAY1,
+};
+const botRound = (items) => ({ _tag: 'ToolActivity', key: 'tools', turnKey: 's', items });
+
+function mountBotChat(t) {
   const render = rowHarness(t);
-  const MARKETER = 'agent-12c3dee5bf';
-  const CLERK_HOME = 'sess_home_agent-a70d746b04';
-  const botMessage = (id, extra = {}) => ({
-    _tag: 'UserMessage',
-    key: id,
-    turnKey: id,
-    item: {
-      kind: 'user',
-      id,
-      text: 'Hello from the marketer',
-      at: DAY1,
-      sender: 'lead',
-      fromAgent: MARKETER,
-      ...extra,
-    },
-  });
-  // B: placement. A bot message is the bot's own run on the agent side; a lead
-  // brief without fromAgent and the user's message keep their sides.
+  const show = (list, agentMode = true) => renderRows(render, rowOptions(HOME, { agentMode }), list);
+  const opened = captureOpenedSessions(t);
+  const main = () => document.querySelector('main');
+  return { show, opened, main };
+}
+
+test('bot-to-bot: a bot message is that bot’s own run on the agent side; a lead brief and the user keep their sides', () => {
   const rows = [
     botMessage('b1'),
     user('u1', DAY1),
@@ -1912,93 +1865,20 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
       ['user', '', false],
     ]
   );
-  // D: a completed reply of a bot's home session is its card like any
-  // session's (an aside row), and a start paints nothing (no place at all).
-  const taskReply = (id, routine) => ({
-    _tag: 'AssistantPart',
-    key: id,
-    turnKey: id,
-    item: {
-      kind: 'notice',
-      id,
-      text: '🛠 Session completed',
-      at: DAY1,
-      routine: { kind: 'task', name: 'x', ...routine },
-    },
-  });
-  const replies = [
-    taskReply('r1', {
-      status: 'completed',
-      summary: 'Got it',
-      agentId: MARKETER,
-      target: 'session',
-      sessionId: CLERK_HOME,
-    }),
-    taskReply('r2', { status: 'started', summary: '', agentId: MARKETER, target: 'session' }),
-    taskReply('r3', { status: 'completed', summary: 'Plain', target: 'session' }),
-  ];
+});
+
+test('bot-to-bot: a completed reply of a bot’s home session is an aside card and a start paints nothing', () => {
   assert.deepEqual(
-    replies
-      .map((_, index) => agentChatPlace(replies, index))
+    botTaskReplies
+      .map((_, index) => agentChatPlace(botTaskReplies, index))
       .map((place) => place && [place.side, place.speaker, Boolean(place.bot)]),
     [['aside', '', false], null, ['aside', '', false]]
   );
-  const send = (id, extra = {}) => ({
-    kind: 'tool',
-    id,
-    name: 'session',
-    args: { action: 'send', session_id: CLERK_HOME, prompt: 'Please watch the mailbox', ...extra },
-    result: '{"sessionId":"x","accepted":true,"reportsBack":true}',
-    status: 'done',
-    startedAt: DAY1,
-  });
-  const ask = {
-    kind: 'tool',
-    id: 'q1',
-    name: 'ask_user',
-    args: { questions: [{ question: 'Which?', header: 'H', options: [{ label: 'A' }] }] },
-    result: 'User has answered your questions: "Which?"="A".',
-    status: 'done',
-    at: DAY1,
-  };
-  const round = (items) => ({ _tag: 'ToolActivity', key: 'tools', turnKey: 's', items });
-  const options = {
-    snapshot: { sessionId: HOME },
-    disclosureScope: HOME,
-    readOnly: false,
-    transitioning: false,
-    renderAssistantRow: undefined,
-    onOpenSettings() {},
-    settledItems: [],
-    settledTurnKeys: [],
-    optimisticActivityStartedAt: 0,
-    submit: async () => true,
-    questionCard: null,
-    agentMode: true,
-  };
-  const show = async (list, agentMode = true) => {
-    function Rows() {
-      const { renderTranscriptRow } = useConversationRowRenderer({ ...options, agentMode });
-      return React.createElement(
-        React.Fragment,
-        null,
-        list.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, list)))
-      );
-    }
-    await render(React.createElement(Rows));
-  };
-  const opened = [];
-  const onOpen = (event) => opened.push(event.detail.sessionId);
-  const NodeCustomEvent = globalThis.CustomEvent;
-  globalThis.CustomEvent = window.CustomEvent;
-  window.addEventListener('mixdog:open-task-session', onOpen);
-  t.after(() => {
-    globalThis.CustomEvent = NodeCustomEvent;
-    window.removeEventListener('mixdog:open-task-session', onOpen);
-  });
+});
 
-  await show(rows.slice(0, 1));
-  const main = () => document.querySelector('main');
+test('bot-to-bot: the receiver shows the sending bot with its tag, the words folded behind a disclosure', async (t) => {
+  const { show, main } = mountBotChat(t);
+  await show([botMessage('b1')]);
   assert.equal(
     main()
       .querySelector('.mx-chat-row[data-side="agent"]')
@@ -2010,15 +1890,14 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
   assert.equal(main().querySelector('.mx-chat-row[data-side="user"]'), null, 'not a user bubble');
   assert.doesNotMatch(main().textContent, /LEAD/);
   assert.match(main().textContent, /Hello from the marketer/);
-
-  // Another bot's words are one folded line: the start of the text, the words behind the disclosure.
   assert.equal(main().querySelector('.mx-bot-fold-body'), null, 'a bot message is folded by default');
   await act(async () => main().querySelector('.mx-bot-fold-pill .mx-routine-more').click());
   assert.match(main().querySelector('.mx-bot-fold-body').textContent, /Hello from the marketer/);
+});
 
-  // The bot's answer is the session completion card under that bot's face
-  // and name; its words open in place, "Open session" opens its chat.
-  await show(replies.slice(0, 1));
+test('bot-to-bot: the bot’s answer is the session completion card under its face and name; its words open in place and Open opens its chat', async (t) => {
+  const { show, main, opened } = mountBotChat(t);
+  await show(botTaskReplies.slice(0, 1));
   const card = main().querySelector('.mx-task-card');
   assert.ok(card, 'the completion card');
   assert.equal(main().querySelector('.mx-bot-fold, .mx-chat-bot-tag'), null, 'no folded bot bubble');
@@ -2029,12 +1908,13 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
   await act(async () => card.querySelector('.mx-routine-more').click());
   assert.match(card.querySelector('.mx-task-card-answer').textContent, /Got it/);
   await act(async () => card.querySelector('.turn-changes-view').click());
-  assert.equal(opened.at(-1), replies[0].item.routine.sessionId);
+  assert.equal(opened.at(-1), botTaskReplies[0].item.routine.sessionId);
+});
 
-  // C: the send is one hand-off line naming the recipient bot with its face;
-  // no disclosure of the message, Open opens that bot's chat.
-  for (const items of [[send('s1')], [ask, send('s1')]]) {
-    await show([round(items)]);
+test('bot-to-bot: the send is one hand-off line naming the recipient bot with its face; Open opens that bot’s chat', async (t) => {
+  const { show, main, opened } = mountBotChat(t);
+  for (const items of [[botSend('s1')], [botAsk, botSend('s1')]]) {
+    await show([botRound(items)]);
     const line = main().querySelector('.mx-handoff-line');
     assert.ok(line, 'the sent line is drawn');
     assert.ok(line.querySelector('.mx-bot-sent-face'), 'the bot’s face');
@@ -2043,21 +1923,35 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
     await act(async () => line.querySelector('button').click());
     assert.equal(opened.at(-1), CLERK_HOME);
   }
-  // The send sits under the sending bot's reply bubble, in its group, never above the name.
+});
+
+test('bot-to-bot: the send sits under the sending bot’s reply bubble, in its group, never above the name', async (t) => {
+  const { show, main } = mountBotChat(t);
   const replyRow = {
     _tag: 'AssistantPart',
     key: 'a1',
     turnKey: 's',
     item: { kind: 'assistant', id: 'a1', text: 'Handed it over', at: DAY1 },
   };
-  await show([round([send('s1')]), replyRow]);
+  await show([botRound([botSend('s1')]), replyRow]);
   const group = main().querySelector('.mx-chat-row[data-side="agent"]');
   assert.ok(group.querySelector('.mx-chat-column > .mx-handoff-block'), 'inside the reply column');
   const nodes = [...group.querySelectorAll('.mx-chat-name, .mx-chat-line, .mx-handoff-block')];
   const order = (selector) => nodes.findIndex((n) => n.matches(selector));
   assert.ok(order('.mx-chat-line') < order('.mx-handoff-block'), 'after the bubble');
   assert.equal(main().querySelectorAll('.mx-handoff-line').length, 1);
-  // The reply's time and the hand-off share one row: the time first, then the line.
+});
+
+test('bot-to-bot: the reply’s time and the hand-off share one row, the time first, then the line', async (t) => {
+  const { show, main } = mountBotChat(t);
+  const replyRow = {
+    _tag: 'AssistantPart',
+    key: 'a1',
+    turnKey: 's',
+    item: { kind: 'assistant', id: 'a1', text: 'Handed it over', at: DAY1 },
+  };
+  await show([botRound([botSend('s1')]), replyRow]);
+  const group = main().querySelector('.mx-chat-row[data-side="agent"]');
   const block = group.querySelector('.mx-handoff-block');
   const time = block.querySelector('time.mx-chat-time');
   assert.ok(time, 'the time sits in the hand-off block');
@@ -2070,9 +1964,11 @@ test('bot-to-bot messages: the receiver shows the sending bot, the sender a "sen
   assert.ok(block.querySelector('.mx-handoff-line .mx-handoff-name'), 'the name ellipsizes on its own span');
   assert.ok(block.querySelector('.mx-handoff-line > button'), 'Open stays a sibling after the name');
   assert.equal(time.tabIndex, -1, 'the time is not focusable');
+});
 
-  // Not a send: no line.
-  await show([round([send('s3', { action: 'read' })])]);
+test('bot-to-bot: a session call that is not a send draws no line', async (t) => {
+  const { show, main } = mountBotChat(t);
+  await show([botRound([botSend('s3', { action: 'read' })])]);
   assert.equal(main().querySelector('.mx-handoff-line'), null);
 });
 
@@ -2110,31 +2006,7 @@ test('a hand-off line stays until that send’s own report, per send', async (t)
       },
     },
   });
-  const options = {
-    snapshot: { sessionId: HOME },
-    disclosureScope: HOME,
-    readOnly: false,
-    transitioning: false,
-    renderAssistantRow: undefined,
-    onOpenSettings() {},
-    settledItems: [],
-    settledTurnKeys: [],
-    optimisticActivityStartedAt: 0,
-    submit: async () => true,
-    questionCard: null,
-    agentMode: true,
-  };
-  const show = async (rows) => {
-    function Rows() {
-      const { renderTranscriptRow } = useConversationRowRenderer(options);
-      return React.createElement(
-        React.Fragment,
-        null,
-        rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
-      );
-    }
-    await render(React.createElement(Rows));
-  };
+  const show = (rows) => renderRows(render, rowOptions(HOME), rows);
   // Which sends still show their line, in order.
   const open = () => [...document.querySelectorAll('main .mx-handoff-line')].map((line) => line.textContent);
 
@@ -2209,31 +2081,7 @@ test('a hand-off line keeps Working and shows the latest progress update only on
     },
   });
   const update = (key, line) => report(key, { status: 'working', summary: `${line} more detail`, line });
-  const options = {
-    snapshot: { sessionId: HOME },
-    disclosureScope: HOME,
-    readOnly: false,
-    transitioning: false,
-    renderAssistantRow: undefined,
-    onOpenSettings() {},
-    settledItems: [],
-    settledTurnKeys: [],
-    optimisticActivityStartedAt: 0,
-    submit: async () => true,
-    questionCard: null,
-    agentMode: true,
-  };
-  const show = async (rows) => {
-    function Rows() {
-      const { renderTranscriptRow } = useConversationRowRenderer(options);
-      return React.createElement(
-        React.Fragment,
-        null,
-        rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
-      );
-    }
-    await render(React.createElement(Rows));
-  };
+  const show = (rows) => renderRows(render, rowOptions(HOME), rows);
   const lines = () => [...document.querySelectorAll('main .mx-handoff-line')];
   const hover = () => lines()[0].querySelector('.mx-handoff-state[data-tooltip]')?.getAttribute('data-tooltip') ?? null;
   const visibleText = () => {
@@ -2296,31 +2144,8 @@ test('only an accepted send draws a hand-off line; a bot’s reports are cards, 
     ...extra,
   });
   const round = (items) => ({ _tag: 'ToolActivity', key: 'tools', turnKey: 's', items });
-  const options = {
-    snapshot: { sessionId: HOME },
-    disclosureScope: HOME,
-    readOnly: false,
-    transitioning: false,
-    renderAssistantRow: undefined,
-    onOpenSettings() {},
-    settledItems: [],
-    settledTurnKeys: [],
-    optimisticActivityStartedAt: 0,
-    submit: async () => true,
-    questionCard: null,
-    agentMode: true,
-  };
   const sentLines = async (item) => {
-    const rows = [round([item])];
-    function Rows() {
-      const { renderTranscriptRow } = useConversationRowRenderer(options);
-      return React.createElement(
-        React.Fragment,
-        null,
-        rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
-      );
-    }
-    await render(React.createElement(Rows));
+    await renderRows(render, rowOptions(HOME), [round([item])]);
     return document.querySelectorAll('main .mx-handoff-line').length;
   };
   assert.equal(await sentLines(send('ok', { result: '{"sessionId":"x","accepted":true,"reportsBack":true}' })), 1);
@@ -2347,90 +2172,71 @@ test('only an accepted send draws a hand-off line; a bot’s reports are cards, 
   assert.equal(agentChatPlace(reply('cancelled'), 0).bot, undefined);
 });
 
-test('work handed to a session: one block of lines under the turn’s reply, its live state, then the report card', async (t) => {
-  const render = rowHarness(t);
-  const DEV = 'sess_dev_1';
-  const TASK = 'sess_daemon_7_task';
-  const CLERK_HOME = 'sess_home_agent-a70d746b04';
-  const call = (id, args, result) => ({
-    kind: 'tool',
+const SENT_LINE = 'Sent to Dev session · Working·Open';
+
+const handedCall = (id, args, result) => ({
+  kind: 'tool',
+  id,
+  name: 'session',
+  args,
+  result: JSON.stringify(result),
+  status: 'done',
+  startedAt: DAY1,
+});
+const handedSend = (id, sendId, result = {}, sessionId = DEV) =>
+  handedCall(
     id,
-    name: 'session',
-    args,
-    result: JSON.stringify(result),
-    status: 'done',
-    startedAt: DAY1,
-  });
-  const send = (id, sendId, result = {}, sessionId = DEV) =>
-    call(
-      id,
-      { action: 'send', session_id: sessionId, prompt: `prompt ${id}` },
-      { sessionId, accepted: true, sendId, reportsBack: true, hop: 1, ...result }
-    );
-  const create = (id, args = {}) =>
-    call(
-      id,
-      { action: 'create', title: 'Fence fix', brief: 'Fix the fence', ...args },
-      { session_id: TASK, status: 'started', title: 'Fence fix', project: null }
-    );
-  const round = (key, items) => ({ _tag: 'ToolActivity', key, turnKey: 't1', items });
-  const report = (key, routine) => ({
-    _tag: 'AssistantPart',
-    key,
-    turnKey: key,
-    item: { kind: 'notice', id: key, text: '🛠 x', at: DAY1, routine: { kind: 'task', summary: 'done', ...routine } },
-  });
-  const ended = (key, status, sendId) =>
-    report(key, { name: 'Dev session', status, sessionId: DEV, target: 'session', hop: 1, sendId });
-  const taskEnded = (key, status) => report(key, { name: 'Fence fix', status, sessionId: TASK, sendId: 'atask_9' });
-  const taskWait = (key) => report(key, { name: 'Fence fix', status: 'blocked', summary: '', sessionId: TASK });
-  const started = report('started', { name: 'Fence fix', status: 'started', summary: '', sessionId: TASK });
-  const thinking = { _tag: 'Thinking', key: 'think', turnKey: 't1', active: true };
-  // The reply part while it streams: the same item id, so the same row key,
-  // as the settled reply below (transcript-rows.ts transcriptRowKey).
-  const streaming = {
-    _tag: 'AssistantPart',
-    key: 'a1',
-    turnKey: 't1',
-    live: true,
-    active: true,
-    item: { kind: 'assistant', id: 'a1', text: 'Sent i', streaming: true, at: DAY1 },
-  };
-  const landed = { ...streaming, item: { ...streaming.item, text: 'Handed it over', streaming: false } };
-  const replied = {
-    _tag: 'AssistantPart',
-    key: 'a1',
-    turnKey: 't1',
-    item: { kind: 'assistant', id: 'a1', text: 'Handed it over', at: DAY1 },
-  };
-  const options = {
-    snapshot: { sessionId: HOME, busy: true },
-    disclosureScope: HOME,
-    readOnly: false,
-    transitioning: false,
-    renderAssistantRow: undefined,
-    onOpenSettings() {},
-    settledItems: [],
-    settledTurnKeys: [],
-    optimisticActivityStartedAt: 0,
-    submit: async () => true,
-    questionCard: null,
-    agentMode: true,
-  };
-  const show = async (rows, agentMode = true) => {
-    function Rows() {
-      const { renderTranscriptRow } = useConversationRowRenderer({ ...options, agentMode });
-      return React.createElement(
-        React.Fragment,
-        null,
-        rows.map((row, index) => React.createElement('div', { key: row.key }, renderTranscriptRow(row, index, rows)))
-      );
-    }
-    await render(React.createElement(Rows));
-  };
+    { action: 'send', session_id: sessionId, prompt: `prompt ${id}` },
+    { sessionId, accepted: true, sendId, reportsBack: true, hop: 1, ...result }
+  );
+const handedCreate = (id, args = {}) =>
+  handedCall(
+    id,
+    { action: 'create', title: 'Fence fix', brief: 'Fix the fence', ...args },
+    { session_id: TASK, status: 'started', title: 'Fence fix', project: null }
+  );
+const handedRound = (key, items) => ({ _tag: 'ToolActivity', key, turnKey: 't1', items });
+const handedReport = (key, routine) => ({
+  _tag: 'AssistantPart',
+  key,
+  turnKey: key,
+  item: { kind: 'notice', id: key, text: '🛠 x', at: DAY1, routine: { kind: 'task', summary: 'done', ...routine } },
+});
+const handedEnded = (key, status, sendId) =>
+  handedReport(key, { name: 'Dev session', status, sessionId: DEV, target: 'session', hop: 1, sendId });
+const handedTaskEnded = (key, status) =>
+  handedReport(key, { name: 'Fence fix', status, sessionId: TASK, sendId: 'atask_9' });
+const handedTaskWait = (key) =>
+  handedReport(key, { name: 'Fence fix', status: 'blocked', summary: '', sessionId: TASK });
+const handedStarted = handedReport('started', { name: 'Fence fix', status: 'started', summary: '', sessionId: TASK });
+const HANDED_THINKING = { _tag: 'Thinking', key: 'think', turnKey: 't1', active: true };
+const handedStreaming = {
+  _tag: 'AssistantPart',
+  key: 'a1',
+  turnKey: 't1',
+  live: true,
+  active: true,
+  item: { kind: 'assistant', id: 'a1', text: 'Sent i', streaming: true, at: DAY1 },
+};
+const handedLanded = {
+  ...handedStreaming,
+  item: { ...handedStreaming.item, text: 'Handed it over', streaming: false },
+};
+const handedReplied = {
+  _tag: 'AssistantPart',
+  key: 'a1',
+  turnKey: 't1',
+  item: { kind: 'assistant', id: 'a1', text: 'Handed it over', at: DAY1 },
+};
+const handedSent = handedRound('r1', [handedSend('s1', 'atask_1')]);
+const handedRows = () => [user('u1', DAY1), handedSent, handedReplied];
+
+async function mountHandoff(t) {
+  const render = rowHarness(t);
+  const options = rowOptions(HOME, { snapshot: { sessionId: HOME, busy: true } });
+  const show = (rows, agentMode = true) => renderRows(render, { ...options, agentMode }, rows);
   const main = () => document.querySelector('main');
   const lines = () => [...main().querySelectorAll('.mx-handoff-line')].map((line) => line.textContent);
-  // What the renderer returns for `rows[index]` (null: no node, no room).
   const nodeOf = async (rows, index) => {
     let node;
     function Probe() {
@@ -2441,31 +2247,23 @@ test('work handed to a session: one block of lines under the turn’s reply, its
     await render(React.createElement(Probe));
     return node;
   };
-  // The row (by its position in `rows`) whose node holds the lines.
   const linesRow = () => [...main().children].findIndex((node) => node.querySelector('.mx-handoff-line'));
   const waiting = (ids) =>
     act(async () => publishCatalogApprovalSessions(ids.map((id) => ({ id, awaitingApproval: true }))));
-  const opened = [];
-  const onOpen = (event) => opened.push(event.detail.sessionId);
-  const NodeCustomEvent = globalThis.CustomEvent;
-  globalThis.CustomEvent = window.CustomEvent;
-  window.addEventListener('mixdog:open-task-session', onOpen);
+  const opened = captureOpenedSessions(t);
   t.after(() => {
-    globalThis.CustomEvent = NodeCustomEvent;
-    window.removeEventListener('mixdog:open-task-session', onOpen);
     publishSessionGlances([]);
     publishCatalogApprovalSessions([]);
   });
   await act(async () => publishSessionGlances([{ id: DEV, title: 'Dev session', preview: '', working: true }]));
-  const SENT = 'Sent to Dev session · Working·Open';
+  return { show, main, lines, nodeOf, linesRow, waiting, opened };
+}
 
-  // (1) While the turn runs the block stands under the typing bubble, in the
-  // bot's run; once the reply lands, under the reply bubble and its time.
-  // The round itself draws nothing.
-  const sent = round('r1', [send('s1', 'atask_1')]);
-  for (const rest of [[thinking], [streaming, thinking]]) {
-    await show([user('u1', DAY1), sent, ...rest]);
-    assert.deepEqual(lines(), [SENT], `${rest.map((row) => row.key)}`);
+test('work handed to a session: while the turn runs the block stands under the typing bubble, not at the round', async (t) => {
+  const { show, main, lines, linesRow } = await mountHandoff(t);
+  for (const rest of [[HANDED_THINKING], [handedStreaming, HANDED_THINKING]]) {
+    await show([user('u1', DAY1), handedSent, ...rest]);
+    assert.deepEqual(lines(), [SENT_LINE], `${rest.map((row) => row.key)}`);
     const run = main().querySelector('.mx-chat-row[data-side="agent"]');
     assert.ok(run.querySelector('.mx-chat-typing'), 'the typing bubble');
     const column = [...run.querySelector('.mx-chat-column').children];
@@ -2476,8 +2274,12 @@ test('work handed to a session: one block of lines under the turn’s reply, its
     assert.equal(main().querySelector('.mx-handoff-line').getAttribute('role'), 'status');
     assert.ok(main().querySelector('.mx-handoff-line .mx-bot-sent-dot'), 'the dot');
   }
-  await show([user('u1', DAY1), sent, replied]);
-  assert.deepEqual(lines(), [SENT]);
+});
+
+test('work handed to a session: once the reply lands the block sits under the reply bubble and its time, and Open opens the session', async (t) => {
+  const { show, main, lines, linesRow, opened } = await mountHandoff(t);
+  await show(handedRows());
+  assert.deepEqual(lines(), [SENT_LINE]);
   assert.equal(linesRow(), 2, 'at the reply');
   const run = main().querySelector('.mx-chat-row[data-side="agent"]');
   const column = [...run.querySelector('.mx-chat-column').children];
@@ -2491,12 +2293,13 @@ test('work handed to a session: one block of lines under the turn’s reply, its
   assert.equal(main().querySelector('.mx-bot-sent, .mx-routine-more'), null, 'no pill, no message disclosure');
   await act(async () => main().querySelector('.mx-handoff-line button').click());
   assert.equal(opened.at(-1), DEV);
-  // One carrier row from streaming through the turn's end: the reply part's
-  // row (one key, one variant) carries the block while it streams, once it
-  // is whole and after it settles; the band carries nothing then.
+});
+
+test('work handed to a session: one carrier row holds the block from streaming through the turn’s end', async (t) => {
+  const { show, lines, linesRow } = await mountHandoff(t);
   const carriers = [];
-  for (const rest of [[streaming, thinking], [landed, thinking], [replied]]) {
-    const rows = [user('u1', DAY1), sent, ...rest];
+  for (const rest of [[handedStreaming, HANDED_THINKING], [handedLanded, HANDED_THINKING], [handedReplied]]) {
+    const rows = [user('u1', DAY1), handedSent, ...rest];
     await show(rows);
     const at = linesRow();
     carriers.push([rows[at].key, transcriptRowVariant(rows, at, new Set())]);
@@ -2505,55 +2308,67 @@ test('work handed to a session: one block of lines under the turn’s reply, its
       1,
       'one carrier'
     );
-    assert.deepEqual(lines(), [SENT]);
+    assert.deepEqual(lines(), [SENT_LINE]);
   }
   assert.deepEqual(carriers, [
     ['a1', 'lines:1'],
     ['a1', 'lines:1'],
     ['a1', 'lines:1'],
   ]);
-  // A turn with no reply keeps the line at its own round.
-  await show([user('u1', DAY1), sent]);
-  assert.deepEqual(lines(), [SENT]);
+});
+
+test('work handed to a session: a turn with no reply keeps the line at its own round', async (t) => {
+  const { show, lines, linesRow } = await mountHandoff(t);
+  await show([user('u1', DAY1), handedSent]);
+  assert.deepEqual(lines(), [SENT_LINE]);
   assert.equal(linesRow(), 1);
-  // One block per turn, a line per piece of work in call order.
-  await show([user('u1', DAY1), sent, round('r3', [create('c1')]), replied]);
-  assert.deepEqual(lines(), [SENT, 'Fence fix · Working·Open']);
+});
+
+test('work handed to a session: one block per turn, a line per piece of work in call order', async (t) => {
+  const { show, main, lines } = await mountHandoff(t);
+  await show([user('u1', DAY1), handedSent, handedRound('r3', [handedCreate('c1')]), handedReplied]);
+  assert.deepEqual(lines(), [SENT_LINE, 'Fence fix · Working·Open']);
   assert.equal(main().querySelectorAll('.mx-handoff-block').length, 1);
-  {
-    // The first hand-off shares the time's row; the second is its own line below, in the line column.
-    const multi = main().querySelector('.mx-handoff-block');
-    const children = [...multi.children];
-    assert.ok(children[0].matches('.mx-handoff-when') && children[0].querySelector('time.mx-chat-time'));
-    assert.ok(children[1].matches('.mx-handoff-line') && children[2].matches('.mx-handoff-line'));
-    assert.equal(multi.querySelectorAll('time').length, 1, 'one time for the block');
-    assert.match(children[1].textContent, /Sent to Dev session/);
-    assert.match(children[2].textContent, /Fence fix/);
-  }
-  // No time (typing bubble): the line alone, no time, no separator.
-  await show([user('u1', DAY1), sent, thinking]);
+  const multi = main().querySelector('.mx-handoff-block');
+  const children = [...multi.children];
+  assert.ok(children[0].matches('.mx-handoff-when') && children[0].querySelector('time.mx-chat-time'));
+  assert.ok(children[1].matches('.mx-handoff-line') && children[2].matches('.mx-handoff-line'));
+  assert.equal(multi.querySelectorAll('time').length, 1, 'one time for the block');
+  assert.match(children[1].textContent, /Sent to Dev session/);
+  assert.match(children[2].textContent, /Fence fix/);
+});
+
+test('work handed to a session: under the typing bubble the line stands alone, with no time or separator', async (t) => {
+  const { show, main } = await mountHandoff(t);
+  await show([user('u1', DAY1), handedSent, HANDED_THINKING]);
   assert.equal(main().querySelector('.mx-handoff-block').dataset.timed, undefined);
   assert.equal(main().querySelector('.mx-handoff-block time'), null);
   assert.equal(main().querySelector('.mx-handoff-when'), null);
-  // The title is the session's current one.
-  await act(async () => publishSessionGlances([{ id: DEV, title: 'Renamed', preview: '', working: true }]));
-  await show([user('u1', DAY1), sent, replied]);
-  assert.deepEqual(lines(), ['Sent to Renamed · Working·Open']);
-  await act(async () => publishSessionGlances([{ id: DEV, title: 'Dev session', preview: '', working: true }]));
+});
 
-  // (2) The session waits for the user's approval: the same line reads so
-  // (amber), and back once approved, with no row of its own.
-  const rows = [user('u1', DAY1), sent, replied];
-  await show(rows);
+test('work handed to a session: the line names the session’s current title', async (t) => {
+  const { show, lines } = await mountHandoff(t);
+  await act(async () => publishSessionGlances([{ id: DEV, title: 'Renamed', preview: '', working: true }]));
+  await show(handedRows());
+  assert.deepEqual(lines(), ['Sent to Renamed · Working·Open']);
+});
+
+test('work handed to a session: a session waiting for approval reads so, and back once approved, with no row of its own', async (t) => {
+  const { show, main, lines, waiting } = await mountHandoff(t);
+  await show(handedRows());
   const nodes = main().querySelectorAll('.mx-chat-row').length;
   await waiting([DEV]);
   assert.deepEqual(lines(), ['Sent to Dev session · Approval needed·Open']);
   assert.equal(main().querySelector('.mx-handoff-line').dataset.state, 'approval');
   assert.equal(main().querySelectorAll('.mx-chat-row').length, nodes, 'no new row');
   await waiting([]);
-  assert.deepEqual(lines(), [SENT]);
+  assert.deepEqual(lines(), [SENT_LINE]);
   assert.equal(main().querySelector('.mx-handoff-line').dataset.state, 'working');
-  // A question for the user (its open lane asks) reads as an answer wait, as the list says.
+});
+
+test('work handed to a session: a question in its open lane reads as an answer wait', async (t) => {
+  const { show, main, lines } = await mountHandoff(t);
+  await show(handedRows());
   const { defaultSessionLaneStore } = await import('./session-lane-store.ts');
   const laneAsk = (toolApproval) =>
     act(async () => {
@@ -2569,50 +2384,53 @@ test('work handed to a session: one block of lines under the turn’s reply, its
     assert.deepEqual(lines(), ['Sent to Dev session · Answer needed·Open']);
     assert.equal(main().querySelector('.mx-handoff-line').dataset.state, 'question');
     await laneAsk(null);
-    assert.deepEqual(lines(), [SENT]);
+    assert.deepEqual(lines(), [SENT_LINE]);
   } finally {
     await act(async () => defaultSessionLaneStore.clear());
   }
+});
 
-  // (3) Its wait reports draw nothing while the line carries the state: two
-  // of them still leave one line, and no other.
+test('work handed to a session: its wait reports draw nothing while the line carries the state', async (t) => {
+  const { show, main, waiting } = await mountHandoff(t);
   await waiting([DEV]);
-  await show([...rows, ended('b1', 'blocked', 'atask_1'), ended('b2', 'blocked', 'atask_1')]);
+  await show([...handedRows(), handedEnded('b1', 'blocked', 'atask_1'), handedEnded('b2', 'blocked', 'atask_1')]);
   assert.equal(main().querySelectorAll('.mx-chat-routine-failed').length, 1, 'one line for the session');
   assert.equal(main().children[3].childElementCount + main().children[4].childElementCount, 0);
-  await waiting([]);
+});
 
-  // (4) A wait with no hand-off line here (older history): one named line on
-  // its latest report, only while the session still waits.
-  const older = [user('u1', DAY1), replied, taskWait('w1'), taskWait('w2')];
+test('work handed to a session: a wait with no hand-off line shows one named line on its latest report, only while the session waits', async (t) => {
+  const { show, lines, linesRow, nodeOf, waiting } = await mountHandoff(t);
+  const older = [user('u1', DAY1), handedReplied, handedTaskWait('w1'), handedTaskWait('w2')];
   await waiting([TASK]);
   await show(older);
   assert.deepEqual(lines(), ['Fence fix · Approval needed·Open']);
   assert.equal(linesRow(), 3, 'on the latest wait');
   await waiting([]);
   assert.deepEqual(lines(), [], 'gone once the session no longer waits');
-  // The row then renders no node at all, and its height variant says so:
-  // the variant changes exactly when the line comes or goes.
   assert.equal(await nodeOf(older, 3), null);
   assert.equal(transcriptRowVariant(older, 3, new Set()), 'hidden');
   await waiting([TASK]);
   assert.notEqual(await nodeOf(older, 3), null);
   assert.equal(transcriptRowVariant(older, 3, new Set([TASK])), '');
-  await waiting([]);
-  // A wait the session's later end closed paints nothing at all (no node).
+});
+
+test('work handed to a session: a wait the session’s later end closed paints nothing at all', async (t) => {
+  const { show, main, lines, waiting } = await mountHandoff(t);
+  const older = [user('u1', DAY1), handedReplied, handedTaskWait('w1'), handedTaskWait('w2')];
   await waiting([TASK]);
-  await show([...older, taskEnded('done', 'completed')]);
+  await show([...older, handedTaskEnded('done', 'completed')]);
   assert.deepEqual(lines(), []);
   assert.equal(main().children[2].childElementCount + main().children[3].childElementCount, 0);
-  await waiting([]);
+});
 
-  // (5) Its terminal report: the line gone, the session card, no folded answer.
+test('work handed to a session: its terminal report removes the line and shows the session card, no folded answer', async (t) => {
+  const { show, main, lines } = await mountHandoff(t);
   for (const [status, label] of [
     ['completed', 'Completed'],
     ['failed', 'Failed'],
     ['cancelled', 'Cancelled'],
   ]) {
-    await show([...rows, ended('e', status, 'atask_1')]);
+    await show([...handedRows(), handedEnded('e', status, 'atask_1')]);
     assert.deepEqual(lines(), [], status);
     const cards = main().querySelectorAll('.mx-task-card');
     assert.equal(cards.length, 1, status);
@@ -2621,35 +2439,45 @@ test('work handed to a session: one block of lines under the turn’s reply, its
     assert.equal(cards[0].querySelector('.mx-task-card-meta').textContent, `Session · ${label}`);
     assert.equal(main().querySelector('.mx-bot-fold'), null, status);
   }
-  // A start, a wait and another send's end leave it; a send reporting nothing back draws none.
-  await show([...rows, ended('o', 'completed', 'atask_other')]);
-  assert.equal(lines().length, 1);
-  await show([user('u1', DAY1), round('r2', [send('s2', '', { reportsBack: false })]), replied]);
-  assert.deepEqual(lines(), []);
+});
 
-  // (6) A created task session: its name alone, the stored start paints
-  // nothing; its end is the task card.
-  const made = round('r3', [create('c1')]);
-  for (const rest of [[thinking], [replied], [replied, started]]) {
+test('work handed to a session: another send’s end leaves the line, and a send reporting nothing back draws none', async (t) => {
+  const { show, lines } = await mountHandoff(t);
+  await show([...handedRows(), handedEnded('o', 'completed', 'atask_other')]);
+  assert.equal(lines().length, 1);
+  await show([user('u1', DAY1), handedRound('r2', [handedSend('s2', '', { reportsBack: false })]), handedReplied]);
+  assert.deepEqual(lines(), []);
+});
+
+test('work handed to a session: a created task session shows its name alone, the stored start paints nothing, and Open opens it', async (t) => {
+  const { show, main, lines, opened } = await mountHandoff(t);
+  const made = handedRound('r3', [handedCreate('c1')]);
+  for (const rest of [[HANDED_THINKING], [handedReplied], [handedReplied, handedStarted]]) {
     await show([user('u1', DAY1), made, ...rest]);
     assert.deepEqual(lines(), ['Fence fix · Working·Open'], `${rest.map((row) => row.key)}`);
     assert.equal(main().querySelector('.mx-task-card'), null);
   }
   await act(async () => main().querySelector('.mx-handoff-line button').click());
   assert.equal(opened.at(-1), TASK);
-  await show([user('u1', DAY1), made, replied, started, taskEnded('done', 'completed')]);
+});
+
+test('work handed to a session: a created session’s end is the task card, and notify:false draws no line', async (t) => {
+  const { show, main, lines } = await mountHandoff(t);
+  const made = handedRound('r3', [handedCreate('c1')]);
+  await show([user('u1', DAY1), made, handedReplied, handedStarted, handedTaskEnded('done', 'completed')]);
   assert.deepEqual(lines(), []);
   assert.equal(main().querySelector('.mx-task-card-meta').textContent, 'Task session · Completed');
-  await show([user('u1', DAY1), round('r4', [create('c2', { notify: false })]), replied]);
+  await show([user('u1', DAY1), handedRound('r4', [handedCreate('c2', { notify: false })]), handedReplied]);
   assert.deepEqual(lines(), []);
+});
 
-  // (7) Another bot's chat: its face and name; its answer is the same
-  // completion card under that bot's face and name, the line gone.
-  const toBot = round('r5', [send('s5', 'atask_5', {}, CLERK_HOME)]);
-  await show([user('u1', DAY1), toBot, replied]);
+test('work handed to another bot’s chat: its face and name, then its answer as a completion card under the bot', async (t) => {
+  const { show, main, lines } = await mountHandoff(t);
+  const toBot = handedRound('r5', [handedSend('s5', 'atask_5', {}, CLERK_HOME)]);
+  await show([user('u1', DAY1), toBot, handedReplied]);
   assert.deepEqual(lines(), ['Sent to agent-a70d746b04 · Working·Open']);
   assert.ok(main().querySelector('.mx-handoff-line .mx-bot-sent-face'));
-  const botAnswer = report('ba', {
+  const botAnswer = handedReport('ba', {
     name: 'Clerk',
     status: 'completed',
     summary: 'Mailbox watched',
@@ -2658,7 +2486,7 @@ test('work handed to a session: one block of lines under the turn’s reply, its
     target: 'session',
     sendId: 'atask_5',
   });
-  await show([user('u1', DAY1), toBot, replied, botAnswer]);
+  await show([user('u1', DAY1), toBot, handedReplied, botAnswer]);
   assert.deepEqual(lines(), []);
   assert.equal(main().querySelector('.mx-bot-fold'), null, 'no folded bot bubble');
   const botCard = main().querySelector('.mx-task-card');
@@ -2667,11 +2495,14 @@ test('work handed to a session: one block of lines under the turn’s reply, its
   assert.equal(botCard.querySelector('.mx-task-card-meta').textContent, 'Session · Completed');
   await act(async () => botCard.querySelector('.mx-routine-more').click());
   assert.match(botCard.querySelector('.mx-task-card-answer').textContent, /Mailbox watched/);
-  // Its wait with no line here names the bot with its face, not "Session · …".
+});
+
+test('work handed to another bot’s chat: its wait with no line here names the bot with its face', async (t) => {
+  const { show, main, lines, waiting } = await mountHandoff(t);
   await waiting([CLERK_HOME]);
   await show([
     user('u1', DAY1),
-    report('bw', {
+    handedReport('bw', {
       name: 'x',
       status: 'blocked',
       sessionId: CLERK_HOME,
@@ -2681,25 +2512,31 @@ test('work handed to a session: one block of lines under the turn’s reply, its
   ]);
   assert.deepEqual(lines(), ['agent-a70d746b04 · Approval needed·Open']);
   assert.ok(main().querySelector('.mx-handoff-line .mx-bot-sent-face'));
-  await waiting([]);
+});
 
-  // (8) A coding transcript: the same block under the turn's reply, the same card.
-  await show([user('u1', DAY1), sent, replied], false);
-  assert.deepEqual(lines(), [SENT]);
+test('work handed to a session: a coding transcript shows the block under the turn’s reply', async (t) => {
+  const { show, main, lines, linesRow } = await mountHandoff(t);
+  await show(handedRows(), false);
+  assert.deepEqual(lines(), [SENT_LINE]);
   assert.equal(linesRow(), 2, 'under the reply, not at the round');
   const reply = main().children[2];
   assert.ok(
     reply.querySelector('article.message.assistant').compareDocumentPosition(reply.querySelector('.mx-handoff-block')) &
       window.Node.DOCUMENT_POSITION_FOLLOWING
   );
-  await show([user('u1', DAY1), sent, thinking], false);
+  await show([user('u1', DAY1), handedSent, HANDED_THINKING], false);
   assert.equal(linesRow(), 2, 'under the working row while it runs');
+  assert.deepEqual(lines(), [SENT_LINE]);
+});
+
+test('work handed to a session: a coding transcript shows the wait on the line and the end as the same card', async (t) => {
+  const { show, main, lines, waiting } = await mountHandoff(t);
   await waiting([DEV]);
-  await show([user('u1', DAY1), sent, replied, ended('b1', 'blocked', 'atask_1')], false);
+  await show([user('u1', DAY1), handedSent, handedReplied, handedEnded('b1', 'blocked', 'atask_1')], false);
   assert.deepEqual(lines(), ['Sent to Dev session · Approval needed·Open']);
   assert.equal(main().children[3].childElementCount, 0, 'its wait report draws nothing');
   await waiting([]);
-  await show([user('u1', DAY1), sent, replied, ended('e', 'completed', 'atask_1')], false);
+  await show([user('u1', DAY1), handedSent, handedReplied, handedEnded('e', 'completed', 'atask_1')], false);
   assert.deepEqual(lines(), []);
   assert.equal(main().querySelector('.mx-task-card-meta').textContent, 'Session · Completed');
 });
@@ -2716,30 +2553,9 @@ test('a bot message shows its name and its words, never the envelope or LEAD, in
   };
   const lead = { ...row, key: 'l', item: { ...row.item, id: 'l', fromAgent: undefined, text: 'plain brief' } };
   for (const agentMode of [false, true]) {
-    const options = {
-      snapshot: { sessionId: agentMode ? HOME : 'sess_task_1' },
-      disclosureScope: agentMode ? HOME : 'sess_task_1',
-      readOnly: false,
-      transitioning: false,
-      renderAssistantRow: undefined,
-      onOpenSettings() {},
-      settledItems: [],
-      settledTurnKeys: [],
-      optimisticActivityStartedAt: 0,
-      submit: async () => true,
-      questionCard: null,
-      agentMode,
-    };
+    const options = rowOptions(agentMode ? HOME : 'sess_task_1', { agentMode });
     const show = async (rows) => {
-      function Rows() {
-        const { renderTranscriptRow } = useConversationRowRenderer(options);
-        return React.createElement(
-          React.Fragment,
-          null,
-          rows.map((r, index) => React.createElement('div', { key: r.key }, renderTranscriptRow(r, index, rows)))
-        );
-      }
-      await render(React.createElement(Rows));
+      await renderRows(render, options, rows);
       return document.querySelector('main').textContent;
     };
     const shown = await show([row]);
@@ -2775,31 +2591,12 @@ test("agent chat: an older ask_user left waiting keeps its round content; only t
     { _tag: 'ToolActivity', key: 'tools-new', turnKey: 's', items: [ask('call-new')] },
   ];
   const items = rows.flatMap((row) => row.items);
-  const options = {
+  const options = rowOptions(HOME, {
     snapshot: { sessionId: HOME, toolApproval: { id: 'ap-1', kind: 'question', toolCallId: 'call-new' } },
-    disclosureScope: HOME,
-    readOnly: false,
-    transitioning: false,
-    renderAssistantRow: undefined,
-    onOpenSettings() {},
     settledItems: items,
-    settledTurnKeys: [],
-    optimisticActivityStartedAt: 0,
-    submit: async () => true,
     questionCard: React.createElement('div', { className: 'stub-question-card' }),
-    agentMode: true,
-  };
-  function Rows() {
-    const { renderTranscriptRow } = useConversationRowRenderer(options);
-    return React.createElement(
-      React.Fragment,
-      null,
-      rows.map((row, index) =>
-        React.createElement('div', { key: row.key, 'data-row': row.key }, renderTranscriptRow(row, index, rows))
-      )
-    );
-  }
-  await render(React.createElement(Rows));
+  });
+  await renderRows(render, options, rows, { rowAttrs: (row) => ({ 'data-row': row.key }) });
   const row = (key) => document.querySelector(`main [data-row="${key}"]`);
   assert.equal(document.querySelectorAll('main .stub-question-card').length, 1);
   assert.equal(

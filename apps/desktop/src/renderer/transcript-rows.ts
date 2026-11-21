@@ -7,14 +7,6 @@ import { streamingTextPaints } from './use-transcript-text-reveal';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { isProcessRestartStatusText, isTranscriptCancelledStatusText } from '../../../../packages/protocol-client/src/shared/tool-execution-contract.mjs';
 
-/**
- * Transcript projection: turn semantics are preserved as explicit row tags,
- * while the virtualizer consumes one flat stable-key list.
- *
- * Every visibility decision (hidden internal prompts, suppressed tool
- * failures, completions folded into their assistant row, failed-turn status
- * rows, live output, optimistic prompts, and thinking state) happens HERE.
- */
 export type TranscriptRowModel =
   | {
       _tag: 'TurnGap';
@@ -97,23 +89,14 @@ interface TranscriptRowBuilder {
   priorRowKey?: (key: string) => boolean;
 }
 
-/** Claims `key` for one message row; false when a row already carries it.
- *  The virtual list owns a row's element by key: a second row under the same
- *  key (a pending twin of its settled prompt, a transiently repeated item)
- *  mounted a second element, the core's element cache moved to it, and the
- *  original element was never positioned again — it stayed at its old offset
- *  over whatever row took that slot (a compaction divider inserted above the
- *  prompt), while the twin painted the prompt a second time below. */
+/** Claims `key` for one message row; false when a row already carries it. */
 function claimRowKey(builder: TranscriptRowBuilder, key: string): boolean {
   if (builder.rowKeys.has(key) || builder.priorRowKey?.(key)) return false;
   builder.rowKeys.add(key);
   return true;
 }
 
-/** pending:${id} and turn:${id} are one submission. The virtualizer identifies
- *  rows by key, so the prefix flip must not re-key the submission's rows: a
- *  re-keyed row remounts (the thinking timer restarts) and paints one frame at
- *  the flat row estimate (the turn gap bounced the transcript by 40px). */
+/** pending:${id} and turn:${id} are one submission and share one row identity. */
 export function submissionIdentity(turnKey: string): string {
   if (turnKey.startsWith('pending:')) return turnKey.slice('pending:'.length);
   if (turnKey.startsWith('turn:')) return turnKey.slice('turn:'.length);
@@ -216,12 +199,6 @@ interface PendingToolActivityItem {
   turnKey: string;
 }
 
-// A tool group's row key is the key it was FIRST shown under, remembered per
-// member id. Keying by the first member alone re-keyed (and remounted) a group
-// whenever an older history page supplied the tools a window cut had split
-// off its head; keying by the last member would re-key it on every tool a
-// live turn appends. Any member that was already shown carries the group's
-// key into the next projection, so both growth directions keep it.
 const TOOL_GROUP_KEY_SESSIONS = 16;
 const toolGroupKeys = new Map<string, Map<string, string>>();
 
@@ -260,11 +237,6 @@ function toolActivityRowKey(
       break;
     }
   }
-  // A group split mid-run (a compaction divider landing between its calls)
-  // leaves the remembered key on the upper half. When that key is named after
-  // the member now opening the lower half (the head came later, from an older
-  // page), it is this half's own key too: two rows under one key, and the
-  // virtual list left one element stranded over the other.
   if (key === undefined) {
     key = own;
     for (let copy = 2; builder.toolGroupKeys.has(key); copy += 1) key = `${own}:${copy}`;
@@ -370,10 +342,6 @@ function pushFailureRow(
   item?: TranscriptItem,
   turnChanges?: TurnChangesRef
 ): void {
-  // Hidden continuation/recovery turns do not create another visible error
-  // surface. Any visible prompt, output or tool activity seals this run.
-  // A run never swallows a distinct checkpoint's changes card, so two
-  // card-bearing checkpoints keep separate rows.
   const previous = builder.rows.at(-1);
   if (
     previous?._tag === 'Error' &&
@@ -428,14 +396,6 @@ function pushCancelledPromptRow(
   builder.previousRowWasUser = false;
 }
 
-/**
- * Settled half of the projection. During streaming only the live tail changes
- * per publication tick, so callers memoize this result on the settled inputs
- * and re-run just `appendLiveTranscriptRows` per tick — the O(items) walk and
- * its per-turn maps run only when a settled item actually lands. Settled row
- * object identity also stays stable across ticks, so memoized row renderers
- * skip unchanged rows.
- */
 export function projectSettledTranscriptRows({
   sessionKey,
   items,
@@ -563,28 +523,7 @@ export function appendLiveTranscriptRows({
   });
 
   const activeTurnKey = builder.currentTurnKey || `${sessionKey}:active`;
-  // A delayed lane can briefly publish a tail whose id has already settled.
-  // Never create a second stable-key row for that stale publication.
-  const liveItemAlreadySettled = liveItem?.id != null && settled.hasSettledItem(liveItem.id);
-  // A streaming reply with nothing to paint yet (only whitespace or markdown
-  // markers) opens no row: its row takes a line and moves the band below it,
-  // so the followed transcript moved up before any reply text painted. It
-  // opens with the first text that shows, which it paints in that commit.
-  const liveItemPaintsNothing =
-    liveItem?.kind === 'assistant' && Boolean(liveItem.streaming) && !streamingTextPaints(String(liveItem.text || ''));
-  const liveKey = liveItem ? transcriptRowKey(sessionKey, liveItem, itemCount) : '';
-  if (liveItem && !liveItemAlreadySettled && !liveItemPaintsNothing && claimRowKey(builder, liveKey)) {
-    beginBuilderTurn(builder, sessionKey, activeTurnKey);
-    builder.rows.push({
-      _tag: 'AssistantPart',
-      key: liveKey,
-      turnKey: activeTurnKey,
-      item: liveItem,
-      active: true,
-      live: true,
-    });
-    builder.previousRowWasUser = false;
-  }
+  if (liveItem) pushLiveAssistantRow(builder, sessionKey, settled, liveItem, activeTurnKey);
 
   steerItems.forEach((item, index) => {
     pushBuilderItem(
@@ -595,27 +534,41 @@ export function appendLiveTranscriptRows({
       `pending:${String(item.id ?? index)}`
     );
   });
-  // The working row stays last, in the turn of the newest message: the turn
-  // the model continues once it reads that message (no gap between them).
-  if (thinking) {
-    const thinkingTurnKey = steerItems.length ? builder.currentTurnKey : activeTurnKey;
-    beginBuilderTurn(builder, sessionKey, thinkingTurnKey);
-    builder.rows.push({
-      _tag: 'Thinking',
-      key: thinkingRowKey(sessionKey, thinkingTurnKey),
-      turnKey: thinkingTurnKey,
-      active: true,
-    });
-    builder.previousRowWasUser = false;
-  }
+  if (thinking) pushThinkingRow(builder, sessionKey, steerItems.length ? builder.currentTurnKey : activeTurnKey);
   if (turnRunning) openTailToolActivity(builder.rows);
   return builder.rows;
 }
 
-/** Marks the tool group a running turn ends in (only the working row follows
- *  it): the turn adds its next call there, so between two calls every call of
- *  the group is finished for a moment, yet the group is not. Replaces the row;
- *  the memoized settled rows are never mutated. */
+function pushLiveAssistantRow(
+  builder: TranscriptRowBuilder,
+  sessionKey: string,
+  settled: SettledTranscriptProjection,
+  liveItem: TranscriptItem,
+  activeTurnKey: string
+): void {
+  const alreadySettled = liveItem.id != null && settled.hasSettledItem(liveItem.id);
+  const paintsNothing =
+    liveItem.kind === 'assistant' && Boolean(liveItem.streaming) && !streamingTextPaints(String(liveItem.text || ''));
+  const key = transcriptRowKey(sessionKey, liveItem, settled.itemCount);
+  if (alreadySettled || paintsNothing || !claimRowKey(builder, key)) return;
+  beginBuilderTurn(builder, sessionKey, activeTurnKey);
+  builder.rows.push({
+    _tag: 'AssistantPart',
+    key,
+    turnKey: activeTurnKey,
+    item: liveItem,
+    active: true,
+    live: true,
+  });
+  builder.previousRowWasUser = false;
+}
+
+function pushThinkingRow(builder: TranscriptRowBuilder, sessionKey: string, turnKey: string): void {
+  beginBuilderTurn(builder, sessionKey, turnKey);
+  builder.rows.push({ _tag: 'Thinking', key: thinkingRowKey(sessionKey, turnKey), turnKey, active: true });
+  builder.previousRowWasUser = false;
+}
+
 function openTailToolActivity(rows: TranscriptRowModel[]): void {
   let tail = rows.length - 1;
   while (tail >= 0 && rows[tail]?._tag === 'Thinking') tail -= 1;

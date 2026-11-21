@@ -1,9 +1,5 @@
-// The Windows min/max/close controls live in a NATIVE overlay (WCO): DOM
-// scrims cannot paint over them, so a fullscreen modal would dim the whole
-// app EXCEPT that band, which would stay at the full-brightness theme color.
-// While at least one fullscreen scrim
-// holds a claim here, the scrim-composited band/symbol colors ride the
-// native overlay itself; releasing the last claim restores the theme band.
+// The Windows caption controls are a native overlay (WCO) that DOM scrims cannot paint over,
+// so while a fullscreen scrim holds a claim the scrim-composited colors are pushed to the overlay.
 import { isElectronRenderer } from './remote-ui-projection';
 
 type Rgba = { r: number; g: number; b: number; a: number };
@@ -28,12 +24,6 @@ function parseColor(computed: string): Rgba | null {
   return { r: +srgb[1] * 255, g: +srgb[2] * 255, b: +srgb[3] * 255, a: srgb[4] === undefined ? 1 : +srgb[4] };
 }
 
-// color-mix() variables resolve only on a live element, so a 1px offscreen
-// probe turns the token into a concrete rgb()/color(srgb) value. ONE probe
-// stays in the document: appending and removing a node per read invalidated
-// layout, and the scrim rect reads that follow then forced a full relayout on
-// every frame of the follow loop (~60ms of a cold boot in getClientRects).
-// Repainting a fixed 1px box's background invalidates nothing but paint.
 let colorProbe: HTMLDivElement | null = null;
 function resolveCssColor(value: string): Rgba | null {
   if (typeof document === 'undefined' || !document.body) return null;
@@ -144,10 +134,6 @@ function followCaption(durationMs = 450): void {
   followFrame = requestAnimationFrame(step);
 }
 
-/** The caption band is native chrome, so its colors are PUSHED from the theme
- *  tokens: pure black/white symbols read heavier than the DOM icons beside
- *  them. While a modal
- *  holds a claim, the same scrim is composited on top of both. */
 /** Returns whether the composited colors changed since the last send. */
 function sendCaption(): boolean {
   // Only an Electron window has a native caption band. A browser (the phone)

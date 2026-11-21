@@ -1,7 +1,3 @@
-/**
- * The feedback half of the desktop host: the Comment-pin / `data-choice` page
- * script, the real-gesture tokens behind picks, and pin crops of the window.
- */
 import type { BrowserWindow } from 'electron';
 
 import { type VisualizeFeedbackRect, visualizeFeedbackScript } from '../../shared/visualize-feedback';

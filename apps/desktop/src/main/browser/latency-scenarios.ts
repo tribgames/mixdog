@@ -1,5 +1,3 @@
-/** Separate local latency samples: input-only must never stand in for a
- * pointer-bearing form. Assertions own outcomes, not wall-clock thresholds. */
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { performance } from 'node:perf_hooks';

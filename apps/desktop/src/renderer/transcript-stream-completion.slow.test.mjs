@@ -1,14 +1,3 @@
-// A streamed reply that completes while part of it still waits to show, in
-// headless Chrome through the real transcript pipeline (lane store, rows,
-// virtual list, follow, live markdown, word fades). The item completes 120 ms
-// after its last lump arrived, as a final delta and its completion do.
-//
-// - Completion changes nothing on screen beyond the reveal going on: no node of
-//   the reply in view is replaced, no painted character loses opacity or fades
-//   faster than its 400 ms fade, and the height changes only with new text.
-// - Completion shows the rest at once, as one last phrase fading in from then.
-// - The reply switches to its completed state only once all of it showed and
-//   every character is at full ink: as that last fade ends.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';

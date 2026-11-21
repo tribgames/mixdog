@@ -1,9 +1,3 @@
-/**
- * The visualize service's shared context: the per-service state and the
- * collaborator groups every handler group is built from. Each group factory
- * takes the `Pick` of the fields it reads, and reads late-bound groups through
- * the context only when called, so groups may depend on each other.
- */
 import type { LeaseGuard } from './lease-guard';
 import type { OpenActions } from './open-actions';
 import type { ExportActions } from './export-actions';

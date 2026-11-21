@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { connect } from '../src/client.ts';
-import { MockConn, MockNetwork } from '../src/mock.ts';
+import { type MockConn, MockNetwork } from '../src/mock.ts';
 
 const options = JSON.parse(readFileSync(new URL('../conformance/options.json', import.meta.url), 'utf8'));
 const SUB = { subscription: { epoch: 'e1', startSeq: 1 } };
@@ -34,7 +34,18 @@ async function opened() {
   const connecting = open();
   let conn = await handshake();
   const client = await connecting;
-  return { client, net, open, handshake, conn: () => conn, redial: async () => ((conn = await handshake()), conn) , first: conn };
+  return {
+    client,
+    net,
+    open,
+    handshake,
+    conn: () => conn,
+    redial: async () => {
+      conn = await handshake();
+      return conn;
+    },
+    first: conn,
+  };
 }
 
 async function started(rig: Awaited<ReturnType<typeof opened>>, id: string) {
@@ -46,7 +57,8 @@ async function started(rig: Awaited<ReturnType<typeof opened>>, id: string) {
 }
 
 const resize = (id: string) => ({ threadId: id, images: [] }) as never;
-const heldOf = (client: object, id: string): boolean => (client as { threadSubscription(id: string): { held: boolean } }).threadSubscription(id).held;
+const heldOf = (client: object, id: string): boolean =>
+  (client as { threadSubscription(id: string): { held: boolean } }).threadSubscription(id).held;
 
 test('a control thread is resumed after a redial, and a request naming it leaves only after that resume is answered', async () => {
   const rig = await opened();
@@ -56,7 +68,10 @@ test('a control thread is resumed after a redial, and a request naming it leaves
   const second = await rig.redial();
   const call = rig.client.call('thread/resizeImage', resize('ctl-1'));
   const resume = await parse(second);
-  assert.deepEqual([resume.method, resume.params.threadId, resume.params.window], ['thread/resume', 'ctl-1', { none: true }]);
+  assert.deepEqual(
+    [resume.method, resume.params.threadId, resume.params.window],
+    ['thread/resume', 'ctl-1', { none: true }]
+  );
   await tick();
   assert.deepEqual(second.sent, [], 'nothing names the thread while its resume is unanswered');
   second.serverSend({ id: resume.id, result: { thread: { id: 'ctl-1' }, ...SUB } });
@@ -80,7 +95,10 @@ test('a resize refused as queueFull and then cut off is sent again on the new so
   assert.equal(resume.method, 'thread/resume');
   second.serverSend({ id: resume.id, result: { thread: { id: 'ctl-1' }, ...SUB } });
   const again = await parse(second);
-  assert.deepEqual([again.method, again.params.threadId, again.params.opId], ['thread/resizeImage', 'ctl-1', sent.params.opId]);
+  assert.deepEqual(
+    [again.method, again.params.threadId, again.params.opId],
+    ['thread/resizeImage', 'ctl-1', sent.params.opId]
+  );
   second.serverSend({ id: again.id, result: {} });
   await call;
   assert.deepEqual(first.sent, [], 'the first socket carried it once');
@@ -119,8 +137,14 @@ test('a control thread the core refuses to resume is not held, and a request tha
   const call = rig.client.call('thread/resizeImage', resize('ctl-1'));
   const settled = (rig.client as unknown as { whenHeldSettled(id: string): Promise<void> }).whenHeldSettled('ctl-1');
   const resume = await parse(second);
-  second.serverSend({ id: resume.id, error: { code: -32600, message: 'threadNotFound', data: { reason: 'threadNotFound' } } });
-  await assert.rejects(call, (error: { detail?: { data?: { reason?: string } } }) => error.detail?.data?.reason === 'threadNotFound');
+  second.serverSend({
+    id: resume.id,
+    error: { code: -32600, message: 'threadNotFound', data: { reason: 'threadNotFound' } },
+  });
+  await assert.rejects(
+    call,
+    (error: { detail?: { data?: { reason?: string } } }) => error.detail?.data?.reason === 'threadNotFound'
+  );
   await settled;
   assert.equal(heldOf(rig.client, 'ctl-1'), false);
   assert.deepEqual(second.sent, [], 'nothing naming it was written');
@@ -138,9 +162,15 @@ test('a thread/start confirmed through reconciliation is resumed on the new sock
   const second = await rig.redial();
   const status = await parse(second);
   assert.equal(status.method, 'op/status');
-  second.serverSend({ id: status.id, result: { ops: [{ opId: status.params.opIds[0], state: 'applied', result: { thread: { id: 'ctl-1' } } }] } });
+  second.serverSend({
+    id: status.id,
+    result: { ops: [{ opId: status.params.opIds[0], state: 'applied', result: { thread: { id: 'ctl-1' } } }] },
+  });
   const resume = await parse(second);
-  assert.deepEqual([resume.method, resume.params.threadId, resume.params.window], ['thread/resume', 'ctl-1', { none: true }]);
+  assert.deepEqual(
+    [resume.method, resume.params.threadId, resume.params.window],
+    ['thread/resume', 'ctl-1', { none: true }]
+  );
   let had = false;
   void pending.then(() => (had = true));
   await tick();
@@ -180,11 +210,15 @@ test('what waits for an unanswered resume ends when the hold is dropped or the c
   await started(rig, 'ctl-2');
   rig.conn().serverClose(1006);
   const second = await rig.redial();
-  const settles = (id: string) => (rig.client as unknown as { whenHeldSettled(id: string): Promise<void> }).whenHeldSettled(id);
+  const settles = (id: string) =>
+    (rig.client as unknown as { whenHeldSettled(id: string): Promise<void> }).whenHeldSettled(id);
   const dropped = settles('ctl-1');
   const closed = settles('ctl-2');
   const frames = [await parse(second), await parse(second)];
-  assert.deepEqual(frames.map((f) => f.method), ['thread/resume', 'thread/resume']);
+  assert.deepEqual(
+    frames.map((f) => f.method),
+    ['thread/resume', 'thread/resume']
+  );
   void rig.client.unsubscribeThread('ctl-1').catch(() => undefined);
   await dropped;
   await rig.client.close();

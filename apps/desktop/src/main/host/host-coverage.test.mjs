@@ -20,11 +20,7 @@ registerHooks({
 const { createDesktopHost } = await import('./index.ts');
 const { createComputerSwitch } = await import('./computer-scope.ts');
 
-/**
- * host/* methods the protocol lists that this desktop does not serve yet. Each entry names the task
- * that owns the handler; the entry is deleted by that task.
- * @type {Record<string, string>}
- */
+/** @type {Record<string, string>} */
 const PENDING = {};
 
 function served() {
@@ -61,6 +57,7 @@ function served() {
       },
       desktopHostScreen: () => null,
       desktopHostCommand: () => null,
+      desktopHostProcessFate: () => null,
       computerSwitch: createComputerSwitch(true),
     },
     updater: { check: async () => ({}), getState: () => ({}), confirmBusy: async () => false, install: async () => {} },

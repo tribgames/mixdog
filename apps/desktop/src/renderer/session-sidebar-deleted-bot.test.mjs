@@ -38,7 +38,7 @@ const BOT = {
   archived: true,
 };
 
-test("a deleted bot's archived chat: its face and name, restored with its bot, a second delete only for good", async (t) => {
+async function mountDeletedBot(t) {
   const { root, document } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'CustomEvent'] });
   const { SessionSidebar } = await import('./session-sidebar.tsx');
   const calls = [];
@@ -70,18 +70,36 @@ test("a deleted bot's archived chat: its face and name, restored with its bot, a
   );
   await act(async () => document.querySelector('.sidebar-archived-toggle').click());
   const row = document.querySelector('.session-row[data-session-id="sess_home_probe"]');
+  return { document, view, row, calls, invoked };
+}
+
+test("a deleted bot's archived chat shows the face and name the bot left", async (t) => {
+  const { row } = await mountDeletedBot(t);
   assert.ok(row.querySelector('.session-row-bot-face'), 'the face the bot left');
   assert.match(row.textContent, /Probe/);
+});
 
-  // 복원 restores the bot itself (the host brings its chat out of 보관됨).
+test("a deleted bot's archived chat restores with its bot, from the row button and from its menu", async (t) => {
+  const { document, view, row, calls, invoked } = await mountDeletedBot(t);
+  const restores = () => invoked.filter(([name]) => name === 'restoreAgentDefinition');
   await act(async () => row.querySelector('.session-row-restore').click());
   await settle();
-  assert.deepEqual(
-    invoked.filter(([name]) => name === 'restoreAgentDefinition'),
-    [['restoreAgentDefinition', ['probe']]]
-  );
+  assert.deepEqual(restores(), [['restoreAgentDefinition', ['probe']]]);
   assert.deepEqual(calls, [], 'not a plain unarchive');
 
+  await act(async () =>
+    row.dispatchEvent(new view.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }))
+  );
+  const items = [...document.querySelectorAll('[role^="menuitem"]')];
+  assert.ok(items.some((el) => el.textContent === 'Delete'));
+  await act(async () => items.find((el) => el.textContent === 'Restore').click());
+  await settle();
+  assert.equal(restores().length, 2);
+  assert.deepEqual(calls, []);
+});
+
+test("a deleted bot's archived chat is deleted only for good, after a plain question", async (t) => {
+  const { document, row, calls } = await mountDeletedBot(t);
   const dialog = () => document.querySelector('.settings-confirm-dialog[role="alertdialog"]');
   const press = (label) =>
     act(async () => [...dialog().querySelectorAll('button')].find((el) => el.textContent === label).click());
@@ -103,24 +121,12 @@ test("a deleted bot's archived chat: its face and name, restored with its bot, a
   await settle();
   assert.equal(dialog(), null);
   assert.deepEqual(calls, ['delete:sess_home_probe']);
-
-  // Its menu restores it too.
-  await act(async () =>
-    row.dispatchEvent(new view.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }))
-  );
-  const items = [...document.querySelectorAll('[role^="menuitem"]')];
-  assert.ok(items.some((el) => el.textContent === 'Delete'));
-  await act(async () => items.find((el) => el.textContent === 'Restore').click());
-  await settle();
-  assert.equal(invoked.filter(([name]) => name === 'restoreAgentDefinition').length, 2);
-  assert.deepEqual(calls, ['delete:sess_home_probe']);
 });
 
-test('a Sessions 봇 row menu: profile and hide-from-list only; the 봇 page offers show-in-sidebar', async (t) => {
+async function mountWatcherMenu(t) {
   const { root, document } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'CustomEvent'] });
   const { SessionSidebar } = await import('./session-sidebar.tsx');
-  const { agentContactMenuItems } = await import('./agent-profile-actions.ts');
-  const { sidebarHiddenBots, setBotHiddenInSidebar } = await import('./sidebar-hidden-bots-store.ts');
+  const { setBotHiddenInSidebar } = await import('./sidebar-hidden-bots-store.ts');
   setBotHiddenInSidebar('watcher', false);
   t.after(() => setBotHiddenInSidebar('watcher', false));
   const view = document.defaultView;
@@ -158,25 +164,40 @@ test('a Sessions 봇 row menu: profile and hide-from-list only; the 봇 page off
     await act(async () => row.dispatchEvent(event));
     return [...document.querySelectorAll('[role^="menuitem"]')];
   };
-  let items = await openMenu(
-    new view.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 })
-  );
+  const contextMenu = () =>
+    openMenu(new view.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
+  return { document, view, invoked, opened, closedTabs, openMenu, contextMenu };
+}
+
+const MENU_LABELS = ['View profile', 'Rename', 'Hide from list'];
+
+test('a Sessions 봇 row menu offers profile, rename and hide-from-list; 프로필 보기 opens its chat', async (t) => {
+  const { opened, contextMenu } = await mountWatcherMenu(t);
+  const items = await contextMenu();
   assert.deepEqual(
     items.map((el) => el.textContent),
-    ['View profile', 'Rename', 'Hide from list']
+    MENU_LABELS
   );
   await act(async () => items[0].click());
   await settle();
   assert.deepEqual(opened, [['sess_home_watcher', 'Watcher']], '프로필 보기 opens its chat');
+});
 
-  // The Menu key opens the same menu; no turn-off or delete lives here.
-  items = await openMenu(new view.KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true, cancelable: true }));
+test('the Menu key opens the same Sessions 봇 row menu; no turn-off or delete lives here', async (t) => {
+  const { view, openMenu } = await mountWatcherMenu(t);
+  const items = await openMenu(
+    new view.KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true, cancelable: true })
+  );
   assert.deepEqual(
     items.map((el) => el.textContent),
-    ['View profile', 'Rename', 'Hide from list']
+    MENU_LABELS
   );
+});
 
-  // 목록에서 숨기기 drops the row from the sidebar only; the bot is untouched.
+test('목록에서 숨기기 drops the bot row from the sidebar only; the bot is untouched', async (t) => {
+  const { document, invoked, closedTabs, contextMenu } = await mountWatcherMenu(t);
+  const { sidebarHiddenBots } = await import('./sidebar-hidden-bots-store.ts');
+  const items = await contextMenu();
   await act(async () => items.find((el) => el.textContent === 'Hide from list').click());
   await settle();
   assert.equal(document.querySelector('.sidebar-agents [data-agent-contact="watcher"]'), null);
@@ -186,8 +207,14 @@ test('a Sessions 봇 row menu: profile and hide-from-list only; the 봇 page off
   );
   assert.deepEqual(closedTabs, []);
   assert.ok(sidebarHiddenBots().has('watcher'));
+});
 
-  // The 봇 page keeps it and offers 사이드바에 표시, which restores the sidebar row.
+test('the 봇 page keeps a hidden bot and offers 사이드바에 표시, which restores the sidebar row', async (t) => {
+  const { document, contextMenu } = await mountWatcherMenu(t);
+  const { agentContactMenuItems } = await import('./agent-profile-actions.ts');
+  const items = await contextMenu();
+  await act(async () => items.find((el) => el.textContent === 'Hide from list').click());
+  await settle();
   const pageItems = () =>
     agentContactMenuItems(
       { agentId: 'watcher', name: 'Watcher', mixy: false },
@@ -225,7 +252,7 @@ const WATCHER_HOME = {
   agentHome: 'watcher',
 };
 
-test('a hidden bot shows again while it has unread messages or waits on the user, and hides again after', async (t) => {
+async function mountHiddenWatcher(t) {
   const { root, document } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'CustomEvent'] });
   const { SessionSidebar } = await import('./session-sidebar.tsx');
   const { setBotHiddenInSidebar, sidebarHiddenBots } = await import('./sidebar-hidden-bots-store.ts');
@@ -263,12 +290,19 @@ test('a hidden bot shows again while it has unread messages or waits on the user
   await settle();
   await render();
   assert.equal(listed(), false, 'hidden and quiet: not listed');
+  return { render, listed, sidebarHiddenBots, publishCatalogApprovalSessions };
+}
 
+test('a hidden bot shows again while it has unread messages, and hides again once read', async (t) => {
+  const { render, listed } = await mountHiddenWatcher(t);
   await render(new Set(['sess_home_watcher']));
   assert.equal(listed(), true, 'unread brings it back');
   await render();
   assert.equal(listed(), false, 'read: hidden again');
+});
 
+test('a hidden bot shows again while it waits on the user, and hides again once answered', async (t) => {
+  const { listed, sidebarHiddenBots, publishCatalogApprovalSessions } = await mountHiddenWatcher(t);
   // Its chat is open in no pane: the host catalog says it waits on the user.
   const approval = (awaitingApproval) =>
     act(async () =>

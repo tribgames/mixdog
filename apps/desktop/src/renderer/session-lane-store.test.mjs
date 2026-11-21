@@ -143,7 +143,7 @@ test('a state handed on unchanged moves only its position: nothing is decided ag
   offPosition();
 });
 
-test('compaction history and live windows retain one activity, summary and boundary in source order', () => {
+function compactionFixture() {
   const tool = (id) => ({
     type: 'toolCall',
     id,
@@ -164,6 +164,11 @@ test('compaction history and live windows retain one activity, summary and bound
   const page = mergeToolRows(history.flatMap(rowsOf));
   const tail = mergeToolRows([divider, prompt].flatMap(rowsOf));
   const expected = ['read-1', 'summary', 'divider:c1', 'prompt'];
+  return { divider, prompt, history, page, tail, expected };
+}
+
+test('compaction history pages carry the same boundary as the live tail in either direction', () => {
+  const { page, tail, expected } = compactionFixture();
   const older = prependHistoryPage({ items: tail, hasOlder: true, hasNewer: false }, page, false);
   assert.deepEqual(
     older.items.map((row) => row.id),
@@ -176,7 +181,10 @@ test('compaction history and live windows retain one activity, summary and bound
     expected,
     'paging forward crosses that same boundary'
   );
+});
 
+test('compaction initial and live projections expand the boundary alike', () => {
+  const { divider, prompt, history, expected } = compactionFixture();
   const snapshot = (items) => ({ thread: { id: 'compaction-merge' }, items, state: {} });
   const initial = sessionReducer.initial(snapshot([...history, prompt]));
   assert.deepEqual(
@@ -191,7 +199,9 @@ test('compaction history and live windows retain one activity, summary and bound
     ['divider:c1', 'prompt'],
     'unheld archived rows do not enter below the divider'
   );
+});
 
+function compactionLane() {
   const store = createSessionLaneStore({ decorator });
   const apply = (items) =>
     store.apply({
@@ -199,6 +209,13 @@ test('compaction history and live windows retain one activity, summary and bound
       frameSource: 'live',
       snapshot: { sessionId: 'compaction-merge', items },
     });
+  return { store, apply };
+}
+
+test('a wider history source is matched to the shown window by its full overlap', () => {
+  const { page, tail, expected } = compactionFixture();
+  const older = prependHistoryPage({ items: tail, hasOlder: true, hasNewer: false }, page, false);
+  const { store, apply } = compactionLane();
   apply(older.items);
   apply(tail);
   assert.deepEqual(
@@ -214,7 +231,11 @@ test('compaction history and live windows retain one activity, summary and bound
     ['restored-activity', 'restored-summary', 'divider:c1', 'prompt']
   );
   store.clear();
+});
 
+test('distinct source ids preserve genuinely repeated compaction activity and summary rows', () => {
+  const { page, tail } = compactionFixture();
+  const { store, apply } = compactionLane();
   const activity = page[0];
   const answer = page[1];
   apply([activity, answer, { ...activity, id: 'second-activity' }, { ...answer, id: 'second-summary' }]);
@@ -335,10 +356,6 @@ test('releasing the last subscriber of an oversized lane drops its approval memb
   store.clear();
 });
 
-// Background shell jobs are injected by the desktop host, never by the session
-// runtime: a snapshot returned by a runtime call (slash command, model/Fast
-// switch, workflow change) omits the field entirely, and adopting it whole
-// blanked the live-work card while a shell was still running.
 test('a frame that omits shell jobs keeps the last host bucket', () => {
   const store = createSessionLaneStore({ decorator });
   const running = { count: 1, jobs: [{ taskId: 'task-1', command: 'run.ps1', startedAt: 1 }] };
@@ -363,10 +380,6 @@ test('a frame that omits shell jobs keeps the last host bucket', () => {
   store.clear();
 });
 
-// The session runtime republishes the DERIVED context-window fields as 0 — not
-// absent — whenever its own route comparison misses, and a 0 denominator made
-// the gauge fall back to its last complete reading: after an auto-compact it
-// then froze on the pre-compact number for the rest of the session.
 test('a frame that zeroes the context window keeps the last known limit', () => {
   const store = createSessionLaneStore({ decorator });
   store.apply({
@@ -462,19 +475,11 @@ test('a transport baseline release keeps a mounted pane painted', () => {
   store.apply({ sessionId: 'session', snapshot, frameSource: 'live' });
   assert.equal(store.get('session'), snapshot);
 
-  // The host releases a delta baseline with an UNNAMED null frame whenever a
-  // session leaves the visible set (ipc: releaseHiddenSessionStateEntries). One
-  // registration that momentarily omits a mounted session used to erase the
-  // pane mid-turn; the frame releases a baseline, never the painted content.
   store.apply({ sessionId: 'session', snapshot: null });
   assert.equal(store.get('session'), snapshot);
   store.clear();
 });
 
-// A byte-budgeted older page can start at any row, and its first row can be
-// the same weak kind as the cached window's last row (two turn completions).
-// Read as a tail window aligned at that row, the cached head was glued in
-// front of the page: the older rows painted below the newest turn.
 test('an older page that starts before the cached window replaces it as a prepend', () => {
   const rows = [
     { kind: 'turndone' },
@@ -521,10 +526,6 @@ test('an older page that starts before the cached window replaces it as a prepen
   }
 });
 
-// The desktop grows a followed window (and re-follows a thread) with a new
-// `thread/resume`, which the core answers with a whole `thread/snapshot` while
-// the turn streams. Swapped in as new objects, every row on screen re-rendered,
-// and the reply being streamed fell back to the next delta's text alone.
 test('a snapshot that replaces the fold mid-turn keeps every unchanged row and the streamed reply', () => {
   const sessionId = 'snapshot-mid-turn';
   const thread = { id: sessionId };

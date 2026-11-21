@@ -30,15 +30,9 @@ export function createPageSurfaceState(host: PageSurfaceStateHost) {
     geometryRevisions.set(guest, (geometryRevisions.get(guest) ?? 0) + 1);
     images.delete(guest);
   };
-  /** The pane size last requested for a guest and the content size its window
-   *  took for it. At a fractional display scale the window may land a DIP off
-   *  the request; while it keeps exactly that size, its frames answer the
-   *  pane's request and present as the requested surface. */
+  /** At a fractional display scale the window may land a DIP off the requested size. */
   const paneRequests = new WeakMap<WebContents, { requested: Size; landed: Size }>();
-  /** An offscreen page reads the display scale only when it resizes. The scale
-   *  generation counts primary-scale changes; each guest remembers the one it
-   *  was last sized at, so a page that was not presented during a change is
-   *  moved off its size and back the next time it is sized. */
+  /** An offscreen page reads the display scale only when it resizes. */
   let scaleGeneration = 0;
   const sizedAtScale = new WeakMap<WebContents, number>();
   const bumpScale = () => {

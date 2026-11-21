@@ -1,7 +1,3 @@
-/**
- * The panes a tab shows: page-server URLs for its files, and the pane of
- * inline content (a scripted page when one can be served).
- */
 import type { VisualizeInlineContent, VisualizePaneView } from '../../shared/visualize';
 import { inlineContentIsPage } from '../../shared/visualize-inline-page';
 import type { VisualizeServiceContext } from './context';

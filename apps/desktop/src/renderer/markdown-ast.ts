@@ -53,10 +53,7 @@ function offsetOf(node: SyntaxNode): { offset?: number } {
   return typeof offset === 'number' ? { offset } : {};
 }
 
-/** Where the characters of text `node` (`value`) sit in `source`: its start,
- *  and the breaks in their run of consecutive offsets, as flat [value index,
- *  offset] pairs (sourceOffsets). Text that does not read off its source
- *  range has none (no text node of this renderer's parser and plugins). */
+/** `offset` is the text's start in `source`; `jumps` are flat [value index, offset] pairs where the run of consecutive offsets breaks. */
 function textOffsets(
   node: SyntaxNode,
   value: string,
@@ -183,11 +180,8 @@ const markdownProcessor = unified()
   .use(rehypeHighlight)
   .use(trimTrailingCodeNewline)
   .use(linkifyLocalPaths);
-// Freezing runs every plugin's attacher once (rehype-highlight registers its
-// grammars), which the first parse otherwise did inside the commit that showed
-// it: a phone back from the background spent ~44 ms of one resumed task (4x
-// CPU) on it. The module loads ahead of that commit (preloadSyncMarkdownParser),
-// so the attachers run here, in the load.
+// Freezing runs the attachers (rehype-highlight registers its grammars) at load instead of in
+// the first parse's commit: ~44 ms of a resumed phone task at 4x CPU.
 markdownProcessor.freeze();
 
 export function parseMarkdownToHast(text: string): MarkdownAstRoot {

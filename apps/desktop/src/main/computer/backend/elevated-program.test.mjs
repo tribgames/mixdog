@@ -71,12 +71,7 @@ test('compressed elevated transport preserves script scope and leaves room for t
   assert.equal(stdout.trim(), 'after');
 });
 
-test('elevated supervisor cancels only its harmless child and acknowledges its actual exit', {
-  skip: process.platform !== 'win32' && 'Windows only',
-}, async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'mixdog-supervisor-'));
-  // Exercise the production supervisor without UAC or any desktop input.
-  const script = `
+const supervisorScript = `
 $ErrorActionPreference = 'Stop'
 $tokens = $null
 $errors = $null
@@ -121,30 +116,53 @@ foreach ($mode in @('cancel','deadline','parent','success')) {
 }
 $results | ConvertTo-Json -Compress
 `;
-  try {
-    const { stdout } = await exec(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
-      {
-        windowsHide: true,
-        timeout: 20_000,
-        env: {
-          ...process.env,
-          AUDIT_DIRECTORY: directory,
-          AUDIT_NODE: process.execPath,
-          AUDIT_BOOTSTRAP: Buffer.from(ELEVATED_BOOTSTRAP, 'utf8').toString('base64'),
-        },
-      }
-    );
-    const results = JSON.parse(stdout.trim());
-    for (const result of results) {
-      assert.equal(result.exited, true, result.mode);
-      assert.equal(result.stopped, true, result.mode);
-      assert.equal(result.released, result.mode !== 'success', result.mode);
-      assert.equal(result.reason, result.mode === 'success' ? '' : 'privileged_worker_cancelled');
+
+let supervisorResults;
+function runSupervisor() {
+  supervisorResults ??= (async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mixdog-supervisor-'));
+    try {
+      const { stdout } = await exec(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-EncodedCommand',
+          Buffer.from(supervisorScript, 'utf16le').toString('base64'),
+        ],
+        {
+          windowsHide: true,
+          timeout: 20_000,
+          env: {
+            ...process.env,
+            AUDIT_DIRECTORY: directory,
+            AUDIT_NODE: process.execPath,
+            AUDIT_BOOTSTRAP: Buffer.from(ELEVATED_BOOTSTRAP, 'utf8').toString('base64'),
+          },
+        }
+      );
+      return JSON.parse(stdout.trim());
+    } finally {
+      await rm(directory, { recursive: true, force: true });
     }
-    assert.equal(results.length, 4);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+  })();
+  return supervisorResults;
+}
+
+const supervisorModes = [
+  ['cancel', 'a cancel request stops the child, releases input and reports the cancellation'],
+  ['deadline', 'an expired deadline stops the child, releases input and reports the cancellation'],
+  ['parent', 'a lost parent stops the child, releases input and reports the cancellation'],
+  ['success', 'a child that exits on its own is acknowledged without releasing input'],
+];
+for (const [mode, name] of supervisorModes) {
+  test(`elevated supervisor: ${name}`, { skip: process.platform !== 'win32' && 'Windows only' }, async () => {
+    const results = await runSupervisor();
+    assert.equal(results.length, supervisorModes.length);
+    const result = results.find((entry) => entry.mode === mode);
+    assert.equal(result.exited, true);
+    assert.equal(result.stopped, true);
+    assert.equal(result.released, mode !== 'success');
+    assert.equal(result.reason, mode === 'success' ? '' : 'privileged_worker_cancelled');
+  });
+}

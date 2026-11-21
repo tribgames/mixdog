@@ -32,14 +32,11 @@ const firstLine = (text: string) =>
     .find((line) => line.trim())
     ?.trim() ?? '';
 
-/** The request as the bubble shows it. `requester` names who asks and
- *  `agentName` is the card's own name for it (the "always allow" scope). */
-export function petApproval(
-  approval: Approval,
-  { requester, agentName }: { requester: string; agentName: string }
-): DesktopPetApproval {
-  const model = approvalCardModel(approval);
-  const rows = approvalCardRows(model, { agentName, officeLabel: '' });
+type CardModel = ReturnType<typeof approvalCardModel>;
+type CardRows = ReturnType<typeof approvalCardRows>;
+
+/** Whether the bubble offers the card's own decisions inline, and which rows are its allow and deny. */
+function inlineDecisions(approval: Approval, model: CardModel, rows: CardRows) {
   const decisions = rows.map((row) => row.decision);
   const plain = rows.every(
     (row) =>
@@ -65,20 +62,36 @@ export function petApproval(
     // connector widening are decided on the card, where their details show.
     !model.office &&
     !approvalAllowIsPointerOnly(approval);
-  const outbound = model.kind === 'outbound';
-  const full = outbound
-    ? [
-        model.target,
-        model.account,
-        model.payload,
-        ...Object.entries(model.details).map(([key, value]) => `${key}: ${value}`),
-      ]
-        .filter(Boolean)
-        .join('\n')
-    : [model.detail, model.requestAccount && `${t('Account')}: ${model.requestAccount}`].filter(Boolean).join('\n');
+  return { decisions, inline, primary, deny };
+}
+
+function fullText(model: CardModel): string {
+  if (model.kind === 'outbound') {
+    return [
+      model.target,
+      model.account,
+      model.payload,
+      ...Object.entries(model.details).map(([key, value]) => `${key}: ${value}`),
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+  return [model.detail, model.requestAccount && `${t('Account')}: ${model.requestAccount}`].filter(Boolean).join('\n');
+}
+
+/** The request as the bubble shows it. `requester` names who asks and
+ *  `agentName` is the card's own name for it (the "always allow" scope). */
+export function petApproval(
+  approval: Approval,
+  { requester, agentName }: { requester: string; agentName: string }
+): DesktopPetApproval {
+  const model = approvalCardModel(approval);
+  const rows = approvalCardRows(model, { agentName, officeLabel: '' });
+  const { decisions, inline, primary, deny } = inlineDecisions(approval, model, rows);
+  const full = fullText(model);
   return {
     id: String(approval.id ?? ''),
-    title: petText(outbound ? actionQuestion(model.action) : model.title),
+    title: petText(model.kind === 'outbound' ? actionQuestion(model.action) : model.title),
     requester: petText(requester),
     detail: petText(firstLine(full)),
     full: petText(full),

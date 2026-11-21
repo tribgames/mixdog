@@ -1,9 +1,3 @@
-// The user's visualize feedback waiting for the next message, per session:
-// numbered pins (an element of an HTML pane, or a dragged region of any
-// commentable pane, see shared/visualize-comment-kinds.ts) and `data-choice`
-// picks. The composer shows them and sends them with the next user message;
-// the panes draw the pins' numbers. A pin's number is its position in the
-// session's list, so removing one renumbers the rest everywhere alike.
 import { useSyncExternalStore } from 'react';
 
 import { isRemoteContentSurface } from './remote-conversation-privacy';
@@ -235,10 +229,6 @@ export interface VisualizeFeedback {
 
 const EMPTY: VisualizeFeedback = Object.freeze({ pins: [], choices: [], tweaks: [] }) as VisualizeFeedback;
 
-// The queue outlives a renderer reload (crash recovery, a shell update, a
-// dev reload): queued pins and picks are the user's unsent words, and a
-// reload that dropped them lost feedback with no trace. Window-scoped, like
-// the composer's other unsent state.
 const STORAGE_KEY = 'mixdog:visualize-feedback:v1';
 
 function storedFeedback(): Map<string, VisualizeFeedback> {
@@ -568,6 +558,56 @@ const percent = (value: number): string => `${Math.round(value * 1000) / 10}%`;
 const indent = (text: string): string => text.replace(/\r\n?/g, '\n').split('\n').join('\n    ');
 const quoted = (text: string): string => JSON.stringify(text);
 
+function targetPromptLines(target: VisualizePinTarget): string[] {
+  const lines: string[] = [];
+  if (target.type === 'element') {
+    const { selector, html, styles, box, path } = target;
+    lines.push(`  selector: ${selector}`);
+    if (path.length) lines.push(`  inside: ${path.join(' › ')}`);
+    if (html) lines.push(`  html: ${html}`);
+    const styleText = Object.entries(styles)
+      .map(([key, style]) => `${key}: ${style}`)
+      .join('; ');
+    if (styleText) lines.push(`  styles: ${styleText}`);
+    lines.push(`  box: x ${box.x}, y ${box.y}, ${box.width}×${box.height} (CSS px, page coordinates)`);
+    return lines;
+  }
+  const { view, image, time, elements, anchor } = target;
+  if (time !== undefined) lines.push(`  time: ${formatVisualizeTime(time)} (${time} s into the video)`);
+  lines.push(
+    `  region: x ${percent(view.x)}, y ${percent(view.y)}, ${percent(view.width)}×${percent(view.height)} of the pane's visible view`
+  );
+  if (anchor?.path?.length) lines.push(`  inside: ${anchor.path.join(' › ')}`);
+  if (elements !== undefined) lines.push(`  elements: ${elements} wholly inside the region`);
+  if (image) {
+    const [area, space] = time !== undefined ? ['frame area', 'video px'] : ['image area', 'image px'];
+    lines.push(`  ${area}: x ${image.x}, y ${image.y}, ${image.width}×${image.height} (${space})`);
+  }
+  return lines;
+}
+
+function choicePromptLines(choices: readonly VisualizeChoice[]): string[] {
+  return [
+    'choices:',
+    ...choices.map(
+      (choice) =>
+        `  - tab: ${choice.tabId} ${quoted(choice.tabLabel)} · file: ${choice.file} · group: ${choice.group ? quoted(choice.group) : '(none)'} → choice: ${quoted(choice.choice)}${choice.label ? ` (${quoted(choice.label)})` : ''}`
+    ),
+  ];
+}
+
+function tweakPromptLines(tweaks: readonly VisualizeTweakSet[]): string[] {
+  const lines = [
+    "tweaks (the user adjusted these in the panel; make them the new defaults in the file — the CSS variable / data attribute named, or the control default in the page's mx-tweaks block):",
+  ];
+  for (const set of tweaks) {
+    lines.push(`  - tab: ${set.tabId} ${quoted(set.tabLabel)} · pane ${set.pane + 1} · file: ${set.file}`);
+    for (const change of set.changes)
+      lines.push(`    ${change.id} (${change.target}): ${change.value} (was ${change.was})`);
+  }
+  return lines;
+}
+
 /** The message part the agent reads (structured text), the transcript line
  *  the user sees, and the crops as image attachments numbered from
  *  `firstImageId`. */
@@ -587,30 +627,7 @@ export function visualizeFeedbackPrompt(
     lines.push(`  note: ${indent(pin.note)}`);
     lines.push(`  tab: ${pin.tabId} ${quoted(pin.tabLabel)} · pane ${pin.pane + 1} · file: ${pin.file}`);
     lines.push(`  kind: ${pin.paneKind} ${pin.target.type}`);
-    const { target } = pin;
-    if (target.type === 'element') {
-      const { selector, html, styles, box, path } = target;
-      lines.push(`  selector: ${selector}`);
-      if (path.length) lines.push(`  inside: ${path.join(' › ')}`);
-      if (html) lines.push(`  html: ${html}`);
-      const styleText = Object.entries(styles)
-        .map(([key, style]) => `${key}: ${style}`)
-        .join('; ');
-      if (styleText) lines.push(`  styles: ${styleText}`);
-      lines.push(`  box: x ${box.x}, y ${box.y}, ${box.width}×${box.height} (CSS px, page coordinates)`);
-    } else {
-      const { view, image, time, elements, anchor } = target;
-      if (time !== undefined) lines.push(`  time: ${formatVisualizeTime(time)} (${time} s into the video)`);
-      lines.push(
-        `  region: x ${percent(view.x)}, y ${percent(view.y)}, ${percent(view.width)}×${percent(view.height)} of the pane's visible view`
-      );
-      if (anchor?.path?.length) lines.push(`  inside: ${anchor.path.join(' › ')}`);
-      if (elements !== undefined) lines.push(`  elements: ${elements} wholly inside the region`);
-      if (image) {
-        const [area, space] = time !== undefined ? ['frame area', 'video px'] : ['image area', 'image px'];
-        lines.push(`  ${area}: x ${image.x}, y ${image.y}, ${image.width}×${image.height} (${space})`);
-      }
-    }
+    lines.push(...targetPromptLines(pin.target));
     if (pin.image) {
       lines.push(`  crop: image "visualize pin ${n}"`);
       images.push({
@@ -628,23 +645,11 @@ export function visualizeFeedbackPrompt(
     display.push(`${visualizePinChip(pin, n)} — ${pin.note.replace(/\s+/g, ' ')}`);
   });
   if (value.choices.length) {
-    lines.push('choices:');
-    for (const choice of value.choices) {
-      lines.push(
-        `  - tab: ${choice.tabId} ${quoted(choice.tabLabel)} · file: ${choice.file} · group: ${choice.group ? quoted(choice.group) : '(none)'} → choice: ${quoted(choice.choice)}${choice.label ? ` (${quoted(choice.label)})` : ''}`
-      );
-    }
+    lines.push(...choicePromptLines(value.choices));
     display.push(visualizeChoicesChip(value.choices));
   }
   if (value.tweaks.length) {
-    lines.push(
-      "tweaks (the user adjusted these in the panel; make them the new defaults in the file — the CSS variable / data attribute named, or the control default in the page's mx-tweaks block):"
-    );
-    for (const set of value.tweaks) {
-      lines.push(`  - tab: ${set.tabId} ${quoted(set.tabLabel)} · pane ${set.pane + 1} · file: ${set.file}`);
-      for (const change of set.changes)
-        lines.push(`    ${change.id} (${change.target}): ${change.value} (was ${change.was})`);
-    }
+    lines.push(...tweakPromptLines(value.tweaks));
     display.push(visualizeTweaksChip(value.tweaks));
   }
   lines.push('</visualize_feedback>');

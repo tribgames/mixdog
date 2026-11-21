@@ -1,7 +1,3 @@
-// Plays a lifecycle script against the phone's world (test-support/phone-world.mjs) and returns its checkpoints. A trace holds only what
-// the user, or the core, can tell apart: the connection indicator's states and its outage/clear transitions, the sockets the page closes
-// or pings (with the virtual time since the last checkpoint), what the core knows of the phone, how a pending call ends, and the pairing
-// reset.
 import { effectiveCore } from './phone-world.mjs';
 
 /** The text ceiling the world's relay publishes at the handshake (uplinkTextCeilingBytes): a payload of one byte per char past it is refused by the page before it leaves. */
@@ -24,6 +20,11 @@ export async function play(world, driver, ops) {
   const calls = [];
   let hellos = 0;
   const refused = new Set();
+  const settleAs = (as, promise) =>
+    promise.then(
+      (value) => world.log({ ev: 'settled', as, ok: true, value }),
+      (error) => world.log({ ev: 'settled', as, ok: false, code: error?.code })
+    );
   const traceReads = ops[0].reads === true;
   const checkpoint = (name, extra = {}) => {
     const slice = world.events.slice(cursor);
@@ -166,22 +167,10 @@ export async function play(world, driver, ops) {
         break;
       }
       case 'read':
-        driver
-          .api()
-          [op.name]()
-          .then(
-            (value) => world.log({ ev: 'settled', as: op.as, ok: true, value }),
-            (error) => world.log({ ev: 'settled', as: op.as, ok: false, code: error?.code })
-          );
+        settleAs(op.as, driver.api()[op.name]());
         break;
       case 'oversize':
-        driver
-          .api()
-          .deleteSession('x'.repeat(PAYLOAD_CEILING_CHARS + 1))
-          .then(
-            (value) => world.log({ ev: 'settled', as: op.as, ok: true, value }),
-            (error) => world.log({ ev: 'settled', as: op.as, ok: false, code: error?.code })
-          );
+        settleAs(op.as, driver.api().deleteSession('x'.repeat(PAYLOAD_CEILING_CHARS + 1)));
         await world.advance(0);
         break;
       case 'unhold':
@@ -207,13 +196,7 @@ export async function play(world, driver, ops) {
         world.window.dispatchEvent(new CustomEvent(driver.visualizePanelsEvent, { detail: op.ids }));
         break;
       case 'visible':
-        driver
-          .api()
-          .setVisibleSessions(op.ids)
-          .then(
-            (value) => world.log({ ev: 'settled', as: op.as ?? 'visible', ok: true, value }),
-            (error) => world.log({ ev: 'settled', as: op.as ?? 'visible', ok: false, code: error?.code })
-          );
+        settleAs(op.as ?? 'visible', driver.api().setVisibleSessions(op.ids));
         break;
       case 'lane':
         driver.api().subscribeTermData(() => {});

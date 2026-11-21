@@ -1,8 +1,3 @@
-/**
- * Requests to the display client for a session's surface: reveal, hide, or
- * hand off its panel, an agent `open`'s reveal, and a failed open's line.
- * They never touch page ownership or OS focus.
- */
 import type { BrowserWindow, WebContents } from 'electron';
 
 import { DESKTOP_IPC, type DesktopBrowserOpenRequest } from '../../shared/contract';

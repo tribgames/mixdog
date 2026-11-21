@@ -24,10 +24,6 @@ export function useRememberVirtualMeasurements({
   // biome-ignore lint/correctness/useExhaustiveDependencies: viewport is an intentional re-run trigger (the snapshot is taken when the pane element changes); the virtualizer is read through its ref
   useLayoutEffect(
     () => () => {
-      // A streaming row's held slot is not its size: re-entry would replay
-      // the stale slot. Its real size lands first (a deferral it meets is
-      // replayed just below), then pending gesture-deferred sizes — both
-      // part of the truth this snapshot promises to replay on re-entry.
       settleHeldShrinks(true);
       flushDeferredResizes();
       rememberTranscriptVirtualMeasurements(sessionKey, virtualizerRef.current.takeSnapshot());

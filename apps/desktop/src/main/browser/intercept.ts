@@ -1,14 +1,3 @@
-/**
- * Request interception rules.
- *
- * Chromium pauses a request that matches a rule and this module decides what
- * answers it: a refusal, or a mocked response. That reaches the states a live
- * network cannot be asked for on demand — a dead dependency, a 500, an empty
- * list — so a page's failure handling can be driven instead of described.
- *
- * The host owns the CDP wiring; this module owns the rule table, the matching,
- * and how a rule is reported back.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserCommand, BrowserCommandResult } from './host-types';

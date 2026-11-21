@@ -1,7 +1,3 @@
-// The PC picture's view on the phone's stage, as state with no DOM: the first
-// view is the whole screen centred (also the minimum zoom; fingers zoom in),
-// and the soft keyboard is an inset, not a resize, so the picture never jumps
-// as it comes and goes. The maths is remote-viewport.ts's.
 import {
   clampView,
   containScale,

@@ -40,7 +40,6 @@ async function mountViews(overrides = {}, userAgent) {
       sessionDiffs: new Map(),
       setSessionDiff: () => {},
       snapshotStore: { get: () => ({}) },
-      observedAgentSessionIds: [],
       quickAccessProjectPath: '/projects/default',
       workbenchWorkspace: { workspace: { folders: [] } },
       selectToolProject: () => {},

@@ -1,8 +1,3 @@
-/**
- * HTML panes are iframes of the main window, so their console output, network
- * and frame navigations arrive on its webContents; the service keeps only what
- * belongs to a displayed page.
- */
 import type { WebContents, WebFrameMain } from 'electron';
 
 import { OUTSIDE_NETWORK_URL_PATTERNS } from '../../shared/visualize-network-policy';
@@ -70,13 +65,8 @@ function guardNavigations(contents: WebContents, service: Pick<PageProblemSink, 
   });
 }
 
-/** Pages run scripts, so their outside network is cut here, in main, where
- *  the page cannot reach: a request is refused when the frame that made it
- *  (or an ancestor, or its referrer) is a visualize lease whose tab has not
- *  allowed network. Every other request — the app, the browser panel, other
- *  windows — is left alone. Chromium logs a failed subresource load to the
- *  devtools console only, never to `console-message`; the network layer is
- *  the reliable source for a page's missing styles, scripts, images and fonts. */
+/** Chromium logs a failed subresource load to the devtools console only, never
+ *  to `console-message`, so failures are read from the network layer. */
 function watchRequests(
   contents: WebContents,
   service: Pick<PageProblemSink, 'guardRequest' | 'reportAssetFailure'>

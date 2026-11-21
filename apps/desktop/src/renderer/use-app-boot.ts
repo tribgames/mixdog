@@ -62,15 +62,8 @@ function hiddenPanelsStayCold(): boolean {
   return isMobileDeviceSurface();
 }
 
-/** The phone's side-sheet panes (Changes' diff view, Terminal, Browser,
- *  Visualize, the editor), last in the lane — which a phone only opens once
- *  its first conversation painted — and only on a normal link. Tapped cold, each
- *  chunk was fetched over the relay inside the tap, so the sheet opened onto a
- *  blank body. The lane DOWNLOADS them only (modulepreload: fetched and
- *  compiled off the main thread); each is evaluated on its first open.
- *  Evaluated in the lane, Monaco alone held the main thread ~400ms at a
- *  phone's CPU between two swipes of a reader, and the transcript could not
- *  mount the rows the next swipe brought in. */
+/** The phone's side-sheet pane chunks, last in the lane and only on a normal
+ *  link. The lane only downloads them (modulepreload); each is evaluated on its first open. */
 export function phoneSheetPaneWarmups(): Array<() => void> {
   if (connectionQuality() !== 'normal') return [];
   const panes: ChunkPrefetchName[] = [
@@ -122,12 +115,6 @@ export function useAppModuleWarmup(startupSettled: boolean, trackSidebarPanelMod
     if (!startupSettled) return undefined;
     const nativeWindow = isNativeDesktopWindow();
     const cancels = [
-      // Monaco + the Markdown preview. A phone opens no file at start, so it
-      // takes them, with the other side-sheet panes, at the lane's tail. A
-      // desktop window no longer takes them at boot: Monaco's chunk (about
-      // 4 MB of source, its compiled code and styles) stayed resident in every
-      // window that never opened a file. The intents that lead to the editor
-      // (the file chooser, a file link, editor navigation) prefetch it.
       ...(hiddenPanelsStayCold() ? phoneSheetPaneWarmups() : []),
       scheduleBootWarmup({
         id: 'module:session-goal',
@@ -287,11 +274,6 @@ export function useAppThemePreference() {
 
 export function useAppOnboarding(setSettingsOpen: Dispatch<SetStateAction<boolean>>) {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
-  // A paired remote surface never holds its boot cover for this read: it is a
-  // capability read that queues on the desktop behind the boot's usage and
-  // provider probes, so the conversation stayed covered for seconds after its
-  // view sync. Pairing implies a set-up desktop; an incomplete onboarding still
-  // opens the wizard when the answer lands.
   const [onboardingReady, setOnboardingReady] = useState(isRemoteHostRenderer);
   useEffect(() => {
     const openOnboarding = () => {
@@ -366,7 +348,13 @@ export function useAppWorkspaceWarmup({
   mountSidebarPanel: ShellPanels['mountSidebarPanel'];
   trackSidebarPanelModule: SidebarModuleTracker;
 }) {
-  // The core-direct visible panes already get a live tail from registration.
+  useTranscriptWarmup(ready, workspace, sessions);
+  useSurfaceChunkWarmup(ready, workspace);
+  useBootWarmupArm(ready);
+  useSidebarMountWarmup(ready, mountSidebarPanel, trackSidebarPanelModule);
+}
+
+function useTranscriptWarmup(ready: boolean, workspace: WarmupWorkspace, sessions: readonly DesktopSessionSummary[]) {
   useEffect(() => {
     if (!ready || usesVisibleSessionActivation() || backgroundWarmupThrottled()) return undefined;
     const sessionIds = paneActiveSessionIds(workspace.leaves, workspace.focusedLeafId);
@@ -400,7 +388,9 @@ export function useAppWorkspaceWarmup({
         });
       });
   }, [ready, sessions, workspace.focusedLeafId, workspace.leaves]);
-  // Code may warm on a normal remote link; it is cached independently of transcripts.
+}
+
+function useSurfaceChunkWarmup(ready: boolean, workspace: WarmupWorkspace) {
   useEffect(() => {
     if (!ready || backgroundWarmupThrottled()) return undefined;
     const queue = workspace.leaves.flatMap((leaf) => [...leaf.tabs]);
@@ -416,6 +406,9 @@ export function useAppWorkspaceWarmup({
       for (const cancel of cancels) cancel();
     };
   }, [ready, workspace.leaves]);
+}
+
+function useBootWarmupArm(ready: boolean) {
   useEffect(() => {
     if (!ready) return undefined;
     const nativeWindow = isNativeDesktopWindow();
@@ -441,6 +434,13 @@ export function useAppWorkspaceWarmup({
       window.clearTimeout(fallbackTimer);
     };
   }, [ready]);
+}
+
+function useSidebarMountWarmup(
+  ready: boolean,
+  mountSidebarPanel: ShellPanels['mountSidebarPanel'],
+  trackSidebarPanelModule: SidebarModuleTracker
+) {
   useEffect(() => {
     if (!ready) return undefined;
     const cancels = [
@@ -495,14 +495,6 @@ export function useAppWorkspaceWarmup({
           ]
         : [];
     const mountPages = () => [...mountBotsPage(), ...mountPanels(DEFAULT_SIDEBAR_VIEW_ORDER)];
-    // Every rail page mounts hidden at idle, so no first entry mounts its page
-    // in front of the user. A phone's lane
-    // opens only once its first conversation painted, and takes them only on
-    // a normal link. Opened cold, each page painted its placeholder until its
-    // chunk and its list crossed the relay.
-    // Mounted on the first touch instead, the pages rendered while the drawer
-    // that touch opened was in front of the user, and its first rail tap
-    // landed among them.
     if (!hiddenPanelsStayCold() || connectionQuality() === 'normal') cancels.push(...mountPages());
     return () => {
       for (const cancel of cancels) cancel();

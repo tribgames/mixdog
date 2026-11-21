@@ -1,11 +1,3 @@
-/** The session's tab strip after a close, read from the host rather than from
- *  whatever frame a client last saw. The window closes asynchronously (and a
- *  beforeunload veto keeps it open), so wait briefly for the tab to leave.
- *
- *  Closing a session's last tab leaves the host with a blank page of its own;
- *  the host marks that replacement (`isReplacement`), and it alone is not a
- *  tab the user has. Every other tab counts, judged on the final state, so the
- *  panel closes only when no user tab is left. */
 import type { DesktopBrowserTab, DesktopBrowserTabControlResult } from '../../shared/contract-browser';
 
 /** The session's tab strip: the one the local pane shows and paired clients drive. */
@@ -80,10 +72,6 @@ export async function closeSessionTab(
     await new Promise((resolve) => setTimeout(resolve, CLOSE_POLL_MS));
     list = tabs.list(sessionId);
   }
-  // Judged on the final state: every tab is the user's except the host's own
-  // marked replacement (while its address is blank, loading or not: it is
-  // still starting up, and the mark is cleared once the user takes it) and a
-  // blank sole tab that was asked to close and is going away.
   const userTabs = list.filter(
     (tab) =>
       !(

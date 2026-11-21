@@ -73,10 +73,6 @@ export function createBrowserCdpCalls(host: CdpCallsHost) {
     }
   }
 
-  /** Input commands can remain pending while a JavaScript dialog blocks its
-   *  event handler, or the renderer it shares with the dialog's page. Return
-   *  control as soon as the dialog is known so the caller can issue
-   *  handle_dialog instead of waiting for the CDP timeout. */
   async function sendCdpInput(
     guest: WebContents,
     cdp: Electron.Debugger,

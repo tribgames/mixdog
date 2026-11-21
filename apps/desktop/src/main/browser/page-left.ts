@@ -1,8 +1,3 @@
-/** Whether a failure is the page itself leaving: the guest was destroyed, it
- *  moved off `url` (when given), or CDP said the document it was talking to
- *  went away (settle.ts DOCUMENT_REPLACED). These are the expected races of a
- *  flow that reads or drives a page while it navigates; anything else is a
- *  real failure and is reported. */
 import type { WebContents } from 'electron';
 
 import { DOCUMENT_REPLACED } from './settle';

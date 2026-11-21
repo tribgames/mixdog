@@ -1,9 +1,3 @@
-/**
- * Where a gesture actually lands. A ref becomes a screen point only after the
- * page confirms the element is on top of it, and an image coordinate is
- * accepted only while the screenshot it came from still describes the page.
- * Both refuse rather than guess, because a wrong point clicks the wrong thing.
- */
 import type { WebContents } from 'electron';
 
 import { BrowserActionabilityError, waitForBrowserActionable } from './actionability';

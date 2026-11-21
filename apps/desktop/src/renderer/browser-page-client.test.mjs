@@ -74,7 +74,7 @@ for (const mode of ['capture-failure', 'capture-pending', 'decode-failure']) {
   });
 }
 
-test('new native metadata cannot retarget input from old visible pixels or publish late after disposal', async () => {
+test('new native metadata cannot retarget input from old visible pixels', async () => {
   let latest = frame();
   let finish;
   const sent = [];
@@ -111,6 +111,11 @@ test('new native metadata cannot retarget input from old visible pixels or publi
     ['p1:1', 'p1:1', 'p1:1', 'p2:1']
   );
   client.dispose();
+});
+
+test('native metadata arriving after disposal is not published', async () => {
+  let finish;
+  const latest = frame('p2:1');
   const updates = [];
   const parked = createBrowserPageClient({
     sessionId: 'parked',
@@ -200,7 +205,6 @@ test('a delayed pixel capture never rolls back a newer dialog, and unchanged met
   }
   dom.window.Image.prototype.decode = async () => {};
   t.after(() => dom.window.close());
-  // What the view renders: whatever was last handed to setFrame.
   let shown = null;
   const setFrame = (value) => {
     shown = value;
@@ -921,8 +925,6 @@ test('a pending display sample does not delay motion, resize, or the keystroke b
     const resize = client.control({ type: 'resize', width: 900, height: 700 });
     const key = client.control({ type: 'key', key: 'Tab' });
     await Promise.all([move, resize, key]);
-    // Geometry now uses the independent native-control lane. Human inputs
-    // retain their order, and neither lane waits for the display sample.
     assert.deepEqual(
       sent.filter((input) => input.type !== 'resize').map((input) => input.type),
       ['pointer', 'key']

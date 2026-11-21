@@ -56,10 +56,6 @@ const DOCK_OPEN_GATE = { module: utilityDockModule, waits: () => true };
 /** The views UtilityDock draws. */
 const DOCK_CHUNK_VIEWS: ReadonlySet<WorkbenchSideViewId> = new Set(['agents', 'source-control', 'pull-requests']);
 
-/** Search opens on its project's file tree: it waits for the dock chunk AND the
- *  root listing (cached or read), so the tree paints rows in the open's first
- *  frame. A failed read opens anyway, on the failure the cache kept: the tree
- *  shows its own error in that first frame. */
 function searchOpenGateFor(projectPath: string) {
   return {
     module: {
@@ -119,7 +115,9 @@ export function useSideViewPrefetch(
   );
 }
 
-export function useSideViewSelection({
+/** Selects a side view at once: the left drawer's view, or the pane dock's
+ *  (with the session surface the view belongs to). */
+function useSelectSideViewNow({
   sideOf,
   selectDock,
   activeSideViews,
@@ -132,19 +130,30 @@ export function useSideViewSelection({
   refreshProjects,
   paneLeavesRef,
   focusedLeafIdRef,
-  paneLeaves,
-  focusedLeafId,
   browserSurfaces,
   pendingBrowserAutoReveal,
   setSessionSideSurface,
   setSessionPanelView,
-  visualizeOpenGate = VISUALIZE_OPEN_GATE,
-  dockOpenGate = DOCK_OPEN_GATE,
-  explorerProjectPath = '',
-  searchOpenGate,
-}: SideViewRoutingActions) {
-  const defaultSearchOpenGate = useMemo(() => searchOpenGateFor(explorerProjectPath), [explorerProjectPath]);
-  const selectNow = useCallback(
+}: Pick<
+  SideViewRoutingActions,
+  | 'sideOf'
+  | 'selectDock'
+  | 'activeSideViews'
+  | 'setActiveSideViews'
+  | 'sidebarOpen'
+  | 'applySidebarOpen'
+  | 'closeSidebarPanels'
+  | 'mountSidebarPanel'
+  | 'trackSidebarPanelModule'
+  | 'refreshProjects'
+  | 'paneLeavesRef'
+  | 'focusedLeafIdRef'
+  | 'browserSurfaces'
+  | 'pendingBrowserAutoReveal'
+  | 'setSessionSideSurface'
+  | 'setSessionPanelView'
+>) {
+  return useCallback(
     (id: WorkbenchSideViewId, paneLeafId?: string) => {
       // The browser flows to the right-side branch as the pane dock's own child.
       const side = sideOf(id);
@@ -165,10 +174,6 @@ export function useSideViewSelection({
         if (id === 'browser' || id === 'terminal') {
           if (selection?.kind !== 'session') return;
           if (id === 'browser') {
-            // A room log never browses itself: its toggle shows the member
-            // page last routed into it (a borrowed tab), not an empty page.
-            // Visualize needs nothing here: a member's open lands in the
-            // room log's own tabs (main/visualize service ownerSessionId).
             const memberPage =
               roomIdOfSession(selection.id) && !borrowedBrowserTab(selection.id)
                 ? latestChildBrowserPage(selection.id)
@@ -219,17 +224,55 @@ export function useSideViewSelection({
       setActiveSideViews,
     ]
   );
-  // The phone sheet slides in with its body: a Visualize open waits for its
-  // chunk (the toggle's touch-down started it), so the sheet never slides
-  // empty. Desktop docks open at once. The wait drops when the user moves
-  // on first: a drawer dismissal, another side view, or a pane navigation.
+}
+
+export function useSideViewSelection({
+  sideOf,
+  selectDock,
+  activeSideViews,
+  setActiveSideViews,
+  sidebarOpen,
+  applySidebarOpen,
+  closeSidebarPanels,
+  mountSidebarPanel,
+  trackSidebarPanelModule,
+  refreshProjects,
+  paneLeavesRef,
+  focusedLeafIdRef,
+  paneLeaves,
+  focusedLeafId,
+  browserSurfaces,
+  pendingBrowserAutoReveal,
+  setSessionSideSurface,
+  setSessionPanelView,
+  visualizeOpenGate = VISUALIZE_OPEN_GATE,
+  dockOpenGate = DOCK_OPEN_GATE,
+  explorerProjectPath = '',
+  searchOpenGate,
+}: SideViewRoutingActions) {
+  const defaultSearchOpenGate = useMemo(() => searchOpenGateFor(explorerProjectPath), [explorerProjectPath]);
+  const selectNow = useSelectSideViewNow({
+    sideOf,
+    selectDock,
+    activeSideViews,
+    setActiveSideViews,
+    sidebarOpen,
+    applySidebarOpen,
+    closeSidebarPanels,
+    mountSidebarPanel,
+    trackSidebarPanelModule,
+    refreshProjects,
+    paneLeavesRef,
+    focusedLeafIdRef,
+    browserSurfaces,
+    pendingBrowserAutoReveal,
+    setSessionSideSurface,
+    setSessionPanelView,
+  });
   const { request: requestVisualizeOpen, cancel: cancelVisualizeOpen } = useModuleOpenRequest({
     ...visualizeOpenGate,
     subscribeDismiss: subscribeDrawerDismiss,
   });
-  // The same wait for the views the dock chunk draws (Search among them): a
-  // page opens with its body, never over a placeholder, however early the tap
-  // comes. A loaded chunk (the boot warm-up, the press's prefetch) opens at once.
   const { request: requestDockOpen, cancel: cancelDockOpen } = useModuleOpenRequest({
     ...dockOpenGate,
     subscribeDismiss: subscribeDrawerDismiss,
@@ -239,10 +282,6 @@ export function useSideViewSelection({
     ...(searchOpenGate ?? defaultSearchOpenGate),
     subscribeDismiss: subscribeDrawerDismiss,
   });
-  // Every committed navigation drops it, at that navigation: a pane showing
-  // something else (even one that comes back before the chunk is in), a pane
-  // added or removed, or focus moving to another pane. The one exception is
-  // the request's own focus move: a pane's toggle focuses its pane as it asks.
   const navigation = paneNavigationKey(paneLeaves, focusedLeafId);
   const committedNavigation = useRef(navigation);
   const requestNavigation = useRef<string | null>(null);

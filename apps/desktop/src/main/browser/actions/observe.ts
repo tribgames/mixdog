@@ -1,7 +1,3 @@
-/**
- * Reading the page without changing it: semantic and visual snapshots, the
- * visual locator, plain text reads, and selector-driven extraction.
- */
 import { persistFrameImage } from '../../frame-files';
 import {
   boundedInteger,
@@ -52,6 +48,28 @@ async function elementScreenshot(context: BrowserActionContext) {
   );
 }
 
+async function printPageToPdf({ guest, command, signal, services }: BrowserActionContext) {
+  // Chromium's embedded debugger does not carry Page.printToPDF.
+  const finishPrivacyCheck = await services.screenshots.prepareVisualOutput(guest, signal);
+  const printed = await guest.printToPDF({ printBackground: true });
+  await finishPrivacyCheck?.();
+  if (printed.length > MAX_PRINTED_PDF_BYTES) {
+    throw new Error(`printed PDF is ${printed.length} bytes; limit is ${MAX_PRINTED_PDF_BYTES} bytes`);
+  }
+  const data = printed.toString('base64');
+  if (!data) throw new Error('the page could not be printed to PDF');
+  const stored = await persistFrameImage(
+    'browser',
+    String(command.session_id || 'browser'),
+    services.state.pageId(guest),
+    { mimeType: 'application/pdf', data }
+  );
+  if (!stored) throw new Error('the printed PDF could not be written beside the run');
+  return {
+    text: `Printed ${redactBrowserUrl(guest.getURL())} to ${stored.path} (${stored.bytes} bytes).`,
+  };
+}
+
 export const observationActions = defineBrowserActions({
   async snapshot(context) {
     const { guest, command, signal, targetIsBackground, hasScreenshotOptions, services } = context;
@@ -86,28 +104,7 @@ export const observationActions = defineBrowserActions({
         targetIsBackground,
       });
     }
-    if (mode === 'visual' && command.format === 'pdf') {
-      // A printed page is a document, not a frame: it is always written
-      // beside the run, because putting it in the reply helps no one.
-      // Chromium's embedded debugger does not carry Page.printToPDF, so
-      // printing goes through the page's own renderer instead.
-      const finishPrivacyCheck = await screenshots.prepareVisualOutput(guest, signal);
-      const printed = await guest.printToPDF({ printBackground: true });
-      await finishPrivacyCheck?.();
-      if (printed.length > MAX_PRINTED_PDF_BYTES) {
-        throw new Error(`printed PDF is ${printed.length} bytes; limit is ${MAX_PRINTED_PDF_BYTES} bytes`);
-      }
-      const data = printed.toString('base64');
-      if (!data) throw new Error('the page could not be printed to PDF');
-      const stored = await persistFrameImage('browser', String(command.session_id || 'browser'), state.pageId(guest), {
-        mimeType: 'application/pdf',
-        data,
-      });
-      if (!stored) throw new Error('the printed PDF could not be written beside the run');
-      return {
-        text: `Printed ${redactBrowserUrl(guest.getURL())} to ${stored.path} (${stored.bytes} bytes).`,
-      };
-    }
+    if (mode === 'visual' && command.format === 'pdf') return printPageToPdf(context);
     if (mode === 'visual') {
       if (elementTarget) return elementScreenshot(context);
       const capture = await screenshots.capture(guest, targetIsBackground, command, signal);

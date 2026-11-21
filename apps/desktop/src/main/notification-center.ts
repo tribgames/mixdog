@@ -1,9 +1,4 @@
-// Settings › Notifications on the desktop service (issue #221): the device
-// list (this PC, then the Connection tab's paired devices), each device's
-// preferences, the conversation overrides and the test notification. This
-// PC's window reaches it over IPC and a paired device over its remote methods;
-// both validate their arguments first (ipc-validation.ts). The store
-// announces every persisted change once (SettingsChange { scope: 'notifications' }).
+// Settings › Notifications on the desktop service (issue #221).
 import type { DesktopRemoteClientInfo } from '../shared/contract';
 import {
   type ConversationNotificationOverride,
@@ -53,33 +48,33 @@ interface NotificationCenterOptions {
 
 export { notificationDeviceName, pairedDeviceInfo };
 
+async function notificationDevices(options: NotificationCenterOptions, pcCanNotify: boolean | null) {
+  const [clients, registrations, supported] = await Promise.all([
+    options.listClients(),
+    options.pushRegistrations(),
+    pcCanNotify ?? options.pcSupported(),
+  ]);
+  const paired = clients.filter((client) => !client.pendingRemoval);
+  const summaries: NotificationDeviceSummary[] = [
+    { id: NOTIFICATION_PC_DEVICE_ID, name: options.pcName(), kind: 'pc', online: true, canNotify: supported },
+    ...paired.map((client) => ({
+      id: client.id,
+      name: notificationDeviceName(client),
+      kind: deviceKind(client),
+      online: client.online,
+      canNotify: registrations.has(client.id),
+    })),
+  ];
+  const infos = new Map<string, NotificationDeviceInfo>([
+    [NOTIFICATION_PC_DEVICE_ID, { kind: 'pc' }],
+    ...paired.map((client) => [client.id, pairedDeviceInfo(client)] as const),
+  ]);
+  return { summaries, infos };
+}
 export function createNotificationCenter(options: NotificationCenterOptions) {
   const { store } = options;
-  const devices = async (pcCanNotify: boolean | null) => {
-    const [clients, registrations, supported] = await Promise.all([
-      options.listClients(),
-      options.pushRegistrations(),
-      pcCanNotify ?? options.pcSupported(),
-    ]);
-    const paired = clients.filter((client) => !client.pendingRemoval);
-    const summaries: NotificationDeviceSummary[] = [
-      { id: NOTIFICATION_PC_DEVICE_ID, name: options.pcName(), kind: 'pc', online: true, canNotify: supported },
-      ...paired.map((client) => ({
-        id: client.id,
-        name: notificationDeviceName(client),
-        kind: deviceKind(client),
-        online: client.online,
-        canNotify: registrations.has(client.id),
-      })),
-    ];
-    const infos = new Map<string, NotificationDeviceInfo>([
-      [NOTIFICATION_PC_DEVICE_ID, { kind: 'pc' }],
-      ...paired.map((client) => [client.id, pairedDeviceInfo(client)] as const),
-    ]);
-    return { summaries, infos };
-  };
   const state = async (currentDeviceId: string, pcCanNotify: boolean | null): Promise<NotificationPreferencesState> => {
-    const { summaries, infos } = await devices(pcCanNotify);
+    const { summaries, infos } = await notificationDevices(options, pcCanNotify);
     const preferences = await store.devices(
       summaries.map((device) => ({ id: device.id, info: infos.get(device.id)! }))
     );
@@ -91,7 +86,7 @@ export function createNotificationCenter(options: NotificationCenterOptions) {
     deviceId: string,
     patch: NotificationPreferencesPatch
   ): Promise<NotificationPreferencesState> => {
-    const { infos } = await devices(pcCanNotify);
+    const { infos } = await notificationDevices(options, pcCanNotify);
     const info = infos.get(deviceId);
     if (!info) throw new TypeError('That device is not paired with this PC.');
     await store.setDevice(deviceId, patch, info);

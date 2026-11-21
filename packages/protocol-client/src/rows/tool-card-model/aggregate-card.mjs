@@ -1,7 +1,3 @@
-/**
- * aggregate-card.mjs — the collapsed model of a tool GROUP card ("Read 3
- * files, searched 2"): category counts in the header, one detail row.
- */
 import { formatAggregateHeader } from '../tool-surface.mjs';
 import { commonCardFields } from './card-input.mjs';
 import { normalizeCountMap, safeInlineText } from './inline-text.mjs';

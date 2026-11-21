@@ -7,13 +7,6 @@ import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { usageSnapshot } from './test-support/usage-stats-fixture.mjs';
 
-// The usage dialog ("모델 통계") on an iPhone: it covers the screen and shell
-// behind it is inert, so the dialog MUST always carry its own way out. This
-// opens it at phone viewports under an iOS user agent (Chromium emulation;
-// WebKit itself is not available here) with the device's safe-area insets,
-// then closes it by the close button and by a tap outside the card. Set
-// MIXDOG_QA_DIR to keep the screenshots.
-
 const lazyChunkBoundary = {
   name: 'lazy-chunk-boundary',
   setup(pluginBuild) {
@@ -32,10 +25,11 @@ const INSETS = { top: '59px', right: '0px', bottom: '34px', left: '0px' };
 const withInsets = (css) =>
   css.replace(/env\(safe-area-inset-(top|right|bottom|left)\s*,\s*([^)]*)\)/g, (_, side) => INSETS[side]);
 
-test('the usage dialog closes by its button and by an outside tap on a phone', async (t) => {
-  const resolveDir = fileURLToPath(new URL('.', import.meta.url));
-  const shots = process.env.MIXDOG_QA_DIR || '';
-  if (shots) mkdirSync(shots, { recursive: true });
+const resolveDir = fileURLToPath(new URL('.', import.meta.url));
+const shots = process.env.MIXDOG_QA_DIR || '';
+if (shots) mkdirSync(shots, { recursive: true });
+
+async function buildAssets() {
   const [bundle, styles] = await Promise.all([
     build({
       stdin: {
@@ -94,6 +88,14 @@ test('the usage dialog closes by its button and by an outside tap on a phone', a
       loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
     }),
   ]);
+  return { bundle, styles };
+}
+
+let assets;
+
+async function runPhone(t, body) {
+  assets ??= buildAssets();
+  const { bundle, styles } = await assets;
   const browser = await puppeteer.launch({
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
     headless: true,
@@ -149,8 +151,21 @@ test('the usage dialog closes by its button and by an outside tap on a phone', a
     };
     const isOpen = () => page.evaluate(() => Boolean(document.querySelector('.command-surface')));
 
+    await body({ page, label, viewport, open, isOpen });
+    assert.deepEqual(errors, [], 'no renderer errors');
+    await page.close();
+  }
+}
+
+const phoneTest = (name, body) => test(name, (t) => runPhone(t, body));
+const shot = (page, name, label) =>
+  shots ? page.screenshot({ path: join(shots, `${name}-${label}.png`) }) : undefined;
+
+phoneTest(
+  'the usage dialog and its close button clear the notch and home indicator on a phone',
+  async ({ page, label, open }) => {
     await open();
-    if (shots) await page.screenshot({ path: join(shots, `open-${label}.png`) });
+    await shot(page, 'open', label);
     const layout = await page.evaluate(() => {
       const rect = (selector) => {
         const box = document.querySelector(selector)?.getBoundingClientRect();
@@ -173,11 +188,19 @@ test('the usage dialog closes by its button and by an outside tap on a phone', a
     assert.ok(layout.close.right <= layout.vw && layout.close.left >= 0, `close button on screen: ${label}`);
     assert.ok(layout.dialog.top >= 59, `dialog clears the notch inset: ${label} top=${layout.dialog.top}`);
     assert.ok(layout.dialog.bottom <= layout.vh - 34, `dialog clears the home indicator: ${label}`);
+  }
+);
 
-    await page.tap('.mixdog-settings__close');
-    await page.waitForFunction(() => !document.querySelector('.command-surface'));
-    assert.equal(await isOpen(), false, `close button dismisses: ${label}`);
+phoneTest('the usage dialog closes by its close button on a phone', async ({ page, label, open, isOpen }) => {
+  await open();
+  await page.tap('.mixdog-settings__close');
+  await page.waitForFunction(() => !document.querySelector('.command-surface'));
+  assert.equal(await isOpen(), false, `close button dismisses: ${label}`);
+});
 
+phoneTest(
+  'the usage dialog closes by an outside tap that raises no mouse events',
+  async ({ page, label, viewport, open, isOpen }) => {
     // iOS synthesizes no mouse events for a tap on a plain div (only pointer
     // and click events), so none may be needed to dismiss.
     await page.evaluate(() => {
@@ -191,12 +214,15 @@ test('the usage dialog closes by its button and by an outside tap on a phone', a
     await page.waitForFunction(() => !document.querySelector('.command-surface'), { timeout: 3000 }).catch(() => {});
     assert.equal(await isOpen(), false, `outside tap dismisses: ${label}`);
     assert.deepEqual(await page.evaluate(() => window.tapLog), [], `the tap does not reach the shell: ${label}`);
+  }
+);
 
-    // The last tab chosen is restored on opening; a row too narrow for every
-    // tab still shows it whole, and the close button stays reachable.
+phoneTest(
+  'the usage dialog restores the last tab whole, with its close button reachable',
+  async ({ page, label, open }) => {
     await page.evaluate(() => window.localStorage.setItem('mixdog.desktop.usage-surface-mode.v1', 'requests'));
     await open('.command-surface-tab.is-active');
-    if (shots) await page.screenshot({ path: join(shots, `requests-${label}.png`) });
+    await shot(page, 'requests', label);
     const restored = await page.evaluate(() => {
       const row = document.querySelector('.command-surface-tabs').getBoundingClientRect();
       const tab = document.querySelector('.command-surface-tab.is-active');
@@ -215,8 +241,6 @@ test('the usage dialog closes by its button and by an outside tap on a phone', a
     assert.ok(restored.closeHit, `close button is hit-testable over the restored tab row: ${label}`);
     await page.tap('.mixdog-settings__close');
     await page.waitForFunction(() => !document.querySelector('.command-surface'));
-    if (shots) await page.screenshot({ path: join(shots, `closed-${label}.png`) });
-    assert.deepEqual(errors, [], 'no renderer errors');
-    await page.close();
+    await shot(page, 'closed', label);
   }
-});
+);

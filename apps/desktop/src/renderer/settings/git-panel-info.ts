@@ -1,8 +1,3 @@
-// Settings → Git: cached panel snapshot (Connection-card grammar) so entering
-// the category paints complete rows instantly instead of popping them in one
-// probe at a time.
-// Stale-while-revalidate: the cached snapshot paints, and every preload
-// refreshes it in the background.
 import type { DesktopApi, DesktopGithubCliAccount, DesktopGithubCliStatus } from '../../shared/contract';
 
 type GitPanelApi = Partial<Pick<DesktopApi, 'githubCliStatus' | 'githubCliAccount'>>;

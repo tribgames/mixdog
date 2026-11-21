@@ -1,9 +1,3 @@
-/** Every page lives in a window of its own that the shell never shows. With
- *  native presentation that window hosts the page in a view the shell can
- *  adopt while the Browser pane shows it (see native-view): one window then
- *  composes the shell and the page together. This registry answers which
- *  window owns a page; Electron's own lookup names the shell while the page
- *  is adopted. */
 import { BaseWindow, BrowserWindow, WebContentsView, type WebContents } from 'electron';
 
 interface PageHost {
@@ -33,10 +27,8 @@ export function createBrowserPageWindow(
   }
   const { webPreferences, ...windowOptions } = options;
   const window = new BaseWindow(windowOptions);
-  // An adopted popup keeps its preferences only if the view is given them
-  // again: without them Electron resets the page to defaults, its dialogs
-  // turn into OS message boxes owned by this hidden window, and the page
-  // (with every page sharing its renderer) hangs on one nobody can see.
+  // Electron resets an adopted popup to default preferences unless the view gets them again;
+  // its dialogs then become OS message boxes owned by this hidden window and the page hangs.
   const view = new WebContentsView(webContents ? { webContents, webPreferences } : { webPreferences });
   const guest = view.webContents;
   // While a resized page has not yet drawn at its new size, the uncovered

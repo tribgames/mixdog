@@ -73,11 +73,11 @@ public partial class MixWin32 {
 }
 `;
 
-test('a target already in front is not activated again, and an activation that landed late is not replayed', {
-  skip: process.platform !== 'win32' && 'Windows only',
-  timeout: 90000,
-}, async () => {
-  const rows = await runPowerShell(
+const windowsOnly = { skip: process.platform !== 'win32' && 'Windows only', timeout: 90000 };
+
+let focusRows;
+const focusScenarios = () =>
+  (focusRows ??= runPowerShell(
     'mixdog-foreground-focus-',
     { 'fake.cs': FAKE_USER32, 'foreground.cs': loadComputerSource('MixWin32Foreground.cs') },
     `
@@ -95,26 +95,33 @@ foreach ($scenario in @('in_front', 'from_user_window', 'late_landing')) {
 }
 [Console]::WriteLine((ConvertTo-Json -Compress -Depth 4 -InputObject $rows))
 `
-  );
-  const count = (row, call) => row.calls.filter((name) => name === call).length;
-  const [inFront, fromUser, late] = rows;
+  ));
+const countCalls = (row, call) => row.calls.filter((name) => name === call).length;
+
+test('a target already in front is not activated again', windowsOnly, async () => {
+  const [inFront] = await focusScenarios();
   assert.deepEqual([inFront.focused, inFront.front, inFront.calls], [true, 2, []]);
-  // The one switch away from the user's window still happens, exactly once.
+});
+
+test('a target behind the user window is brought to front exactly once', windowsOnly, async () => {
+  const [, fromUser] = await focusScenarios();
   assert.deepEqual(
-    [fromUser.focused, fromUser.front, count(fromUser, 'BringWindowToTop'), count(fromUser, 'SetFocus')],
-    [true, 2, 1, 1]
-  );
-  assert.deepEqual(
-    [late.focused, late.front, count(late, 'BringWindowToTop'), count(late, 'SetFocus')],
+    [fromUser.focused, fromUser.front, countCalls(fromUser, 'BringWindowToTop'), countCalls(fromUser, 'SetFocus')],
     [true, 2, 1, 1]
   );
 });
 
-test('a semantic step of a foreground operation leaves its target in front instead of bouncing focus to the user window', {
-  skip: process.platform !== 'win32' && 'Windows only',
-  timeout: 90000,
-}, async () => {
-  const rows = await runPowerShell(
+test('an activation that landed late is not replayed', windowsOnly, async () => {
+  const [, , late] = await focusScenarios();
+  assert.deepEqual(
+    [late.focused, late.front, countCalls(late, 'BringWindowToTop'), countCalls(late, 'SetFocus')],
+    [true, 2, 1, 1]
+  );
+});
+
+let semanticRows;
+const semanticDeliveries = () =>
+  (semanticRows ??= runPowerShell(
     'mixdog-foreground-semantic-',
     { 'input.ps1': PS_INPUT },
     `
@@ -173,12 +180,19 @@ foreach ($delivery in @('foreground', 'background')) {
 }
 [Console]::WriteLine((ConvertTo-Json -Compress -Depth 4 -InputObject $rows))
 `
-  );
-  const [foreground, background] = rows;
-  // The target stays in front for the operation's next step; the host hands the
-  // user's window back once, at the end of the turn.
-  assert.deepEqual([foreground.front, foreground.calls, foreground.locks], [1, [], 0]);
-  // Background delivery still keeps the user's window in front.
+  ));
+
+test(
+  'a foreground semantic step leaves its target in front instead of bouncing focus to the user window',
+  windowsOnly,
+  async () => {
+    const [foreground] = await semanticDeliveries();
+    assert.deepEqual([foreground.front, foreground.calls, foreground.locks], [1, [], 0]);
+  }
+);
+
+test('a background semantic step keeps the user window in front', windowsOnly, async () => {
+  const [, background] = await semanticDeliveries();
   assert.equal(background.front, 2);
   assert.ok(background.calls.includes('RestoreForeground'), JSON.stringify(background));
 });

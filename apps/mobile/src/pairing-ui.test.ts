@@ -26,11 +26,7 @@ function paint(state: (typeof PREVIEW_STATES)[number], codeValue = '') {
   const root = dom.window.document.getElementById('screen') as HTMLElement;
   const s = STRINGS.ko;
   const screenState = stateForPreview(state, s);
-  renderPairing(
-    root,
-    { view: viewFor(screenState, s), state: screenState, strings: s, codeValue },
-    noHooks
-  );
+  renderPairing(root, { view: viewFor(screenState, s), state: screenState, strings: s, codeValue }, noHooks);
   return root;
 }
 
@@ -42,7 +38,11 @@ test('every preview state renders the real logo, a title, a subtitle slot and at
     assert.equal(root.querySelector('.mxp-ring, svg'), null, 'nothing decorative under the subtitle or in buttons');
     assert.equal(visual.querySelector('img.mxp-logo')?.getAttribute('src'), './mixdog-logo-titanium.svg', state);
     assert.equal(visual.querySelector('.mxp-ring'), null, `${state}: no ring`);
-    assert.equal(Boolean(root.querySelector('.mxp-extra .mxp-wait .mxp-spinner')), /^waiting/u.test(state), `${state}: waiting row only while waiting`);
+    assert.equal(
+      Boolean(root.querySelector('.mxp-extra .mxp-wait .mxp-spinner')),
+      /^waiting/u.test(state),
+      `${state}: waiting row only while waiting`
+    );
     assert.ok(root.querySelector('.mxp-title')?.textContent, `${state}: title`);
     assert.ok(root.querySelector('.mxp-sub'), `${state}: subtitle`);
     assert.ok(root.querySelectorAll('.mxp-actions button').length >= 1, `${state}: actions`);
@@ -71,12 +71,20 @@ test('start with saved PCs: one row per PC, last used marked, tap opens it; scan
     const root = dom.window.document.getElementById('screen') as HTMLElement;
     const state = stateForPreview('start-with-pcs', s);
     const opened: string[] = [];
-    renderPairing(root, { view: viewFor(state, s), state, strings: s, codeValue: '' }, { ...noHooks, onOpenHost: (url) => opened.push(url) });
+    renderPairing(
+      root,
+      { view: viewFor(state, s), state, strings: s, codeValue: '' },
+      { ...noHooks, onOpenHost: (url) => opened.push(url) }
+    );
     assert.equal(root.querySelector('.mxp-title')?.textContent, s.pickHeading);
     assert.ok(root.querySelector('.mxp-block.pcs'));
     const rows = [...root.querySelectorAll<HTMLButtonElement>('.mxp-extra button.mxp-pc')];
     assert.deepEqual(
-      rows.map((row) => [row.querySelector('.mxp-pc-name')?.textContent, row.querySelector('.mxp-pc-meta')?.textContent, row.classList.contains('last')]),
+      rows.map((row) => [
+        row.querySelector('.mxp-pc-name')?.textContent,
+        row.querySelector('.mxp-pc-meta')?.textContent,
+        row.classList.contains('last'),
+      ]),
       [
         ['Home PC', `${s.pcLast} · ${s.pcOffline}`, true],
         ['Office PC', s.pcOnline, false],
@@ -85,7 +93,10 @@ test('start with saved PCs: one row per PC, last used marked, tap opens it; scan
     rows[1].click();
     assert.deepEqual(opened, [state.pcs?.[1].url]);
     assert.deepEqual(
-      [...root.querySelectorAll<HTMLButtonElement>('.mxp-actions button')].map((b) => [b.dataset.action, b.classList.contains('sec')]),
+      [...root.querySelectorAll<HTMLButtonElement>('.mxp-actions button')].map((b) => [
+        b.dataset.action,
+        b.classList.contains('sec'),
+      ]),
       [
         ['scan', true],
         ['enter-code', true],
@@ -93,14 +104,24 @@ test('start with saved PCs: one row per PC, last used marked, tap opens it; scan
     );
   }
   assert.equal(STRINGS.ko.pcLast, '마지막으로 사용');
-  // Unknown presence shows no state; an update offer takes the start step over.
+});
+
+test('saved PCs with unknown presence show no state; an update offer takes the start step over; no saved PC shows the connect screen', () => {
   const unknown = { step: 'start' as const, pcs: [{ url: 'u', name: 'Desk', last: false }] };
   const dom = new JSDOM('<!doctype html><div id="screen"></div>');
   const root = dom.window.document.getElementById('screen') as HTMLElement;
-  renderPairing(root, { view: viewFor(unknown, STRINGS.en), state: unknown, strings: STRINGS.en, codeValue: '' }, noHooks);
+  renderPairing(
+    root,
+    { view: viewFor(unknown, STRINGS.en), state: unknown, strings: STRINGS.en, codeValue: '' },
+    noHooks
+  );
   assert.equal(root.querySelector('.mxp-pc-meta'), null);
   assert.equal(viewFor({ ...unknown, update: { version: '9.9.9', phase: 'available' } }, STRINGS.en).extra, 'update');
-  assert.equal(viewFor({ step: 'start', pcs: [] }, STRINGS.en).title, STRINGS.en.heading, 'no saved PC: the connect screen');
+  assert.equal(
+    viewFor({ step: 'start', pcs: [] }, STRINGS.en).title,
+    STRINGS.en.heading,
+    'no saved PC: the connect screen'
+  );
 });
 
 test('every step renders one fixed block: logo 48px slot, title, subtitle, 80px middle slot, same DOM order', () => {
@@ -133,7 +154,10 @@ test('code step: six digit boxes over one input, error under them, 연결 primar
   assert.equal(root.querySelector('.mxp-row'), null);
   const filled = paint('code', '482917');
   assert.equal(filled.querySelector<HTMLButtonElement>('[data-action="connect"]')?.disabled, false);
-  assert.deepEqual([...filled.querySelectorAll('.mxp-digit')].map((box) => box.textContent), ['4', '8', '2', '9', '1', '7']);
+  assert.deepEqual(
+    [...filled.querySelectorAll('.mxp-digit')].map((box) => box.textContent),
+    ['4', '8', '2', '9', '1', '7']
+  );
   assert.match(paint('code-ratelimited').querySelector('.mxp-error')?.textContent ?? '', /42초/);
 });
 
@@ -146,11 +170,19 @@ test('waiting and result steps follow the v4 copy with one natural primary actio
       [...root.querySelectorAll('.mxp-actions button')].map((b) => b.textContent),
     ];
   };
-  assert.deepEqual(titleAndActions('waiting'), ['PC에서 허용하세요', 'Home PC에 표시된 요청에서 허용을 누르세요.', ['취소']]);
+  assert.deepEqual(titleAndActions('waiting'), [
+    'PC에서 허용하세요',
+    'Home PC에 표시된 요청에서 허용을 누르세요.',
+    ['취소'],
+  ]);
   assert.equal(paint('waiting').querySelector('.mxp-sub b')?.textContent, 'Home PC', 'PC name is bold');
   assert.equal(paint('waiting').querySelector('.mxp-wait')?.textContent, '기다리는 중…');
   assert.equal(paint('waiting-offline').querySelector('.mxp-wait')?.textContent, '기다리는 중…');
-  assert.equal(viewFor({ step: 'waiting' }, STRINGS.ko).sub, 'PC에 표시된 요청에서 허용을 누르세요.', 'no name: fallback copy');
+  assert.equal(
+    viewFor({ step: 'waiting' }, STRINGS.ko).sub,
+    'PC에 표시된 요청에서 허용을 누르세요.',
+    'no name: fallback copy'
+  );
   assert.equal(viewFor({ step: 'waiting', pc: 'Home PC' }, STRINGS.en).sub, 'On Home PC, press Allow on the request.');
   assert.deepEqual(titleAndActions('revoked'), [
     '연결이 해제되었습니다',
@@ -173,13 +205,13 @@ test('the preview switch needs the debug flag', () => {
 });
 
 test('app copy has no developer wording and the shell page is a single full-screen mount', () => {
-  for (const strings of [STRINGS.ko, STRINGS.en]) for (const text of Object.values(strings)) assert.doesNotMatch(text, BANNED, text);
+  for (const strings of [STRINGS.ko, STRINGS.en])
+    for (const text of Object.values(strings)) assert.doesNotMatch(text, BANNED, text);
   const html = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
   assert.equal((html.match(/<main/g) || []).length, 0);
   assert.match(html, /<div id="screen" class="mxp-screen"><\/div>/);
   assert.deepEqual(Object.keys(STRINGS.ko).sort(), Object.keys(STRINGS.en).sort());
 });
-
 
 test('code step: one redemption at a time — input and button wait with a pending label', () => {
   const dom = new JSDOM('<!doctype html><div id="screen"></div>');
@@ -200,7 +232,10 @@ test('update offer mirrors the native phase: progress, Install when downloaded, 
     const shot = (phase: (typeof phases)[number]) => {
       const dom = new JSDOM('<!doctype html><div id="screen"></div>');
       const root = dom.window.document.getElementById('screen') as HTMLElement;
-      const state = { step: 'start' as const, update: { version: '1.2.3', phase, percent: phase === 'downloading' ? 42 : undefined } };
+      const state = {
+        step: 'start' as const,
+        update: { version: '1.2.3', phase, percent: phase === 'downloading' ? 42 : undefined },
+      };
       renderPairing(root, { view: viewFor(state, s), state, strings: s, codeValue: '' }, noHooks);
       const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>('button'));
       return { text: root.textContent ?? '', buttons };

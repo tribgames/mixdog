@@ -143,24 +143,28 @@ export async function readEncryptedChildJson(
         child.stderr.toString('utf8').trim() || `Native browser importer exited with code ${child.exitCode}.`
       );
     }
-    const envelope = JSON.parse(child.stdout.toString('utf8')) as Record<string, unknown>;
-    if (envelope.version !== 1) throw new Error('Native password importer returned an invalid envelope.');
-    const nonce = Buffer.from(String(envelope.nonce || ''), 'base64');
-    const sealed = Buffer.from(String(envelope.ciphertext || ''), 'base64');
-    if (nonce.length !== 12 || sealed.length < 16) {
-      throw new Error('Native password importer returned an invalid envelope.');
-    }
-    const ciphertext = sealed.subarray(0, sealed.length - 16);
-    const authTag = sealed.subarray(sealed.length - 16);
-    const decipher = createDecipheriv('aes-256-gcm', transportKey, nonce);
-    decipher.setAuthTag(authTag);
-    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-    try {
-      return JSON.parse(plaintext.toString('utf8'));
-    } finally {
-      plaintext.fill(0);
-    }
+    return openEnvelope(child.stdout, transportKey);
   } finally {
     transportKey.fill(0);
+  }
+}
+
+function openEnvelope(stdout: Buffer, transportKey: Buffer): unknown {
+  const envelope = JSON.parse(stdout.toString('utf8')) as Record<string, unknown>;
+  if (envelope.version !== 1) throw new Error('Native password importer returned an invalid envelope.');
+  const nonce = Buffer.from(String(envelope.nonce || ''), 'base64');
+  const sealed = Buffer.from(String(envelope.ciphertext || ''), 'base64');
+  if (nonce.length !== 12 || sealed.length < 16) {
+    throw new Error('Native password importer returned an invalid envelope.');
+  }
+  const ciphertext = sealed.subarray(0, sealed.length - 16);
+  const authTag = sealed.subarray(sealed.length - 16);
+  const decipher = createDecipheriv('aes-256-gcm', transportKey, nonce);
+  decipher.setAuthTag(authTag);
+  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  try {
+    return JSON.parse(plaintext.toString('utf8'));
+  } finally {
+    plaintext.fill(0);
   }
 }

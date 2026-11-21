@@ -48,11 +48,7 @@ function useStudioMenuFontWarmup(
   }, []);
 }
 
-/**
- * Generation menu: one pill that expands
- * to the sheet width; the model and every lane option live as sheet rows
- * whose value panes open beside the sheet.
- */
+/** Generation menu: a pill expanding to a sheet of model and option rows whose value panes open beside it. */
 export function StudioRouteMenu({
   entries,
   lane,

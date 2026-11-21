@@ -1,7 +1,3 @@
-/**
- * What the desktop host reads off the main window: where a visualize tab body
- * is on screen, which frames hold its pages, and a capture of an area.
- */
 import type { BrowserWindow, NativeImage, WebFrameMain } from 'electron';
 
 import type { VisualizeTabView } from '../../shared/visualize';
@@ -31,58 +27,57 @@ export type BodyRect = { x: number; y: number; width: number; height: number };
 
 /** The displayed tab body's rect right now, or null when it is not on screen. */
 export async function bodyRectNow(window: BrowserWindow, sessionId: string, tabId: string): Promise<BodyRect | null> {
-  const query = `(() => {
-    const nodes = document.querySelectorAll('[data-visualize-body]');
-    for (const node of nodes) {
-      if (node.dataset.visualizeSession !== ${JSON.stringify(sessionId)}) continue;
-      if (node.dataset.visualizeTab !== ${JSON.stringify(tabId)}) continue;
-      if (node.closest('[inert], [hidden], [aria-hidden="true"]')) continue;
-      const rect = node.getBoundingClientRect();
-      if (rect.width >= 1 && rect.height >= 1) return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
-    }
-    return null;
-  })()`;
-  return (await window.webContents.executeJavaScript(query)) as BodyRect | null;
+  return (await window.webContents.executeJavaScript(
+    displayedBodyQuery(
+      sessionId,
+      tabId,
+      'return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };',
+      'return null;'
+    )
+  )) as BodyRect | null;
 }
 
 /** Whether any tab body of the session's panel is displayed right now. */
 async function sessionBodyShownNow(window: BrowserWindow, sessionId: string): Promise<boolean> {
-  const query = `(() => {
-    for (const node of document.querySelectorAll('[data-visualize-body]')) {
-      if (node.dataset.visualizeSession !== ${JSON.stringify(sessionId)}) continue;
-      if (node.closest('[inert], [hidden], [aria-hidden="true"]')) continue;
-      const rect = node.getBoundingClientRect();
-      if (rect.width >= 1 && rect.height >= 1) return true;
-    }
-    return false;
-  })()`;
-  return (await window.webContents.executeJavaScript(query)) === true;
+  return (
+    (await window.webContents.executeJavaScript(
+      displayedBodyQuery(sessionId, null, 'return true;', 'return false;')
+    )) === true
+  );
 }
 
-/** Whether the user can see the displayed tab body: the topmost element at
- *  one of a few points across it (inside the viewport) is the body or within
- *  it. False when a dialog, Settings or another overlay covers it, or a
- *  clipping ancestor hides it; null when the body is not there at all. */
 async function bodyUncoveredNow(window: BrowserWindow, sessionId: string, tabId: string): Promise<boolean | null> {
-  const query = `(() => {
-    for (const node of document.querySelectorAll('[data-visualize-body]')) {
-      if (node.dataset.visualizeSession !== ${JSON.stringify(sessionId)}) continue;
-      if (node.dataset.visualizeTab !== ${JSON.stringify(tabId)}) continue;
-      if (node.closest('[inert], [hidden], [aria-hidden="true"]')) continue;
-      const rect = node.getBoundingClientRect();
-      if (rect.width < 1 || rect.height < 1) continue;
-      for (const [fx, fy] of [[0.5, 0.5], [0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]]) {
+  const query = displayedBodyQuery(
+    sessionId,
+    tabId,
+    `for (const [fx, fy] of [[0.5, 0.5], [0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]]) {
         const x = rect.left + rect.width * fx;
         const y = rect.top + rect.height * fy;
         if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) continue;
         const hit = document.elementFromPoint(x, y);
         if (hit && node.contains(hit)) return true;
       }
-      return false;
-    }
-    return null;
-  })()`;
+      return false;`,
+    'return null;'
+  );
   return (await window.webContents.executeJavaScript(query)) as boolean | null;
+}
+
+/** In the main window: the first displayed (not inert/hidden, at least 1px)
+ *  tab body of the session (and of `tabId` when given); `onBody` runs with
+ *  `node` and `rect` in scope, `none` when no body matches. */
+function displayedBodyQuery(sessionId: string, tabId: string | null, onBody: string, none: string): string {
+  return `(() => {
+    for (const node of document.querySelectorAll('[data-visualize-body]')) {
+      if (node.dataset.visualizeSession !== ${JSON.stringify(sessionId)}) continue;
+      ${tabId === null ? '' : `if (node.dataset.visualizeTab !== ${JSON.stringify(tabId)}) continue;`}
+      if (node.closest('[inert], [hidden], [aria-hidden="true"]')) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) continue;
+      ${onBody}
+    }
+    ${none}
+  })()`;
 }
 
 /** `http://127.0.0.1:port/<token>/` of a local page URL: every page and asset

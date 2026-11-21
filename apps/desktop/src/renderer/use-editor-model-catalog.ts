@@ -1,10 +1,3 @@
-// The models a Workflows editor dialog offers. The panel's own list comes from
-// the sidebar reference cache, which can hold a boot-time partial (or empty)
-// catalog for a day, so a picker opened from it could lack a connected
-// provider that Settings → Model management lists. Settings reads the catalog
-// when it opens; an open editor does the same, and keeps asking while the
-// answer is partial until the daemon's refill lands. The cached list only
-// stands in while the first read is pending or when it fails.
 import { useEffect, useMemo, useState } from 'react';
 import type { DesktopApi, DesktopModelOption } from '../shared/contract';
 import { requireDesktopProviders } from './desktop-provider-retry';

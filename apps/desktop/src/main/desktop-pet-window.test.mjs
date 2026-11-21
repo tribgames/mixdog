@@ -32,10 +32,6 @@ import {
   requiredDesktopPetTheme,
 } from './ipc-validation.ts';
 
-// ---- The core's placement and settings, as a test double --------------------------
-// The rules live in the core (desktopPet/* in mixdog-core-domains, tested there:
-// desktop_pet_tests.rs). This double answers the controller's calls with the same
-// arithmetic so the window tests can assert where the window ends up.
 const DESKTOP_PET_MARGIN = 16;
 const DESKTOP_PET_PIN_INSET = 2;
 const clampToRange = (value, min, max) => Math.min(Math.max(min, max), Math.max(min, value));
@@ -575,10 +571,7 @@ test('unpinned, the pet also waits for the composer', async () => {
 test('an iframe loading or an in-page navigation in the app window is not a reload: the pet stays', async () => {
   const { app, window } = await started();
   assert.equal(window.shown, true);
-  // Electron fires these on the app's webContents for a chat's inline
-  // visualize/preview frame loading, for history.pushState and for a link
-  // the window's navigation guard blocks (Electron 41): the page and its
-  // renderer state are unchanged, and it publishes nothing again.
+  // Electron 41 fires these for an inline frame loading, history.pushState and a blocked link.
   await app.webContents.fire('did-start-loading');
   await app.webContents.fire('did-start-navigation', { isMainFrame: false, isSameDocument: false });
   await app.webContents.fire('did-start-navigation', { isMainFrame: true, isSameDocument: true });
@@ -869,10 +862,6 @@ test('"Free on screen": anywhere on screen apart from the app window, with or wi
   }
 });
 
-// #179 follow-up: what each placement allows. Pinned (composer) and "Pin
-// here" are locked to the app window (other tests); free is placed on the
-// screen alone: the same with or without "Keep above other windows", and
-// never moved or clamped by the app window.
 test('free, placement is the screen\'s, the same with or without "Keep above", never the app window\'s', async () => {
   const spots = [];
   for (const keepAbove of [false, true]) {

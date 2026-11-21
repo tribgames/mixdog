@@ -98,6 +98,15 @@ export function cwdFolderName(cwd: string | undefined): string {
   return segments[segments.length - 1] ?? '';
 }
 
+/** The shell row keys a dismissal may prune against: only a real lane's shell
+ *  status is authoritative, never a stored transcript preview or no lane. */
+export function listedShellKeys(
+  lane: { transcriptPreview?: true } | null | undefined,
+  rows: readonly JobRow[]
+): ReadonlySet<string> | null {
+  return lane && lane.transcriptPreview !== true ? new Set(rows.map((row) => row.key)) : null;
+}
+
 /** Running shell jobs newest first, then finished shells (not in `dismissed`,
  *  newest finish first). Agents are listed from the agent pool instead. */
 export function backgroundJobRows(snapshot: Snapshot, dismissed: ReadonlySet<string> = new Set()): JobRow[] {

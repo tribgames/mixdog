@@ -16,13 +16,6 @@ const CREDENTIAL = 'c'.repeat(24);
 const LOGIN = 'https://bank.example/login';
 const LOGIN_FORM = '<form><input id="user" name="userid" type="text"><input id="pw" type="password"></form>';
 
-/**
- * One browser page over JSDOM behind a CDP port that runs what the isolated
- * fill sends, the way the browser answers it: main frame `main` with a new
- * loader id per document load (a reload included), an isolated world as a
- * context of the document it was made in (gone with it), backend node ids
- * per element, and remote objects for what a call returns by reference.
- */
 function browserPage(url, html) {
   const page = { url: '', dom: null, loaderId: '', loads: 0 };
   const load = (nextUrl, nextHtml) => {

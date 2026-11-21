@@ -1,9 +1,4 @@
-// The custom skin's moving media (a short video or an animated GIF), kept as
-// one Blob in this device's IndexedDB. The custom picture itself (and a moving
-// skin's poster) stays a downscaled JPEG data URL in localStorage, which
-// first paint replays synchronously (skin-boot-snapshot.ts); up to 20 MB of
-// video does not fit there, and IndexedDB keeps it as a file in the profile.
-// Device-local like the rest of the skin: a phone keeps its own.
+// Up to 20 MB of video does not fit the localStorage data URL that holds the picture and poster, so the moving media is one Blob in IndexedDB.
 const DB_NAME = 'mixdog-skin-media';
 const STORE = 'media';
 const CUSTOM_KEY = 'custom';

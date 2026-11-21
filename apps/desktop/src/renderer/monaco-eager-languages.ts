@@ -1,15 +1,5 @@
-// PANE language ids whose Monarch tokenizers monaco-setup.ts registers
-// EAGERLY, mapped to their monaco basic-languages module directory.
-//
-// Why: basic-languages registers every language id synchronously but loads
-// its Monarch tokenizer through a lazy dynamic import(); a model created
-// before that chunk resolves paints untokenized (plain white) on entry.
-// Eager registration removes the
-// race for every language PANE can resolve to. Kept as a pure module so the
-// renderer node tests can audit coverage without loading monaco.
-//
-// Deliberately absent: 'log' (our custom Monarch in monaco-log-language.ts),
-// 'json' (tokenized by monaco's own JSON language mode), 'plaintext'.
+// PANE language ids registered eagerly by monaco-setup.ts, mapped to their monaco basic-languages directory.
+// Absent: 'log' (monaco-log-language.ts), 'json' (monaco's JSON mode), 'plaintext'.
 export const MONACO_EAGER_MONARCH_LANGUAGES: Readonly<Record<string, string>> = {
   bat: 'bat',
   c: 'cpp',

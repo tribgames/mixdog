@@ -1,9 +1,3 @@
-// The phone's side of one live-view viewer (paired client × source) over
-// WebRTC (shared/remote-webrtc.ts, docs/remote-webrtc.md). The desktop is
-// authoritative: it offers, promotes and demotes; this side answers, proves
-// the connection (DTLS fingerprint, a decoded frame of the current document
-// and geometry), routes page input to exactly one owner per epoch, and drops
-// back to the JPEG relay view without duplicating or replaying input.
 import {
   REMOTE_WEBRTC_INPUT_CHANNEL,
   REMOTE_WEBRTC_VERSION,
@@ -556,17 +550,60 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     });
   };
 
-  /**
-   * A connection the desktop has not named before. Within an attempt a lower
-   * generation is stale; between attempts (relay or cooldown) the desktop's
-   * viewer may have been replaced (the stream ended, the client left the
-   * relay) and counts generations from 1 again, so only a connection already
-   * seen is stale then.
-   */
+  /** Between attempts a replaced desktop viewer counts generations from 1 again, so only a connection already seen is stale then. */
   const fresh = (signal: Pick<RemoteWebrtcConnectionRef, 'connectionId' | 'generation'>): boolean => {
     if (seen.has(signal.connectionId)) return false;
     const between = state === 'relay' || state === 'cooldown';
     return between || !known || signal.generation > known.generation;
+  };
+
+  const wirePeer = (attempt: Attempt): void => {
+    const { peer } = attempt;
+    peer.onicecandidate = (event) => {
+      if (current !== attempt) return;
+      void send({ ...ref(attempt), type: 'candidate', candidate: iceCandidateSignal(event.candidate) });
+    };
+    peer.ontrack = (event) => {
+      if (current !== attempt) return;
+      if ('jitterBufferTarget' in event.receiver) {
+        (event.receiver as RTCRtpReceiver & { jitterBufferTarget: number | null }).jitterBufferTarget = 0;
+      }
+      options.stream(event.streams[0] ?? new MediaStream([event.track]));
+    };
+    peer.ondatachannel = (event) => {
+      if (current !== attempt) return;
+      if (event.channel.label !== REMOTE_WEBRTC_INPUT_CHANNEL || attempt.channel) {
+        fail(attempt, 'protocol-error', `unexpected channel ${event.channel.label}`);
+        return;
+      }
+      bindChannel(attempt, event.channel);
+    };
+    peer.onconnectionstatechange = () => {
+      if (current !== attempt) return;
+      if (peer.connectionState === 'connected') {
+        void verify(attempt).catch((error: unknown) => fail(attempt, 'fingerprint-mismatch', String(error)));
+      } else if (peer.connectionState === 'failed') {
+        fail(attempt, peer.iceConnectionState === 'failed' ? 'ice-failed' : 'dtls-failed');
+      }
+    };
+  };
+
+  const answerOffer = async (attempt: Attempt, offerSdp: string): Promise<void> => {
+    const { peer } = attempt;
+    await peer.setRemoteDescription({ type: 'offer', sdp: offerSdp });
+    if (current !== attempt) return;
+    attempt.remoteSet = true;
+    for (const candidate of attempt.candidates.splice(0)) addCandidate(attempt, candidate);
+    const answer = await peer.createAnswer();
+    await peer.setLocalDescription(answer);
+    if (current !== attempt) return;
+    const sdp = peer.localDescription?.sdp ?? answer.sdp ?? '';
+    const fingerprints = remoteWebrtcSdpFingerprints(sdp);
+    if (!fingerprints.length) {
+      fail(attempt, 'protocol-error', 'answer without a fingerprint');
+      return;
+    }
+    await send({ ...ref(attempt), type: 'answer', sdp, fingerprints });
   };
 
   const acceptOffer = (offer: Extract<RemoteWebrtcDesktopSignal, { type: 'offer' }>): void => {
@@ -592,51 +629,8 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     const attempt = newAttempt(offer, peer);
     current = attempt;
     setState('negotiating');
-    peer.onicecandidate = (event) => {
-      if (current !== attempt) return;
-      void send({ ...ref(attempt), type: 'candidate', candidate: iceCandidateSignal(event.candidate) });
-    };
-    peer.ontrack = (event) => {
-      if (current !== attempt) return;
-      // A screen is read, not watched as a film: ask for the smallest
-      // playout delay the jitter buffer allows (RTCRtpReceiver.jitterBufferTarget).
-      if ('jitterBufferTarget' in event.receiver) {
-        (event.receiver as RTCRtpReceiver & { jitterBufferTarget: number | null }).jitterBufferTarget = 0;
-      }
-      options.stream(event.streams[0] ?? new MediaStream([event.track]));
-    };
-    peer.ondatachannel = (event) => {
-      if (current !== attempt) return;
-      if (event.channel.label !== REMOTE_WEBRTC_INPUT_CHANNEL || attempt.channel) {
-        fail(attempt, 'protocol-error', `unexpected channel ${event.channel.label}`);
-        return;
-      }
-      bindChannel(attempt, event.channel);
-    };
-    peer.onconnectionstatechange = () => {
-      if (current !== attempt) return;
-      if (peer.connectionState === 'connected') {
-        void verify(attempt).catch((error: unknown) => fail(attempt, 'fingerprint-mismatch', String(error)));
-      } else if (peer.connectionState === 'failed') {
-        fail(attempt, peer.iceConnectionState === 'failed' ? 'ice-failed' : 'dtls-failed');
-      }
-    };
-    void (async () => {
-      await peer.setRemoteDescription({ type: 'offer', sdp: offer.sdp });
-      if (current !== attempt) return;
-      attempt.remoteSet = true;
-      for (const candidate of attempt.candidates.splice(0)) addCandidate(attempt, candidate);
-      const answer = await peer.createAnswer();
-      await peer.setLocalDescription(answer);
-      if (current !== attempt) return;
-      const sdp = peer.localDescription?.sdp ?? answer.sdp ?? '';
-      const fingerprints = remoteWebrtcSdpFingerprints(sdp);
-      if (!fingerprints.length) {
-        fail(attempt, 'protocol-error', 'answer without a fingerprint');
-        return;
-      }
-      await send({ ...ref(attempt), type: 'answer', sdp, fingerprints });
-    })().catch((error: unknown) => fail(attempt, 'unsupported', String(error)));
+    wirePeer(attempt);
+    void answerOffer(attempt, offer.sdp).catch((error: unknown) => fail(attempt, 'unsupported', String(error)));
   };
 
   const promote = (signal: Extract<RemoteWebrtcDesktopSignal, { type: 'promote' }>): void => {
@@ -681,12 +675,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     options.dropInput();
     epoch = signal.inputEpoch;
     ledger.clearUnacked();
-    // The ack leaves after every earlier relay call; relay input after it
-    // waits for it, so the desktop sees none of it before the ack.
-    // The desktop answers the ack with this connection's `close`, which says
-    // whether another attempt is welcome; the view stays `demoting` until then.
-    // An undelivered ack: the desktop closes on its ack timeout; the relay
-    // input queued behind the ack was dropped with it.
+    // The desktop answers the ack with this connection's `close`; an undelivered ack ends on the desktop's ack timeout.
     void options
       .fence(() => options.signal({ ...ref(signal), type: 'demote-ack', inputEpoch: signal.inputEpoch }))
       .catch(() => {});
@@ -793,10 +782,6 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
      *  live peer connection does not depend on the relay and stays. */
     reconnected(): void {
       if (state === 'promoting' || owner === 'held') {
-        // Ownership is uncertain (a promote-ack or the channel's close in
-        // flight on the old relay): end the attempt here. Unsent input is
-        // dropped, nothing is replayed; the next `ready` makes the desktop
-        // demote or close whatever it still holds of it.
         owner = 'held';
         options.dropInput();
         if (current) teardown(current);

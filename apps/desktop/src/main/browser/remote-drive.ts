@@ -1,15 +1,4 @@
-/**
- * Phone-fitted viewport: while a paired phone takes over a session's page (or
- * asked to fit it), the page renders at the phone pane's CSS size and device
- * pixel ratio. Only the device metrics change — the user agent, mobile and
- * touch emulation and the agent's own overrides (locale, geolocation, headers,
- * …) stay, and nothing reloads — so a sign-in, CAPTCHA or one-time-code flow
- * keeps its state and a responsive page simply re-lays out in place. Mobile
- * emulation is kept as it is because switching it turns on meta-viewport
- * handling (a desktop-only page jumps to a zoomed-out layout); touch emulation
- * would flip pointer media queries. Meanwhile the PC pane's own size, zoom and
- * viewport preset are only remembered; they come back when the phone stops.
- */
+// Mobile emulation stays as it is: switching it turns on meta-viewport handling, and touch emulation flips pointer media queries.
 import type { WebContents } from 'electron';
 
 import type { DesktopBrowserViewportConfig, DesktopRemoteBrowserViewport } from '../../shared/contract';
@@ -52,11 +41,6 @@ export function createBrowserRemoteDrive(host: BrowserRemoteDriveHost) {
       if (driven.has(guest)) heldPaneConfigs.set(guest, config);
       else await host.emulate(guest, config);
     },
-    /** Size the page to the phone's metrics (a take-over's fit, or an explicit
-     *  fit-client resize). Only the device metrics and the zoom (1, so the CSS
-     *  viewport is the phone's) change: the user agent, mobile and touch
-     *  emulation and every agent override stay, and nothing reloads. Called
-     *  again for each new document. */
     async apply(sessionId: string, guest: WebContents, viewport: DesktopRemoteBrowserViewport): Promise<void> {
       if (guest.isDestroyed()) return;
       const announce = !sessionDriven(sessionId);

@@ -1,8 +1,3 @@
-/**
- * Resolving an exact native window id to the app's own BrowserWindow. It lives
- * apart from the shared constants so pure observation code can import those
- * without pulling Electron into a plain Node test.
- */
 import { BrowserWindow } from 'electron';
 import { nativeWindowNumber } from './native-window-id';
 

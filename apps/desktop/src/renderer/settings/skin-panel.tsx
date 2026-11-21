@@ -1,10 +1,4 @@
-// Settings → Theme (page id 'skin'): a live preview, one tile grid (System /
-// Dark / Light / skins), the skin fine-tuning rows, color theme files and fonts.
-// Everything applies at once (no save button) and is stored
-// on this device only, like the theme. The preview paints with the same
-// --mx-skin-* variables the real app gets (desktop-skin.ts skinVars), so the
-// two cannot drift; hovering or focusing a card changes only the preview.
-import { type CSSProperties, type ReactNode, useState, useSyncExternalStore } from 'react';
+import { type CSSProperties, useState, useSyncExternalStore } from 'react';
 import {
   currentSkinTheme,
   defaultSkinPlate,
@@ -31,7 +25,7 @@ import { ACCENT_SWATCHES } from '../skin-manifest';
 import { ActionButton, CompactSwitch, Group } from './capability-controls';
 import type { PanelContext } from './capability-data';
 import { AppearanceChoice } from './appearance-choice';
-import { FontsGroup, ThemeFilesGroup } from './appearance-panel';
+import { FontsGroup, SkinRow, ThemeFilesGroup } from './appearance-panel';
 import './skin-panel.css';
 
 /** One bundle of everything the skin page shows, so one subscription re-renders it. */
@@ -105,18 +99,6 @@ function SkinPreview({
           <span className="skin-preview-send">↑</span>
         </div>
       </div>
-    </div>
-  );
-}
-
-function SkinRow({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
-  return (
-    <div className="mixdog-settings__row skin-row">
-      <div className="mixdog-settings__copy">
-        <span className="mixdog-settings__row-title">{title}</span>
-        {description && <span className="skin-row-desc">{description}</span>}
-      </div>
-      <div className="settings-row-control">{children}</div>
     </div>
   );
 }

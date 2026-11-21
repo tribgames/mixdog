@@ -1,12 +1,6 @@
 // Per-route Auto reasoning is negotiated: only a host that advertised
 // `routeAutoEffort` in its challenge receives the `autoEffort` selection field.
 // An older host's selection validator rejects unknown keys, so the shim omits it.
-//
-// Node's version of this test (b6f10295a) set the flag from the relay challenge and read the four calls off a fake relay socket. Here the
-// table (remote-shim-api.ts hostSelection, Node :101-107) and the router are the product's, the flag is the context's `peerRouteAutoEffort`
-// (the phone sets it from the core's capabilities each time a connection is ready, apps/mobile/src/phone-boot.ts applyFlags), and what Node
-// read off the socket is
-// what reached the adapter that owns each name.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { withPhoneApi } from './test-support/phone-api-rig.mjs';

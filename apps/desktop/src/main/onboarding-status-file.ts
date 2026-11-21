@@ -1,8 +1,3 @@
-// Engine-free onboarding probe. The renderer asks whether onboarding is done
-// the moment the window is up; booting an engine under the transition lock to
-// answer that delayed the user's first session click by seconds, so a cold host
-// answers from the config file instead and leaves the first real engine boot to
-// the navigation that actually needs it.
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 

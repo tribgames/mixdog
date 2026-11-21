@@ -262,10 +262,6 @@ export class ScreenInputRouter {
     return run;
   }
 
-  /** Sends the release of every press `backend` holds, through `backend`, and
-   *  forgets them all. One it can't deliver now (the backend reports another
-   *  desktop or none, or the send fails or is abandoned) is dropped and
-   *  counted: nothing is carried to a later point. */
   private async release(backend: ScreenInputBackendId): Promise<void> {
     const presses = [...this.held[backend].values()];
     this.held[backend].clear();
@@ -319,26 +315,6 @@ export class ScreenInputRouter {
     return altGr ? { mode: 'altgr', lifts: held.map(([id]) => id) } : { mode: 'refused' };
   }
 
-  /**
-   * Types literal text. Under a held shortcut modifier it is refused (never
-   * queued or retried) so it cannot fire a shortcut. Under AltGr alone the
-   * session's own AltGr keys are lifted, the text is typed as Unicode, and
-   * the keys are pressed again, so the phone's held state is unchanged and the
-   * target sees plain characters.
-   *
-   * `live` (generation + authorization) is checked before the text and before
-   * each re-press. Once it fails nothing positive is sent: the text is
-   * skipped, no modifier is pressed again, and the modifiers already lifted
-   * are no longer held (they are up). Only modifiers not yet lifted stay
-   * held, for the release that follows the cancel.
-   *
-   * The AltGr keys' origin is rechecked against the backend's identity before
-   * every lift, before the text and before every re-press. Once it no longer
-   * matches, nothing more is sent to this backend from here: no further
-   * lift, no text, no re-press. The keys already lifted are up; the ones not
-   * yet lifted can't be released on their desktop now, so they are dropped
-   * and counted (the session-local release contract).
-   */
   private async sendText(
     backend: ScreenInputBackendId,
     command: ScreenHostCommand,

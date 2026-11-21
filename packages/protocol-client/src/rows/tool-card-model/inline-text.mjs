@@ -1,14 +1,6 @@
-/**
- * inline-text.mjs — single-row text hygiene and the row budgets shared by
- * every collapsed tool-card surface.
- */
 import stripAnsi from 'strip-ansi';
 
 export const MIN_RESULT_LINE_CHARS = 24;
-// Hard cap for the collapsed result detail row (the second line under the ⎿
-// gutter). Independent of terminal width so a wide terminal never lets a long
-// line (e.g. an agent response brief) stretch the whole row — anything past
-// this is truncated with an ellipsis. Expanding still shows the full body.
 export const RESULT_LINE_HARD_MAX = 80;
 // Hard cap for the parenthesized header arg summary so a long path/query does
 // not eat the whole header line; anything longer is truncated with an ellipsis.
@@ -17,6 +9,7 @@ export const HEADER_FAILURE_STATUS_MAX = 32;
 
 // Collapsed tool headers/details are laid out as single rows. Never let raw
 // C0/control bytes (CR, tabs, cursor escapes, etc.) reach those rows.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is replaced.
 const INLINE_CONTROL_RE = /[\u0000-\u001F\u007F]/g;
 
 export function safeInlineText(value) {

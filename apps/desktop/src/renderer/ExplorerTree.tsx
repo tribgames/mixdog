@@ -1,39 +1,22 @@
-// ── Explorer tree ────────────────────────────────────────────────────────
-// Behavioral grammar:
-// - Inline create/rename input replacing the row label — Enter commits when
-//   valid, Escape cancels, blur commits a valid value, live validation
-//   bubble (error blocks, warning informs), rename pre-selects the basename
-//   without its extension.
-// - Name rules (empty/leading slash/duplicate/invalid chars/reserved device
-//   names/trailing dot-space/255) with nested "a/b/c" creation segments.
-// - Sort: directories first, numeric-aware compare; drop moves (Ctrl copies)
-//   with the confirm dialog and a hover-expand on collapsed folders.
-// - The active editor auto-reveals: its ancestors expand, the row scrolls
-//   into view and becomes the selection without stealing keyboard focus.
-// This file owns selection, keyboard, drag and menu behaviour. Folder listing,
-// expansion and refresh live in explorer-dir-state; the file operations behind
-// delete/paste/drop live in explorer-mutations; the tree shape and its path
-// grammar in explorer-tree-model; the inline input row in explorer-edit-row.
 import { ChevronDown, FilePlus, FolderPlus, ListCollapse, RefreshCw } from 'lucide-react';
 import React, { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { DesktopGitStatus } from '../shared/contract';
 import { explorerTypeAheadIndex, validateExplorerName, wellFormedExplorerName } from './explorer-logic';
-import { useExplorerDirs } from './explorer-dir-state';
+import { useExplorerDirs, useExplorerReveal } from './explorer-dir-state';
+import { ExplorerRowButton, type ExplorerRowHandlers } from './explorer-row';
 import { ExplorerEditRow, type ExplorerEdit } from './explorer-edit-row';
 import {
   explorerCreatedEntry,
-  explorerErrorText,
   explorerTransferRels,
   transferExplorerEntries,
   trashExplorerEntries,
 } from './explorer-mutations';
+import { errorMessage } from './editor-pane-session-errors';
 import {
   explorerAbsolutePath,
-  explorerGitClass,
   explorerGitDecorations,
   explorerParentRel,
-  explorerRevealStep,
   type ExplorerRow,
 } from './explorer-tree-model';
 import { COMPOSER_PROJECT_PATHS_MIME } from './composer-support';
@@ -46,7 +29,6 @@ import { isSshConnectionWindow } from './desktop-connection';
 import { confirmServerDelete } from './server-transfers';
 import { useMobileBack } from './mobile-back';
 import { isPhoneSurfaceMarked } from './mobile-surface';
-import { scheduleEditorPanePrefetch } from './lazy-widgets';
 import { SetiFileIcon } from './SetiFileIcon';
 import { useSurfaceActive } from './surface-activity';
 import { isRemoteHostRenderer } from './remote-ui-projection';
@@ -572,8 +554,6 @@ export const FilesRootPane = memo(function FilesRootPane({
       setMutationError('');
     },
   });
-  const expandDirRef = useRef(expandDir);
-  expandDirRef.current = expandDir;
   /** Single-row selection: range anchor, selection and focus land together. */
   const selectOnly = (rel: string) => {
     anchorRel.current = rel;
@@ -589,44 +569,17 @@ export const FilesRootPane = memo(function FilesRootPane({
   // changes the hook count when projectPath flips (pane focus swaps between
   // draft/EMPTY and session snapshots) and crashes the renderer.
   const { setMenu, visibleMenu, menuRef } = useExplorerMenu();
-  // Auto-reveal: expand ancestors of the
-  // active editor file step by step; each load/expand re-runs this effect
-  // until the row exists, then select + scroll without stealing focus.
-  const revealTarget = useRef('');
-  // biome-ignore lint/correctness/useExhaustiveDependencies: revealNonce is the deliberate trigger - a repeat reveal of the same file must re-arm the target.
-  useEffect(() => {
-    if (!active || !projectPath) return;
-    const prefix = `file:${projectPath}:`;
-    if (!activeFileKey.startsWith(prefix)) return;
-    const rel = activeFileKey.slice(prefix.length).replace(/\\/g, '/');
-    if (rel) revealTarget.current = rel;
-  }, [active, activeFileKey, projectPath, revealNonce]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: activeFileKey and revealNonce re-run the stepwise reveal for a new target; selectOnly is re-created every render and only touches refs and stable setters.
-  useEffect(() => {
-    const rel = revealTarget.current;
-    if (!rel || !active || editingRef.current) return;
-    // The root listing replaces the whole map when it lands, so a folder
-    // reveal waits for it instead of being wiped.
-    if (revealDir && !dirs.get('')?.entries) return;
-    const step = explorerRevealStep(dirs, rel);
-    if (step.kind === 'load') {
-      load(step.rel);
-      return;
-    }
-    if (step.kind === 'expand') {
-      patch(step.rel, { expanded: true });
-      return;
-    }
-    if (step.kind === 'pending') return;
-    // Ready or abandoned: either way this target is done steering the tree.
-    revealTarget.current = '';
-    if (step.kind === 'blocked') return;
-    selectOnly(rel);
-    if (revealDir) expandDirRef.current(rel);
-    window.requestAnimationFrame(() => {
-      rowEls.current.get(rel)?.scrollIntoView?.({ block: 'nearest' });
-    });
-  }, [active, activeFileKey, dirs, load, patch, revealDir, revealNonce]);
+  useExplorerReveal({
+    active,
+    projectPath,
+    activeFileKey,
+    revealNonce,
+    revealDir,
+    editing: editing !== null,
+    tree: { dirs, load, patch, expandDir },
+    onRevealed: selectOnly,
+    scrollToRow: (rel) => rowEls.current.get(rel)?.scrollIntoView?.({ block: 'nearest' }),
+  });
   // The host header drives the tree through one stable handle.
   const latestControls = useRef<ExplorerControls | null>(null);
   const controlsHandle = useRef({
@@ -712,7 +665,7 @@ export const FilesRootPane = memo(function FilesRootPane({
         : api?.renameProjectEntry?.(projectPath, edit.rel, value);
       void renamed
         ?.then(() => selectOnly(edit.parentRel ? `${edit.parentRel}/${value}` : value))
-        .catch((reason) => setMutationError(explorerErrorText(reason)))
+        .catch((reason) => setMutationError(errorMessage(reason)))
         .finally(() => refreshDir(edit.parentRel));
       return;
     }
@@ -728,7 +681,7 @@ export const FilesRootPane = memo(function FilesRootPane({
         if (!dir) openFile(created.finalRel, 'preview');
       })
       .catch((reason) => {
-        setMutationError(explorerErrorText(reason));
+        setMutationError(errorMessage(reason));
         refreshDir(edit.parentRel);
       });
   };
@@ -757,7 +710,7 @@ export const FilesRootPane = memo(function FilesRootPane({
       // Only what survived the delete stays selected, ready for a retry.
       setSelected(new Set(failed));
       setFocusedRel(failed[0] || '');
-      if (firstError !== undefined) setMutationError(explorerErrorText(firstError));
+      if (firstError !== undefined) setMutationError(errorMessage(firstError));
       refreshParentsOf(rels);
     })();
   };
@@ -787,7 +740,7 @@ export const FilesRootPane = memo(function FilesRootPane({
     // A cut is consumed by its paste; entries that could not move stay cut so
     // the next paste retries exactly them.
     if (clipboard.cut) setClipboard(failed.length ? { rels: failed, cut: true } : null);
-    if (firstError !== undefined) setMutationError(explorerErrorText(firstError));
+    if (firstError !== undefined) setMutationError(errorMessage(firstError));
     settleTransfer(targetDirRel, ops);
   };
   const clearHoverExpand = () => {
@@ -822,7 +775,7 @@ export const FilesRootPane = memo(function FilesRootPane({
     // Whatever failed to land stays selected where it still is.
     setSelected(new Set(failed));
     setFocusedRel(failed[0] || '');
-    if (firstError !== undefined) setMutationError(explorerErrorText(firstError));
+    if (firstError !== undefined) setMutationError(errorMessage(firstError));
   };
   /** Right-click on the root header or empty tree space: New File / New
    *  Folder / Paste into the project root. */
@@ -901,124 +854,95 @@ export const FilesRootPane = memo(function FilesRootPane({
   const rowNode = (row: ExplorerRow): ReactNode => {
     if (row.error) return <ErrorNotice key={row.rel} error={row.error} role="status" />;
     const badge = row.dir ? undefined : gitFiles.get(row.rel);
-    const isSelected = selected.has(row.rel);
-    const isCut = Boolean(clipboard?.cut && clipboard.rels.includes(row.rel));
-    let className = 'dock-file-row';
-    if (!row.dir) className += ` is-file${explorerGitClass(badge)}`;
-    if (row.dir && gitDirs.has(row.rel)) className += ' git-dir-changed';
-    if (isSelected) className += ' explorer-selected';
-    if (focusedRel === row.rel) className += ' explorer-focused';
-    if (isCut) className += ' explorer-cut';
-    if (dropTarget !== null && row.dir && row.rel === dropTarget) className += ' explorer-drop-target';
-    // Indent guides: the CSS rule paints one hairline per ancestor level and
-    // only needs the covered width (guides render on hover).
-    const guides = row.level > 0 ? ({ '--guide-size': `${row.level * 8}px 100%` } as React.CSSProperties) : undefined;
-    return (
-      <button
-        type="button"
-        key={row.rel}
-        role="treeitem"
-        aria-level={row.level + 1}
-        aria-expanded={row.dir ? row.expanded : undefined}
-        aria-selected={isSelected}
-        title={row.dir ? undefined : row.rel}
-        tabIndex={firstFocusableRel === row.rel ? 0 : -1}
-        data-guides={row.level > 0 ? 'true' : undefined}
-        ref={(element) => {
-          if (element) rowEls.current.set(row.rel, element);
-          else rowEls.current.delete(row.rel);
-        }}
-        className={className}
-        style={{ paddingLeft: `calc(var(--mx-explorer-inset, 12px) + ${row.level * 8}px)`, ...guides }}
-        draggable
-        onDragStart={(event) => {
-          // Dragging outside the selection re-selects the dragged row alone.
-          const withinSelection = selected.has(row.rel);
-          const rels = withinSelection ? [...selected] : [row.rel];
-          if (!withinSelection) selectOnly(row.rel);
-          dragRels.current = rels;
-          fillRowDrag(event, projectPath, rels);
-        }}
-        onDragOver={(event) => {
-          if (dragRels.current.length === 0) return;
-          event.preventDefault();
-          event.stopPropagation();
-          event.dataTransfer.dropEffect = event.ctrlKey || event.altKey ? 'copy' : 'move';
-          const target = rowDirRel(row);
-          if (dropTarget !== target) {
-            clearHoverExpand();
-            setDropTarget(target);
-            if (row.dir && !row.expanded) {
-              hoverExpandTimer.current = window.setTimeout(() => expandDir(row.rel), DRAG_EXPAND_DELAY_MS);
-            }
-          }
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          void performDrop(rowDirRel(row), event.ctrlKey || event.altKey);
-        }}
-        onDragEnd={() => {
-          dragRels.current = [];
+    const handlers: ExplorerRowHandlers = {
+      onDragStart: (event) => {
+        // Dragging outside the selection re-selects the dragged row alone.
+        const withinSelection = selected.has(row.rel);
+        const rels = withinSelection ? [...selected] : [row.rel];
+        if (!withinSelection) selectOnly(row.rel);
+        dragRels.current = rels;
+        fillRowDrag(event, projectPath, rels);
+      },
+      onDragOver: (event) => {
+        if (dragRels.current.length === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = event.ctrlKey || event.altKey ? 'copy' : 'move';
+        const target = rowDirRel(row);
+        if (dropTarget !== target) {
           clearHoverExpand();
-          setDropTarget(null);
-        }}
-        onPointerEnter={row.dir ? undefined : scheduleEditorPanePrefetch}
-        onFocus={row.dir ? undefined : scheduleEditorPanePrefetch}
-        onClick={(event) => {
-          if (event.ctrlKey || event.metaKey) {
-            anchorRel.current = row.rel;
-            setFocusedRel(row.rel);
-            setSelected((current) => {
-              const next = new Set(current);
-              if (next.has(row.rel)) next.delete(row.rel);
-              else next.add(row.rel);
-              return next;
-            });
-            return;
+          setDropTarget(target);
+          if (row.dir && !row.expanded) {
+            hoverExpandTimer.current = window.setTimeout(() => expandDir(row.rel), DRAG_EXPAND_DELAY_MS);
           }
-          if (event.shiftKey) {
-            focusRow(row.rel, { extend: true });
-            return;
-          }
-          selectOnly(row.rel);
-          if (row.dir) toggle(row.rel);
-          // A touch tap has no double-click to pin with, so it opens the file
-          // pinned; a mouse click keeps the PC preview-then-pin behavior.
-          else openFile(row.rel, explorerOpenMode((event.nativeEvent as Partial<PointerEvent>).pointerType));
-        }}
-        onDoubleClick={row.dir ? undefined : () => openFile(row.rel, 'pinned')}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          // A right-click inside the selection keeps it (multi-item actions).
-          if (selected.has(row.rel)) setFocusedRel(row.rel);
-          else selectOnly(row.rel);
-          setMenu({
-            x: event.clientX,
-            y: event.clientY,
-            rel: row.rel,
-            parent: row.parentRel,
-            name: row.name,
-            isDir: row.dir,
+        }
+      },
+      onDrop: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void performDrop(rowDirRel(row), event.ctrlKey || event.altKey);
+      },
+      onDragEnd: () => {
+        dragRels.current = [];
+        clearHoverExpand();
+        setDropTarget(null);
+      },
+      onClick: (event) => {
+        if (event.ctrlKey || event.metaKey) {
+          anchorRel.current = row.rel;
+          setFocusedRel(row.rel);
+          setSelected((current) => {
+            const next = new Set(current);
+            if (next.has(row.rel)) next.delete(row.rel);
+            else next.add(row.rel);
+            return next;
           });
+          return;
+        }
+        if (event.shiftKey) {
+          focusRow(row.rel, { extend: true });
+          return;
+        }
+        selectOnly(row.rel);
+        if (row.dir) toggle(row.rel);
+        // A touch tap has no double-click to pin with, so it opens the file
+        // pinned; a mouse click keeps the PC preview-then-pin behavior.
+        else openFile(row.rel, explorerOpenMode((event.nativeEvent as Partial<PointerEvent>).pointerType));
+      },
+      onDoubleClick: row.dir ? undefined : () => openFile(row.rel, 'pinned'),
+      onContextMenu: (event) => {
+        event.preventDefault();
+        // A right-click inside the selection keeps it (multi-item actions).
+        if (selected.has(row.rel)) setFocusedRel(row.rel);
+        else selectOnly(row.rel);
+        setMenu({
+          x: event.clientX,
+          y: event.clientY,
+          rel: row.rel,
+          parent: row.parentRel,
+          name: row.name,
+          isDir: row.dir,
+        });
+      },
+    };
+    return (
+      <ExplorerRowButton
+        key={row.rel}
+        row={row}
+        badge={badge}
+        gitDirChanged={row.dir && gitDirs.has(row.rel)}
+        changed={changed.has(row.rel)}
+        selected={selected.has(row.rel)}
+        focused={focusedRel === row.rel}
+        cut={Boolean(clipboard?.cut && clipboard.rels.includes(row.rel))}
+        dropTarget={dropTarget !== null && row.dir && row.rel === dropTarget}
+        tabbable={firstFocusableRel === row.rel}
+        registerEl={(rel, element) => {
+          if (element) rowEls.current.set(rel, element);
+          else rowEls.current.delete(rel);
         }}
-      >
-        {/* 16px twistie column on EVERY row (monaco-tl-twistie): files reserve
-          the space too, so labels align per depth; the chevron rotates. */}
-        <span className={`explorer-twistie${row.dir && !row.expanded ? ' collapsed' : ''}`} aria-hidden="true">
-          {row.dir && <ChevronDown size={14} />}
-        </span>
-        {/* Seti grammar: folders carry only the twistie, files a themed glyph. */}
-        {!row.dir && <SetiFileIcon name={row.name} className="dock-file-icon" />}
-        <span>{row.name}</span>
-        {row.dir && gitDirs.has(row.rel) && <i className="dock-file-changed" aria-hidden="true" />}
-        {!row.dir && badge && (
-          <em className="dock-file-badge" role="img" aria-label={t('Git status {{badge}}', { badge })}>
-            {badge}
-          </em>
-        )}
-        {!row.dir && !badge && changed.has(row.rel) && <i className="dock-file-changed" aria-hidden="true" />}
-      </button>
+        handlers={handlers}
+      />
     );
   };
   const treeItems: ReactNode[] = [];

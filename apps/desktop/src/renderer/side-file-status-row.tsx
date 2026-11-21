@@ -8,9 +8,10 @@ import type { SideFileChrome } from './side-surface-strip';
  *  previews have none: the chip's tooltip already carries the path. */
 export function sideFileHasFooter(chrome: SideFileChrome | null): boolean {
   if (!chrome) return false;
-  const source = !chrome.viewToggle || chrome.viewToggle.value === 'source';
-  return Boolean(chrome.tableSize || (chrome.cursor && source));
+  return Boolean(chrome.tableSize || (chrome.cursor && isSourceView(chrome)));
 }
+
+const isSourceView = (chrome: SideFileChrome | null) => !chrome?.viewToggle || chrome.viewToggle.value === 'source';
 
 /** The side file's footer / status bar (last row of the card, inside the
  *  rounded sheet): problems counts (toggle the Problems split), cursor (go to
@@ -30,9 +31,7 @@ export function SideFileStatusRow({ chrome }: { chrome: SideFileChrome | null })
   }, []);
   const layout = sideStatusLayout(width);
   const problems = chrome?.editable ? chrome.problems : undefined;
-  // Rendered table/markdown preview or the Rich editor: nothing
-  // editor-related to report.
-  const showStatus = !chrome?.viewToggle || chrome.viewToggle.value === 'source';
+  const showStatus = isSourceView(chrome);
   return (
     // biome-ignore lint/a11y/useSemanticElements: a <footer> nested in the pane has no contentinfo role; the explicit role names the side file's status row.
     <div ref={row} className="side-file-status-row" data-side-file-status="" role="contentinfo">

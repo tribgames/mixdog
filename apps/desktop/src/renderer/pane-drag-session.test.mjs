@@ -5,28 +5,23 @@ import { installTestDom } from './test-support/test-dom.mjs';
 import { paneInnerDropZone, paneOuterDropZone } from './pane-drop-zone.ts';
 import { resolvePaneDropIntent } from './PaneWorkspace.tsx';
 
-test('pane drag commits only on drop and cancels an unfinished native drag', async () => {
+async function dragHarness(t) {
   const { restore } = installTestDom(null, {
     html: '<!doctype html><html><body><div class="app-shell"><div id="source"></div><div id="target"></div></div></body></html>',
     jsdom: { url: 'about:blank' },
     expose: ['Element'],
     actEnvironment: false,
   });
-
-  const {
-    acceptPaneDrag,
-    beginPaneDrag,
-    cancelPaneDragPreview,
-    currentPaneDrag,
-    dropPaneDrag,
-    finishPaneDrag,
-    movePaneDrag,
-    subscribePaneDrag,
-  } = await import('./pane-drag-session.ts');
+  const drag = await import('./pane-drag-session.ts');
   const source = document.getElementById('source');
   const target = document.getElementById('target');
   const frames = [];
-  const unsubscribe = subscribePaneDrag((frame) => frames.push(frame));
+  const unsubscribe = drag.subscribePaneDrag((frame) => frames.push(frame));
+  t.after(() => {
+    drag.finishPaneDrag();
+    unsubscribe();
+    restore();
+  });
   const data = new Map();
   const dataTransfer = {
     effectAllowed: 'none',
@@ -53,64 +48,91 @@ test('pane drag commits only on drop and cancels an unfinished native drag', asy
     selection: { kind: 'session', id: 'one', title: 'One' },
     sourceLeafId: 'leaf-a',
   };
+  const phases = () => frames.map((frame) => frame.phase);
+  return { ...drag, source, target, frames, phases, dragEvent, session };
+}
 
-  try {
-    beginPaneDrag(dragEvent(10, 10, source), session, source);
-    assert.equal(currentPaneDrag(), session);
-    movePaneDrag(dragEvent(20, 40));
-    finishPaneDrag();
-    assert.deepEqual(
-      frames.map((frame) => frame.phase),
-      ['move', 'cancel']
-    );
+test('pane drag: an unfinished drag cancels', async (t) => {
+  const { beginPaneDrag, currentPaneDrag, movePaneDrag, finishPaneDrag, phases, dragEvent, session, source } =
+    await dragHarness(t);
+  beginPaneDrag(dragEvent(10, 10, source), session, source);
+  assert.equal(currentPaneDrag(), session);
+  movePaneDrag(dragEvent(20, 40));
+  finishPaneDrag();
+  assert.deepEqual(phases(), ['move', 'cancel']);
+});
 
-    frames.length = 0;
-    let sourceCleanupCount = 0;
-    beginPaneDrag(dragEvent(10, 10, source), session, source, () => {
-      sourceCleanupCount += 1;
-    });
-    movePaneDrag(dragEvent(30, 50));
-    dropPaneDrag(dragEvent(15, 25, source));
-    finishPaneDrag();
-    assert.deepEqual(
-      frames.map((frame) => frame.phase),
-      ['move', 'drop']
-    );
-    assert.deepEqual({ x: frames[1].x, y: frames[1].y, target: frames[1].target }, { x: 15, y: 25, target: source });
-    assert.equal(sourceCleanupCount, 1);
-    assert.equal(currentPaneDrag(), null);
+test('pane drag: a drop commits once at the drop point and runs the source cleanup', async (t) => {
+  const {
+    beginPaneDrag,
+    currentPaneDrag,
+    dropPaneDrag,
+    movePaneDrag,
+    finishPaneDrag,
+    frames,
+    phases,
+    dragEvent,
+    session,
+    source,
+  } = await dragHarness(t);
+  let sourceCleanupCount = 0;
+  beginPaneDrag(dragEvent(10, 10, source), session, source, () => {
+    sourceCleanupCount += 1;
+  });
+  movePaneDrag(dragEvent(30, 50));
+  dropPaneDrag(dragEvent(15, 25, source));
+  finishPaneDrag();
+  assert.deepEqual(phases(), ['move', 'drop']);
+  assert.deepEqual({ x: frames[1].x, y: frames[1].y, target: frames[1].target }, { x: 15, y: 25, target: source });
+  assert.equal(sourceCleanupCount, 1);
+  assert.equal(currentPaneDrag(), null);
+});
 
-    frames.length = 0;
-    beginPaneDrag(dragEvent(10, 10, source), session, source);
-    movePaneDrag(dragEvent(30, 50));
-    movePaneDrag(dragEvent(0, 0, source));
-    assert.equal(frames.length, 1);
-    dropPaneDrag(dragEvent(0, 0, source));
-    finishPaneDrag();
-    assert.deepEqual(
-      frames.map((frame) => frame.phase),
-      ['move', 'drop']
-    );
-    assert.equal(frames[1].target, target);
-    assert.deepEqual({ x: frames[1].x, y: frames[1].y }, { x: 30, y: 50 });
-    assert.equal(currentPaneDrag(), null);
+test('pane drag: a drop that reports the source takes the last move position and target', async (t) => {
+  const {
+    beginPaneDrag,
+    currentPaneDrag,
+    dropPaneDrag,
+    movePaneDrag,
+    finishPaneDrag,
+    frames,
+    phases,
+    dragEvent,
+    session,
+    source,
+    target,
+  } = await dragHarness(t);
+  beginPaneDrag(dragEvent(10, 10, source), session, source);
+  movePaneDrag(dragEvent(30, 50));
+  movePaneDrag(dragEvent(0, 0, source));
+  assert.equal(frames.length, 1);
+  dropPaneDrag(dragEvent(0, 0, source));
+  finishPaneDrag();
+  assert.deepEqual(phases(), ['move', 'drop']);
+  assert.equal(frames[1].target, target);
+  assert.deepEqual({ x: frames[1].x, y: frames[1].y }, { x: 30, y: 50 });
+  assert.equal(currentPaneDrag(), null);
+});
 
-    frames.length = 0;
-    beginPaneDrag(dragEvent(10, 10, source), session, source);
-    movePaneDrag(dragEvent(30, 50));
-    cancelPaneDragPreview();
-    cancelPaneDragPreview();
-    assert.equal(acceptPaneDrag(), true);
-    finishPaneDrag();
-    assert.deepEqual(
-      frames.map((frame) => frame.phase),
-      ['move', 'cancel']
-    );
-  } finally {
-    finishPaneDrag();
-    unsubscribe();
-    restore();
-  }
+test('pane drag: cancelling the preview twice still accepts the drag and ends in cancel', async (t) => {
+  const {
+    acceptPaneDrag,
+    beginPaneDrag,
+    cancelPaneDragPreview,
+    movePaneDrag,
+    finishPaneDrag,
+    phases,
+    dragEvent,
+    session,
+    source,
+  } = await dragHarness(t);
+  beginPaneDrag(dragEvent(10, 10, source), session, source);
+  movePaneDrag(dragEvent(30, 50));
+  cancelPaneDragPreview();
+  cancelPaneDragPreview();
+  assert.equal(acceptPaneDrag(), true);
+  finishPaneDrag();
+  assert.deepEqual(phases(), ['move', 'cancel']);
 });
 
 test('pane drop zones follow the current pointer geometry', () => {

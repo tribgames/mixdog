@@ -71,10 +71,6 @@ function SessionChangesSourceSelect({
   );
 }
 
-/** Row 1 is the shared dock header with the surface's one tab strip (like the
- *  browser, terminal and file panes); row 2 is the toolbar row holding the
- *  Changes source (Git roots), the scope pill (count + totals) and the
- *  refresh control. */
 function SessionDiffHeader({
   tabStrip,
   source,

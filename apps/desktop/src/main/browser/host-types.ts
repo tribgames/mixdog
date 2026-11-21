@@ -1,11 +1,3 @@
-/**
- * What the browser host's modules share without owning: the Browser Use command
- * contract as the host sees it with the limits every module shares (the runtime
- * schema is the public authority; these types only describe what reaches the
- * host), the record the host keeps of one guest page (host-state.ts holds it),
- * and the host's own interface. Staying modules import these from here, never
- * from guest-state.ts, command.ts, host.ts or host-foundation.ts.
- */
 import type { WebContents } from 'electron';
 
 import {
@@ -72,10 +64,6 @@ export const TABLESS_ACTIONS: ReadonlySet<string> = new Set(['list_tabs', 'downl
  *  else would queue behind the dialog and fire after it closes, so the host
  *  refuses it up front instead of dispatching a ghost gesture. */
 export const DIALOG_TOLERANT_ACTIONS: ReadonlySet<string> = new Set(['handle_dialog', 'status', 'console', 'network']);
-/** Gestures whose reply says when the page did not react to them. Navigation
- *  and evaluation change the page by definition, so they are left out, and so
- *  is hover: a menu that opens on :hover leaves the document untouched, so
- *  "nothing happened" would be wrong far more often than right. */
 export const EFFECT_REPORT_ACTIONS: ReadonlySet<string> = new Set([
   'click',
   'fill',

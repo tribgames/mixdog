@@ -99,9 +99,6 @@ export function createPageInputDispatcher(
     await host.cdp.waitForIdle(guest, signal);
     assertDispatch();
     host.state.invalidateInteraction(guest);
-    // A click or keystroke may leave state only this document holds (a half
-    // filled form), so the page is no longer safe to unload and restore.
-    // The press or key is the person's gesture: a window it opens is theirs.
     if (browserTypingInput(input) || (input.type === 'pointer' && input.phase === 'mousePressed')) {
       host.state.for(guest).userInput = true;
       if (browserTypingInput(input)) host.state.for(guest).typedInput = true;

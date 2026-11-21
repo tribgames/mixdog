@@ -23,6 +23,13 @@ import { sectionStoreFor } from './section-store';
 interface AgentPoolStore {
   host?: DesktopApi;
   rows: DesktopAgentPoolRow[] | null;
+  /** The rows the runtime lists now, the only list a dismissal may prune against: set by an inline pool, or by a read
+   *  that completed for the latest publication; null while a stub's read is pending or failed, after a removal, and
+   *  without sections. `rows` may still show cached rows meanwhile. */
+  listing: DesktopAgentPoolRow[] | null;
+  /** The `agentPool` entry last published (undefined: none, or removed). */
+  entry: unknown;
+  /** Advanced by every publication, a removal included; a read of an older one is dropped. */
   revision: number;
   started: boolean;
   /** Cancelled identities survive here, so a later pool snapshot cannot
@@ -30,6 +37,7 @@ interface AgentPoolStore {
   cancellations: DesktopAgentCancellationLedger;
   listeners: Set<() => void>;
   getSnapshot(): DesktopAgentPoolRow[] | null;
+  getListing(): DesktopAgentPoolRow[] | null;
   subscribe(listener: () => void): () => void;
 }
 
@@ -40,11 +48,14 @@ function createAgentPoolStore(host?: DesktopApi): AgentPoolStore {
   const store: AgentPoolStore = {
     host,
     rows: host ? null : [],
+    listing: null,
+    entry: undefined,
     revision: 0,
     started: false,
     cancellations: createDesktopCancellationLedger(),
     listeners: new Set(),
     getSnapshot: () => store.rows,
+    getListing: () => store.listing,
     subscribe: (listener) => {
       store.listeners.add(listener);
       return () => {
@@ -78,11 +89,6 @@ function samePoolValue(left: unknown, right: unknown): boolean {
   );
 }
 
-/** The next snapshot with every unchanged row kept as the object already
- *  published, and the previous array itself when nothing changed. Every
- *  reconcile (each 2 s per poller) and push delivers fresh objects; without
- *  this each one re-rendered every pool subscriber — six session sidebars,
- *  the tab strip, the island and every agent row — with identical content. */
 function sharePoolRows(previous: DesktopAgentPoolRow[] | null, next: DesktopAgentPoolRow[]): DesktopAgentPoolRow[] {
   if (!previous) return next;
   const identity = (row: DesktopAgentPoolRow) => `${row.sessionId}\0${desktopAgentIdentity(row)}`;
@@ -113,21 +119,24 @@ function keepRunOrigin(previous: DesktopAgentPoolRow[] | null, next: DesktopAgen
   });
 }
 
-function publishAgentPool(store: AgentPoolStore, rows: unknown): void {
+function publishAgentPool(store: AgentPoolStore, rows: DesktopAgentPoolRow[]): void {
   // Every snapshot passes the cancellation ledger: the daemon still reports a
   // cancelled session as running until its turn unwinds, and a snapshot that
   // shows it running again after the cancel is a stale report, not new work.
-  const next = sharePoolRows(
-    store.rows,
-    keepRunOrigin(store.rows, store.cancellations.apply(Array.isArray(rows) ? (rows as DesktopAgentPoolRow[]) : []))
-  );
+  const next = sharePoolRows(store.rows, keepRunOrigin(store.rows, store.cancellations.apply(rows)));
   if (next === store.rows) return;
   store.rows = next;
   for (const listener of store.listeners) listener();
 }
 
+/** Publishes `rows` as the runtime's current listing. */
+function publishAgentListing(store: AgentPoolStore, rows: DesktopAgentPoolRow[]): void {
+  publishAgentPool(store, rows);
+  store.listing = store.rows;
+}
+
 /** The pool is the core's `agentPool` section (desktop-services.md §9, §15 P6): every change is pushed, so
- *  there is no reconcile read. A host without sections has no pool. */
+ *  there is no reconcile read. A host without sections shows an empty pool that is no listing. */
 export function startAgentPool(store: AgentPoolStore): void {
   if (store.started) return;
   store.started = true;
@@ -138,18 +147,29 @@ export function startAgentPool(store: AgentPoolStore): void {
   }
   const publish = (): void => {
     const entry = sections.get('agentPool');
-    if (!entry) return;
+    if (entry === store.entry) return;
+    store.entry = entry;
     store.revision += 1;
-    publishAgentPool(store, entry.value);
+    store.listing = null;
+    if (!entry) return;
+    if (Array.isArray(entry.value)) {
+      publishAgentListing(store, entry.value as DesktopAgentPoolRow[]);
+      return;
+    }
+    // A pool over the inline limit is a count-only stub: the rows are read through the list request. The rows held
+    // meanwhile stay shown (null before any), and a read a newer publication overtook is dropped.
+    const at = store.revision;
+    void store.host?.listAgentPool?.().then(
+      (rows) => {
+        if (store.revision === at && Array.isArray(rows)) publishAgentListing(store, rows);
+      },
+      () => undefined
+    );
   };
   sections.subscribe('agentPool', publish);
   // A store that already holds the pool (this consumer started late) announces nothing: read it now.
   publish();
-  void sections.ready().then(() => {
-    publish();
-    // A core without a pool entry yet shows an empty pool, as a failed first read did.
-    if (store.rows === null) publishAgentPool(store, []);
-  });
+  void sections.ready().then(publish);
 }
 
 export function preloadAgentPool(host: DesktopApi | undefined = window.mixdogDesktop): void {
@@ -212,23 +232,8 @@ function agentTaskId(entry: RecordValue): string {
   return String(entry.task_id || entry.taskId || '').trim();
 }
 
-// A CONFIRMED cancel is the last word about that attempt. Worker and job
-// rows for one agent settle at different moments, so a cancelled job
-// routinely arrives beside a worker row that still says `running` (and vice
-// versa); taking the active row would keep the stopped agent on the live
-// surfaces forever. Collected BEFORE the active filter and the merge, so
-// neither the entry order nor the status preference in the merge can
-// resurrect it.
-// The same tag can be started again after a cancel: an ACTIVE row carrying a
-// task id other than the cancelled ones is that new attempt (the job board
-// keeps completed and failed jobs, which prove nothing), so only the
-// cancelled task ids stay hidden (map value); without one the whole identity
-// is hidden (null).
-// An UNCONFIRMED cancel (`cancelling`, `cancel-unconfirmed`) is the opposite
-// case: the process is not proven gone — on Windows a git-bash background
-// survivor is unreachable from JS and answers with
-// SURVIVING_DESCENDANTS_UNREACHABLE_WARNING — so dropping it would hide a
-// possibly still-live agent. Those rows stay, carrying their own state.
+// On Windows a git-bash background survivor is unreachable from JS and answers with
+// SURVIVING_DESCENDANTS_UNREACHABLE_WARNING, so an unconfirmed cancel does not prove the process gone.
 function agentCancelSignals(entries: ReadonlyArray<{ entry: RecordValue }>): {
   cancelled: Map<string, ReadonlySet<string> | null>;
   unconfirmedCancels: Map<string, string>;
@@ -325,10 +330,6 @@ function mergeLiveAgentSummary(current: LiveAgentSummary, next: LiveAgentSummary
     autoEffort: current.autoEffort && next.autoEffort,
     tag: current.tag || next.tag,
     title: current.title || next.title,
-    // Keeping the earlier status is safe ONLY because a confirmed cancel
-    // never reaches this merge (see agentCancelSignals) and an unconfirmed
-    // one wins here: whichever twin reports it, the merge can never fall
-    // back to the live twin's status.
     status:
       (next.state === 'cancel-unconfirmed' && current.state !== 'cancel-unconfirmed') ||
       (current.queued && !next.queued)
@@ -444,16 +445,6 @@ interface AgentActivityGroup {
   nodes: AgentActivityNode[];
 }
 
-/** Root owner of one row.
- *
- *  `ownerSessionId` is the AUTHORITATIVE root: the producer stamps every
- *  descendant with the owning Lead session, so a grandchild is filed under its
- *  Lead even when its immediate parent already finished or is hidden here.
- *  `parentSessionId` is only the immediate edge and is consulted as a fallback
- *  for older rows that carry no separate root — climbing it can never move a
- *  row to a non-catalog id, because every step is accepted only when the id is
- *  a real session-catalog row. A row that resolves to nothing is an internal
- *  reservation, not a user task. */
 function agentRootSessionId(
   agent: DesktopAgentPoolRow,
   rowsBySessionId: ReadonlyMap<string, DesktopAgentPoolRow>,
@@ -655,9 +646,7 @@ export function flattenAgentActivityNodes(nodes: readonly AgentActivityNode[]): 
   return nodes.flatMap((node) => [node, ...flattenAgentActivityNodes(node.children)]);
 }
 
-/** Rendered rows in depth-first order, opening only explicitly expanded rows.
- *  This is the list the tree's roving focus walks, so the
- *  keyboard can only ever reach rows that are actually painted. */
+/** Rendered rows in depth-first order, opening only explicitly expanded rows. */
 export function visibleAgentTreeRows(
   nodes: readonly AgentActivityNode[],
   expandedSessionIds: ReadonlySet<string>
@@ -667,36 +656,19 @@ export function visibleAgentTreeRows(
   );
 }
 
-/** Seed placement for a group the dock has never ranked: the moment it was
- *  CREATED. A row that already settled
- *  carries its idle stamp instead, so a completed session seeds where its
- *  work actually finished rather than where it began. */
 function poolRowSeedAt(agent: DesktopAgentPoolRow): number {
   const idle = timeMs(agent.idleSince);
   if (idle) return idle;
-  // A working row has NO idle stamp, and its updatedAt keeps advancing while
-  // it runs: ranking on it made every running session climb on each tick, so cards
-  // leapfrogged mid-turn. Creation is frozen for the whole lifetime, so a
-  // live row holds its place until it stops.
   return timeMs(agent.createdAt) || timeMs(agent.startedAt) || timeMs(agent.turnStartedAt);
 }
 
-/** Sticky ordering stamp for one owner group. The pool decides `working` from
- *  the daemon's in-memory running state, so `idleSince` can vanish and come
- *  back as a session starts and settles turns and a raw ranking swapped rows
- *  on every flip. A group's stamp
- *  therefore only ever ADVANCES, and only when a genuinely newer turn start or
- *  completion lands. */
+/** Ordering stamp for one owner group; it only advances, when a newer turn start or completion lands. */
 export function stickyGroupOrder(
   previous: ReadonlyMap<string, number>,
   ownerId: string,
   agents: readonly DesktopAgentPoolRow[]
 ): number {
   const prior = previous.get(ownerId) || 0;
-  // Two moments move a group, and both are FROZEN values: the turn it started
-  // and the moment it went idle.
-  // The advancing updatedAt stays out of the ranking, so a running
-  // session climbs once and then holds its slot for the whole turn.
   const moment = Math.max(0, ...agents.map((agent) => Math.max(timeMs(agent.idleSince), timeMs(agent.turnStartedAt))));
   if (moment > prior) return moment;
   if (prior) return prior;

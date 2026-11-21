@@ -1,12 +1,3 @@
-/**
- * A foreground session keeps the system cursor blanked between its commands,
- * so the overlay arrow is the only pointer on screen while the agent thinks.
- * The hold ends when the arrow does: after the thinking grace, when the
- * user moves the mouse, when the session's turn ends, or when another session
- * takes the one physical pointer.
- * The worker's watchdog restores the cursor by itself on user input or worker
- * exit; this only ends holds nobody else would.
- */
 import { DEFAULT_TARGET_LEASE_GRACE_MS } from '../session/coordinator';
 import type { LifecycleContext } from './session-lifecycle';
 

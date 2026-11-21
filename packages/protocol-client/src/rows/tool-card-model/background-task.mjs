@@ -1,7 +1,3 @@
-/**
- * background-task.mjs — the `background task` result envelope: parsing it,
- * merging the tool args into it and rendering its titles and detail rows.
- */
 import { backgroundTaskFailureStatusLabel, isBackgroundErrorOnlyBody } from '../err-text.mjs';
 import { formatElapsed } from '../time-format.mjs';
 import { titleizeAgentName } from './agent-surface.mjs';
@@ -34,6 +30,10 @@ export function parseBackgroundTaskResult(value) {
       hasResponse: Boolean(notification.result) && !isBackgroundErrorOnlyBody(notification.result, notification.error),
     };
   }
+  return parseHeadedBackgroundTask(text);
+}
+
+function parseHeadedBackgroundTask(text) {
   const allLines = text.split('\n');
   const start = allLines.findIndex((line) => line.trim() === 'background task');
   if (start < 0) return null;

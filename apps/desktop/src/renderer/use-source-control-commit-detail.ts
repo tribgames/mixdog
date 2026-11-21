@@ -1,7 +1,7 @@
 import type { DesktopGitCommitFile, DesktopGitLogEntry } from '../shared/contract';
 import { describeSourceControlError } from './SourceControlErrorNotice';
 import { t } from './i18n';
-import { reasonText } from './source-control-support';
+import { errorMessage } from './editor-pane-session-errors';
 import type { useSourceControlHistory } from './use-source-control-history';
 
 /** History commit detail: open a commit, copy its SHA, and expand a file's diff. */
@@ -31,16 +31,13 @@ export function useSourceControlCommitDetail({
     try {
       history.setCommitDetail(await api.gitShow(projectPath, entry.hash));
     } catch (reason) {
-      setError(reasonText(reason));
+      setError(errorMessage(reason));
       history.setSelectedCommit('');
     } finally {
       setBusy('');
     }
   };
-  /** Short SHA + copy affordance. The Clipboard API can be absent (insecure
-   *  context) or refuse; either way the outcome is reported — announced
-   *  through the header's live region and surfaced in the error banner —
-   *  instead of claiming a copy that never happened. */
+  // The Clipboard API is absent in insecure contexts and can refuse; both are reported, never shown as copied.
   const copyCommitSha = async (hash: string) => {
     const clipboard = window.navigator?.clipboard;
     if (!clipboard?.writeText) {
@@ -53,7 +50,7 @@ export function useSourceControlCommitDetail({
       history.setShaCopy({ hash, ok: true });
     } catch (reason) {
       history.setShaCopy({ hash, ok: false });
-      setError(t('Could not copy the SHA: {{value0}}', { value0: reasonText(reason) }));
+      setError(t('Could not copy the SHA: {{value0}}', { value0: errorMessage(reason) }));
     }
   };
   const toggleCommitFile = async (file: DesktopGitCommitFile) => {

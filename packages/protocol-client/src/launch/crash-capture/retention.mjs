@@ -1,18 +1,3 @@
-// Retention of daemon crash captures, stated exactly:
-//   * COMPLETED boots (the launcher saw the exit, or neither the daemon nor its
-//     launcher is alive any more) share a budget of CRASH_CAPTURE_KEEP_BOOTS
-//     boots and CRASH_CAPTURE_KEEP_BYTES bytes. An oversized completed capture
-//     is TRIMMED to its last CRASH_CAPTURE_TAIL_BYTES — the fatal report is the
-//     tail — and keeps its sidecar; the newest completed boot is never deleted,
-//     because that is the crash somebody is about to investigate.
-//   * ACTIVE boots (a live daemon, or a launch still in progress) and UNKNOWN
-//     boots (identity missing or damaged, so nobody can prove the writer is
-//     gone) are never read-modified, never trimmed and never unlinked. Their
-//     bytes sit OUTSIDE the completed-boot budget: at any moment the directory
-//     holds the completed budget PLUS the active and unknown captures, and an
-//     active capture's size is bounded only by what the daemon writes to fd 2
-//     until it exits. Retention never guesses from age: losing a live daemon's
-//     fatal evidence is worse than keeping an orphan file.
 import fs from 'node:fs';
 import path from 'node:path';
 import { isPidAlive } from '../../../../../src/runtime/shared/pid-liveness.mjs';

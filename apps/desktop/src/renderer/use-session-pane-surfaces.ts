@@ -112,10 +112,6 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
   );
   const agentSessionPanelsRef = useRef(agentSessionPanels);
   agentSessionPanelsRef.current = agentSessionPanels;
-  // The final snapshot of each panel sub-agent whose lane was torn down
-  // (AgentSessionPanel's useHeldSessionLane). Kept with the panel targets, not
-  // in the component, so it survives the panel remounting on a host switch;
-  // it goes with the target.
   const heldAgentLanes = useRef(new Map<string, HeldAgentLane>()).current;
   useEffect(() => {
     const kept = new Set([...agentSessionPanels.values()].map((target) => target.sessionId));
@@ -202,10 +198,6 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
 
   const sourcesRef = useRef(sessionSurfaceSources);
   sourcesRef.current = sessionSurfaceSources;
-  /** Folds `sessionId`'s browser: its own dock's, and every owner's dock
-   *  showing its page. Every conversation borrowing one of its pages forgets
-   *  it (browser-pane-borrowed-tab), whatever its dock shows now; only the
-   *  docks on that browser fold. */
   const hideBrowserSurface = useCallback((sessionId: string) => {
     pendingBrowserAutoReveal.current.delete(sessionId);
     const borrowers = releaseBorrowedBrowserTabsOf(sessionId);
@@ -229,12 +221,6 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
     [hideBrowserSurface]
   );
 
-  // The Routines tile preference (routines-tile.ts): every home thread shows
-  // it while open; opening, switching or closing a home thread's panel sets it.
-  // Before the user sets it, only homes of agents owning a routine show it.
-  // The phone never fills it in: there the dock is a full-screen sheet, so a
-  // contact tap must land on the chat and the tile opens only from the
-  // thread header's own button.
   const phone = useMobileRemoteSurface();
   const [routinesTile, setRoutinesTile] = useState(readRoutinesTilePreference);
   const { values: routineReferences } = useSidebarReferences(
@@ -243,11 +229,6 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
     !phone && routinesTile === null
   );
   const owners = useMemo(() => routineOwners(record(routineReferences.channelSetup)), [routineReferences]);
-  /** `agent`: an agent's reveal (visualize) put the view there, not the
-   *  user, so the Routines tile preference stays as the user left it.
-   *  `front`: the view opens in front of the session's browser/terminal,
-   *  which stays (the latest explicit open wins). `fold`: the dock folds
-   *  (toggle, close), so its sub-agent stays for the next open. */
   const setSessionPanelView = useCallback(
     (
       sessionId: string,
@@ -268,10 +249,6 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
     },
     [setPanelViewFront]
   );
-  /** A sub-agent's conversation becomes the panel view of chat
-   *  `hostSessionId`, in front of its browser/terminal; one sub-agent per
-   *  chat, so another row replaces it, and one chat per sub-agent, so a chat
-   *  that showed it before lets it go. */
   const showAgentSessionPanel = useCallback(
     (hostSessionId: string, target: AgentSessionPanelTarget) => {
       const formerHosts = [...agentSessionPanelsRef.current].flatMap(([host, shown]) =>

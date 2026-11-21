@@ -1,7 +1,3 @@
-// The service connection of each server window open in this process: this PC's own client to the server's core (the
-// desktop operations of the window's IPC, its terminals, its uploads and previews), dialed where this PC's core says the
-// server listens. The core owns the ssh session, the tunnel and the link; this only keeps the connection a window uses
-// while the window lives.
 import type { ConnectionPool, PooledConnection } from './pool';
 import type { ServerWindowRecord } from './server-window-record';
 

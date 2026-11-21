@@ -1,7 +1,4 @@
-// A virtual page is one `projectFs/localPage/virtual` request: ECharts (1,121,883 bytes) and Mermaid (5,494,801) alone are
-// over the core's 262144-byte inbound frame, which closes the connection. The page is built from the real bundles and sent
-// as the core would receive it: every frame under the limit, the library uploaded with blob/put and named by a $blobRef the
-// core expands at /files/*/dataBase64, and the lease still a virtual one.
+// ECharts (1,121,883 bytes) and Mermaid (5,494,801) exceed the core's 262144-byte inbound frame, which closes the connection.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';

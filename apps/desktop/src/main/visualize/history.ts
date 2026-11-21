@@ -1,8 +1,3 @@
-/**
- * A session's bounded "All visuals" history: what was opened (files by the
- * targets the agent named, inline content by its source), whether or not the
- * tab is still open. Kept in memory with the session's tabs.
- */
 import { createHash } from 'node:crypto';
 
 import { MAX_VISUALIZE_HISTORY, type VisualizeHistoryItem, type VisualizeInlineContent } from '../../shared/visualize';

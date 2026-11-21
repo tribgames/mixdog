@@ -1,7 +1,3 @@
-// Real-Chrome geometry of the browser-page card under a turn's browser work:
-// the thumbnail slot has its final size from the first paint (placeholder),
-// and neither the picture arriving late — of any size or aspect — nor failing
-// to decode changes the slot, the card, the row, or the Open button's place.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';

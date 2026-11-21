@@ -1,8 +1,3 @@
-/**
- * The box an observed element occupies, in top-document CSS pixels. A gesture
- * only needs the point it lands on; cropping a screenshot needs the whole
- * rectangle, expressed in the coordinates the captured image is scaled from.
- */
 import { BROWSER_STABLE_RECT } from './stable-rect';
 
 /** Runs in the element's own realm: same-process frame ancestors are folded

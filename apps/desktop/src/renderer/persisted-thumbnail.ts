@@ -1,7 +1,3 @@
-// Durable thumbnails for transcript cards whose source can disappear (a closed
-// visualize tab, a deleted or moved image, a browser page after a restart).
-// While the source shows a picture it is saved, downscaled, in the shared
-// IndexedDB preview store; once the source is gone the card shows that copy.
 import { useEffect, useRef, useState } from 'react';
 
 import type { DesktopApi } from '../shared/contract';
@@ -104,9 +100,6 @@ export const SNAPSHOT_FILE = /\.(?:html?|png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 
 type SnapshotApi = Pick<DesktopApi, 'statProjectFile' | 'captureFileSnapshot'>;
 const snapshotRuns = new Map<string, Promise<string | undefined>>();
-// Versions the host could not picture (key = session + path + mtime + size),
-// skipped for the rest of the run. Capped like `saved`: a forgotten failure
-// only costs one more capture attempt.
 const FAILED_SNAPSHOT_LIMIT = 512;
 const failedSnapshots = new Set<string>();
 

@@ -1,13 +1,3 @@
-// The phone's own transcript window over `mixdogd` (one window per phone delta encoder).
-// The phone folds a thread's feed into rows (packages/protocol-client); what it shows of them is cut here, per thread, by
-// these rules (phoneTranscriptView):
-//  - a first page is the newest rows whose phone copies fit REMOTE_TRANSCRIPT_TAIL_ITEMS rows and REMOTE_TRANSCRIPT_TAIL_BYTES
-//    bytes, always its newest row: a tool row's outputs are capped, an oversized one cut to fit (remote-transcript.ts);
-//  - a page request (`prefetchSession`'s limit) adds at most 512 rows above, within DESKTOP_TRANSCRIPT_PAGE_BYTES, as history
-//    (outputs cut to their head);
-//  - "Show full output" reads the whole row (`remoteToolOutput`).
-// The rows sit in the phone's fold only as far as its `thread/resume` window reaches; older ones a page asks for are read from the
-// core (`thread/items/list`, the `older` read) and kept, whole, above the fold's.
 import { phoneTranscriptView, phoneTranscriptWanted, requestPhoneTranscriptPage } from './remote-transcript-window';
 import { remoteToolOutput } from './remote-transcript';
 

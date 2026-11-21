@@ -372,13 +372,31 @@ try {
     cpSync(join(root, `android/app/src/main/java/io/mixdog/app/${name}.java`), join(pkg, `${name}.java`));
   }
   writeFileSync(join(pkg, 'QueueCheck.java'), queueSource);
-  cpSync(join(root, 'android/app/src/main/java/io/mixdog/app/FileSaveSessions.java'), join(pkg, 'FileSaveSessions.java'));
+  cpSync(
+    join(root, 'android/app/src/main/java/io/mixdog/app/FileSaveSessions.java'),
+    join(pkg, 'FileSaveSessions.java')
+  );
   writeFileSync(join(pkg, 'FileSaveCheck.java'), fileSaveSource);
   cpSync(join(root, 'android/app/src/main/java/io/mixdog/app/ReconnectState.java'), join(pkg, 'ReconnectState.java'));
   writeFileSync(join(pkg, 'ReconnectCheck.java'), reconnectSource);
   execFileSync(
     'javac',
-    ['-d', dir, ...['OriginPolicy', 'PendingActionQueue', 'NavigationPolicy', 'WebViewInsets', 'FileSaveSessions', 'ReconnectState', 'OriginPolicyCheck', 'QueueCheck', 'FileSaveCheck', 'ReconnectCheck'].map((n) => join(pkg, `${n}.java`))],
+    [
+      '-d',
+      dir,
+      ...[
+        'OriginPolicy',
+        'PendingActionQueue',
+        'NavigationPolicy',
+        'WebViewInsets',
+        'FileSaveSessions',
+        'ReconnectState',
+        'OriginPolicyCheck',
+        'QueueCheck',
+        'FileSaveCheck',
+        'ReconnectCheck',
+      ].map((n) => join(pkg, `${n}.java`)),
+    ],
     { stdio: 'inherit' }
   );
   execFileSync('java', ['-cp', dir, 'io.mixdog.app.OriginPolicyCheck'], { stdio: 'inherit' });

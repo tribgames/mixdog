@@ -52,6 +52,32 @@ export function createBrowserInputDispatch(host: InputDispatchHost) {
     if (route.sessionId) route.offset = await host.frameOffset(guest, route.sessionId, signal);
     return route;
   }
+  async function compensateHostZoom(
+    guest: WebContents,
+    method: string,
+    params: Record<string, unknown>,
+    input: Record<string, unknown>,
+    mouse: boolean,
+    signal?: AbortSignal
+  ): Promise<Record<string, unknown>> {
+    const touchPoints =
+      method === 'Input.dispatchTouchEvent' ? (params.touchPoints as Array<Record<string, number>>) : undefined;
+    if (!(mouse || method === 'Input.dispatchDragEvent' || touchPoints?.length) || guest.getZoomFactor() === 1) {
+      return input;
+    }
+    // CDP applies Electron's host zoom to input; device emulation can use another layout zoom.
+    const metrics = await host.cdp.call<{ cssVisualViewport: { zoom: number } }>(
+      guest,
+      'Page.getLayoutMetrics',
+      {},
+      signal
+    );
+    const scale = metrics.cssVisualViewport.zoom / guest.getZoomFactor();
+    if (!Number.isFinite(scale) || scale <= 0) throw new Error('Browser input has no valid viewport scale');
+    return touchPoints
+      ? { ...input, touchPoints: touchPoints.map((point) => ({ ...point, x: point.x * scale, y: point.y * scale })) }
+      : { ...input, x: Number(input.x) * scale, y: Number(input.y) * scale };
+  }
   return async (
     guest: WebContents,
     method: string,
@@ -79,23 +105,7 @@ export function createBrowserInputDispatch(host: InputDispatchHost) {
       sessionId = route.sessionId;
       input = { ...params, x: Number(params.x) - route.offset.x, y: Number(params.y) - route.offset.y };
     }
-    const touchPoints =
-      method === 'Input.dispatchTouchEvent' ? (params.touchPoints as Array<Record<string, number>>) : undefined;
-    if ((mouse || method === 'Input.dispatchDragEvent' || touchPoints?.length) && guest.getZoomFactor() !== 1) {
-      // Device emulation can use a different layout zoom than Electron's host
-      // zoom. CDP applies the host zoom to input; compensate only that mismatch.
-      const metrics = await host.cdp.call<{ cssVisualViewport: { zoom: number } }>(
-        guest,
-        'Page.getLayoutMetrics',
-        {},
-        signal
-      );
-      const scale = metrics.cssVisualViewport.zoom / guest.getZoomFactor();
-      if (!Number.isFinite(scale) || scale <= 0) throw new Error('Browser input has no valid viewport scale');
-      input = touchPoints
-        ? { ...input, touchPoints: touchPoints.map((point) => ({ ...point, x: point.x * scale, y: point.y * scale })) }
-        : { ...input, x: Number(input.x) * scale, y: Number(input.y) * scale };
-    }
+    input = await compensateHostZoom(guest, method, params, input, mouse, signal);
     const guard = () => {
       signal?.throwIfAborted();
       if (

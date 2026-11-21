@@ -1,20 +1,3 @@
-/**
- * The sign-in window of a login takeover (ask_user handoff purpose 'login').
- * One approval-bound, non-modal child window of the Mixdog window: the site's
- * page in a separate WebContentsView over a trusted local bottom bar (a quiet
- * status, 닫기 and 완료); no address is shown, the card names the site. The site runs on
- * the Browser Use partition's session, so a sign-in here signs the agent's
- * pages in, but it is never registered with Browser Use: no agent
- * instrumentation, page registry, thumbnails or CDP, and the model observes
- * nothing of it.
- *
- * It opens only once the takeover gate reports human control ready (agent
- * commands refused, in-flight ones drained). 완료 closes it and settles the
- * takeover as done; 닫기, the window's own close or a crash keep the takeover
- * pending (the card offers 다시 로그인하기): closing is never success. A site
- * with an explicit trusted rule (LOGIN_AUTO_CLOSE_RULES) may end it as done by
- * itself; a provider that refuses embedded sign-in ends it as refused.
- */
 import { BrowserWindow, nativeTheme, screen, type Session, type WebContents, WebContentsView } from 'electron';
 import { tagRendererSurface } from '../process-memory-diagnostics';
 

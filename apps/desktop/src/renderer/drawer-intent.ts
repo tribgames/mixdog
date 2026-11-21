@@ -1,9 +1,3 @@
-// Phone drawer tap feedback. The drawer's open/closed look is driven by React
-// state, but a tap commits that state in a transition so the shell's heavy
-// render never gates the tap's first frame. The tap therefore stamps its
-// intent on <html> first; desktop/07-mobile-chrome.css turns the stamp into
-// the sheet's visual state at once, and the shell clears it when the
-// committed state has caught up with the latest intent.
 export const DRAWER_INTENT_ATTRIBUTE = 'data-drawer-intent';
 
 export function paintDrawerIntent(open: boolean): void {

@@ -107,10 +107,6 @@ export function useActivityRailPins(api: PinsApi | undefined = window.mixdogDesk
         // An absent answer cannot be ordered by revision, so a read that began
         // before a local save or a received update never overrides it.
         if (!state && pending.current === 0 && saves.current === startedAt) {
-          // Nothing stored means the default list: never written back, so a
-          // later change of the default reaches this user.
-          // The baseline resets too: rollbacks land on the default and any
-          // later host revision (even a lower one after a restart) is accepted.
           confirmed.current = { pins: DEFAULT_ACTIVITY_RAIL_PINS, revision: 0 };
           publishConfirmed();
         }

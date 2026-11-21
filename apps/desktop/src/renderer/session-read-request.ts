@@ -62,11 +62,6 @@ export function recoverCachedSessionFrame(sessionId: string): void {
   if (!authoritativeLane(sessionId)) window.mixdogDesktop?.resyncSessionState?.(sessionId, { cachedOnly: true });
 }
 
-/** A remote renderer's link is down or still synchronizing its views. The view
- *  sync names the restored sessions and delivers their transcripts before it
- *  completes, and `prefetchSession` is held behind it anyway — so a read asked
- *  for in that window is sent only if the sync left the lane empty, instead of
- *  fetching the same transcript a second time right after it. */
 function linkSyncPending(): boolean {
   const state = currentRemoteConnectionState();
   return isRemoteHostRenderer() && state !== null && state !== 'connected';
@@ -128,6 +123,61 @@ function holdRead(state: ReadState, signal: AbortSignal | undefined): void {
     },
     { once: true }
   );
+}
+
+type SessionReader = NonNullable<NonNullable<typeof window.mixdogDesktop>['prefetchSession']>;
+
+async function fetchSessionWithRetries(
+  sessionId: string,
+  readSession: SessionReader,
+  traceId: string,
+  expired: () => boolean
+): Promise<boolean> {
+  for (let attempt = 1; attempt <= MAX_SESSION_READ_ATTEMPTS; attempt += 1) {
+    if (expired()) return false;
+    let accepted = false;
+    const startedAt = performance.now();
+    try {
+      accepted = (await Promise.resolve(readSession(sessionId, undefined, traceId))) === true;
+      if (expired()) return false;
+      reportSessionRead(
+        sessionId,
+        'request-result',
+        {
+          attempt,
+          accepted,
+          durationMs: performance.now() - startedAt,
+          hasLane: defaultSessionLaneStore.get(sessionId) !== null,
+        },
+        traceId
+      );
+    } catch {
+      if (expired()) return false;
+      reportSessionRead(
+        sessionId,
+        'request-failed',
+        {
+          attempt,
+          durationMs: performance.now() - startedAt,
+        },
+        traceId
+      );
+    }
+    if (accepted) {
+      if (!authoritativeLane(sessionId)) {
+        try {
+          window.mixdogDesktop?.resyncSessionState?.(sessionId);
+        } catch {
+          // A closed bridge remains recoverable through the pane's Retry UI.
+        }
+      }
+      return true;
+    }
+    if (attempt < MAX_SESSION_READ_ATTEMPTS) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
+    }
+  }
+  return false;
 }
 
 /** `speculative`: a read started before any pane asked for the session (renderer
@@ -202,51 +252,7 @@ export function requestSessionRead(
       if (expired || state.abandoned) return false;
       if (!state.needsFetch && laneHasTranscript(sessionId)) return true;
     }
-    for (let attempt = 1; attempt <= MAX_SESSION_READ_ATTEMPTS; attempt += 1) {
-      if (expired) return false;
-      let accepted = false;
-      const startedAt = performance.now();
-      try {
-        accepted = (await Promise.resolve(readSession(sessionId, undefined, traceId))) === true;
-        if (expired) return false;
-        reportSessionRead(
-          sessionId,
-          'request-result',
-          {
-            attempt,
-            accepted,
-            durationMs: performance.now() - startedAt,
-            hasLane: defaultSessionLaneStore.get(sessionId) !== null,
-          },
-          traceId
-        );
-      } catch {
-        if (expired) return false;
-        reportSessionRead(
-          sessionId,
-          'request-failed',
-          {
-            attempt,
-            durationMs: performance.now() - startedAt,
-          },
-          traceId
-        );
-      }
-      if (accepted) {
-        if (!authoritativeLane(sessionId)) {
-          try {
-            window.mixdogDesktop?.resyncSessionState?.(sessionId);
-          } catch {
-            // A closed bridge remains recoverable through the pane's Retry UI.
-          }
-        }
-        return true;
-      }
-      if (attempt < MAX_SESSION_READ_ATTEMPTS) {
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
-      }
-    }
-    return false;
+    return fetchSessionWithRetries(sessionId, readSession, traceId, () => expired);
   })();
   const request = Promise.race([operation, deadline]).finally(() => {
     window.clearTimeout(timer);

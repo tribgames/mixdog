@@ -117,10 +117,6 @@ export {
 } from './lib/relay-pairing.mjs';
 export { PUBLIC_APP_ASSETS, parseDeviceRoute } from './lib/relay-static-gate.mjs';
 
-// Public ingress and trust-on-first-use registration are the only unauthenticated
-// surfaces here, so both carry a quota: without one, a scanner can mint device
-// rows until devices.json fills the box, or replay hook posts until the agent
-// leg starves. Buckets are keyed by client IP / deviceId and swept lazily.
 const HOOK_RATE_LIMIT = 120;
 const HOOK_RATE_WINDOW_MS = 60_000;
 const REGISTER_RATE_LIMIT = 5;
@@ -323,12 +319,6 @@ export async function startRelay({
   relay.wss = new WebSocketServer({
     noServer: true,
     maxPayload: maxPayloadBytes,
-    // Transport compression is OFF because everything on the phone leg is
-    // already E2EE ciphertext by the time it reaches this hop, and ciphertext
-    // does not compress — deflate spent CPU and a zlib context per socket to
-    // move the same number of bytes. The desktop now compresses transcript
-    // and state payloads INSIDE the encrypted envelope instead, so this box
-    // just forwards frames and can hold far more legs on the same RAM.
     perMessageDeflate: false,
   });
   guardUpgrades(server, relay);
@@ -344,15 +334,6 @@ export async function startRelay({
   });
 }
 
-// HTTP/1.1. An http2.createSecureServer({ allowHTTP1: true }) listener was
-// measurably faster for the phone's first boot (~275ms to reveal, one TLS
-// handshake instead of one per parallel asset) and passed an isolated probe
-// on this box: h2 negotiated, the /desktop upgrade completed, brotli and the
-// cookie/redirect paths were intact. Live traffic disagreed — phone legs
-// started dying at their 20s RPC deadline and the app came up with no
-// transcript at all. WebSockets are the product here and the first boot is
-// paid once per deploy, so the listener stays on the transport where the
-// legs are known to survive until that failure is understood.
 function createListener(handler, tlsCert, tlsKey) {
   return tlsCert && tlsKey
     ? createTlsServer({ cert: readFileSync(tlsCert), key: readFileSync(tlsKey) }, handler)
@@ -503,10 +484,6 @@ function sendJson(socket, payload) {
 
 function attachDesktop(relay, deviceId, socket) {
   const { liveDesktops } = relay;
-  // Every desktop socket carries its own uplink state from the moment it is
-  // attached. Nothing about a receiver is inherited, restored or remembered:
-  // the replacement leg is a different build until it says otherwise, and
-  // "until it says otherwise" is the floor, not the last leg's number.
   socket.uplinkLeg = newUplinkLeg(relay.uplinkCapacityCeiling);
   const previous = liveDesktops.get(deviceId);
   if (previous) {
@@ -552,12 +529,6 @@ function rejectLeg(rawSocket, status) {
   rejectUpgrade(rawSocket, status, status === 429 ? 'Too Many Requests' : 'Unauthorized');
 }
 
-// Trust-on-first-use keeps setup zero-config, but only a bounded number of
-// NEW ids may be minted per source; a known device re-dialing is free.
-// A FAILED attempt is charged to the caller either way — otherwise a known
-// device id is a free oracle for guessing its secret at network speed.
-// authenticateLeg answers 0 = authenticated, otherwise the HTTP status to
-// reject the upgrade with.
 /** The device id a desktop or hook leg authenticated as, or null once the
  *  upgrade has been rejected. */
 function authenticatedLegDevice(relay, request, rawSocket) {
@@ -625,11 +596,6 @@ function upgradePhoneLeg(relay, request, url, rawSocket, head) {
     return;
   }
   if (!desktopLegOpen(entry)) {
-    // Desktop offline is transient, and the phone has to be able to SAY so: a
-    // refused upgrade reaches a browser as a bare 1006 that names nobody. The
-    // handshake completes and closes with the relay's own "PC offline" code,
-    // which is not a pairing failure: the reconnect loop keeps running and the
-    // stored pairing is untouched.
     closeOfflinePhone(relay, deviceId, request, rawSocket, head, refuse);
     return;
   }
@@ -675,11 +641,6 @@ function closeOfflinePhone(relay, deviceId, request, rawSocket, head, refuse) {
   );
 }
 
-/** Close a socket the relay upgraded only to answer it with a close code.
- *  The peer can still send anything while the close waits for its reply: an
- *  emitted 'error' with no listener is an uncaught exception for the whole
- *  relay, so a socket that misbehaves is cut there and then, and one that
- *  never replies is cut after the grace. */
 function closeAnswered(socket, code, reason) {
   const terminate = () => {
     try {
@@ -699,10 +660,7 @@ function closeAnswered(socket, code, reason) {
   }
 }
 
-// Clean break (v2): /ws accepts ONLY the per-browser credential minted
-// by /client/register. A missing, stale, or legacy shared token is not
-// retryable — finish the handshake and close 4005 so the phone drops
-// its stored pairing and shows the QR scanner instead of retrying.
+// Close code 4005 tells the phone to drop its stored pairing and show the QR scanner.
 function closeUnpairedPhone(relay, request, rawSocket, head) {
   if (!relay.unauthorizedLimiter.allow(clientIp(request))) {
     rejectUpgrade(rawSocket, 429, 'Too Many Requests');
@@ -742,15 +700,6 @@ function handleUpgrade(relay, request, rawSocket, head) {
   rawSocket.destroy();
 }
 
-// NAT/middleboxes drop idle WebSockets silently; sweep every 10s so dead
-// desktop legs release their registration (phones otherwise blackhole)
-// and dead phone legs stop holding broadcast fan-out slots.
-// A backgrounded phone usually closes its own socket, but the leg can also
-// vanish with no CLOSE frame (WiFi/LTE handover, task kill, Doze). Until a
-// sweep terminates that leg the desktop keeps producing frames this relay
-// can only discard, so the sweep interval IS the waste window: 25s meant up
-// to 50s of billed traffic nobody could receive. The extra pings on live
-// legs are a few bytes each and buy that window back.
 const SWEEP_DRAIN_GRACE_WINDOWS = 2;
 
 export function sweepLegs(wss) {
@@ -782,11 +731,6 @@ export function sweepLegs(wss) {
       continue;
     }
     if (ws.isAlive === false) {
-      // A leg that is busy moving bytes cannot answer promptly, and that is
-      // not a dead peer: its ping sits behind the frames queued ahead of it,
-      // and a leg whose reads this relay paused (backpressure) never READS
-      // the pong at all. The queue budgets already bound what such a leg can
-      // hold, so it gets a few extra windows instead of being cut as a 1006.
       const draining = ws.legPausedUplink || ws.legPausedIngress || (ws.bufferedAmount || 0) > 0;
       if (draining) {
         ws.sweepGrace = (ws.sweepGrace || 0) + 1;

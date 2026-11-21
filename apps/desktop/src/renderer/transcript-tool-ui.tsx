@@ -389,11 +389,6 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   );
 }, sameToolActivityGroupProps);
 
-/** The page a turn left open in the browser pane, as a card under its tool
- *  group: where it was, and one press to bring the pane back to it. Without
- *  it the only trace of a page was a tool row, and reopening the pane after
- *  closing it meant finding the address again. Hidden where no pane can be
- *  revealed (a draft with no session, a paired phone). */
 function ToolBrowserPageCard({ page, sessionId }: { page: ToolActivityBrowserPage; sessionId: string }) {
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
   // What the in-app browser saw there: a screenshot leads the card (its slot
@@ -568,10 +563,6 @@ function rowShowsOutcome(presentation: ToolActivityPresentation): boolean {
   return (splitLineDeltaTokens(presentation.resultLabel) as DetailLinePart[]).some((part) => part.delta);
 }
 
-/** The facts an open call owes the reader ("28 files · sorted natural", "37
- *  lines", a background task's status). They ride in the open row's header
- *  band beside the title, as a table header carries its count, instead of a
- *  loose second line between the band and the body. */
 export function toolActivityMetaLine(presentation: ToolActivityPresentation): string {
   const verb = presentation.verb.trim().toLocaleLowerCase();
   // The row already opens with its verb: a part that only repeats it ("Run ·
@@ -609,10 +600,6 @@ export function toolActivityOutcomeText(presentation: ToolActivityPresentation):
   return [...new Set([outcome, ...rest])].join(' · ');
 }
 
-/** What a closed row says about the outcome: nothing, unless it changed
- *  lines (the +/- chips) or went wrong (the failure). Counts and statuses
- *  ("424 lines", "13 matches", "background task") wait inside the row:
- *  on every row they buried the list. */
 export function ToolRowOutcome({ presentation }: { presentation: ToolActivityPresentation }) {
   // A row that cannot open has nowhere to keep its status and id: they ride
   // here, beside the verb ("실행 · 완료 · 971b88").

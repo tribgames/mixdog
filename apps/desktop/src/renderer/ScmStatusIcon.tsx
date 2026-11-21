@@ -1,14 +1,4 @@
-// The changed-file STATUS GLYPH, shared by every file list in the dock
-// (working directory, commit detail, pull-request changes) so all three read
-// identically. Each status colour lands on one of our own semantic tokens —
-// see desktop.css.
-//
-// The five path strings below are Octicons glyphs carried unmodified:
-// diffAdded, diffModified, diffRemoved, diffRenamed and alert, each the
-// symbol's single 16px path. Nothing is reassembled, subset or re-derived —
-// the glyph is a thin outlined rounded square (outer contour + inner contour)
-// with the +, ·, − or → sitting INSIDE it, drawn on a 16 viewBox with
-// fill="currentColor". Attribution and license: NOTICE.md.
+// The path strings below are Octicons glyphs carried unmodified. Attribution and license: NOTICE.md.
 import { t } from './i18n';
 
 /** Octicons diffAdded, 16px path. */
@@ -46,10 +36,6 @@ function StatusGlyph({ path, size }: { path: string; size: number }) {
 
 export type ScmStatusKind = 'new' | 'copied' | 'modified' | 'renamed' | 'deleted' | 'conflicted';
 
-/** Status-to-glyph mapping over the Octicons set: diffAdded, diffModified,
- *  diffRemoved, diffRenamed and alert. The label is
- *  the icon's ACCESSIBLE NAME — the row still says "Modified" out loud now
- *  that the letter badge is gone. */
 const STATUS_ICONS: Record<ScmStatusKind, { path: string; label(): string }> = {
   new: { path: DIFF_ADDED, label: () => t('New') },
   copied: { path: DIFF_ADDED, label: () => t('Copied') },

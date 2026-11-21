@@ -1,8 +1,3 @@
-/**
- * Gestures aimed at a point: click, hover, drag, scroll and key presses. A
- * point comes from a snapshot ref (with automatic stale-ref recovery) or from
- * image-pixel coordinates bound to the latest visual snapshot.
- */
 import type { WebContents } from 'electron';
 
 import { OFFSCREEN_VIEWPORT } from '../host-types';
@@ -134,19 +129,7 @@ export const pointerActions = defineBrowserActions({
     if ([semantic, coordinate, Boolean(wantedText)].filter(Boolean).length > 1) {
       throw new Error('scroll accepts only one target form');
     }
-    if (wantedText) {
-      // Bringing a known phrase into view without knowing where it sits.
-      // A phrase that is not on the page fails rather than scrolling blind.
-      const found = await scrollTextIntoView(services.documents, guest, wantedText, signal);
-      if (found === null) {
-        throw new Error(`scroll text ${JSON.stringify(wantedText)} was not found on this page; nothing was scrolled`);
-      }
-      state.invalidateInteraction(guest);
-      const result = reply.decorateRecovery(await actionSnapshot(), refRecovery);
-      // Name the line that was reached: the first match may not be the one meant.
-      const reached = found ? `Scrolled to ${JSON.stringify(redactBrowserText(found))}.\n\n` : '';
-      return { ...result, text: `${reached}${result.text}` };
-    }
+    if (wantedText) return scrollToText(context, wantedText);
     if (coordinate && (!command.snapshotId || !Number.isFinite(command.x) || !Number.isFinite(command.y))) {
       throw new Error('scroll coordinate target requires snapshotId, x, and y');
     }
@@ -178,23 +161,39 @@ export const pointerActions = defineBrowserActions({
     state.invalidateInteraction(guest);
     await cdp.evaluate<{ scrollY: number; scrollHeight: number; viewportHeight: number }>(
       guest,
-      `(() => {
-        window.scrollBy({
-          left: ${String(dx)},
-          top: ${effectiveDy === null ? 'Math.round(window.innerHeight * 0.8)' : String(effectiveDy)},
-          behavior: 'instant'
-        });
-        return {
-          scrollY: Math.round(window.scrollY),
-          scrollHeight: Math.round(document.documentElement.scrollHeight),
-          viewportHeight: Math.round(window.innerHeight),
-        };
-      })()`,
+      windowScrollScript(dx, effectiveDy),
       signal
     );
     return actionSnapshot();
   },
 });
+
+function windowScrollScript(dx: number, effectiveDy: number | null): string {
+  return `(() => {
+    window.scrollBy({
+      left: ${String(dx)},
+      top: ${effectiveDy === null ? 'Math.round(window.innerHeight * 0.8)' : String(effectiveDy)},
+      behavior: 'instant'
+    });
+    return {
+      scrollY: Math.round(window.scrollY),
+      scrollHeight: Math.round(document.documentElement.scrollHeight),
+      viewportHeight: Math.round(window.innerHeight),
+    };
+  })()`;
+}
+
+async function scrollToText(context: BrowserActionContext, wantedText: string) {
+  const { guest, signal, refRecovery, actionSnapshot, services } = context;
+  const found = await scrollTextIntoView(services.documents, guest, wantedText, signal);
+  if (found === null) {
+    throw new Error(`scroll text ${JSON.stringify(wantedText)} was not found on this page; nothing was scrolled`);
+  }
+  services.state.invalidateInteraction(guest);
+  const result = services.reply.decorateRecovery(await actionSnapshot(), refRecovery);
+  const reached = found ? `Scrolled to ${JSON.stringify(redactBrowserText(found))}.\n\n` : '';
+  return { ...result, text: `${reached}${result.text}` };
+}
 
 /** Two passes over every frame: each one reports whether it holds the phrase,
  * then only the frame the host picked scrolls. One phrase on two frames must

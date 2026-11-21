@@ -1,7 +1,3 @@
-// Project navigation actions: entering a project,
-// starting a task inside one, and the registry edits the Projects page makes.
-// Plain factory (no hooks): the actions are rebuilt each render, so they always
-// see current props/state.
 import type { DesktopProjectSummary, SessionSnapshot } from '../shared/contract';
 import type { NavigationSelection } from './navigation';
 import type { Project, Snapshot } from './desktop-types';

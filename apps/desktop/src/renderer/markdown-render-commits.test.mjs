@@ -1,10 +1,3 @@
-/**
- * markdown-render-commits.test.mjs — per-delta render cost of live markdown.
- *
- * A streamed token must not rebuild or remount the markdown tree: component
- * types stay stable across parses, a bare delta renders nothing below the
- * streaming body, and each landed (or cached) parse commits exactly once.
- */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -112,10 +105,6 @@ test('a reply that arrives settled paints its final structure in the first commi
   });
 });
 
-// Coming back after the window idled in the background (main's idle reclaim
-// fired and dropped the parsed-Markdown cache): the reply on screen keeps its
-// parsed tree, so the next commit (a lane frame landing on return) redraws
-// nothing and moves nothing.
 test('a mounted reply survives an idle reclaim: the next commit keeps its parsed elements', async () => {
   const { _runIdleReclaimForTest } = await import('./idle-reclaim.ts');
   await withDom(async ({ host, root }) => {

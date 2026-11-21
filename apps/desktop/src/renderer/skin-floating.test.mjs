@@ -1,11 +1,3 @@
-// Floating surfaces (dialogs, sheets, popovers, menus, tooltips, toasts, the
-// composer's status pill) in a real Chrome against the app's own bundled
-// stylesheets. Two contracts on every theme x skin x plate x imported theme:
-// each one's text holds 4.5:1 on its own background, and each one takes ONE
-// tone with the window: the skin's plate tone when a skin is on (the shell,
-// the dialogs portaled to <body> and the popovers in the shell alike), the
-// theme's otherwise. A dark settings panel over a light-plated shell, or a
-// popover painting the theme's dark paper under the plate's dark ink, fails.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import puppeteer from 'puppeteer-core';
@@ -16,11 +8,6 @@ import { themeStyleText } from './appearance/theme-tokens';
 import { DEFAULT_TRANSPARENCY } from './skin-color';
 import { SKIN_MANIFEST } from './skin-manifest';
 
-/* Each surface's markup as its component renders it (class names from the
-   .tsx), with the texts the probe reads tagged by id. Dialog layers,
-   menus, tooltips and toasts are portaled to <body> (outside .app-shell);
-   the rail's usage flyout, the composer pill and a pane dialog live in the
-   shell. */
 const TRANSCRIPT = transcriptMarkdownProbe('message');
 
 const SHELL = `

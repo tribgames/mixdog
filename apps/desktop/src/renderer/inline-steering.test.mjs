@@ -1,7 +1,3 @@
-// Messages sent while a turn runs go straight into the chat: a user bubble at
-// the transcript's end (above the working row) until the model reads it, with
-// "Send now", ✕, "Not sent · Send again" or "Runs after this task" under it,
-// and a muted ✓ once read.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test, { after } from 'node:test';
@@ -109,10 +105,6 @@ test('a message sent while the reply streams is a bubble right away, below the r
   assert.equal(delivered.at(-1).key, rows.at(-1).key, 'the working row keeps its identity');
 });
 
-// A pane over the real submit action, pending-prompt state and row projection.
-// The core's states are handed in as `{ settledItems, busy, queued }`: the
-// core publishes an accepted prompt's row with its turn's start (busy) in one
-// state, and a refused start shows no row.
 async function mountSendPane(t, { queuedAtSubmit = false } = {}) {
   const { root } = mount(t);
   const view = { rows: [], actions: null };
@@ -474,13 +466,12 @@ function renderStatus(root, item, actions) {
   );
 }
 
-test('✕ shows without hover on touch (coarse pointer, phone) as a 44px target; with a mouse on hover or keyboard focus', async (t) => {
+function mountSteerStatus(t, { coarse = false } = {}) {
   const { document, root } = mount(t);
   const style = document.createElement('style');
   style.textContent = readFileSync(new URL('./desktop/12-transcript.css', import.meta.url), 'utf8');
   document.head.append(style);
   const window = document.defaultView;
-  let coarse = false;
   window.matchMedia = (query) => ({ matches: query === '(pointer: coarse)' && coarse, media: query });
   const actions = { sendNow() {}, cancel() {}, retry() {} };
   const pending = { kind: 'user', id: 'q1', text: 'x', steer: 'pending' };
@@ -497,17 +488,21 @@ test('✕ shows without hover on touch (coarse pointer, phone) as a 44px target;
   const render = (item = pending) => act(async () => root.render(bubble(item)));
   const cancel = () => document.querySelector('.message-steer-cancel');
   const shown = () => window.getComputedStyle(cancel()).opacity;
+  return { document, window, pending, render, cancel, shown };
+}
 
-  // Mouse: hidden until hover, yet in the tab order (keyboard focus shows it).
+test('✕ with a mouse is hidden until hover yet stays in the tab order', async (t) => {
+  const { document, window, render, cancel, shown } = mountSteerStatus(t);
   await render();
   assert.equal(document.querySelector('.message-steer').hasAttribute('data-touch'), false);
   assert.equal(shown(), '0');
   assert.equal(cancel().tabIndex, 0);
   assert.notEqual(window.getComputedStyle(cancel()).visibility, 'hidden', 'focusable while transparent');
+});
 
-  // Coarse pointer: always shown beside Send now, 44px.
-  coarse = true;
-  await render({ ...pending });
+test('✕ on a coarse pointer is always shown beside Send now as a 44px target', async (t) => {
+  const { document, window, render, cancel, shown } = mountSteerStatus(t, { coarse: true });
+  await render();
   const line = document.querySelector('.message-steer');
   assert.equal(line.hasAttribute('data-touch'), true);
   assert.equal(shown(), '1');
@@ -520,9 +515,10 @@ test('✕ shows without hover on touch (coarse pointer, phone) as a 44px target;
   assert.equal(lineStyle.marginTop, '-6px');
   assert.equal(lineStyle.marginBottom, '-10px');
   assert.equal(window.getComputedStyle(cancel()).justifyItems, 'end', 'the ✕ sits next to Send now');
+});
 
-  // The phone client (marked root), even without a coarse pointer report.
-  coarse = false;
+test('✕ on the phone client shows without a coarse pointer report', async (t) => {
+  const { document, pending, render, shown } = mountSteerStatus(t);
   document.documentElement.setAttribute('data-mixdog-mobile-tabs', '');
   try {
     await render({ ...pending, steer: 'failed' });
@@ -987,7 +983,9 @@ test('restored chips join the composer’s ids: parked, then a new chip, then pa
   assert.equal(paste.token, `[Pasted text #${paste.id} +12 lines]`);
   assert.equal(second.text, `see ${paste.token}`, 'the words point at the renumbered chip');
   assert.ok(sequence.current > Math.max(...ids), 'the composer’s next id is past every chip');
-  // Two renames in one pass never land on each other's token.
+});
+
+test('two chips renumbered in one pass never land on each other’s token', () => {
   const swapped = renumberRestoredAttachments(
     [
       { id: 1, kind: 'text', token: '[File #1: a.ts]', data: 'a' },

@@ -1,11 +1,3 @@
-/**
- * The live-view sender (hidden trusted window, see main/remote-webrtc/sender-window.ts).
- * Per source: one canvas-generated video track, fed the newest picture main
- * hands over at the locked pixel size. Per connection: one RTCPeerConnection
- * (direct paths first, TURN as the fallback), with the reliable ordered input
- * channel. Electron's
- * WebRTC encodes; which encoder actually runs is reported, never assumed.
- */
 import {
   REMOTE_WEBRTC_ICE_TRANSPORT_POLICY,
   REMOTE_WEBRTC_INPUT_CHANNEL,
@@ -18,6 +10,7 @@ import type {
   RemoteWebrtcSenderFailure,
 } from '../../shared/remote-webrtc-sender';
 import { createRemoteWebrtcSourceCaptures, type RemoteWebrtcSenderSource } from './source-capture';
+import { remoteCertificate } from '../remote-webrtc-certificate';
 
 declare global {
   interface Window {
@@ -153,19 +146,6 @@ function fail(connectionId: string, reason: RemoteWebrtcSenderFailure, detail?: 
   const connection = connections.get(connectionId);
   if (!connection || connection.closed) return;
   emit({ type: 'failed', connectionId, reason, ...(detail ? { detail: detail.slice(0, 200) } : {}) });
-}
-
-/** The DTLS transport's remote certificate, as RTCCertificateStats names it. */
-async function remoteCertificate(pc: RTCPeerConnection) {
-  const report = await pc.getStats();
-  for (const stats of report.values()) {
-    if (stats.type !== 'transport' || !stats.remoteCertificateId) continue;
-    const certificate = report.get(stats.remoteCertificateId);
-    if (certificate) {
-      return { fingerprint: certificate.fingerprint, fingerprintAlgorithm: certificate.fingerprintAlgorithm };
-    }
-  }
-  return null;
 }
 
 async function open(command: Extract<RemoteWebrtcSenderCommand, { type: 'open' }>): Promise<void> {

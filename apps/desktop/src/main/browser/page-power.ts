@@ -1,9 +1,3 @@
-/**
- * Power state of browser pages. A page runs at full speed only while a Browser
- * panel displays it or an agent command drives it; any other page is throttled
- * and stops producing frames. A session whose pages stay unused past the idle
- * threshold is unloaded through the session's unload-and-restore path.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserSessionRegistry } from './session-registry';
@@ -70,14 +64,6 @@ export function createBrowserPagePower<T extends PowerGuest>(host: { isDisplayed
   };
 }
 
-/** Unload every session whose pages are all undisplayed, undriven, free of
- *  anything only the live document holds, and idle past the session's
- *  threshold: BACKGROUND_PAGE_IDLE_MS while a turn of it is live,
- *  FINISHED_TURN_PAGE_IDLE_MS otherwise, for every page alike. The unload
- *  keeps each tab and its URL (a kept page too), so the panel restores them on
- *  the next show; it cannot restore what was typed, a dialog, a download in
- *  progress, playing audio, a stored secret or a popup's link to its opener,
- *  so a session holding one stays loaded. */
 export function reclaimIdleUserSessions<T extends PowerGuest>(host: {
   sessions: BrowserSessionRegistry;
   power: Pick<ReturnType<typeof createBrowserPagePower<T>>, 'isActive' | 'lastActiveAt'>;

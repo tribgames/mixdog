@@ -91,6 +91,17 @@ export function registerSignIn(
   deps: SignInDeps,
   snapshot: Pick<SnapshotHost, 'captureSnapshotPayload'>
 ): void {
+  registerSignInMethod(connection, ctx, deps, snapshot);
+  registerCredentialsFill(connection, ctx, deps);
+  registerTurn(connection, ctx, deps);
+}
+
+function registerSignInMethod(
+  connection: HostConnection,
+  ctx: EngineContext,
+  deps: SignInDeps,
+  snapshot: Pick<SnapshotHost, 'captureSnapshotPayload'>
+): void {
   registerEngineMethod(connection, ctx, 'host/browser/signIn', async (params, signal, page) => {
     const sessionId = sessionOf(params);
     const turnId = turnOf(params.turn);
@@ -134,7 +145,9 @@ export function registerSignIn(
     }
     return { ...(note ? { note } : {}), ...(line ? { line } : {}) };
   });
+}
 
+function registerCredentialsFill(connection: HostConnection, ctx: EngineContext, deps: SignInDeps): void {
   registerEngineMethod(connection, ctx, 'host/browser/credentials/fill', async (params, signal, page) => {
     if (typeof params.account !== 'string') {
       throw new HostRpcError(HOST_INVALID_PARAMS, 'credentials/fill needs an account.');
@@ -146,7 +159,9 @@ export function registerSignIn(
       ...(filled.reason ? { reason: filled.reason } : {}),
     };
   });
+}
 
+function registerTurn(connection: HostConnection, ctx: EngineContext, deps: SignInDeps): void {
   registerEngineSessionMethod(connection, ctx, 'host/browser/turn', async (params) => {
     const sessionId = sessionOf(params);
     if (params.op === 'forget') {

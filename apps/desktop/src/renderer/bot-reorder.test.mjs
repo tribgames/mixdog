@@ -1,8 +1,3 @@
-// Bots reorder by drag and drop (and Alt+Arrow) in the Bots page and in the
-// Sessions bot section, through ONE order stored on the host. Mixy stays
-// first; agents (Worker, Reviewer, sub-agents) are a separate group that no
-// bot is dropped among. Dragging a row out of the list still opens its session
-// in a pane. Real components in jsdom, with a fake host.
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import React, { act } from 'react';

@@ -1,53 +1,3 @@
-/**
- * Phrase fade-in of a streamed reply.
- *
- * The reveal (use-transcript-text-reveal) shows a growing prefix of the
- * reply. The timeline records, by offset in that revealed text, the phrase
- * each character belongs to and when it came on screen; it fades in over
- * STREAM_FADE_DURATION_MS from then, linear (22-markdown.css
- * `[data-stream-fade]`, `[data-stream-fade-box]`):
- * - Text revealed within STREAM_FADE_PHRASE_OPEN_MS of a phrase opening joins
- *   it: one start, no delay, no stagger. Later text opens the next phrase.
- * - A phrase fades from when a body first shows it (appearing / appear): a
- *   parse that lands after the reveal (a streaming tail parsed off the main
- *   thread) brings its text in with its whole fade. What has been on screen
- *   is kept as ranges, since each chunk's body shows its text on its own;
- *   until all revealed text has, the row stays live (owes).
- * - Identity is the offset: a character keeps the phrase it showed in, in
- *   whatever word, segment or element a later character or a re-parse puts
- *   it, so text already shown never fades again, and the letters that
- *   continue a word fade from their own start.
- * - Arrivals faster than STREAM_FADE_FAST_CHARS_PER_MS show unfaded.
- * - A revision of the reveal (a rewrite, or text shown while the document was
- *   hidden) and a primed first text show unfaded.
- * - The part ending: what had not shown yet shows at once as one last
- *   phrase starting then (also after fast arrivals).
- * - Nothing outlives its fade: a phrase is dropped once all of it came on
- *   screen, a stretch once it ended, and a body renders again then to unwrap
- *   it (MarkdownAstBody), so neither history nor wrapper elements stay. Past
- *   what it owes, the row is live exactly while a body shows a fade
- *   (visibleUntil): a phrase of text nothing fades in holds nothing.
- * - Render purity: read() and appearing() work out a render's pass and what
- *   a body brings on screen from what was committed, changing none of it;
- *   commit() and appear() (layout effects) record them: a render React
- *   discards changes nothing.
- *
- * Wrapping: markdown nodes carry their offset in the parsed chunk, and a
- * text node where each of its decoded characters sits (markdown-ast: escapes,
- * references, dropped container markers; markdown-plugins places the text
- * nodes it makes). Each stretch of one phrase within a
- * text node is one inline wrapper, its tag named by its first offset, so the
- * renderer's tag-and-count keys never hand one stretch's element to another.
- * A freshly created element resumes mid-fade (negative delay).
- * - Structure fades with its text: a list item's marker, a table row, a
- *   blockquote and a rule start fading with the first character inside them,
- *   and an inline code chip fades as one, so no chrome paints at full ink
- *   while its text is still transparent. Text fading together with the box
- *   around it is left to the box's fade (never faded twice).
- * - No layout: wrappers are unstyled inline elements; only opacity (and a
- *   marker's color) animates. Whitespace-only text is never wrapped; math,
- *   SVG and code blocks are left whole.
- */
 import type { MarkdownAstRoot } from './markdown-ast';
 
 /** How long a phrase fades in (the default duration in 22-markdown.css). */
@@ -86,11 +36,6 @@ interface FadeStretch {
   at: number;
 }
 
-/** Where the characters of text `node` sit, its first at `own`: markdown-ast
- *  records where decoding or dropped syntax breaks their run (`jumps`, offsets
- *  in the chunk at `base`). A text node with no offset has no place in the
- *  revealed text (none of this renderer's: its parser and plugins place every
- *  text node): it is never wrapped. */
 function stretchesOf(node: FadeNode, own: number, base: number): FadeStretch[] {
   if (node.offset === undefined) return [];
   const length = node.value?.length ?? 0;
@@ -490,7 +435,7 @@ export function dropStreamFadeTimelines(prefixes: readonly string[]): void {
   }
 }
 
-function reducedMotion(): boolean {
+export function reducedMotion(): boolean {
   return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 

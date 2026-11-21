@@ -1,6 +1,3 @@
-// One tab strip for every side view: a bot opened from the Sessions sidebar
-// becomes a tab of the shared strip (its name and face) while the Sessions
-// view stays.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
@@ -74,7 +71,6 @@ function workbenchViewOptions(paneWorkspace, overrides) {
     renderSidebarPanel: () => null,
     mountedSidebarPanels: new Set(),
     snapshotStore: { get: () => ({}) },
-    observedAgentSessionIds: [],
     quickAccessProjectPath: '',
     workbenchWorkspace: { workspace: { folders: [] } },
     selectToolProject() {},

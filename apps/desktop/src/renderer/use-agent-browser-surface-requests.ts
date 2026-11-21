@@ -50,11 +50,6 @@ export function useAgentBrowserSurfaceRequests(options: BrowserSurfaceRequests) 
   const { owners, focusedLeafId, surfaces, prefetch, select } = options;
   const { browserSurfaces, pendingBrowserAutoReveal, setSessionSideSurface, hideBrowserSurface } = surfaces;
   const ownerSources = options.ownerSources ?? (() => NO_OWNER_SOURCES);
-  /** Reveals `sessionId`'s browser where its chain is on screen; false when
-   *  it cannot yet (the reveal then waits for the user to return). Another
-   *  conversation of the chain shows a child's page the one way the
-   *  transcript line does: as that page's borrowed tab in its own panel
-   *  (browser-pane-borrowed-tab), so only a reveal naming its page can. */
   const reveal = (sessionId: string, chain: readonly string[], page: RevealedPage | null, park: boolean): boolean => {
     const target = surfaceRevealTarget(owners, chain, focusedLeafId);
     const own = target.leafId !== null && target.sessionId === sessionId;
@@ -139,9 +134,6 @@ export function useAgentBrowserSurfaceRequests(options: BrowserSurfaceRequests) 
       }),
     []
   );
-  // A page card in the transcript: the user asked for the pane, so a panel
-  // they closed earlier opens again and the layout change is theirs to keep.
-  // An agent's hand-off (visualize) respects that closed panel instead.
   useEffect(
     () =>
       onBrowserPageRevealRequested(({ sessionId, agent }) => {

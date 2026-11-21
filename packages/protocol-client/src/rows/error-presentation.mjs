@@ -221,11 +221,6 @@ const LEGACY_TEXT_KINDS = [
   [/rate[_ -]?limit|too many requests/i, 'rate_limited'],
 ];
 
-/**
- * The provider kind descriptor: the persisted one, else typed evidence, else
- * wording. `typed` is true when the kind came from a persisted descriptor or a
- * typed error: wording heuristics must then never override it.
- */
 function classify(value, raw, clean, status, code) {
   const persisted = value?.errorKind;
   if (persisted && PROVIDER_ERROR_KINDS.includes(persisted.kind)) {

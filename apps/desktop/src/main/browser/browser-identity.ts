@@ -1,11 +1,3 @@
-/**
- * The browser identity of the partition: the agent string and language list
- * the session itself sends (the app's `userAgentFallback` gives every other
- * context of the process the same string), so a page needs no per-page
- * override of them. An emulation override of the partition's own string (a
- * locale) sends an empty string, so the engine's own client hints (brands,
- * platform) stay as they are.
- */
 let partitionUserAgent = '';
 
 export function rememberBrowserIdentity(identity: { userAgent: string }): void {

@@ -22,7 +22,7 @@ const BODY = [
 
 const settle = (ms = 0) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
 
-async function mount(t, text, props = {}) {
+function installEditorDom(t) {
   // Restored by hand: the editor finishes tearing down on a timer after
   // unmount, and that must still see the window.
   const { dom, root, restore } = installTestDom(null, {
@@ -62,6 +62,11 @@ async function mount(t, text, props = {}) {
     width: 0,
     height: 0,
   });
+  return { dom, root, external };
+}
+
+async function mount(t, text, props = {}) {
+  const { dom, root, external } = installEditorDom(t);
   const model = createTestModel(text);
   const calls = { save: 0, opened: [], unsupported: [] };
   const { default: RichMarkdownEditor } = await import('./RichMarkdownEditor.tsx');

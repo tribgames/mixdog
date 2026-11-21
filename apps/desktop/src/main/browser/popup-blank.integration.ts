@@ -1,11 +1,3 @@
-/**
- * An agent drives Browser Use while a pane shows the session, and the page it
- * works in opens a new window (`target=_blank`, `window.open`). The pane must
- * end with the opened page selected and no about:blank tab nobody asked for.
- * Runs on the core harness: the agent's commands reach the browser host as the
- * core forwards them (`browser/command`), and the pane's tab facts are read
- * from the host the core claimed.
- */
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 

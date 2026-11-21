@@ -1,16 +1,11 @@
-// The remote-access operations that need more than a member read of the `remote` section (desktop-services.md §2.2,
-// §7): the section is `{info, settings, claims, clients, controllerKeys, owedKeys, pairCode, pushRegistered, disabled}`.
-// Each answer is the descriptor or info for the state the section holds.
 import type { DesktopSectionsSnapshot } from '../contract-sections';
 import { record, remoteMember, remoteSection } from './section-reads';
 
 /** `ProtocolConnection.call`, as the lane wraps it. */
 export type CoreCall = (method: string, params: unknown) => Promise<unknown>;
 
-/** The whole `remote` value. A section over the inline limit is published as a stub and the held entry keeps
- *  `value = null` (protocol-client `SectionEntry`); its detail is paged with the section's list method,
- *  `remoteAccess/state` (desktop-services.md §2.2, "the client library pages the detail with the section's list
- *  method"). */
+/** The whole `remote` value. A section over the inline limit is published as a stub (`value = null`); its detail is
+ *  paged with `remoteAccess/state`. */
 async function remoteValue(snapshot: DesktopSectionsSnapshot, call: CoreCall): Promise<Record<string, unknown>> {
   const value = remoteSection(snapshot);
   return record(value === null ? await call('remoteAccess/state', {}) : value);

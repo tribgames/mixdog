@@ -592,7 +592,7 @@ html[data-mixdog-mobile-tabs] .mx-handoff-line > button {
 }
 .mx-routine-action:hover,
 .mx-routine-action:focus-visible {
-  background: var(--mx-active, var(--mx-hover));
+  background: var(--mx-hover);
 }
 .mx-routine-head:hover strong,
 .mx-routine-older button:hover {

@@ -1,7 +1,3 @@
-// "성격과 일하는 방식": the agent's PERSONA.md (tone, how it addresses the
-// user) and AGENT.md (how it works) as two labelled editors. "파일 불러오기"
-// copies a local .md/.txt file's text into its editor once; nothing is linked
-// or watched.
 import { useId, useRef, useState } from 'react';
 import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';

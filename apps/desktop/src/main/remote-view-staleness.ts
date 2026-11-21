@@ -1,8 +1,3 @@
-// A paired browser acts on the transcript it was last SHOWN. When another
-// device has sent a prompt the browser has not received yet, its own send would
-// silently queue behind work it never saw, so the host refuses it with a clear
-// message and re-sends the current transcript instead.
-
 interface TranscriptRowLike {
   id?: unknown;
   kind?: unknown;

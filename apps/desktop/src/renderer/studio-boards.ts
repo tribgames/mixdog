@@ -58,10 +58,6 @@ function snapshot(): StudioBoardsState {
   return state;
 }
 
-/** Re-reads the board list (counts, total). A read in flight may have
- *  been answered before a mutation landed, so by default the new read queues
- *  behind it (several callers share one queued read); `join` only for callers
- *  that want any current list, such as a view becoming visible. */
 export function refreshStudioBoards(api: StudioApi | undefined, { join = false } = {}): Promise<void> {
   if (refreshing && !join) {
     queuedRefresh ??= refreshing
@@ -115,12 +111,9 @@ export function useStudioBoards(api: StudioApi | undefined, active: boolean): St
   return current;
 }
 
-/** Results also land from writers a pane never hears (the agent `media`
- *  tool, another window or device), so while a Studio pane is shown it
- *  re-reads the counts when the core publishes a `mediaJobs` change (every
+/** Re-reads the counts when the core publishes a `mediaJobs` change (every
  *  writer's job ends there; desktop-services.md §15 P9) and when the window
- *  comes back (focus, or visible again); the pane folds new results in when
- *  the count it shows changes. No timer. */
+ *  regains focus or becomes visible. */
 export function useStudioBoardsWatch(api: StudioApi | undefined, active: boolean): void {
   useEffect(() => {
     if (!active) return undefined;

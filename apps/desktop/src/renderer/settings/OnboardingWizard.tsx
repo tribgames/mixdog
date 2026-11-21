@@ -1,18 +1,8 @@
-// Guided first-run setup: a full-window hero card
-// with clickable progress bars, per-step hero titles, and Ctrl+Enter to
-// advance. The capability wiring (completeOnboarding / skipOnboarding and the
-// provider/model reads) is shared with Settings and stays authoritative.
 import { ExternalLink, Github, Star, UserRound, X } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import type {
-  DesktopApi,
-  DesktopCapability,
-  DesktopGithubCliAccount,
-  DesktopGithubCliLoginFlow,
-  DesktopGithubCliStatus,
-} from '../../shared/contract';
+import type { DesktopApi, DesktopCapability, DesktopGithubCliLoginFlow } from '../../shared/contract';
 import { t } from '../i18n';
 import { scrimDismiss } from '../scrim-dismiss';
 import { useMobileBack } from '../mobile-back';
@@ -30,9 +20,9 @@ import { ClientManagedProviders } from './client-managed-providers';
 import { OAuthControl } from './CapabilitySettings';
 import { OnboardingFooter, OnboardingProgress } from './onboarding-wizard-chrome';
 import { useOnboardingModality, useOnboardingRun, useOnboardingSetup } from './onboarding-wizard-state';
-import { getCachedGitPanelInfo, patchCachedGitPanelInfo, preloadGitPanelInfo } from './git-panel-info';
+import { patchCachedGitPanelInfo, preloadGitPanelInfo } from './git-panel-info';
 import { GithubDeviceCodeText, useGithubDeviceCode } from './github-device-code';
-import { useGithubLoginPolling } from './github-login-polling';
+import { useGithubCliStatus, useGithubLoginPolling } from './github-login-polling';
 import { probeGithubStarred, readGithubStarred, rememberGithubStarred } from './github-star-storage';
 import '../desktop/21-onboarding.css';
 import { errorMessage } from '../editor-pane-session-errors';
@@ -182,10 +172,6 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
     void finish();
   };
 
-  // Moving on past the Git step with GitHub connected installs the Git
-  // built-in — the same activation as its Extensions card — so the git and
-  // github tools work from the first task. Skipping, no system Git, or a
-  // failed write leaves the card to install from; it never blocks setup.
   const activateGit = async () => {
     const github = await api.githubCliStatus?.();
     if (github?.authenticated !== true) return;
@@ -478,9 +464,6 @@ function ProviderStep({
 // commit identity — the same rule the settings panel follows.
 function GitStep({ api }: { api: DesktopApi }) {
   const supported = typeof api.githubCliStatus === 'function';
-  const cached = getCachedGitPanelInfo(api);
-  const [status, setStatus] = useState<DesktopGithubCliStatus | null>(cached?.status ?? null);
-  const [account, setAccount] = useState<DesktopGithubCliAccount | null>(cached?.account ?? null);
   const [flow, setFlow] = useState<DesktopGithubCliLoginFlow | null>(null);
   const [busy, setBusy] = useState('');
   const [gitError, setGitError] = useState('');
@@ -488,54 +471,16 @@ function GitStep({ api }: { api: DesktopApi }) {
   const [avatarFailed, setAvatarFailed] = useState(false);
   const identityFlow = useRef('');
   const identityAdopted = useRef(false);
-
-  const refresh = useCallback(async () => {
-    if (!api.githubCliStatus) return;
-    try {
-      const next = await api.githubCliStatus();
-      setStatus(next);
-      patchCachedGitPanelInfo(api, { status: next });
-    } catch (reason) {
-      setGitError(errorMessage(reason));
-    }
-  }, [api]);
-
-  useEffect(() => {
-    if (!supported) return undefined;
-    let live = true;
-    void preloadGitPanelInfo(api).then((info) => {
-      if (!live || !info) return;
-      setStatus(info.status);
-      setAccount(info.account);
-    });
-    return () => {
-      live = false;
-    };
-  }, [api, supported]);
+  const { status, setStatus, account, setAccount, refreshStatus, authenticated } = useGithubCliStatus(
+    api,
+    supported,
+    setGitError
+  );
 
   const flowId = flow?.flowId || '';
   const flowState = flow?.state || '';
-  useGithubLoginPolling({ host: api, flowId, flowState, setFlow, setStatus, refreshStatus: refresh });
+  useGithubLoginPolling({ host: api, flowId, flowState, setFlow, setStatus, refreshStatus });
   const deviceCode = useGithubDeviceCode(api, flow, (url) => openExternalOn(api, url));
-
-  const authenticated = status?.authenticated === true;
-  useEffect(() => {
-    if (!supported || !authenticated) return undefined;
-    let live = true;
-    void api
-      .githubCliAccount?.()
-      .then((next) => {
-        if (!live) return;
-        setAccount(next || null);
-        patchCachedGitPanelInfo(api, { account: next || null });
-      })
-      .catch(() => {
-        /* the status row still shows the login */
-      });
-    return () => {
-      live = false;
-    };
-  }, [api, authenticated, supported]);
 
   // No identity UI (same rule as Settings → Git): the commit identity follows
   // the connected account — on a machine with no identity yet, and after every
@@ -849,11 +794,14 @@ function ProfileStep({
     value: String(entry.id || entry.value || ''),
     label: title(entry),
   }));
+  const saveField = (patch: RecordValue, key: string) => {
+    void run('setProfile', [patch], `onboarding-profile-${key}`).then((result) => {
+      if (result !== undefined) onProfile(patch);
+    });
+  };
   const commitTitle = () => {
     if (trimmed === String(profile.title || '')) return;
-    void run('setProfile', [{ title: trimmed }], 'onboarding-profile-title').then((result) => {
-      if (result !== undefined) onProfile({ title: trimmed });
-    });
+    saveField({ title: trimmed }, 'title');
   };
   // Settings-row layout (label + hint left, control right) keeps the whole
   // first step on screen without scrolling at the default window size.
@@ -917,11 +865,7 @@ function ProfileStep({
                     { value: 'expert', label: t('Expert') },
                   ]),
             ]}
-            onChange={(experienceLevel) => {
-              void run('setProfile', [{ experienceLevel }], 'onboarding-profile-experience').then((result) => {
-                if (result !== undefined) onProfile({ experienceLevel });
-              });
-            }}
+            onChange={(experienceLevel) => saveField({ experienceLevel }, 'experience')}
           />
         </label>
         {/* biome-ignore lint/a11y/noLabelWithoutControl: wraps the custom OpenSelect, which carries its own aria-label. */}
@@ -935,11 +879,7 @@ function ProfileStep({
             value={String(profile.language || 'system')}
             disabled={Boolean(pending)}
             options={languages.length ? languages : [{ value: 'system', label: t('System') }]}
-            onChange={(language) => {
-              void run('setProfile', [{ language }], 'onboarding-profile-language').then((result) => {
-                if (result !== undefined) onProfile({ language });
-              });
-            }}
+            onChange={(language) => saveField({ language }, 'language')}
           />
         </label>
       </div>

@@ -62,6 +62,73 @@ function resultOf(
 const id = (value: unknown, min: number): boolean =>
   Number.isSafeInteger(value) && (value as number) >= min && (value as number) <= MAX_ID;
 
+type LeaseAsk = ReturnType<typeof objectParams<HostComputerForegroundLeaseParams>>;
+
+function parseAsk(params: unknown): {
+  ask: LeaseAsk;
+  helper: string;
+  op: 'acquire' | 'release' | 'gone';
+  action: number;
+} {
+  const ask = objectParams<HostComputerForegroundLeaseParams>(params, HOST_COMPUTER_FOREGROUND_LEASE);
+  const { instance: helper, op, action } = ask;
+  if (typeof helper !== 'string' || (op !== 'acquire' && op !== 'release' && op !== 'gone')) {
+    throw new HostRpcError(HOST_INVALID_PARAMS, `${HOST_COMPUTER_FOREGROUND_LEASE} needs op, instance and action.`);
+  }
+  if (op !== 'gone') {
+    const numbers =
+      id(action, 1) &&
+      id(ask.seq, 1) &&
+      (op === 'release'
+        ? id(ask.lease, 0)
+        : Number.isSafeInteger(ask.holdMs) && typeof ask.answerBy === 'number' && Number.isFinite(ask.answerBy));
+    if (!numbers) {
+      throw new HostRpcError(
+        HOST_INVALID_PARAMS,
+        `${HOST_COMPUTER_FOREGROUND_LEASE} needs integer action, seq and ${op === 'release' ? 'lease' : 'holdMs, and a finite answerBy'}.`
+      );
+    }
+  } else if (typeof action !== 'number') {
+    throw new HostRpcError(HOST_INVALID_PARAMS, `${HOST_COMPUTER_FOREGROUND_LEASE} needs op, instance and action.`);
+  }
+  return { ask, helper, op, action: action as number };
+}
+
+/** The owner's answer to the ask, or undefined when it wrote none within `ANSWER_WAIT_MS`. */
+function askOwner(
+  lock: HostForegroundLock,
+  ask: LeaseAsk,
+  op: 'acquire' | 'release',
+  action: number,
+  instance: number
+): Promise<HostComputerForegroundLeaseResult | undefined> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ANSWER_WAIT_MS, undefined);
+    lock.handle(
+      JSON.stringify({
+        op,
+        action,
+        seq: ask.seq,
+        hold_ms: ask.holdMs,
+        answer_by: ask.answerBy,
+        lease: ask.lease,
+      }),
+      {
+        instance,
+        pid: undefined,
+        // The core relays only the actions its helper has in flight.
+        owns: () => true,
+        write: (reply) => {
+          const answered = resultOf(reply, op, action, ask.seq as number);
+          if (!answered) return;
+          clearTimeout(timer);
+          resolve(answered);
+        },
+      }
+    );
+  });
+}
+
 /**
  * Serves `host/computer/foregroundLease`. Without `runtime` the process's one lease owner serves the asks (on Windows;
  * other platforms have no lock to lease and answer `unavailable`); a test passes its own runtime, which gets an owner of
@@ -99,27 +166,7 @@ export function registerComputerLease(
   connection.handleRequest(
     HOST_COMPUTER_FOREGROUND_LEASE,
     async (params): Promise<HostComputerForegroundLeaseResult> => {
-      const ask = objectParams<HostComputerForegroundLeaseParams>(params, HOST_COMPUTER_FOREGROUND_LEASE);
-      const { instance: helper, op, action } = ask;
-      if (typeof helper !== 'string' || (op !== 'acquire' && op !== 'release' && op !== 'gone')) {
-        throw new HostRpcError(HOST_INVALID_PARAMS, `${HOST_COMPUTER_FOREGROUND_LEASE} needs op, instance and action.`);
-      }
-      if (op !== 'gone') {
-        const numbers =
-          id(action, 1) &&
-          id(ask.seq, 1) &&
-          (op === 'release'
-            ? id(ask.lease, 0)
-            : Number.isSafeInteger(ask.holdMs) && typeof ask.answerBy === 'number' && Number.isFinite(ask.answerBy));
-        if (!numbers) {
-          throw new HostRpcError(
-            HOST_INVALID_PARAMS,
-            `${HOST_COMPUTER_FOREGROUND_LEASE} needs integer action, seq and ${op === 'release' ? 'lease' : 'holdMs, and a finite answerBy'}.`
-          );
-        }
-      } else if (typeof action !== 'number') {
-        throw new HostRpcError(HOST_INVALID_PARAMS, `${HOST_COMPUTER_FOREGROUND_LEASE} needs op, instance and action.`);
-      }
+      const { ask, helper, op, action } = parseAsk(params);
       // Taking the foreground lock is an effect of the scope; a release, or a helper gone, only gives back what it held.
       const acquiring = op === 'acquire' ? scopes.admit(params) : undefined;
       const lock = lockOf();
@@ -135,31 +182,7 @@ export function registerComputerLease(
         instances.set(helper, instance);
       }
       const number = instance;
-      const answering = new Promise<HostComputerForegroundLeaseResult | undefined>((resolve) => {
-        const timer = setTimeout(resolve, ANSWER_WAIT_MS, undefined);
-        lock.handle(
-          JSON.stringify({
-            op,
-            action,
-            seq: ask.seq,
-            hold_ms: ask.holdMs,
-            answer_by: ask.answerBy,
-            lease: ask.lease,
-          }),
-          {
-            instance: number,
-            pid: undefined,
-            // The core relays only the actions its helper has in flight.
-            owns: () => true,
-            write: (reply) => {
-              const answered = resultOf(reply, op, action as number, ask.seq as number);
-              if (!answered) return;
-              clearTimeout(timer);
-              resolve(answered);
-            },
-          }
-        );
-      });
+      const answering = askOwner(lock, ask, op, action, number);
       // An acquire is counted under its scope until the lease owner answered.
       acquiring?.track(answering);
       const result = await answering;
@@ -171,7 +194,7 @@ export function registerComputerLease(
       // The action's facts go back once it is over: with its release (after the release has updated them), or with an
       // acquire that leased nothing. The core keeps the last per action and joins them to the helper's reply.
       const done = op === 'release' || (result.kind === 'ack' && !result.lease);
-      const facts = done ? lock.takeFacts(number, action as number) : undefined;
+      const facts = done ? lock.takeFacts(number, action) : undefined;
       return facts ? { ...result, facts: facts as HostComputerForegroundLeaseResult['facts'] } : result;
     }
   );

@@ -8,7 +8,7 @@ import { ConnectorSwitchList, type ConnectorSwitchApi } from './connector-switch
 import { ErrorNotice } from './ErrorNotice';
 import { memoryAddRow, memoryEditRow, type MemoryControl } from './ProjectMemoryRows';
 import { projectIdentity } from './project-catalog-cache';
-import { displayProjectFolder } from './project-folder-label';
+import { displayProjectTitle } from './project-folder-label';
 import { ExtensionDetailDialog, ExtensionField, ExtensionSection } from './settings/extension-detail';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import './desktop/extension-dialog.css';
@@ -207,9 +207,7 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
         }
         const project = projects.find((entry) => projectIdentity(entry.path) === projectIdentity(path));
         if (!project) return;
-        openEdit(project.path, project.alias?.trim() || project.name?.trim() || displayProjectFolder(project.path));
-        // Armed AFTER openEdit (which disarms): the Remove button then reads
-        // "Confirm remove" and still needs one explicit click.
+        openEdit(project.path, displayProjectTitle(project));
         if (options?.confirmRemove) setEditConfirmRemove(true);
       },
       warm() {

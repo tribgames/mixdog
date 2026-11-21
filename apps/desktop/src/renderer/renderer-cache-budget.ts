@@ -1,16 +1,3 @@
-// Shared ceiling across renderer caches; idle-reclaim.ts is the complement.
-//
-// Every renderer cache already bounds ITSELF, but nothing bounded their SUM:
-// image previews (32 MB) + normalized patches (8 MB) + markdown ASTs + turn
-// reviews (12 MB) + session snapshots (16 MB) may all sit at their individual
-// ceiling at the same time, which is how an idle renderer settled at ~470 MB.
-// Idle reclaim only fires while the window is unfocused with no turn running,
-// so it cannot bound a renderer that stays busy and focused; this budget does.
-//
-// Caches register a size probe and a trim callback. When one grows, the
-// LARGEST registered cache is trimmed first, so a single hot cache cannot
-// starve the others and a cache that is not the problem keeps its entries.
-//
 // Chars, not bytes: probes count JS string length and V8 stores these as
 // UTF-16, so the real cost is roughly twice the number below.
 const RENDERER_CACHE_BUDGET_CHARS = 24 * 1024 * 1024;

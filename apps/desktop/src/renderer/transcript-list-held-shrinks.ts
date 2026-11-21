@@ -10,20 +10,7 @@ export function rowIsStreaming(element: Element | undefined): boolean {
   return Boolean(element?.isConnected && element.querySelector('.message.streaming'));
 }
 
-/** A streaming reply reflows shorter for a moment (a table or list re-laying
- *  out mid-stream) and grows back a few chunks later. While the tail is
- *  followed, applying that dip pulled the whole transcript DOWN and then up
- *  again while a reply generated. Such a row keeps its tallest MEASURED
- *  slot; its latest real size is recorded and lands once the row stops
- *  streaming, the reader takes over, or the measurements are remembered.
- *
- *  Only a measured slot is held: a row's first size is compared against the
- *  estimate it was laid out at, and holding THAT left a new reply's first
- *  line in a 60px estimate gap with the live band below it jumping down by
- *  the gap (first message of a new session). A learned estimate the
- *  provisional resize writes into the size cache while markdown is pending
- *  is no measurement either: only a slot the core took from an observed size
- *  (`measured`) is held. */
+/** Holds a followed streaming row's dip below its measured slot; its latest real size lands through `settle`. */
 export function createHeldRowShrinks() {
   /** Held row key → its latest actual size. */
   const latest = new Map<unknown, number>();
@@ -61,11 +48,8 @@ export function createHeldRowShrinks() {
       if (host.itemSizeCache.get(key as never) === size) real.set(key, size);
       else real.delete(key);
     },
-    /** Lands every hold that no longer applies (`force`: every hold) at its
-     *  latest real size through `resize` — the list's own resize path, so the
-     *  gesture deferral and reading-anchor rules still apply. A row that left
-     *  the DOM is corrected at the size it last had; one that left the list
-     *  drops its stale cached slot. */
+    /** Lands every hold that no longer applies (`force`: every hold) at its latest real size through `resize`. A row
+     *  that left the DOM is corrected at its last size; one that left the list drops its stale cached slot. */
     settle(host: HeldShrinkHost, resize: (index: number, size: number) => void, force = false) {
       if (latest.size === 0) return;
       for (const [key, size] of [...latest]) {

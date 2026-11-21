@@ -1,17 +1,7 @@
 /**
- * Opt-in transcript scroll diagnostics.
- *
- * Every offset the transcript writes comes from one of three authorities: the
- * end pin, a virtual-core offset write, or a measured-row size change that the
- * core compensates. Attributing a visible jump means seeing which of them ran,
- * with what delta, in the frame the viewport actually moved — so each is
- * reported on one line against a shared frame clock.
- *
- * Off by default and free while off. Enable for the current window from
- * DevTools:
+ * Opt-in transcript scroll diagnostics, off by default. Enable from DevTools:
  *   window.__mixdogTranscriptScroll = true
- * A cold-entry jump happens before any console is open, so the flag can also be
- * persisted and is then live from the first measured row:
+ * or persist the flag:
  *   localStorage.setItem('mixdog.transcript-scroll-diagnostics', '1')
  */
 type DiagnosticsHost = typeof globalThis & { __mixdogTranscriptScroll?: boolean };

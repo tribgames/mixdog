@@ -4,12 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// The session terminal and browser live in parking hosts outside the dock's
-// sheet, so the sheet's own inert never covers them. Each controller makes its
-// surface's container inert itself whenever it is not shown over an open slot
-// (parked, or kept on a closing sheet for its pixels), so the keyboard's Tab
-// order never reaches it; a genuine reopen restores it. Real Chrome walks the
-// Tab order here (jsdom has no sequential focus navigation or inert).
+// Real Chrome walks the Tab order: jsdom has no sequential focus navigation or inert.
 
 const ENTRY = `
   import React from 'react';
@@ -42,9 +37,9 @@ const PROBES = `
   window.nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
 `;
 
-async function launch(t) {
+async function buildFixtureScript() {
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
-  const script = await build({
+  const result = await build({
     stdin: { resolveDir, loader: 'tsx', contents: ENTRY },
     bundle: true,
     write: false,
@@ -73,6 +68,11 @@ async function launch(t) {
       },
     ],
   });
+  return result.outputFiles[0].text;
+}
+
+async function launch(t) {
+  const script = await buildFixtureScript();
   const browser = await puppeteer.launch({
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
     headless: true,
@@ -88,7 +88,7 @@ async function launch(t) {
       .session-terminal-surface-container, .session-browser-surface-container { position: fixed; }
     </style></head><body><div id="root"></div></body></html>`
   );
-  await page.addScriptTag({ content: script.outputFiles[0].text });
+  await page.addScriptTag({ content: script });
   await page.addScriptTag({ content: PROBES });
   t.after(() => assert.deepEqual(errors, []));
   return page;

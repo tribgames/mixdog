@@ -193,11 +193,6 @@ export function assertForegroundAllowed(): void {
   throw new ScenarioSkip('foreground delivery takes the real pointer; skipped by request');
 }
 
-/**
- * Folds one command response into the active scenario metrics: byte and
- * duration accounting, then whatever the structured payload says about user
- * intervention, element budgets, phase timings and escalations.
- */
 function recordCommandResponse(
   actionName: string,
   value: CommandResult,
@@ -258,11 +253,6 @@ function recordCommandResponse(
   }
 }
 
-/**
- * One scenario command: classification and request accounting, the round trip
- * to the core (`dev/computer/run`), and the response folded back into the
- * active metrics.
- */
 export function createScenarioCommand(
   session: string,
   transport: Pick<CommandTransport, 'runCommand'>

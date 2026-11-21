@@ -1,8 +1,3 @@
-// The one appearance choice shared by Settings → Theme and onboarding: System /
-// Dark / White (skin off + the app theme) and the skins (skin on). Exactly one
-// tile is selected; every click applies at once and is stored on this device.
-// The theme setter keeps its value while a skin is on, so turning the skin off
-// (or picking a theme tile) returns to a known theme.
 import { Plus } from 'lucide-react';
 import { type KeyboardEvent, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
@@ -107,6 +102,22 @@ function Card({
 }
 
 /** `onPreview` gets the skin id to preview, 'none' for a theme tile, null when the pointer/focus leaves. */
+function customSkinFailureText(failure: unknown): string {
+  const problem = failure instanceof CustomSkinMediaError ? failure.problem : null;
+  if (problem === 'size') {
+    return t('This file is larger than {{size}} MB. Choose a smaller picture or video.', {
+      size: CUSTOM_MEDIA_MAX_BYTES / 1024 / 1024,
+    });
+  }
+  if (problem === 'duration') {
+    return t('This video is longer than {{seconds}} seconds. Choose a shorter one.', {
+      seconds: CUSTOM_VIDEO_MAX_SECONDS,
+    });
+  }
+  if (problem === 'type') return t('Choose a picture (PNG, JPEG, WebP or GIF) or a video (MP4 or WebM).');
+  return t('The skin could not be applied. Try a smaller image.');
+}
+
 export function AppearanceChoice({ onPreview }: { onPreview?(id: string | null): void }) {
   const [selected, setTheme] = useAppearanceTile();
   const customImage = useSyncExternalStore(
@@ -151,20 +162,7 @@ export function AppearanceChoice({ onPreview }: { onPreview?(id: string | null):
       onPreview?.(null);
       setPrepared(next);
     } catch (failure) {
-      const problem = failure instanceof CustomSkinMediaError ? failure.problem : null;
-      setError(
-        problem === 'size'
-          ? t('This file is larger than {{size}} MB. Choose a smaller picture or video.', {
-              size: CUSTOM_MEDIA_MAX_BYTES / 1024 / 1024,
-            })
-          : problem === 'duration'
-            ? t('This video is longer than {{seconds}} seconds. Choose a shorter one.', {
-                seconds: CUSTOM_VIDEO_MAX_SECONDS,
-              })
-            : problem === 'type'
-              ? t('Choose a picture (PNG, JPEG, WebP or GIF) or a video (MP4 or WebM).')
-              : t('The skin could not be applied. Try a smaller image.')
-      );
+      setError(customSkinFailureText(failure));
     }
   };
   const card = (id: string, label: string, extra: Partial<Parameters<typeof Card>[0]> = {}) => (

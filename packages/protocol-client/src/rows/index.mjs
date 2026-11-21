@@ -2,7 +2,12 @@
 // tool-result-status, tool-status, tool-execution-contract and their dependencies). The row projection in ../rows.ts is their only
 // caller; this file is the one typed entry (index.d.mts).
 export { classifyToolCategory } from './tool-work-units.mjs';
-export { STEP, aggregateDoneCategoriesSteps, aggregateToolCategoryEntries, isTaskWaitToolCall } from './tool-surface.mjs';
+export {
+  STEP,
+  aggregateDoneCategoriesSteps,
+  aggregateToolCategoryEntries,
+  isTaskWaitToolCall,
+} from './tool-surface.mjs';
 export {
   aggregateBucketForCategory,
   aggregateLoadingTargetsSteps,

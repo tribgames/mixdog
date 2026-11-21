@@ -31,10 +31,6 @@ export function composerPlaceholder({
   hasConversation: boolean;
   fallback: string;
 }): string {
-  // One stable placeholder — no rotating variants — and once a
-  // session has content the composer shows NO hint copy at all; instructional
-  // placeholders belong to the empty new-task state. A message sent while a
-  // turn runs is an ordinary send, so the turn changes nothing here.
   if (hasConversation) return '';
   return t(fallback);
 }
@@ -513,10 +509,6 @@ export function DictationButton({
   );
 }
 
-// Mid-take the disc ENDS the take and sends what was spoken, instead of
-// sitting disabled: the transcript still only reaches the draft after the
-// recorder stops, so this press chains stop → transcribe → submit.
-// Transcribing keeps it disabled — that take is already on its way.
 export const SendButton = React.memo(function SendButton({
   stopOnly,
   voiceSend,

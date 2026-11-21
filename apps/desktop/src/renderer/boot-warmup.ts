@@ -1,10 +1,3 @@
-// One idle lane for every post-boot warm-up (user: 부트 / 메뉴 진입 / 설정값
-// 반응성). Before this lane, five independent timers — settings sweep, rail
-// panel mounts, transcript reads, chunk fetches, dock git status — all fired
-// inside the same two seconds after the window appeared and stacked on the
-// main thread: a keystroke typed right after boot painted 150–170ms late.
-// The lane runs ONE task per idle slice, lowest priority number first, and
-// yields back to the browser between tasks so live input always wins.
 interface BootWarmupTask {
   /** Stable id: re-scheduling the same id replaces the pending task. */
   id: string;
@@ -85,11 +78,6 @@ function listenForInput(): void {
   window.addEventListener('keydown', note, options);
   window.addEventListener('pointerdown', note, options);
   window.addEventListener('wheel', note, options);
-  // A phone's first swipe released the lane on its single pointerdown, so rail
-  // mounts and pane chunks (Monaco) ran in the idle slices of the scroll itself
-  // and the first seconds of scrolling stuttered. The drag and its fling count
-  // as input. A programmatic scroll (the transcript following a stream) starts
-  // no chain; a pause longer than the quiet window or `scrollend` ends one.
   window.addEventListener(
     'touchmove',
     () => {

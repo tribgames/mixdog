@@ -1,9 +1,3 @@
-/**
- * Loopback command server behind the runtime's `browser` tool. Publishes its
- * port/token through the shared bridge discovery file and keeps ownership of
- * that file: a foreign writer that dies (isolated dev profile, crashed run) is
- * reclaimed on the next heartbeat instead of shadowing this live bridge.
- */
 import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
@@ -34,12 +28,6 @@ const HEARTBEAT_MS = 60_000;
 const DEFAULT_MAX_REQUEST_BYTES = 256 * 1024;
 const DEFAULT_MAX_CONCURRENT_REQUESTS = 32;
 const MAX_CONNECTIONS = 64;
-/** A command that has not answered after this long starts a keep-alive: the
- *  response is committed (200, JSON) and a space goes out every period until
- *  the real body ends it. A command can legitimately wait on the person with
- *  no limit (an approval card); the runtime client times a request out on
- *  silence, so these bytes — not a longer ceiling — are what tell it the
- *  bridge is alive. Leading whitespace is valid JSON. */
 const DEFAULT_KEEP_ALIVE_MS = 15_000;
 
 interface BrowserBridgeServerOptions<TCommand extends object> {
@@ -74,21 +62,17 @@ export class BrowserBridgeServer<TCommand extends object> {
     });
   }
 
-  private respond(response: ServerResponse, status: number, body: unknown): void {
-    this.discovery.respond(response, status, body);
-  }
-
   private handleHealth(response: ServerResponse, authorization: string, generation: number): void {
     if (authorization !== `Bearer ${this.token}`) {
-      this.respond(response, 401, { ok: false, error: 'unauthorized' });
+      this.discovery.respond(response, 401, { ok: false, error: 'unauthorized' });
       return;
     }
     const identity = this.record;
     if (!identity || identity.generation !== generation) {
-      this.respond(response, 503, { ok: false, error: 'bridge generation is not active' });
+      this.discovery.respond(response, 503, { ok: false, error: 'bridge generation is not active' });
       return;
     }
-    this.respond(response, 200, { ok: true, identity: bridgeDiscoveryPublicIdentity(identity) });
+    this.discovery.respond(response, 200, { ok: true, identity: bridgeDiscoveryPublicIdentity(identity) });
   }
 
   private async handleCommand(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -96,7 +80,7 @@ export class BrowserBridgeServer<TCommand extends object> {
     try {
       command = JSON.parse(await this.readRequestBody(request)) as TCommand;
     } catch (error) {
-      this.respond(response, 400, { ok: false, error: `invalid request: ${(error as Error).message}` });
+      this.discovery.respond(response, 400, { ok: false, error: `invalid request: ${(error as Error).message}` });
       return;
     }
     const maxConcurrentRequests = Math.max(
@@ -104,7 +88,7 @@ export class BrowserBridgeServer<TCommand extends object> {
       Math.trunc(this.options.maxConcurrentRequests || DEFAULT_MAX_CONCURRENT_REQUESTS)
     );
     if (this.controllers.size >= maxConcurrentRequests) {
-      this.respond(response, 429, { ok: false, error: 'too many concurrent browser commands' });
+      this.discovery.respond(response, 429, { ok: false, error: 'too many concurrent browser commands' });
       return;
     }
     const controller = new AbortController();
@@ -131,7 +115,7 @@ export class BrowserBridgeServer<TCommand extends object> {
     response.once('close', () => clearInterval(keepAlive));
     const reply = (body: unknown) => {
       if (committed) response.end(JSON.stringify(body));
-      else this.respond(response, 200, body);
+      else this.discovery.respond(response, 200, body);
     };
     try {
       const value = await this.options.execute(command, controller.signal);
@@ -147,7 +131,7 @@ export class BrowserBridgeServer<TCommand extends object> {
       };
       if (failure?.status === 400 || failure?.status === 429) {
         if (committed) response.end(JSON.stringify(body));
-        else this.respond(response, failure.status, body);
+        else this.discovery.respond(response, failure.status, body);
       } else reply(body);
     } finally {
       clearInterval(keepAlive);
@@ -216,11 +200,11 @@ export class BrowserBridgeServer<TCommand extends object> {
           return;
         }
         if (request.method !== 'POST' || request.url !== '/command') {
-          this.respond(response, 404, { ok: false, error: 'not found' });
+          this.discovery.respond(response, 404, { ok: false, error: 'not found' });
           return;
         }
         if (authorization !== `Bearer ${this.token}`) {
-          this.respond(response, 401, { ok: false, error: 'unauthorized' });
+          this.discovery.respond(response, 401, { ok: false, error: 'unauthorized' });
           return;
         }
         await this.handleCommand(request, response);

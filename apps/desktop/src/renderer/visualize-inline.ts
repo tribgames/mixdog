@@ -1,18 +1,5 @@
-// Direct renderers of the visualize panel: Mermaid, SVG, ECharts, HTML and
-// Markdown shown from `input.content`, without the agent writing a file.
-//
-// The libraries (bundled, loaded lazily — never from a CDN) run here in the
-// app and produce static markup; that markup is sanitized and shown in an
-// iframe that runs nothing: no `allow-scripts`, under a CSP with no network,
-// no script and only inline styles / `data:` images. The app's own CSP
-// (`script-src 'self'`) would block inline scripts in a srcdoc frame anyway, so
-// nothing in the frame is interactive; a page that needs scripts is a file.
 import type { VisualizeInlineContent } from '../shared/visualize';
 
-/** The frame's `sandbox` attribute: every restriction, scripts included, but
- *  the frame keeps the app's origin so the app can listen for a pinch on its
- *  document (the only way a phone pinch over it can zoom the panel). With no
- *  script able to run in it, the shared origin gives the content nothing. */
 export const INLINE_FRAME_SANDBOX = 'allow-same-origin';
 
 /** The frame document's CSP: no network, scripts, forms or frames. */

@@ -1,9 +1,3 @@
-/**
- * The per-session caches captures learn from — the visual-only capability of a
- * window, the OCR preference, the last frame delivered per target, the last
- * working capture backend per window, and OCR results per frame — and how a
- * released session forgets all of them.
- */
 import { createOcrCapturePreferenceStore } from '../input/capability-policy';
 import { createCaptureBackendMemory } from './capture-backend-memory';
 import { createCaptureImageDedupStore } from './capture-image-dedup';

@@ -16,7 +16,10 @@ import { setRemoteHostName, setRemoteHostOpenAccess } from '../../desktop/src/re
 import { publishMediaKey, revokeMediaKey } from '../../desktop/src/renderer/remote-media-lane.ts';
 import { currentDeviceId, savePcName } from '../../desktop/src/renderer/remote-saved-pcs.ts';
 import { readRelayPayloadRejection } from '../../desktop/src/shared/remote-payload-limit.ts';
-import { REMOTE_SECURE_CHANNEL_READY_EVENT, type RemoteShimContext } from '../../desktop/src/renderer/remote-shim-state.ts';
+import {
+  REMOTE_SECURE_CHANNEL_READY_EVENT,
+  type RemoteShimContext,
+} from '../../desktop/src/renderer/remote-shim-state.ts';
 import { connectPhone, type PhoneClient } from './phone-client.ts';
 import { peerFlagsOf } from './phone-capabilities.ts';
 import { createLaneFeeds, type LaneFeeds } from './phone-lanes.ts';
@@ -205,14 +208,17 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       // is reattached once, with its own cursor, and no late attach can replace the recovered subscription.
       phone?.link.retire();
     };
-    const check = waking.wake(lanes?.expected()).then((confirmed) => {
-      if (!confirmed) recover();
-    }, recover).finally(() => {
-      wakeCheck = undefined;
-      const again = hintedDuringCheck;
-      hintedDuringCheck = false;
-      if (again && !recovering) wakeView();
-    });
+    const check = waking
+      .wake(lanes?.expected())
+      .then((confirmed) => {
+        if (!confirmed) recover();
+      }, recover)
+      .finally(() => {
+        wakeCheck = undefined;
+        const again = hintedDuringCheck;
+        hintedDuringCheck = false;
+        if (again && !recovering) wakeView();
+      });
     wakeCheck = check;
   };
 

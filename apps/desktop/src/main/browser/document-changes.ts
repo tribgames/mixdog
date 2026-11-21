@@ -42,6 +42,33 @@ export function createBrowserChangeLatch() {
   };
 }
 
+const observerCloseScript = (id: string) => `(() => {
+      const state = globalThis.__mixdogWaitObserver;
+      if (state?.id === ${JSON.stringify(id)}) state.close();
+      return true;
+    })()`;
+
+const observerInstallScript = (id: string, roots: string) => `(() => {
+      globalThis.__mixdogWaitObserver?.close();
+      const notify = () => globalThis[${JSON.stringify(binding)}](${JSON.stringify(id)});
+      const observer = new MutationObserver(notify);
+      const state = {id: ${JSON.stringify(id)}, close() {
+        observer.disconnect();
+        clearTimeout(timer);
+        document.removeEventListener('input', notify, true);
+        document.removeEventListener('change', notify, true);
+        if (globalThis.__mixdogWaitObserver === state) delete globalThis.__mixdogWaitObserver;
+      }};
+      const timer = setTimeout(() => state.close(), ${WAIT_OBSERVER_LIFETIME_MS});
+      globalThis.__mixdogWaitObserver = state;
+      for (const root of (${roots})()) {
+        observer.observe(root, {subtree: true, childList: true, attributes: true, characterData: true});
+      }
+      document.addEventListener('input', notify, true);
+      document.addEventListener('change', notify, true);
+      return true;
+    })()`;
+
 export async function observeBrowserDocumentChanges(
   host: BrowserFrameHost,
   collect: <T>(guest: WebContents, expression: string, signal?: AbortSignal) => Promise<T[]>,
@@ -67,15 +94,7 @@ export async function observeBrowserDocumentChanges(
     port.removeListener('message', message);
     // A document that disappeared cannot be cleaned; the lease also bounds
     // observers in a detached or otherwise inaccessible execution context.
-    await collect(
-      guest,
-      `(() => {
-      const state = globalThis.__mixdogWaitObserver;
-      if (state?.id === ${JSON.stringify(id)}) state.close();
-      return true;
-    })()`,
-      AbortSignal.timeout(500)
-    ).catch(() => undefined);
+    await collect(guest, observerCloseScript(id), AbortSignal.timeout(500)).catch(() => undefined);
   };
   try {
     const targets = [
@@ -101,30 +120,7 @@ export async function observeBrowserDocumentChanges(
         );
       })
     );
-    await collect(
-      guest,
-      `(() => {
-      globalThis.__mixdogWaitObserver?.close();
-      const notify = () => globalThis[${JSON.stringify(binding)}](${JSON.stringify(id)});
-      const observer = new MutationObserver(notify);
-      const state = {id: ${JSON.stringify(id)}, close() {
-        observer.disconnect();
-        clearTimeout(timer);
-        document.removeEventListener('input', notify, true);
-        document.removeEventListener('change', notify, true);
-        if (globalThis.__mixdogWaitObserver === state) delete globalThis.__mixdogWaitObserver;
-      }};
-      const timer = setTimeout(() => state.close(), ${WAIT_OBSERVER_LIFETIME_MS});
-      globalThis.__mixdogWaitObserver = state;
-      for (const root of (${roots})()) {
-        observer.observe(root, {subtree: true, childList: true, attributes: true, characterData: true});
-      }
-      document.addEventListener('input', notify, true);
-      document.addEventListener('change', notify, true);
-      return true;
-    })()`,
-      signal
-    );
+    await collect(guest, observerInstallScript(id, roots), signal);
   } catch (error) {
     await close();
     if (signal?.aborted) throw signal.reason || error;

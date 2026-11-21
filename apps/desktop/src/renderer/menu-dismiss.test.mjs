@@ -1,8 +1,3 @@
-// The shared popup dismiss/focus contract (menu-dismiss.ts) and every menu that
-// follows it. A pointer open leaves focus on the TRIGGER, outside the portaled
-// panel, so panel-scoped key handlers never saw Tab or Escape there:
-// the usage menu and ⋯ menus stayed open while focus walked away, and the
-// model picker sheet let Tab leave it.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 

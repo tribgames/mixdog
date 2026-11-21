@@ -1,7 +1,3 @@
-// "브라우저 · 보기": a page the agent opened (`open`) and the host showed or
-// kept for the panel. Only a successful open leaves the line; it names that
-// page's tab, and a press shows exactly that tab — never re-navigating the
-// shown one, never making a page. A tab no longer open says so instead.
 import { Globe } from 'lucide-react';
 import { useState } from 'react';
 import { revealBrowserPane, browserPageRequestsAvailable } from './browser-page-request';

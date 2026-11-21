@@ -215,11 +215,6 @@ export function ConversationTranscript({
         aria-busy={busy}
         // biome-ignore lint/a11y/noNoninteractiveTabindex: the scrollable log must take focus for keyboard paging.
         tabIndex={0}
-        // The thread is a READING surface: a mouse drag may extend the
-        // selection, but it must never pick the text (or a code block, tool
-        // output, image chip) up and carry it as a native drag payload.
-        // Capture refuses the drag for every descendant, so no row
-        // needs its own guard.
         onDragStartCapture={(event) => event.preventDefault()}
         onMouseDownCapture={collapseSelectionOnPress}
         onScroll={(event) => {

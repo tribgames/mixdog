@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { request as httpRequest } from 'node:http';
+import { EventEmitter } from 'node:events';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import test from 'node:test';
 
 // Isolated adapters, never the user's desktop or vault: the keychain is a byte
@@ -42,7 +43,10 @@ const { createExecutionState } = await import('./execution-state.ts');
 const { createSessionState } = await import('../session/state.ts');
 const { computerRunRecord } = await import('../session/run-log.ts');
 const { createSecretInputs, secretInputs } = await import('../../secret-input.ts');
-const { createBridgeServer } = await import('./bridge-server.ts');
+const { createCommandService } = await import('./command-service.ts');
+const { assertPublicComputerRequest } = await import('./request-policy.ts');
+const { bindSavedLoginOwner } = await import('./saved-login-owner.ts');
+const { createBridgeRequestHandler } = await import('../bridge/bridge-server-request.ts');
 const { upsertVaultLogin } = await import('../../browser/credential-vault.ts');
 
 const PASSWORD = 'Pa55-"word"\\x';
@@ -64,7 +68,6 @@ const OWNER = '00000000-0000-4000-8000-000000000001';
 const OTHER_OWNER = '00000000-0000-4000-8000-000000000002';
 const BRIDGE_OWNER = '00000000-0000-4000-8000-000000000003';
 const BRIDGE_OWNER_2 = '00000000-0000-4000-8000-000000000004';
-const BRIDGE_OWNER_3 = '00000000-0000-4000-8000-000000000005';
 /** Each test owner's runtime process: a pid and an OS creation time. */
 const processOf = (ownerId) => ({
   pid: 4000 + Number(ownerId.slice(-2)),
@@ -725,29 +728,18 @@ function routerHost(savedLoginService, native) {
   return { host, requests };
 }
 
-test('the bridge redacts replies and errors for every session, lifts guards at turn end, and refuses worker steps', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'mixdog-saved-login-bridge-'));
+test('the command service redacts replies and errors for every session, lifts guards at turn end, and refuses worker steps', async () => {
   const served = [];
-  let enabled = true;
   // The OS's answers about the test runtimes' processes (worker process_fate).
   const bridgeFates = new Map();
-  // A pending OS answer, per pid (the connection may close meanwhile).
-  const fateGates = new Map();
-  const created = new Map(
-    [BRIDGE_OWNER, BRIDGE_OWNER_2, BRIDGE_OWNER_3].map((id) => [processOf(id).pid, processOf(id).created])
-  );
-  const server = createBridgeServer({
-    processFate: async ({ pid }) => {
-      await fateGates.get(pid);
-      return { state: bridgeFates.get(pid) ?? 'running', created: created.get(pid) ?? '' };
-    },
-    dataDirectory: () => directory,
-    isBridgeWanted: () => enabled,
-    isDisposed: () => false,
-    diagnose() {},
+  const created = new Map([BRIDGE_OWNER, BRIDGE_OWNER_2].map((id) => [processOf(id).pid, processOf(id).created]));
+  const processFate = async ({ pid }) => ({
+    state: bridgeFates.get(pid) ?? 'running',
+    created: created.get(pid) ?? '',
+  });
+  const service = createCommandService({
     powerShellBySession: new Map(),
     elevatedSessionIds: () => [],
-    callPowerShell: async () => ({ ok: true }),
     reapIdleSessionWorkers() {},
     abortComputerSession: async () => ({ text: 'aborted' }),
     // The real fill registers the value with the shared registry; later replies
@@ -768,44 +760,52 @@ test('the bridge redacts replies and errors for every session, lifts guards at t
     },
   });
   try {
-    server.startBridge();
-    let record;
-    for (let attempt = 0; attempt < 100 && !record?.port; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+    const endpoint = { signal: new AbortController().signal, commit() {}, track() {} };
+    // A command as the host protocol runs it: the request policy first, then the service's answer.
+    const send = async (body) => {
       try {
-        record = JSON.parse(readFileSync(join(directory, 'computer-bridge.json'), 'utf8'));
-      } catch {
-        /* published atomically */
+        assertPublicComputerRequest(body);
+      } catch (error) {
+        return { ok: false, error: `invalid request: ${error.message}` };
       }
-    }
-    const send = (body) =>
-      fetch(`http://127.0.0.1:${record.port}/command`, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${record.token}`, 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      }).then((response) => response.json());
-    // A runtime's held owner connection, as client.mjs opens it.
-    const openOwner = (runtimeId) =>
-      new Promise((resolve, reject) => {
-        const body = JSON.stringify({ runtime_id: runtimeId, pid: processOf(runtimeId).pid });
-        const held = httpRequest(
-          {
-            host: '127.0.0.1',
-            port: record.port,
-            path: '/owner',
-            method: 'POST',
-            agent: false,
-            headers: { authorization: `Bearer ${record.token}`, 'content-length': Buffer.byteLength(body) },
-          },
-          (response) => {
-            if (response.statusCode !== 200) reject(new Error(`owner refused: ${response.statusCode}`));
-            response.once('data', () => resolve(held));
-            response.once('close', () => reject(new Error('owner response closed before data')));
-          }
-        );
-        held.once('error', reject);
-        held.end(body);
-      });
+      return service.answerCommand(body, endpoint);
+    };
+    // A runtime's held owner connection, through the loopback bridge's `/owner` handler as client.mjs opens it: the core is told
+    // (a stand-in answers) and this process binds the owner to its process on its own read of it. Closing the response closes
+    // the connection.
+    const handleOwner = createBridgeRequestHandler(
+      {
+        host: {
+          callCore: async () => ({ ok: true, value: { text: 'done' } }),
+          attachOwner: (ownerId, pid) => bindSavedLoginOwner(processFate, ownerId, pid),
+        },
+        state: { discoveryRecord: null },
+        respond: (response, status) => {
+          response.status = status;
+        },
+      },
+      'owner-token',
+      1
+    );
+    const openOwner = async (runtimeId) => {
+      const request = Readable.from([
+        Buffer.from(JSON.stringify({ runtime_id: runtimeId, pid: processOf(runtimeId).pid })),
+      ]);
+      request.method = 'POST';
+      request.url = '/owner';
+      request.headers = { authorization: 'Bearer owner-token' };
+      const response = new EventEmitter();
+      response.writableEnded = false;
+      response.destroy = () => {};
+      response.write = () => {};
+      response.writeHead = (status) => {
+        response.status = status;
+      };
+      handleOwner(request, response);
+      for (let at = 0; at < 100 && !response.status; at++) await new Promise((resolve) => setImmediate(resolve));
+      if (response.status !== 200) throw new Error(`owner refused: ${response.status}`);
+      return () => response.emit('close');
+    };
     const fillAs = (runtimeId, extra = {}) =>
       send({ ...command(), session_id: 'bridge-session', runtime_id: runtimeId, ...extra });
     // No owner connection yet: refused as it is accepted, before the queue.
@@ -856,61 +856,28 @@ test('the bridge redacts replies and errors for every session, lifts guards at t
     // The settled turn takes no more fills.
     assert.match((await fillAs(BRIDGE_OWNER)).error, /agent turn has already ended/);
     assert.equal(served.filter((action) => action === 'fill_saved_login').length, 1);
-    // A live runtime switching connections (it opens a new one, closes the
-    // old, as on a discovery change) keeps its next turn's guard; so does a
-    // closed last connection while its process runs.
+    // A live runtime switching attachments keeps its next turn's guard; so
+    // does a detached last attachment while its process runs.
     assert.equal((await fillAs(BRIDGE_OWNER, { turn_id: 8 })).ok, true);
     const replacement = await openOwner(BRIDGE_OWNER);
-    const pause = () => new Promise((resolve) => setTimeout(resolve, 50));
-    owner.destroy();
-    await pause();
-    assert.equal(secretInputs.savedLoginPixelGuards().length, 1, 'one of two connections closed');
+    owner();
+    assert.equal(secretInputs.savedLoginPixelGuards().length, 1, 'one of two attachments detached');
     assert.equal((await fillAs(BRIDGE_OWNER, { turn_id: 9 })).ok, true, 'still attached through the other');
-    replacement.destroy();
-    await pause();
-    assert.equal(secretInputs.savedLoginPixelGuards().length, 2, 'socket loss alone is no proof of death');
-    // The OS then proves the process ended: retired at the next reconciliation
-    // (another runtime attaching), and that runtime is never admitted again.
+    replacement();
+    assert.equal(secretInputs.savedLoginPixelGuards().length, 2, 'detaching alone is no proof of death');
+    // The OS then proves the process ended: retired at the next reconciliation,
+    // and that runtime is never admitted again.
     bridgeFates.set(processOf(BRIDGE_OWNER).pid, 'ended');
-    const second = await openOwner(BRIDGE_OWNER_2);
-    for (let attempt = 0; attempt < 100 && secretInputs.savedLoginPixelGuards().length; attempt++) await pause();
+    await openOwner(BRIDGE_OWNER_2);
+    for (let attempt = 0; attempt < 100 && secretInputs.savedLoginPixelGuards().length; attempt++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
     assert.deepEqual(secretInputs.savedLoginPixelGuards(), []);
-    await assert.rejects(openOwner(BRIDGE_OWNER), /owner refused: 400/);
-    // A connection that closes while its process is still being read is never
-    // attached: the runtime holds no owner connection afterwards.
-    let releaseFate = () => {};
-    fateGates.set(
-      processOf(BRIDGE_OWNER_3).pid,
-      new Promise((resolve) => {
-        releaseFate = resolve;
-      })
-    );
-    const racingBody = JSON.stringify({ runtime_id: BRIDGE_OWNER_3, pid: processOf(BRIDGE_OWNER_3).pid });
-    const racing = httpRequest({
-      host: '127.0.0.1',
-      port: record.port,
-      path: '/owner',
-      method: 'POST',
-      agent: false,
-      headers: { authorization: `Bearer ${record.token}`, 'content-length': Buffer.byteLength(racingBody) },
-    });
-    racing.once('error', () => {});
-    racing.end(racingBody);
-    await pause();
-    racing.destroy();
-    await pause();
-    releaseFate();
-    await pause();
-    assert.match(
-      (await fillAs(BRIDGE_OWNER_3, { session_id: 'bridge-d', turn_id: 1 })).error,
-      /holds no owner connection/
-    );
-    // The bridge shutting down only detaches a live runtime: its guard stays.
-    void second;
+    await openOwner(BRIDGE_OWNER);
+    assert.match((await fillAs(BRIDGE_OWNER, { turn_id: 10 })).error, /^saved_login_unavailable: /);
+    // Stopping the service retires no live runtime's guard.
     assert.equal((await fillAs(BRIDGE_OWNER_2, { session_id: 'bridge-c', turn_id: 1 })).ok, true);
-    enabled = false;
-    await server.stopBridge();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await service.stop();
     assert.deepEqual(
       secretInputs.savedLoginPixelGuards().map((guard) => [guard.ownerId, guard.sessionId]),
       [[BRIDGE_OWNER_2, 'bridge-c']]
@@ -918,10 +885,7 @@ test('the bridge redacts replies and errors for every session, lifts guards at t
   } finally {
     secretInputs.forget('bridge-session');
     secretInputs.forget('bridge-c');
-    secretInputs.forget('bridge-d');
-    enabled = false;
-    await server.stopBridge();
-    rmSync(directory, { recursive: true, force: true });
+    await service.stop();
   }
 });
 

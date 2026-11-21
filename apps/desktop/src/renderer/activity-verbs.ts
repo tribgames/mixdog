@@ -1,8 +1,3 @@
-// Spinner wording for the live-activity row. Every string that can reach the
-// row passes through here so a non-English UI never shows an English verb:
-// the pool follows the ACTIVE language (not a memoized t() probe), runtime
-// authored text is mapped through catalog keys, and the fallback is itself a
-// localized catalog entry.
 import { t, uiFormatLocale, type UiLanguage } from './i18n';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { SPINNER_MODE_OVERRIDE_VERBS, SPINNER_VERBS, spinnerVerbFor } from '../../../../src/tui/spinner-verbs.mjs';
@@ -66,12 +61,6 @@ function waitLabel(seconds: number): string {
   return rest ? `${waitUnit(minutes, 'minute')} ${waitUnit(rest, 'second')}` : waitUnit(minutes, 'minute');
 }
 
-// Local deadlines of the reconnect waits this renderer has seen, by retry key.
-// The runtime publishes the wait RELATIVE to its own clock (`retryInMs`); the
-// first sighting anchors it to this clock, so a remote client whose clock is
-// skewed from the runtime's still counts the right time down. A deadline lives
-// until its wait ends (the countdown anchor of a retry still waiting must
-// survive revisits); other retries' ended waits are dropped on each access.
 const retryDeadlines = new Map<string, number>();
 
 function localRetryDeadline(key: string, retryInMs: number, now: number): number {

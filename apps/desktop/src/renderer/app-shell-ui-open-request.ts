@@ -36,11 +36,6 @@ export function useAppUiOpenRequest({
   openSettings,
   subscribeSessionLanes,
 }: UiOpenRequestProps) {
-  // Setup tool `open`: the engine publishes { command, seq } on the session
-  // snapshot when the model asks for a settings surface. Route it exactly as
-  // the typed slash command would (settings row, rail page, or command
-  // surface); the per-session seq guard makes a repeated identical request
-  // fire again while one request reaching both sources fires once.
   const uiOpenSeen = useRef(new Map<string, number>());
   const route = useRef<(requestSessionId: string, request: Snapshot['uiOpenRequest']) => void>(() => {});
   route.current = (requestSessionId, request) => {

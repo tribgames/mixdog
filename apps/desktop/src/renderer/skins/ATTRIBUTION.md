@@ -3,12 +3,12 @@
 Every picture in this folder needs a row here (a test enforces it). Only
 pictures we generated for Mixdog, or CC0 pictures with a source URL, may ship.
 
-| File | Source | Tool | Author | Licence | Date |
-| --- | --- | --- | --- | --- | --- |
-| glass-flow.jpg | generated for Mixdog | OpenAI GPT Image 2 (via Mixdog Media Studio) | Mixdog | owned by the project | 2026-10-21 |
+| File              | Source               | Tool                                         | Author | Licence              | Date       |
+| ----------------- | -------------------- | -------------------------------------------- | ------ | -------------------- | ---------- |
+| glass-flow.jpg    | generated for Mixdog | OpenAI GPT Image 2 (via Mixdog Media Studio) | Mixdog | owned by the project | 2026-10-21 |
 | spring-window.jpg | generated for Mixdog | OpenAI GPT Image 2 (via Mixdog Media Studio) | Mixdog | owned by the project | 2026-10-21 |
-| tech-studio.jpg | generated for Mixdog | OpenAI GPT Image 2 (via Mixdog Media Studio) | Mixdog | owned by the project | 2026-10-21 |
-| night-city.jpg | generated for Mixdog | OpenAI GPT Image 2 (via Mixdog Media Studio) | Mixdog | owned by the project | 2026-10-21 |
+| tech-studio.jpg   | generated for Mixdog | OpenAI GPT Image 2 (via Mixdog Media Studio) | Mixdog | owned by the project | 2026-10-21 |
+| night-city.jpg    | generated for Mixdog | OpenAI GPT Image 2 (via Mixdog Media Studio) | Mixdog | owned by the project | 2026-10-21 |
 
 The 1672×941 originals are kept in `design/mockups/skin-system/art/`. A
 replacement keeps the file name (a drop-in swap); refresh its accent, cast and

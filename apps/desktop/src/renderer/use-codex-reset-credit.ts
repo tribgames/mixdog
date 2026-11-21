@@ -110,10 +110,6 @@ export function useCodexResetCredit(api: UsageApi, dashboard: unknown, sidebarOp
   const [infoOpen, setInfoOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Preserve the provider's individual expiry rows. The consume endpoint does
-  // not accept a credit id, so every Use action safely means "consume one
-  // currently available credit"; the refreshed provider list decides which
-  // concrete row remains afterward.
   const credits = resetCredits(subscriptionRow(dashboard, SUBSCRIPTIONS[0]));
   const count = availableResetCount(credits);
   const rows = availableResetCredits(credits);
@@ -188,10 +184,6 @@ export function useCodexResetCredit(api: UsageApi, dashboard: unknown, sidebarOp
         setNotice(t('Reset could not be confirmed. Retrying is safe.'));
         return;
       }
-      // The OUTCOME settles the redeem; the rebuilt dashboard is a courtesy
-      // payload. When it arrives it lands in the shared snapshot and its cache
-      // (not popup-local state); when the runtime's refresh budget expired,
-      // the store revalidates instead of calling a spent credit unconfirmed.
       if (!publishUsageDashboard(result.dashboard)) {
         void refreshUsageDashboard(api, { force: true });
       }

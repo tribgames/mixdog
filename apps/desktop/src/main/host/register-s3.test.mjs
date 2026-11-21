@@ -54,6 +54,7 @@ function rig() {
     environment: { ready: new Promise((resolve) => (ready = resolve)), sources: () => ({ power, screen }) },
     desktopHostScreen: () => null,
     desktopHostCommand: () => null,
+    desktopHostProcessFate: () => null,
     computerSwitch: createComputerSwitch(true),
   });
   return { connection, mirror, power, stop, ready };
@@ -73,6 +74,7 @@ test('every handler of the computer host is registered, with no desktop host run
     'host/computer/pixels',
     'host/computer/permissions',
     'host/computer/command',
+    'host/computer/processFate',
   ]) {
     assert.ok(connection.handlers.has(method), `${method} is served`);
   }

@@ -1,9 +1,3 @@
-/**
- * Where a cross-origin frame sits on the top document: the frame owner's box
- * in each parent session, summed up the session chain. Before input lands,
- * every owner along the chain must also be the element actually hit at the
- * point — a covered or transformed frame would swallow the gesture silently.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';

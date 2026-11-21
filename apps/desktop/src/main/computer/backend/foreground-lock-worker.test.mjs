@@ -161,29 +161,42 @@ $rows.deadline = @{ locked = $locked; held = [MixForegroundLock]::Held; release 
 [Console]::Out.WriteLine('@@RESULT@@' + ($rows | ConvertTo-Json -Compress -Depth 5))
 `;
 
-test('the worker accepts only the host answer naming its request and lease, and says how each hold ended', {
-  skip: process.platform !== 'win32' && 'Windows only',
-  timeout: 60_000,
-}, async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'mixdog-lease-worker-'));
-  try {
-    await writeFile(join(directory, 'lock.cs'), loadComputerSource('MixForegroundLock.cs'));
-    await writeFile(join(directory, 'test.ps1'), SCRIPT);
-    const { stdout } = await promisify(execFile)(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(directory, 'test.ps1')],
-      {
-        timeout: 45_000,
-        windowsHide: true,
-        env: { ...process.env, LOCK_SOURCE: join(directory, 'lock.cs'), REPLY_PREFIX: FOREGROUND_LOCK_REPLY_PREFIX },
-      }
-    );
-    const lines = stdout.split(/\r?\n/);
-    const rows = JSON.parse(lines.find((line) => line.startsWith('@@RESULT@@')).slice('@@RESULT@@'.length));
-    const requests = lines
-      .filter((line) => line.startsWith(FOREGROUND_LOCK_LINE_PREFIX))
-      .map((line) => JSON.parse(line.slice(FOREGROUND_LOCK_LINE_PREFIX.length)));
-    // Each request names the in-flight action, a fresh sequence and, for a release, the lease.
+const windowsOnly = { skip: process.platform !== 'win32' && 'Windows only', timeout: 60_000 };
+
+let session;
+function runSession() {
+  session ??= (async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mixdog-lease-worker-'));
+    try {
+      await writeFile(join(directory, 'lock.cs'), loadComputerSource('MixForegroundLock.cs'));
+      await writeFile(join(directory, 'test.ps1'), SCRIPT);
+      const { stdout } = await promisify(execFile)(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(directory, 'test.ps1')],
+        {
+          timeout: 45_000,
+          windowsHide: true,
+          env: { ...process.env, LOCK_SOURCE: join(directory, 'lock.cs'), REPLY_PREFIX: FOREGROUND_LOCK_REPLY_PREFIX },
+        }
+      );
+      const lines = stdout.split(/\r?\n/);
+      const rows = JSON.parse(lines.find((line) => line.startsWith('@@RESULT@@')).slice('@@RESULT@@'.length));
+      const requests = lines
+        .filter((line) => line.startsWith(FOREGROUND_LOCK_LINE_PREFIX))
+        .map((line) => JSON.parse(line.slice(FOREGROUND_LOCK_LINE_PREFIX.length)));
+      return { rows, requests };
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  })();
+  return session;
+}
+
+test(
+  'each lease request names the in-flight action, a fresh sequence and, for a release, the lease',
+  windowsOnly,
+  async () => {
+    const { requests } = await runSession();
     assert.deepEqual(
       requests.map(({ op, action, seq, lease, hold_ms }) => [op, action, seq, lease ?? hold_ms]),
       [
@@ -198,63 +211,85 @@ test('the worker accepts only the host answer naming its request and lease, and 
       ]
     );
     assert.ok(requests.filter(({ op }) => op === 'acquire').every(({ answer_by }) => answer_by > 0));
+  }
+);
 
-    const { matching, unanswered, expired, own0, own1, own2, deadline } = rows;
-    assert.deepEqual(
-      [matching.locked, matching.held, matching.facts.holder, matching.facts.lease],
-      [true, true, 'host', 12]
-    );
-    assert.equal(matching.command, '{"id":7,"action":"snapshot"}');
-    assert.deepEqual(
-      [matching.release, matching.again, matching.facts.host_answer],
-      ['released', 'released', 'locked']
-    );
+test('an answer naming the request and lease holds the lock as the host and releases it', windowsOnly, async () => {
+  const { matching } = (await runSession()).rows;
+  assert.deepEqual(
+    [matching.locked, matching.held, matching.facts.holder, matching.facts.lease],
+    [true, true, 'host', 12]
+  );
+  assert.equal(matching.command, '{"id":7,"action":"snapshot"}');
+  assert.deepEqual([matching.release, matching.again, matching.facts.host_answer], ['released', 'released', 'locked']);
+});
 
-    assert.deepEqual([unanswered.locked, unanswered.held, unanswered.release], [false, false, 'no_ack']);
-    assert.deepEqual([unanswered.facts.host_answer, unanswered.facts.holder], ['no_answer', 'none']);
+test('a request the host never answers takes no lock', windowsOnly, async () => {
+  const { unanswered } = (await runSession()).rows;
+  assert.deepEqual([unanswered.locked, unanswered.held, unanswered.release], [false, false, 'no_ack']);
+  assert.deepEqual([unanswered.facts.host_answer, unanswered.facts.holder], ['no_answer', 'none']);
+});
 
-    assert.deepEqual(
-      [expired.locked, expired.facts.host_answer, expired.release],
-      [false, 'expired_on_arrival', 'released']
-    );
+test('an answer past its deadline on arrival takes no lock', windowsOnly, async () => {
+  const { expired } = (await runSession()).rows;
+  assert.deepEqual(
+    [expired.locked, expired.facts.host_answer, expired.release],
+    [false, 'expired_on_arrival', 'released']
+  );
+});
 
+test(
+  'a worker-owned hold reports released, unknown after a false unlock, failed after a throwing one',
+  windowsOnly,
+  async () => {
+    const { own0, own1, own2 } = (await runSession()).rows;
     assert.deepEqual([own0.locked, own0.release, own0.facts.holder], [true, 'released', 'worker']);
     assert.deepEqual([own1.release, own1.facts.unlock_attempts], ['unknown', 3]);
     assert.deepEqual([own2.release, own2.facts.unlock_attempts], ['failed', 3]);
-    assert.deepEqual(
-      [deadline.locked, deadline.held, deadline.release, deadline.facts.released_by],
-      [true, false, 'released', 'deadline']
-    );
-
-    // A false unlock ends the worker's own hold (reported unknown), so the next
-    // request refused its own lock gets the host lease instead of already_held.
-    const { afterFalse } = rows;
-    assert.deepEqual(
-      [afterFalse.release, afterFalse.locked, afterFalse.facts.holder, afterFalse.facts.lease, afterFalse.hostRelease],
-      ['unknown', true, 'host', 21, 'released']
-    );
-    assert.equal(afterFalse.facts.stale_release, undefined);
-    // After an unlock call throws (failed), each later Release retries until one succeeds.
-    assert.deepEqual([rows.retry.first, rows.retry.second, rows.retry.third], ['failed', 'released', 'released']);
-    // The next request retries the unlock first, on the request that held it.
-    const { nextRequest, stillOpen } = rows;
-    assert.deepEqual(
-      [
-        nextRequest.failed,
-        nextRequest.retried,
-        nextRequest.oldRelease,
-        nextRequest.oldBy,
-        nextRequest.locked,
-        nextRequest.release,
-      ],
-      ['failed', 1, 'released', 'retry', true, 'released']
-    );
-    // Unproven and not superseded by a granted lock: nothing new starts.
-    assert.deepEqual(
-      [stillOpen.locked, stillOpen.facts.worker_error, stillOpen.facts.stale_release],
-      [false, 'already_held', 'failed']
-    );
-  } finally {
-    await rm(directory, { recursive: true, force: true });
   }
+);
+
+test('a hold ends at its own deadline when never released', windowsOnly, async () => {
+  const { deadline } = (await runSession()).rows;
+  assert.deepEqual(
+    [deadline.locked, deadline.held, deadline.release, deadline.facts.released_by],
+    [true, false, 'released', 'deadline']
+  );
+});
+
+test('a false unlock ends the worker hold so the next refused request gets the host lease', windowsOnly, async () => {
+  const { afterFalse } = (await runSession()).rows;
+  assert.deepEqual(
+    [afterFalse.release, afterFalse.locked, afterFalse.facts.holder, afterFalse.facts.lease, afterFalse.hostRelease],
+    ['unknown', true, 'host', 21, 'released']
+  );
+  assert.equal(afterFalse.facts.stale_release, undefined);
+});
+
+test('after an unlock call throws, each later release retries until one succeeds', windowsOnly, async () => {
+  const { retry } = (await runSession()).rows;
+  assert.deepEqual([retry.first, retry.second, retry.third], ['failed', 'released', 'released']);
+});
+
+test('the next request retries an unproven unlock first, on the request that held it', windowsOnly, async () => {
+  const { nextRequest } = (await runSession()).rows;
+  assert.deepEqual(
+    [
+      nextRequest.failed,
+      nextRequest.retried,
+      nextRequest.oldRelease,
+      nextRequest.oldBy,
+      nextRequest.locked,
+      nextRequest.release,
+    ],
+    ['failed', 1, 'released', 'retry', true, 'released']
+  );
+});
+
+test('an unproven unlock not superseded by a granted lock starts nothing new', windowsOnly, async () => {
+  const { stillOpen } = (await runSession()).rows;
+  assert.deepEqual(
+    [stillOpen.locked, stillOpen.facts.worker_error, stillOpen.facts.stale_release],
+    [false, 'already_held', 'failed']
+  );
 });

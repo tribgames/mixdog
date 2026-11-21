@@ -122,12 +122,23 @@ export const DEFAULT_LADDER: LadderConfig = { baseMs: 250, capMs: 5000 };
 
 export type ClientErrorDetail =
   /** A JSON-RPC error. Branch on `code` + `reason`; `data` is the typed form when the core sent a known reason. */
-  | { readonly kind: 'rpc'; readonly code: number; readonly reason: string | undefined; readonly message: string; readonly data: ErrorData | undefined }
+  | {
+      readonly kind: 'rpc';
+      readonly code: number;
+      readonly reason: string | undefined;
+      readonly message: string;
+      readonly data: ErrorData | undefined;
+    }
   /** Non-mutation request in flight when the socket closed. Never retried by the library. */
   | { readonly kind: 'connectionLost' }
   | { readonly kind: 'clientClosed' }
   /** initialize refused by the version gate; terminal, no ladder (protocol.md §4.4). */
-  | { readonly kind: 'versionRefused'; readonly reason: 'clientOutdated' | 'serverOutdated'; readonly serverVersion: string; readonly clientVersion: string }
+  | {
+      readonly kind: 'versionRefused';
+      readonly reason: 'clientOutdated' | 'serverOutdated';
+      readonly serverVersion: string;
+      readonly clientVersion: string;
+    }
   | { readonly kind: 'unknownMethod'; readonly method: string }
   /** The call's pre-send bound (`requestTimeoutMs`) or an explicit CallOptions.timeoutMs passed with no answer. sent: its request had been
    * written, so a mutation may have run (a mutation fails as `opOutcomeUnknown` with this as `cause`); not sent: it never left. */
@@ -136,7 +147,12 @@ export type ClientErrorDetail =
   | { readonly kind: 'opNotApplied'; readonly opId: string }
   /** The outcome cannot be known: `expired` or `externalUnknown` (protocol.md §9.4, §9.6), or `statusFailed` when the
    * `op/status` call itself failed for good (`cause`). */
-  | { readonly kind: 'opOutcomeUnknown'; readonly opId: string; readonly state: 'expired' | 'externalUnknown' | 'statusFailed'; readonly cause?: ClientErrorDetail }
+  | {
+      readonly kind: 'opOutcomeUnknown';
+      readonly opId: string;
+      readonly state: 'expired' | 'externalUnknown' | 'statusFailed';
+      readonly cause?: ClientErrorDetail;
+    }
   /** The blob is permanently unavailable (`blobNotFound`). Fails only the one read or stub resolution. */
   | { readonly kind: 'blobNotFound'; readonly digest: string }
   /** The stored bytes failed verification (`blobCorrupt`). Fails only the one read or stub resolution. */
@@ -207,7 +223,12 @@ export type StoreChange =
   /** The restore settled after the caller withdrew the subscription; a concurrent unsubscribe may still need reconciliation. */
   | { readonly type: 'subscription'; readonly feedId: string; readonly state: 'cancelled' }
   /** Re-attaching failed with a typed error (the `subscriptionLost` client event); the subscription is dropped and a thread's fold is gone. */
-  | { readonly type: 'subscription'; readonly feedId: string; readonly state: 'lost'; readonly error: ClientErrorDetail };
+  | {
+      readonly type: 'subscription';
+      readonly feedId: string;
+      readonly state: 'lost';
+      readonly error: ClientErrorDetail;
+    };
 
 export interface FoldStore<S = Json> {
   thread(threadId: string): ThreadFold<S> | undefined;
@@ -226,9 +247,15 @@ export interface FoldStore<S = Json> {
 // ───────────────────────────── server requests (protocol.md §8) ─────────────────────────────
 
 export type ServerRequest = {
-  [K in keyof ServerRequestMethods]: { readonly id: RequestId; readonly method: K; readonly params: ServerRequestMethods[K]['params'] };
+  [K in keyof ServerRequestMethods]: {
+    readonly id: RequestId;
+    readonly method: K;
+    readonly params: ServerRequestMethods[K]['params'];
+  };
 }[keyof ServerRequestMethods];
-export type ServerRequestAnswer = { readonly result: Json } | { readonly error: { readonly code: number; readonly message: string; readonly data?: Json } };
+export type ServerRequestAnswer =
+  | { readonly result: Json }
+  | { readonly error: { readonly code: number; readonly message: string; readonly data?: Json } };
 
 // ───────────────────────────── client ─────────────────────────────
 
@@ -312,7 +339,11 @@ export interface ProtocolClient<S = Json> {
    * - Non-mutations in flight at socket loss reject `connectionLost`.
    * - While reconnecting, calls wait for the connection (in order); after `closed` they reject.
    */
-  call<K extends keyof ClientMethods & string>(method: K, params: CallParams<ClientMethods[K]['params']>, options?: CallOptions): Promise<ClientMethods[K]['result']>;
+  call<K extends keyof ClientMethods & string>(
+    method: K,
+    params: CallParams<ClientMethods[K]['params']>,
+    options?: CallOptions
+  ): Promise<ClientMethods[K]['result']>;
   /** Client notification (`terminal/input`, `terminal/resize`, `client/perfLog`, ...). Throws `connectionLost` when not ready. */
   notify(method: string, params: Json): void;
   /** Sends one binary frame (X17: 16-byte media header + payload, host role only). Throws `connectionLost` when not ready and
@@ -345,10 +376,14 @@ export interface ProtocolClient<S = Json> {
   readBlob(ref: BlobRef, options?: Pick<CallOptions, 'sent'>): Promise<Uint8Array>;
   /** Uploads in raw chunks ≤ `server.limits.maxBlobPutChunkBytes` (`blob/put`, SPEC R1) and returns the ref to put into a request.
    *  `options.sent` is the claim of the upload's LAST chunk: the upload is one message, which has left once its last chunk has. */
-  putBlob(bytes: Uint8Array, mediaType: string, options?: Pick<CallOptions, 'sent'> & {
-    /** Runs after each acknowledged chunk; throwing stops the remaining upload. */
-    onChunkAccepted?(): void;
-  }): Promise<BlobRef>;
+  putBlob(
+    bytes: Uint8Array,
+    mediaType: string,
+    options?: Pick<CallOptions, 'sent'> & {
+      /** Runs after each acknowledged chunk; throwing stops the remaining upload. */
+      onChunkAccepted?(): void;
+    }
+  ): Promise<BlobRef>;
 
   on(listener: (event: ClientEvent) => void): () => void;
   /** Whether the core sends any frame within `timeoutMs` of the check (it is asked a question it answers at once). None drops the link and the ladder opens a new one (a link that

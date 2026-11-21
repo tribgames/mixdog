@@ -5,12 +5,6 @@ import { isRoomTypingItem } from './agent-chat-place';
 import { transcriptTurnKeys } from './renderer-logic.mjs';
 import { appendLiveTranscriptRows, projectSettledTranscriptRows } from './transcript-rows';
 
-/**
- * Resolves the live streaming tail against the settled items. Settled arrays
- * are immutable by identity, so a same-id replacement is looked up only when
- * that identity or the tail id changes; streamed text then uses an indexed
- * settled+tail view instead of a merged copy.
- */
 export function useStreamingTail(streamingTail: TranscriptItem | null | undefined, settledItems: TranscriptItem[]) {
   const streamingTailId = streamingTail?.id;
   const tailSettledIndex = useMemo(() => {
@@ -35,12 +29,6 @@ export function useStreamingTail(streamingTail: TranscriptItem | null | undefine
   return { activeStreamingTail, liveItemCount, settledRowItems };
 }
 
-/**
- * ONE projection owns visibility, completion folding, and failed-turn status
- * rows, so the virtual list never carries invisible or zero-height rows. The
- * settled half re-runs only when settled items change; each streaming tick
- * appends the live tail onto the memoized settled rows.
- */
 export function useTranscriptRows({
   identity,
   sessionKey,
@@ -71,13 +59,6 @@ export function useTranscriptRows({
   commandBusy: boolean | undefined;
   commandActivityVisible: boolean;
   optimisticActivityStartedAt: number;
-  /** A group room: its live band is the typing slot. The host appends a
-   *  typing row under a fresh id per member turn and drops it between turns;
-   *  as a row of its own it came and went at the bottom of the thread, and a
-   *  followed room moved up and down by its height at every turn. The band
-   *  keeps one key and one height for the whole run and paints the typing
-   *  member (use-conversation-row-renderer.ts), so the trailing typing row
-   *  opens no row. */
   room?: boolean;
 }) {
   const failedTurns = useMemo(() => new Set(failedTurnKeys || []), [failedTurnKeys]);
@@ -104,12 +85,6 @@ export function useTranscriptRows({
       }),
     [failedTurns, identity, sessionKey, projectedItems, settledTurnKeys]
   );
-  // The busy band reserves its row for the whole turn, through activity that
-  // briefly reads null. A turn whose completion already folded into its reply
-  // is over, though: that reply's footer took the band's place, and a band
-  // kept below it for a lingering busy flag moved the settled reply by the
-  // band's height, twice. Visible activity (a wake's spinner, a command) or a
-  // waiting prompt still brings the band back.
   const turnSettled =
     settledProjection.endsWithFoldedCompletion && !commandActivityVisible && pendingItems.length === 0;
   const transcriptRows = useMemo(

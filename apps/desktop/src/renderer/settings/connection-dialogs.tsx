@@ -421,12 +421,12 @@ interface ServerFolderListing {
   truncated: boolean;
 }
 
-/** Folder chooser for a server window (D1): the server's folders in place of
- *  this PC's OS dialog. `list('')` starts at the user's home on the server. */
 function folderListingNote(listing: ServerFolderListing | null): string {
   return listing?.entries.length === 0 ? t('No folders') : '\u00a0';
 }
 
+/** Folder chooser for a server window (D1): the server's folders in place of
+ *  this PC's OS dialog. `list('')` starts at the user's home on the server. */
 export function ServerFolderDialog({
   serverName,
   list,

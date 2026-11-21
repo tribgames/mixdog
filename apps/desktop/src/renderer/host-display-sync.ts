@@ -1,7 +1,3 @@
-// A browser paired with a host PC shows that PC's theme and UI language until the
-// user picks their own here (display-preference-source.ts). Reads the host's
-// choice on mount, on every (re)connection, and whenever the host announces a
-// settings change — the same channel the rail pins use to stay in step.
 import type { DesktopApi } from '../shared/contract';
 import { readHostDisplayPreferences } from '../shared/host-display-preferences';
 import { markHostDisplayChoice } from './display-preference-source';

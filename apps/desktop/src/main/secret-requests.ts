@@ -1,9 +1,3 @@
-/**
- * The ask_user secret requests of the window process: each request id's
- * one-shot value slots (the secret, its username and save choice) and the
- * page or window it was bound to at request time (secret-input.ts).
- */
-
 import type { TakeoverStateReader } from './takeover-gate';
 import {
   MAX_SECRET_LENGTH,

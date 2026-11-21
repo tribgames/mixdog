@@ -242,10 +242,6 @@ function ModelLoginSwitchDialog({
 const savedModelLogin = (host: DesktopSshHost): DesktopSshModelLogin =>
   host.settings?.modelLogin === 'server' ? 'server' : 'pc';
 
-/** Per-server settings: the folder the session opens in, the login key file,
- *  whether a dropped connection is re-dialed, and whose accounts its models
- *  run on. They apply from the next connection; a changed model login
- *  restarts an attached server's Mixdog after one confirmation. */
 export function SshHostSettingsDialog({
   api,
   host,

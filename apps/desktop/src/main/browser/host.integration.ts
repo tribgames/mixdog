@@ -132,10 +132,6 @@ async function commandIn(
   }
 }
 
-/**
- * A fixed Chromium trace, delivered as the CDP events Chromium would send. Live traces never repeat (GC and sampling events differ
- * per run), so the tracer is fed this list at its event input and renders it through its real code path.
- */
 const FIXED_TRACE_EVENTS = [
   { name: 'RunTask', ph: 'X', dur: 1200 },
   { name: 'RunTask', ph: 'X', dur: 800 },

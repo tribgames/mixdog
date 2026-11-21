@@ -15,26 +15,12 @@ process.env.MIXDOG_DATA_DIR = testDataDir;
 // One directory per test process; without this every run left one behind.
 process.on('exit', () => removeTempDirSync(testDataDir));
 
-// Test preload: React only exports `act` from its development build, so a
-// machine-level NODE_ENV=production silently breaks every DOM suite. Loaded
-// via --import before any test file evaluates its React imports; unit tests
-// always run against the development build regardless of ambient env. The
-// tsx test loader uses classic JSX, so expose the same development React
-// instance without keeping otherwise-unused default imports in source files.
+// React exports `act` only from its development build.
 process.env.NODE_ENV = 'development';
-// Deterministic UI language: Node 22's built-in navigator.language reports
-// the OS locale (ko-KR on Korean hosts), which would flip the renderer's
-// i18n into Korean and break every English-asserting suite. Tests always run
-// English unless a suite opts into another language explicitly.
+// Node 22's navigator.language reports the OS locale, which would switch the renderer's i18n.
 process.env.MIXDOG_UI_LANGUAGE ||= 'en';
-// ONE React per desktop test process. Shared modules that live outside this
-// package (src/tui/**, imported by renderer suites) resolve `react` from the
-// ROOT node_modules, so a hook of theirs rendered by the desktop react-dom
-// read a foreign, uninitialised dispatcher and every hook call failed with
-// "Cannot read properties of null (reading 'useRef')". The duplicate is a
-// workspace layout accident (identical versions in two node_modules trees),
-// so the desktop boundary pins every react/react-dom specifier to the copy
-// this package renders with. Shared modules stay untouched.
+// Shared modules outside this package resolve `react` from the root node_modules; a second React copy gives
+// their hooks a null dispatcher, so every react/react-dom specifier is pinned to this package's copy.
 const reactRequire = createRequire(import.meta.url);
 const REACT_SPECIFIERS = [
   'react',
@@ -53,11 +39,6 @@ for (const specifier of REACT_SPECIFIERS) {
     // Not installed for this suite; nothing to pin.
   }
 }
-// The pin is only sound while the two trees hold the SAME React: it silences a
-// duplicate, it does not reconcile versions. apps/desktop declares a range
-// (`react`/`react-dom` ^19.2.0), so an install may legitimately leave the root
-// tree on a different resolved version — the pin would then quietly run shared
-// modules against a React they were not built with. Fail loudly instead.
 const rootRequire = createRequire(new URL('../../../package.json', import.meta.url));
 const packageVersion = (resolver, specifier) => {
   try {
@@ -79,11 +60,7 @@ for (const specifier of ['react', 'react-dom']) {
     );
   }
 }
-// Renderer modules import their feature stylesheets for Vite to bundle. Node
-// has no CSS loader, so under test a stylesheet resolves to an empty module
-// instead of ERR_UNKNOWN_FILE_EXTENSION taking the importing suite down.
-// Resolved to a data: URL here because a synchronous `load` hook must hand
-// back a source for every module it sees, which breaks the CommonJS path.
+// Node has no CSS loader (ERR_UNKNOWN_FILE_EXTENSION); a synchronous `load` hook would break the CommonJS path.
 const EMPTY_MODULE_URL = 'data:text/javascript,';
 // Image and video imports become Vite asset URLs at build time; under test they
 // resolve to a module whose default export is the specifier, the same string shape.
@@ -108,11 +85,4 @@ registerHooks({
 
 const reactModule = await import('react');
 globalThis.React = reactModule.default ?? reactModule;
-// Bounded assertion rendering: renderer DOM suites build their own JSDOM and
-// share no harness module, so this preload is the one place every desktop test
-// process passes through (every package test script and any direct run that
-// needs the React/CSS setup above). A failing comparison against a JSDOM node
-// would otherwise inspect and diff the whole document/window/React-fiber graph.
-// The `node:assert/strict` object is patched in place, so suites that import
-// it later are covered. See scripts/bounded-assert.mjs.
 installBoundedAssertions();

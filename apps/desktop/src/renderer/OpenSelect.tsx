@@ -93,9 +93,6 @@ export function OpenSelect({
   const routeStyle = variant === 'route';
   const classNames = className.split(/\s+/);
   const settingsStyle = classNames.includes('settings-select');
-  // The composer pills and the route workflow chip read as ONE control each:
-  // the menu hangs off the pill, never off the inner button, or two pickers
-  // sitting in the same bar line up on different edges.
   const contextPillStyle =
     classNames.includes('context-pill-select') ||
     classNames.includes('project-context-select') ||
@@ -163,10 +160,6 @@ export function OpenSelect({
     if (!controlled) setInternalValue(next);
     onChange?.(next);
     setOpen(false);
-    // A row may disable this select while its write is in flight; the focus
-    // below then lands on a disabled button. Remember the choice for the
-    // commit that follows (same tick) so the focus returns once re-enabled.
-    // Keyboard choices only: pointer choices keep their behaviour.
     window.clearTimeout(justSelectedTimer.current);
     justSelected.current = viaKeyboard;
     if (viaKeyboard) {

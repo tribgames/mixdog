@@ -1,11 +1,4 @@
-/**
- * Drag gestures. A page that answers a press-and-move with its own HTML5 drag
- * never sees the rest of the mouse gesture: Chromium hands the drag payload
- * to the host and then waits for drag events. Without that exchange a Kanban
- * card or a file drop zone ignores the whole gesture, so the driver arms
- * interception, watches for the payload, and finishes as a drop. A page that
- * drags with plain mouse handlers stays on the mouse path.
- */
+/** A page's own HTML5 drag hands its payload to the host and waits for drag events, so the driver arms interception, watches for the payload and finishes as a drop; pages dragging with mouse handlers stay on the mouse path. */
 import type { WebContents } from 'electron';
 
 import { cssPoint, type Point, type SendBrowserInput } from './input-primitives';
@@ -71,10 +64,6 @@ interface DragGesture {
   entered: boolean;
 }
 
-/** Walk the press point's element chain — through frames, shadow roots and
- *  ancestors — for something Chromium drags by itself. A frame that cannot be
- *  read answers "maybe", which keeps the longer wait rather than abandoning a
- *  drag the page would have completed. */
 function nativeDragSourceExpression(point: Point): string {
   return `(() => {
     let doc = document;
@@ -264,11 +253,6 @@ export function createDragInput(send: SendBrowserInput, options: { drags?: Brows
     }
   }
 
-  /** Files delivered the way a person drops them: the payload is announced
-   *  first, so a zone that only listens for a drag sees it coming. `check`
-   *  runs before the payload is announced and again right before the drop
-   *  (the page's drag handlers run in between); a refusal there cancels the
-   *  drag, so the files never reach any document. */
   async function dropFilesAt(
     guest: WebContents,
     point: Point,

@@ -252,10 +252,6 @@ export function reportBootSurfaceStage(surface: string, rawKey: string, stage: s
   const cleanStage = cleanToken(stage);
   if (!cleanStage || metric.stages.has(cleanStage)) return false;
   metric.stages.add(cleanStage);
-  // The cold-start cover has its own fade after the first real paint. Releasing
-  // its barrier at paint overlaps that fade with the second-frame stability
-  // check instead of serializing both delays. Per-surface ready metrics still
-  // complete on the following frame for diagnostics and later surface swaps.
   if (cleanStage === 'paint') {
     for (const barrier of activeSurfaceBarriers) resolveBarrierSurface(barrier, id);
   }

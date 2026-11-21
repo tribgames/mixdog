@@ -58,10 +58,6 @@ function agentIdKey(value) {
     .replace(/[\s_]+/g, '-');
 }
 
-// "Off" is a first-class agent state, not an absent route: config.agents[<id>]
-// only survives canonicalization with a complete provider+model pair, so a
-// disabled agent keeps its stored model and is listed here instead. Turning the
-// agent back on therefore restores the model the user last picked.
 function agentIdList(raw) {
   if (!Array.isArray(raw)) return [];
   const ids = new Set();

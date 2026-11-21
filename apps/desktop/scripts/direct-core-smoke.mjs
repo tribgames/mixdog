@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// Runtime smoke of the direct desktop-to-core path, over the protocol only (packages/protocol-client, no Electron): one
-// connection as the main process (Local, no window header) and two as windows (`Mixdog-Window`, the header the desktop
-// sets per webContents), against an isolated mixdogd.
-//
 //   node apps/desktop/scripts/direct-core-smoke.mjs --core <daemon.json> [--workspace <dir>] [--route <provider>:<model>]
 //   node apps/desktop/scripts/direct-core-smoke.mjs --mixdogd <built mixdogd>
 //
@@ -11,13 +7,8 @@
 //             the approval steps need a model that calls a tool, so they only run with --mixdogd.
 // --mixdogd   a built mixdogd: it is started on a fresh profile under the temp dir with three scripted model endpoints (one
 //             answers the large prompt, two call `bash` so the core asks for an approval), and stopped at the end.
-// Steps (one line each, ok or FAIL): list projects; start a thread; a ~1 MB prompt through blob refs; a 600 KB file written
-// through a blob ref and read back; terminal ensure/attach/input/output on the main and on a window connection; an approval
-// answered by a window; a denied process/spawn on a window; two windows on one thread (the first answer wins).
-// A step whose input is not there (the model steps without --route and --workspace, the approval steps without --mixdogd) is printed
-// `skip` and counted as not run: it is neither a pass nor a failure. A --core run without --route therefore exits 0 when the
-// steps it can make all passed, and says how many it did not run; it proves the connections, the blob and file path, the
-// terminals and the window refusal, not the model or approval steps.
+// A step whose input is missing (model steps without --route and --workspace, approval steps without --mixdogd) is
+// printed `skip` and counted as not run: neither a pass nor a failure.
 // Exit 0 when no step failed, 1 when one failed, 2 on a bad command line or an unreachable core.
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';

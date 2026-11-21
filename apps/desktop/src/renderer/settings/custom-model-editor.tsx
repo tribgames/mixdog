@@ -25,10 +25,10 @@ type ReasoningLevel = (typeof REASONING_LEVELS)[number];
 
 const isLevel = (value: unknown): value is ReasoningLevel => REASONING_LEVELS.includes(value as ReasoningLevel);
 
-/** Toggle one level; the result is always in ranked order and may be []. */
+const rankedLevels = (levels: readonly ReasoningLevel[]) => REASONING_LEVELS.filter((item) => levels.includes(item));
+
 function toggleLevel(levels: readonly ReasoningLevel[], level: ReasoningLevel): ReasoningLevel[] {
-  const next = levels.includes(level) ? levels.filter((item) => item !== level) : [...levels, level];
-  return REASONING_LEVELS.filter((item) => next.includes(item));
+  return rankedLevels(levels.includes(level) ? levels.filter((item) => item !== level) : [...levels, level]);
 }
 
 function wireFormatOptions(protocol: string) {
@@ -44,16 +44,70 @@ function effectiveLevels(row: RecordValue): ReasoningLevel[] {
     : Array.isArray(row.reasoningOptions)
       ? row.reasoningOptions
       : [];
-  return toggleLevelsFrom(source.filter(isLevel));
+  return rankedLevels(source.filter(isLevel));
 }
-const toggleLevelsFrom = (levels: ReasoningLevel[]) => REASONING_LEVELS.filter((item) => levels.includes(item));
 
 type Patch = Record<string, unknown>;
 
-/**
- * Per-model editor. Only touched fields are sent: a value replaces the
- * override, null resets it to the inherited value.
- */
+interface ModelOverrideInput {
+  patch: Patch;
+  reasoning: Patch;
+  levels: ReasoningLevel[];
+  wireValues: Record<string, string>;
+  bodyText: string;
+  storedBody: string;
+  headerRows: PairRow[];
+  storedHeaders: PairRow[];
+}
+
+/** Shapes the pending edits into the save patch; a null value resets the stored override to inherited. */
+function buildModelOverridePatch(input: ModelOverrideInput): { out: Patch } | { error: string } {
+  const { reasoning, levels, wireValues, bodyText, storedBody, headerRows, storedHeaders } = input;
+  const out: Patch = { ...input.patch };
+  for (const key of ['contextWindow', 'maxOutputTokens']) {
+    const value = out[key];
+    if (value === undefined || value === null) continue;
+    const parsed = Number(String(value).trim());
+    if (String(value).trim() === '') out[key] = null;
+    else if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+      return { error: t('{{name}} must be a positive whole number.', { name: key }) };
+    } else out[key] = parsed;
+  }
+  if (typeof out.name === 'string') out.name = out.name.trim() || null;
+  if (Object.keys(reasoning).length) {
+    const next: Patch = { ...reasoning };
+    const pruned = (values: Record<string, string>) =>
+      Object.fromEntries(
+        Object.entries(values).filter(
+          ([level, value]) => levels.includes(level as ReasoningLevel) && String(value).trim() !== ''
+        )
+      );
+    if (next.wireValues && typeof next.wireValues === 'object') {
+      next.wireValues = pruned(next.wireValues as Record<string, string>);
+    } else if (Array.isArray(next.levels) && !('wireValues' in next)) {
+      // New levels drop the wire values of levels no longer listed.
+      const kept = pruned(wireValues);
+      if (Object.keys(kept).length !== Object.keys(wireValues).length)
+        next.wireValues = Object.keys(kept).length ? kept : null;
+    }
+    out.reasoning = next;
+  }
+  if (bodyText !== storedBody) {
+    const { value } = parseRequestBody(bodyText);
+    out.requestBody = Object.keys(value).length ? value : null;
+  }
+  if (JSON.stringify(headerRows) !== JSON.stringify(storedHeaders)) {
+    let values: Record<string, string>;
+    try {
+      values = pairRecord(headerRows, t('Headers for this model only'));
+    } catch (reason) {
+      return { error: errorMessage(reason) };
+    }
+    out.requestHeaders = Object.keys(values).length ? values : null;
+  }
+  return { out };
+}
+
 export function CustomModelEditor({
   providerId,
   protocol,
@@ -209,51 +263,21 @@ export function CustomModelEditor({
   );
 
   const save = async () => {
-    const out: Patch = { ...patch };
-    for (const key of ['contextWindow', 'maxOutputTokens']) {
-      const value = out[key];
-      if (value === undefined || value === null) continue;
-      const parsed = Number(String(value).trim());
-      if (String(value).trim() === '') out[key] = null;
-      else if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-        setError(t('{{name}} must be a positive whole number.', { name: key }));
-        return;
-      } else out[key] = parsed;
+    const built = buildModelOverridePatch({
+      patch,
+      reasoning,
+      levels,
+      wireValues,
+      bodyText,
+      storedBody,
+      headerRows,
+      storedHeaders,
+    });
+    if ('error' in built) {
+      setError(built.error);
+      return;
     }
-    if (typeof out.name === 'string') out.name = out.name.trim() || null;
-    if (Object.keys(reasoning).length) {
-      const next: Patch = { ...reasoning };
-      const pruned = (values: Record<string, string>) =>
-        Object.fromEntries(
-          Object.entries(values).filter(
-            ([level, value]) => levels.includes(level as ReasoningLevel) && String(value).trim() !== ''
-          )
-        );
-      if (next.wireValues && typeof next.wireValues === 'object') {
-        next.wireValues = pruned(next.wireValues as Record<string, string>);
-      } else if (Array.isArray(next.levels) && !has(next, 'wireValues')) {
-        // New levels drop the wire values of levels no longer listed.
-        const kept = pruned(wireValues);
-        if (Object.keys(kept).length !== Object.keys(wireValues).length)
-          next.wireValues = Object.keys(kept).length ? kept : null;
-      }
-      out.reasoning = next;
-    }
-    // A null patch value resets the stored override to inherited.
-    if (bodyText !== storedBody) {
-      const { value } = parseRequestBody(bodyText);
-      out.requestBody = Object.keys(value).length ? value : null;
-    }
-    if (JSON.stringify(headerRows) !== JSON.stringify(storedHeaders)) {
-      let values: Record<string, string>;
-      try {
-        values = pairRecord(headerRows, t('Headers for this model only'));
-      } catch (reason) {
-        setError(errorMessage(reason));
-        return;
-      }
-      out.requestHeaders = Object.keys(values).length ? values : null;
-    }
+    const out = built.out;
     if (!Object.keys(out).length) {
       onClose();
       return;

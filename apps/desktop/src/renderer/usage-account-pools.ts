@@ -65,10 +65,6 @@ function publish(provider: string, pool: UsageAccountPool): void {
   for (const listener of [...listeners]) listener();
 }
 
-// One shared watch per active provider, however many components use it: a
-// single in-flight read (a change during it earns one follow-up read), and a
-// generation per provider so a response from a retired request — one
-// superseded or outlived by its watcher — never publishes.
 interface Watch {
   count: number;
   inflight: boolean;
@@ -79,10 +75,8 @@ interface Watch {
   readAt: number;
 }
 
-/** A publication that leaves a provider's own row alone still rereads its
- *  roster once this long after the last read: the dashboard row shows only the
- *  account in use, while accounts added, removed or measured elsewhere (another
- *  device, a refresh of every account) show up only in the roster. */
+/** A publication that leaves a provider's own row alone still rereads its roster
+ *  this long after the last read: accounts changed elsewhere show only there. */
 export const ACCOUNT_REREAD_WINDOW_MS = 30_000;
 const watches = new Map<string, Watch>();
 const generations = new Map<string, number>();
@@ -134,10 +128,6 @@ function dashboardRow(provider: string): string {
 }
 
 function attachShared(): void {
-  // Account switches, sign-ins and removals announce themselves. The dashboard
-  // notifies on every publication (a phone's boot makes many, each carrying
-  // every provider), so a provider rereads when its OWN row changed, else at
-  // most once per window.
   const unsubscribe = subscribeUsageDashboard(() => {
     for (const [provider, watch] of watches) {
       const row = dashboardRow(provider);

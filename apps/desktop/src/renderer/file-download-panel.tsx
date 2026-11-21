@@ -1,8 +1,3 @@
-// Host-file downloads of a remote surface (GitHub #40): one small panel with
-// a row per file — progress, rate, time left, the saving/sharing phase, a
-// cancel button while it runs, and a persistent reason with Retry when it
-// fails. Same presentation and AbortController pattern as server-transfers.tsx;
-// the bytes move through file-download-transfer.ts.
 import { useEffect, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Download, RotateCcw, Share2, X } from 'lucide-react';

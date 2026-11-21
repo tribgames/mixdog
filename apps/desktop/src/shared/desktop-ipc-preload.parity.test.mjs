@@ -1,7 +1,3 @@
-// Channel parity: DESKTOP_IPC (the channel names shared by main, preload and renderer) against what the preload exposes
-// and what main registers. A channel the preload invokes must have a handler in main; one it sends must have a listener;
-// one it subscribes to must be sent from main. A channel the preload does not name is a member of the renderer's direct
-// API (the renderer reaches the core itself) or the event channel of one, and says so here.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -51,10 +47,6 @@ const mainNames = (name) => new RegExp(channel(name)).test(MAIN);
 const KEYS = Object.keys(DESKTOP_IPC);
 const DIRECT = new Set(Object.values(DIRECT_KEYS).flat());
 
-/**
- * Channels the preload does not name that are not the name of a direct member: the events that the direct members
- * `subscribe*` to, which the renderer receives over its own core connection.
- */
 const DIRECT_EVENT_CHANNELS = new Set([
   'folderChanged',
   'lspDiagnostics',

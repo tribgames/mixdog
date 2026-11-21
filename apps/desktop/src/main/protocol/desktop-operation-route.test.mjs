@@ -516,11 +516,6 @@ test('the routed operations are the spec map targets with params the Rust schema
     ])
   );
   assert.equal(operations.length, 174);
-  // Two operations have a core method the desktop never sends: `visualizeRemoteViewing` is read from a section, and
-  // `browserRemoteWebrtcSignal` was the relay's own call into the desktop service (Node `main/index.ts`
-  // `invokeDesktopOperation('browserRemoteWebrtcSignal', [clientId, signal])`); the phone now sends
-  // `browser/webrtcSignal` to the core itself, on a relay connection, the only origin the method allows. The two announcements are
-  // sent by the lane itself (a settings change publishes the display preferences first); the next test holds them to the map.
   assert.deepEqual(
     [...wantedMethods]
       .filter(([, methods]) => methods)

@@ -81,6 +81,43 @@ function DependencyRows({
   );
 }
 
+/** The save payload of the skill form; null when a read-only skill has no tool-link change to save. */
+function buildSkillPayload(
+  data: FormData,
+  input: {
+    editing: boolean;
+    readOnly: boolean;
+    name: string;
+    dependencies: Dependency[];
+    dependencyChange: 'none' | 'override' | 'restore';
+  }
+): { payload: RecordValue } | { error: string } | null {
+  const { editing, readOnly, name, dependencies, dependencyChange } = input;
+  const trimmedDependencies = dependencies
+    .filter((entry) => entry.value.trim())
+    .map((entry) => ({ ...entry, value: entry.value.trim() }));
+  let dependencyPayload: { toolDependencies?: typeof trimmedDependencies | null } = {};
+  if (dependencyChange === 'restore') dependencyPayload = { toolDependencies: null };
+  else if (dependencyChange !== 'none') dependencyPayload = { toolDependencies: trimmedDependencies };
+  if (readOnly) {
+    return dependencyChange === 'none'
+      ? null
+      : { payload: { originalName: name, dependenciesOnly: true, ...dependencyPayload } };
+  }
+  const body = String(data.get('skill-instructions') || '').trim();
+  if (!body) return { error: t('SKILL.md instructions must not be empty.') };
+  return {
+    payload: {
+      ...(editing ? { originalName: name } : {}),
+      name: String(data.get('skill-name') || '').trim(),
+      description: String(data.get('skill-description') || '').trim(),
+      whenToUse: String(data.get('skill-trigger') || '').trim(),
+      instructions: body,
+      ...dependencyPayload,
+    },
+  };
+}
+
 export function SkillEditorDialog({
   skill,
   instructions,
@@ -137,31 +174,20 @@ export function SkillEditorDialog({
       }
       onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
-        const trimmedDependencies = dependencies
-          .filter((entry) => entry.value.trim())
-          .map((entry) => ({ ...entry, value: entry.value.trim() }));
-        let dependencyPayload: { toolDependencies?: typeof trimmedDependencies | null } = {};
-        if (dependencyChange === 'restore') dependencyPayload = { toolDependencies: null };
-        else if (dependencyChange !== 'none') dependencyPayload = { toolDependencies: trimmedDependencies };
-        if (readOnly) {
-          if (dependencyChange !== 'none') onSave({ originalName: name, dependenciesOnly: true, ...dependencyPayload });
-          return;
-        }
-        const data = new FormData(event.currentTarget);
-        const body = String(data.get('skill-instructions') || '').trim();
-        if (!body) {
-          setFormError(t('SKILL.md instructions must not be empty.'));
+        const built = buildSkillPayload(new FormData(event.currentTarget), {
+          editing,
+          readOnly,
+          name,
+          dependencies,
+          dependencyChange,
+        });
+        if (!built) return;
+        if ('error' in built) {
+          setFormError(built.error);
           return;
         }
         setFormError('');
-        onSave({
-          ...(editing ? { originalName: name } : {}),
-          name: String(data.get('skill-name') || '').trim(),
-          description: String(data.get('skill-description') || '').trim(),
-          whenToUse: String(data.get('skill-trigger') || '').trim(),
-          instructions: body,
-          ...dependencyPayload,
-        });
+        onSave(built.payload);
       }}
       footer={
         <>

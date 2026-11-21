@@ -1,9 +1,3 @@
-// Pinned usage stack vs. rail height: the stack is one brand row per pinned
-// provider, and on a short window it pushed the destination list into a
-// scroller. The rail measures itself and folds the stack back to the pie glyph
-// whenever the destinations, the stack and Settings cannot all keep whole
-// cells.
-
 /** Layout constants of .rail-usage-pin-brand / .is-pinned in 09-sidebar-chrome.css. */
 const PIN_ROW_HEIGHT = 16 + 2 + 3 + 2 + 11;
 const PIN_ROW_GAP = 10;

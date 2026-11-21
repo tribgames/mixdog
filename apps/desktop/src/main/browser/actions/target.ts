@@ -1,8 +1,3 @@
-/**
- * How a handler gets the ref it works on: the caller's own ref, or one the
- * host resolves right now from a snapshot-free `target`. Resolution takes a
- * fresh observation, so recovery and the effect baseline move to it.
- */
 import type { ResolvedBrowserTarget } from '../target-resolve';
 import type { BrowserActionContext } from './types';
 
@@ -18,12 +13,6 @@ export function adoptResolvedTargets(
   }
 }
 
-/**
- * Both ends of a drag. Targets are resolved in one observation so the two refs
- * describe the same page state; a page that moves between two separate
- * resolutions would otherwise hand back a source and a destination that never
- * existed together.
- */
 export async function dragRefs(context: BrowserActionContext): Promise<{ source?: string; destination?: string }> {
   const { guest, command, signal, services } = context;
   if (command.target === undefined || command.target === null) {

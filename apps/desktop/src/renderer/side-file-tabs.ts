@@ -80,6 +80,35 @@ export function sameSideFiles(left?: readonly PaneSideDockFile[], right?: readon
   return a.length === b.length && a.every((file, index) => file === b[index]);
 }
 
+function lineReveal(file: SideFileLink): Pick<PaneSideDockFile, 'line' | 'column'> {
+  return {
+    ...(file.line ? { line: file.line } : {}),
+    ...(file.line && file.column ? { column: file.column } : {}),
+  };
+}
+
+/** Drops the least recently opened idle tabs beyond the limit into `removed`. */
+function evictOverLimit(
+  files: PaneSideDockFile[],
+  protectedKeys: ReadonlySet<string | null>,
+  isDirty: SideFileOpenOptions['isDirty'],
+  removed: PaneSideDockFile[]
+): PaneSideDockFile[] {
+  let kept = files;
+  while (kept.length > SIDE_FILE_TAB_LIMIT) {
+    let victim: PaneSideDockFile | undefined;
+    for (const tab of kept) {
+      const tabKey = sideFileKey(tab);
+      if (protectedKeys.has(tabKey) || isDirty?.(tabKey)) continue;
+      if (!victim || tab.openedAt < victim.openedAt) victim = tab;
+    }
+    if (!victim) break;
+    kept = kept.filter((tab) => tab !== victim);
+    removed.push(victim);
+  }
+  return kept;
+}
+
 /** Opens a file in the tab list. A file with a tab is activated (its line
  *  revealed); otherwise it joins as the preview tab (replacing the current
  *  one, unless the link was followed from that tab within the pin window) or
@@ -95,12 +124,7 @@ export function planSideFileOpen(
   const existing = tabs.files.find((tab) => sideFileKey(tab) === key);
   if (existing) {
     const { line: _line, column: _column, ...base } = existing;
-    const refreshed: PaneSideDockFile = {
-      ...base,
-      nonce,
-      ...(file.line ? { line: file.line } : {}),
-      ...(file.line && file.column ? { column: file.column } : {}),
-    };
+    const refreshed: PaneSideDockFile = { ...base, nonce, ...lineReveal(file) };
     return { files: tabs.files.map((tab) => (tab === existing ? refreshed : tab)), active: key, removed: [] };
   }
   const now = options.now ?? Date.now();
@@ -108,8 +132,7 @@ export function planSideFileOpen(
   const created: PaneSideDockFile = {
     project: file.project,
     rel: file.rel,
-    ...(file.line ? { line: file.line } : {}),
-    ...(file.line && file.column ? { column: file.column } : {}),
+    ...lineReveal(file),
     ...(file.accessToken ? { accessToken: file.accessToken } : {}),
     nonce,
     openedAt: now,
@@ -128,18 +151,7 @@ export function planSideFileOpen(
     if (current) files = files.map((tab) => (tab === current ? withoutPreview(tab) : tab));
     files.push(created);
   }
-  const protectedKeys = new Set<string | null>([key, tabs.active]);
-  while (files.length > SIDE_FILE_TAB_LIMIT) {
-    let victim: PaneSideDockFile | undefined;
-    for (const tab of files) {
-      const tabKey = sideFileKey(tab);
-      if (protectedKeys.has(tabKey) || options.isDirty?.(tabKey)) continue;
-      if (!victim || tab.openedAt < victim.openedAt) victim = tab;
-    }
-    if (!victim) break;
-    files = files.filter((tab) => tab !== victim);
-    removed.push(victim);
-  }
+  files = evictOverLimit(files, new Set<string | null>([key, tabs.active]), options.isDirty, removed);
   return { files, active: key, removed };
 }
 

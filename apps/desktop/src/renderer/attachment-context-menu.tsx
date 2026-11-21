@@ -49,10 +49,6 @@ export function desktopAttachmentActions(onOpenFile?: AttachmentOpenFile | null)
             onOpenFile(row.projectPath, row.relPath, undefined, row.accessToken);
           }
         : undefined,
-    // The attachment is a file on the PC, named by its content hash. The
-    // desktop reads it from the store and opens it in the side panel; a paired
-    // device gets the same file as a one-file preview grant scoped to the
-    // session, through the ordinary remote preview path.
     openStored: async (stored, name) => {
       if (remote) {
         const row = await api?.openSessionAttachment?.(stored.sessionId, stored.id);

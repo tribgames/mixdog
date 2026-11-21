@@ -52,6 +52,8 @@ export function PairRows({
   children?: ReactNode;
 }) {
   const visible = values.length ? values : [{ key: '', value: '' }];
+  const edit = (index: number, field: keyof PairRow, text: string) =>
+    onChange(visible.map((entry, rowIndex) => (rowIndex === index ? { ...entry, [field]: text } : { ...entry })));
   return (
     <>
       <div className="extensions-mcp-list-rows">
@@ -64,22 +66,14 @@ export function PairRows({
               disabled={busy}
               spellCheck={false}
               aria-invalid={invalid?.(row) ? true : undefined}
-              onChange={(event) => {
-                const next = visible.map((entry) => ({ ...entry }));
-                next[index].key = event.currentTarget.value;
-                onChange(next);
-              }}
+              onChange={(event) => edit(index, 'key', event.currentTarget.value)}
             />
             <input
               value={row.value}
               placeholder={valuePlaceholder}
               disabled={busy}
               spellCheck={false}
-              onChange={(event) => {
-                const next = visible.map((entry) => ({ ...entry }));
-                next[index].value = event.currentTarget.value;
-                onChange(next);
-              }}
+              onChange={(event) => edit(index, 'value', event.currentTarget.value)}
             />
             <button
               type="button"

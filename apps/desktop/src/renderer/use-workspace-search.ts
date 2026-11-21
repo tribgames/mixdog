@@ -14,6 +14,47 @@ export type SearchContentResults = Array<{
   limitHit: boolean;
 }>;
 
+/** File-name matches per project; a project whose search failed contributes none. */
+async function searchNames(projects: readonly string[], query: string): Promise<SearchNameResults> {
+  const results = await Promise.allSettled(
+    projects.map(async (project) => ({
+      project,
+      paths: await window.mixdogDesktop.searchProjectFiles(project, query, 200),
+    }))
+  );
+  return results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
+}
+
+async function searchContents(
+  projects: readonly string[],
+  query: string,
+  options: DesktopWorkspaceTextSearchOptions
+): Promise<SearchContentResults> {
+  const results = await Promise.allSettled(
+    projects.map(async (project) => {
+      if (window.mixdogDesktop.searchWorkspaceText) {
+        return { project, ...(await window.mixdogDesktop.searchWorkspaceText(project, options)) };
+      }
+      const paths = await window.mixdogDesktop.searchProjectFiles(project, query, 200);
+      return {
+        project,
+        matchCount: paths.length,
+        limitHit: false,
+        files: paths.map((relPath) => ({
+          relPath,
+          matches: [{ line: 1, column: 1, endColumn: 1, preview: relPath, matchText: '' }],
+        })),
+      };
+    })
+  );
+  const rows = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
+  if (!rows.length && results.every((result) => result.status === 'rejected')) {
+    const rejected = results.find((result) => result.status === 'rejected');
+    throw rejected && rejected.status === 'rejected' ? rejected.reason : new Error('Search failed.');
+  }
+  return rows;
+}
+
 /** One finished search: the query and mode it answered, and what it found. */
 interface SettledSearch {
   /** The projects it searched. */
@@ -76,74 +117,30 @@ export function useWorkspaceSearch(projectPath: string, active: boolean) {
       setSettled(null);
       return undefined;
     }
+    const settle = (found: Partial<Pick<SettledSearch, 'names' | 'contents' | 'error'>>) => {
+      if (searchGeneration.current !== current) return;
+      setSettled({
+        projects: searchProjectsKey,
+        query: trimmed,
+        mode: searchMode,
+        names: [],
+        contents: [],
+        error: '',
+        ...found,
+      });
+    };
     if (searchProjects.length === 0) {
-      setSettled({ projects: searchProjectsKey, query: trimmed, mode: searchMode, names: [], contents: [], error: '' });
+      settle({});
       return undefined;
     }
     const timer = window.setTimeout(() => {
       if (searchMode === 'names') {
-        void Promise.allSettled(
-          searchProjects.map(async (project) => ({
-            project,
-            paths: await window.mixdogDesktop.searchProjectFiles(project, trimmed, 200),
-          }))
-        ).then((results) => {
-          if (searchGeneration.current !== current) return;
-          setSettled({
-            projects: searchProjectsKey,
-            query: trimmed,
-            mode: 'names',
-            names: results.flatMap((result) => (result.status === 'fulfilled' ? result.value : [])),
-            contents: [],
-            error: '',
-          });
-        });
+        void searchNames(searchProjects, trimmed).then((names) => settle({ names }));
         return;
       }
-      void Promise.allSettled(
-        searchProjects.map(async (project) => {
-          if (window.mixdogDesktop.searchWorkspaceText) {
-            return { project, ...(await window.mixdogDesktop.searchWorkspaceText(project, searchOptions)) };
-          }
-          const paths = await window.mixdogDesktop.searchProjectFiles(project, trimmed, 200);
-          return {
-            project,
-            matchCount: paths.length,
-            limitHit: false,
-            files: paths.map((relPath) => ({
-              relPath,
-              matches: [{ line: 1, column: 1, endColumn: 1, preview: relPath, matchText: '' }],
-            })),
-          };
-        })
-      )
-        .then((results) => {
-          if (searchGeneration.current !== current) return;
-          const rows = results.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
-          if (!rows.length && results.every((result) => result.status === 'rejected')) {
-            const rejected = results.find((result) => result.status === 'rejected');
-            throw rejected && rejected.status === 'rejected' ? rejected.reason : new Error('Search failed.');
-          }
-          setSettled({
-            projects: searchProjectsKey,
-            query: trimmed,
-            mode: 'contents',
-            names: [],
-            contents: rows,
-            error: '',
-          });
-        })
-        .catch((reason) => {
-          if (searchGeneration.current !== current) return;
-          setSettled({
-            projects: searchProjectsKey,
-            query: trimmed,
-            mode: 'contents',
-            names: [],
-            contents: [],
-            error: reason instanceof Error ? reason.message : String(reason),
-          });
-        });
+      searchContents(searchProjects, trimmed, searchOptions)
+        .then((contents) => settle({ contents }))
+        .catch((reason) => settle({ error: reason instanceof Error ? reason.message : String(reason) }));
     }, 90);
     return () => window.clearTimeout(timer);
   }, [active, query, searchMode, searchOptions, searchProjects, searchProjectsKey]);

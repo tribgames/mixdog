@@ -238,10 +238,6 @@ export function useSidebarBootSurface(open: boolean, sessionsReady: boolean) {
     if (!open) return;
     beginBootSurface('session-sidebar', 'recent');
     reportBootSurfaceStage('session-sidebar', 'recent', 'module');
-    // Cached rows and the explicit loading/empty shell are already usable.
-    // Holding the global boot cover for the authoritative catalog round trip
-    // made a restored Task pane delay the whole desktop despite having a
-    // complete first frame to show.
     reportBootSurfaceReady('session-sidebar', 'recent', 'shell');
   }, [open]);
   useLayoutEffect(() => {

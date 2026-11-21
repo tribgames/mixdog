@@ -1,8 +1,3 @@
-/**
- * The Electron side of the remote-screen pill: the Computer Use pill's page,
- * surface and preload, in remote form (see screen-indicator-core for the
- * rules). The window is click-through outside the pill and never takes focus.
- */
 import { app, BrowserWindow, screen } from 'electron';
 
 import { overlayHtml, overlayScript } from '../computer/overlay/content';

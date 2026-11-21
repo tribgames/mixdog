@@ -1,7 +1,3 @@
-/** Local, user-initiated controls address a document, not a sampled image.
- * Agent and remote controls retain their own stricter observation contracts.
- * Frames come from page-surface-frame, controls from page-surface-control; the
- * per-guest presentation state they share lives in page-surface-state. */
 import type { WebContents } from 'electron';
 import type { DesktopBrowserTab } from '../../shared/contract';
 import type { BrowserGuestCdp } from './cdp';
@@ -109,10 +105,7 @@ export function createBrowserPageSurface(host: BrowserPageSurfaceHost) {
       paneZooms.delete(sessionId);
       presentedGuests.delete(sessionId);
     },
-    /** An offscreen page reads the display scale only when it resizes or
-     *  navigates. After the primary display's scale changes, move each
-     *  presented offscreen page off its pane size and back so its frames take
-     *  the new scale; native windows follow their display themselves. */
+    /** Offscreen pages read the display scale only on resize or navigation. */
     refreshScale(): void {
       bumpScale();
       for (const [sessionId, guest] of presentedGuests) {

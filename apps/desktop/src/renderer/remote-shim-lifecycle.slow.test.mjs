@@ -1,8 +1,3 @@
-// The phone's connection lifecycle through the protocol client: every scenario of remote-shim-lifecycle-departures.json, each played from
-// its own script in its own process (remote-shim-lifecycle.scenario.mjs). Every checkpoint the departures
-// file holds is compared whole: the connection indicator's state sequence, every socket opened, pinged or closed with its code, reason and
-// virtual time, the resync requests, what the core knows of the phone, how a gated read ended, and the redial delays. The checkpoints that
-// only name a moment ("connected", "boot-window-expired") must exist.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';

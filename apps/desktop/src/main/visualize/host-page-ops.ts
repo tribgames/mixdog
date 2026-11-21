@@ -1,7 +1,3 @@
-/**
- * Scripts the desktop host runs inside a displayed tab's HTML panes:
- * annotation overlays, screen reading and `act` steps.
- */
 import type { BrowserWindow } from 'electron';
 
 import { runActSteps, type VisualizeActStep } from './act-steps';

@@ -325,9 +325,8 @@ test('a legacy schedule run session lists in Recent, and saved prefs naming auto
   }
 });
 
-test('the Recent actions menu archives recent sessions and confirms archived deletion', async () => {
+async function renderRecentActionsSidebar() {
   const { restore } = installDom();
-
   const { SessionSidebar } = await import('./session-sidebar.tsx');
   const root = createRoot(document.getElementById('root'));
   const session = (id, archived = false, extra = {}) => ({
@@ -346,29 +345,39 @@ test('the Recent actions menu archives recent sessions and confirms archived del
   });
   const archivedCalls = [];
   const deletedCalls = [];
+  await act(async () =>
+    root.render(
+      React.createElement(SessionSidebar, {
+        open: true,
+        sessions: [session('recent-one'), session('recent-two'), session('archived-one', true)],
+        sessionsReady: true,
+        unreadSessionIds: new Set(['recent-one']),
+        selection: { kind: 'new' },
+        onNewTask() {},
+        onResumeSession() {},
+        async onRenameSession() {},
+        async onArchiveSession(id, archived) {
+          archivedCalls.push([id, archived]);
+        },
+        async onDeleteSession(id) {
+          deletedCalls.push(id);
+        },
+      })
+    )
+  );
+  return {
+    archivedCalls,
+    deletedCalls,
+    async cleanup() {
+      await act(async () => root.unmount());
+      restore();
+    },
+  };
+}
 
+test('the Recent actions menu archives recent sessions and confirms archived deletion', async () => {
+  const { archivedCalls, deletedCalls, cleanup } = await renderRecentActionsSidebar();
   try {
-    await act(async () =>
-      root.render(
-        React.createElement(SessionSidebar, {
-          open: true,
-          sessions: [session('recent-one'), session('recent-two'), session('archived-one', true)],
-          sessionsReady: true,
-          unreadSessionIds: new Set(['recent-one']),
-          selection: { kind: 'new' },
-          onNewTask() {},
-          onResumeSession() {},
-          async onRenameSession() {},
-          async onArchiveSession(id, archived) {
-            archivedCalls.push([id, archived]);
-          },
-          async onDeleteSession(id) {
-            deletedCalls.push(id);
-          },
-        })
-      )
-    );
-
     const recentSection = document.querySelector('section[aria-label="Recent sessions"]');
     const archivedSection = document.querySelector('.sidebar-archived');
     const recentTrigger = recentSection?.querySelector('.row-overflow-trigger');
@@ -409,7 +418,16 @@ test('the Recent actions menu archives recent sessions and confirms archived del
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     assert.deepEqual(deletedCalls, ['archived-one']);
+  } finally {
+    await cleanup();
+  }
+});
 
+test('a collapsed Recent section keeps its actions, and the Archived header opens its menu by right-click or key', async () => {
+  const { cleanup } = await renderRecentActionsSidebar();
+  try {
+    const recentSection = document.querySelector('section[aria-label="Recent sessions"]');
+    const archivedSection = document.querySelector('.sidebar-archived');
     const recentToggle = recentSection.querySelector('.sidebar-heading-toggle');
     await act(async () => recentToggle.click());
     assert.ok(recentSection.querySelector('.sidebar-heading-dot'));
@@ -437,8 +455,7 @@ test('the Recent actions menu archives recent sessions and confirms archived del
     assert.ok(document.querySelector('.row-overflow-menu'));
     await press('Escape');
   } finally {
-    await act(async () => root.unmount());
-    restore();
+    await cleanup();
   }
 });
 

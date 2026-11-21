@@ -1,7 +1,4 @@
-// Built-in skin data. accent/cast were computed once from the shipped
-// pictures (the same extraction setCustomSkin still runs for a user's image)
-// and are hard-coded; `focal` keeps the subject clear of the centred text
-// column. Swapping a picture keeps its file name; refresh accent/cast then.
+// accent/cast are computed from the shipped pictures (the extraction setCustomSkin runs); refresh them when a picture is swapped.
 import type { SkinCast, SkinPlate } from './skin-color';
 
 export type SkinManifestEntry = {

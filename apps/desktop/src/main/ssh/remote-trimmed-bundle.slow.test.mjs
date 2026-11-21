@@ -1,8 +1,3 @@
-// The remote JS runtime keeps working with only the packages the entry points reach: the real staging
-// (deriveRemoteRoots -> trimmed manifest and lockfile -> `npm ci`) builds a payload for this machine's
-// platform, and the pptxgenjs authoring script entry (the one script the native office worker starts) plus every shipped
-// skill script run from it under its own node, with no node_modules above it to fall back on. Network and a few
-// minutes of npm; set MIXDOG_BUILD_SCRATCH (and TEMP, npm_config_cache) to a disk with room (~1 GB).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';

@@ -1,8 +1,3 @@
-/**
- * Pure rules of the sign-in window (login-popup.ts): which takeover asks for
- * it, which pages it may show, which sites end it by themselves, where it
- * sits, and when the agent's page may reload after a sign-in.
- */
 import type { WebContents } from 'electron';
 
 import type { DesktopBrowserLoginStatus } from '../../shared/contract';

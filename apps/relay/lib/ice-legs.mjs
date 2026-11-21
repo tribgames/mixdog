@@ -12,25 +12,13 @@
 //   `remainingMs` is how long the credential really lives from the moment of
 //   issue (its expiry is a whole second, so up to 999 ms under ttlSeconds); a
 //   cache counts down from it on its own clock and never compares `expiresAt`.
-//   A request whose id is not a routing id (lib/ids.mjs) gets no answer: the
-//   desktop mints them with randomUUID(), and an id too long to be one is not
-//   echoed back, truncated or otherwise.
-//
-// The desktop leg is the only way to ask. It authenticated with its device
-// secret, and the phone's side of the connection travels end-to-end encrypted
-// through that desktop, so a phone receives the list from its own PC and never
-// asks this relay directly. A device that has paired no phone is refused: a
-// TURN relay moves traffic at this host's expense, and a registered-but-unpaired
-// device has no connection to relay.
+//   A request whose id is not a routing id (lib/ids.mjs) gets no answer.
 import { isRoutingId } from './ids.mjs';
 import { RateLimiter } from './rate-limit.mjs';
 import { issueTurnCredential, iceServersFor, stunUrls, turnUserId } from './turn-credentials.mjs';
 
 /** The relay's issuer for one TURN configuration, or null without one. A device
- *  may ask `config.issueLimit` times per credential lifetime: a desktop asks
- *  once per lifetime (it caches until shortly before expiry) plus once per
- *  process start, so the figure is the number of starts a deployment expects
- *  a device to make in that time. */
+ *  may ask `config.issueLimit` times per credential lifetime. */
 export function createIceService(config, { now = Date.now, log = console.log } = {}) {
   if (!config) return null;
   return {

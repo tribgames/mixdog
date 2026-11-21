@@ -43,6 +43,44 @@ interface Viewport {
  *  and after it (putting the page back, encoding). */
 const BANDED_CAPTURE_CEILING_MS = COMMAND_TIMEOUT_MS - 6_000;
 
+async function readDocumentViewport(
+  cdp: BrowserCdpPort,
+  guest: WebContents,
+  objectId: string,
+  position: { x: number; y: number } | null,
+  signal?: AbortSignal
+): Promise<Viewport> {
+  const response = await cdp.call<{ result?: { value?: Viewport }; exceptionDetails?: unknown }>(
+    guest,
+    'Runtime.callFunctionOn',
+    {
+      objectId,
+      functionDeclaration: `async function(position) {
+        if (position) this.scrollTo({left:position.x,top:position.y,behavior:'instant'});
+        await ${browserRenderCheckpoint(false)};
+        const root = this.document.documentElement;
+        // innerWidth/Height round CSS pixels; the visual viewport retains
+        // fractions at zoom levels such as 75%. Include scrollbar gutters.
+        return {x:this.scrollX,y:this.scrollY,
+          width:this.visualViewport.width + this.innerWidth - root.clientWidth,
+          height:this.visualViewport.height + this.innerHeight - root.clientHeight,
+          clientWidth:root.clientWidth,clientHeight:root.clientHeight,
+          left:this.visualViewport.pageLeft,top:this.visualViewport.pageTop,
+          visibleWidth:this.visualViewport.width,visibleHeight:this.visualViewport.height,
+          scale:this.visualViewport.scale,dpr:this.devicePixelRatio};
+      }`,
+      arguments: [{ value: position }],
+      awaitPromise: true,
+      returnByValue: true,
+    },
+    signal
+  );
+  if (response.exceptionDetails || !response.result?.value) {
+    throw new Error('full-page capture lost its document viewport');
+  }
+  return response.result.value;
+}
+
 export async function captureTiledDocument(
   cdp: BrowserCdpPort,
   guest: WebContents,
@@ -65,37 +103,8 @@ export async function captureTiledDocument(
   );
   const objectId = windowObject.result?.objectId;
   if (!objectId) throw new Error('full-page capture could not bind its document');
-  const viewport = async (position: { x: number; y: number } | null, readSignal?: AbortSignal) => {
-    const response = await cdp.call<{ result?: { value?: Viewport }; exceptionDetails?: unknown }>(
-      guest,
-      'Runtime.callFunctionOn',
-      {
-        objectId,
-        functionDeclaration: `async function(position) {
-          if (position) this.scrollTo({left:position.x,top:position.y,behavior:'instant'});
-          await ${browserRenderCheckpoint(false)};
-          const root = this.document.documentElement;
-          // innerWidth/Height round CSS pixels; the visual viewport retains
-          // fractions at zoom levels such as 75%. Include scrollbar gutters.
-          return {x:this.scrollX,y:this.scrollY,
-            width:this.visualViewport.width + this.innerWidth - root.clientWidth,
-            height:this.visualViewport.height + this.innerHeight - root.clientHeight,
-            clientWidth:root.clientWidth,clientHeight:root.clientHeight,
-            left:this.visualViewport.pageLeft,top:this.visualViewport.pageTop,
-            visibleWidth:this.visualViewport.width,visibleHeight:this.visualViewport.height,
-            scale:this.visualViewport.scale,dpr:this.devicePixelRatio};
-        }`,
-        arguments: [{ value: position }],
-        awaitPromise: true,
-        returnByValue: true,
-      },
-      readSignal
-    );
-    if (response.exceptionDetails || !response.result?.value) {
-      throw new Error('full-page capture lost its document viewport');
-    }
-    return response.result.value;
-  };
+  const viewport = (position: { x: number; y: number } | null, readSignal?: AbortSignal) =>
+    readDocumentViewport(cdp, guest, objectId, position, readSignal);
   const capture = (area?: BrowserScreenshotRect) => {
     signal?.throwIfAborted();
     const remaining = deadline - performance.now();
@@ -104,20 +113,11 @@ export async function captureTiledDocument(
     return captureViewportImage(guest, Math.min(remaining, viewportTimeoutMs), signal, area);
   };
 
-  /** The whole page, scaled into the image limits. The page keeps its own
-   *  viewport, metrics and layout: it is scrolled band by band, each band is
-   *  read from the visible viewport, scaled, and written into the output, so
-   *  no bitmap alive is larger than a band or the output. */
   const captureBands = async (start: Viewport): Promise<EncodedBrowserScreenshot> => {
     const zoom = guest.getZoomFactor();
     // DIPs of the view per CSS px: the page zoom and any pinch (a phone
     // layout shown zoomed out) both scale what the viewport shows.
     const dipPerCss = zoom * start.scale;
-    // One small read gives the image px per DIP capturePage really delivers
-    // (the display's scale, which an emulated pixel ratio does not change),
-    // so the band budget and the output size hold for the real images. The
-    // strip is a viewport wide: the bitmap's rounding up to a whole pixel
-    // then barely moves the measure, and never below the real scale.
     const probeArea = bandCaptureArea({ x: 0, y: 0 }, { width: start.visibleWidth, height: 1 }, dipPerCss);
     const probe = (await capture(probeArea)).getSize();
     if (probe.width <= 0 || probe.height <= 0) throw new Error('full-page capture has no viewport pixels');

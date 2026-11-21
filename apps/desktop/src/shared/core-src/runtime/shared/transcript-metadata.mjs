@@ -85,10 +85,6 @@ export function newTranscriptMessageId() {
 
 export const stableMessageId = (value) => (typeof value === 'string' && value ? value : newTranscriptMessageId());
 
-// Every persisted prompt/reply carries a stable `messageId` from creation on.
-// Compaction rewrites copy `meta`, so the id survives them; the display-only
-// compaction archive and a live view tell dropped rows from rewritten ones
-// by it. A surface that drew the row first passes its id in.
 export function persistedUserTranscriptMetadata(value) {
   if (!value || typeof value !== 'object') return null;
   return {

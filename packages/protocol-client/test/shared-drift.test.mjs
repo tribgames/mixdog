@@ -6,7 +6,15 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const here = (rel) => fileURLToPath(new URL(rel, import.meta.url));
-const NAMES = ['clean', 'tool-execution-contract', 'task-notification-envelope', 'bot-hops', 'shell-display', 'object', 'numbers'];
+const NAMES = [
+  'clean',
+  'tool-execution-contract',
+  'task-notification-envelope',
+  'bot-hops',
+  'shell-display',
+  'object',
+  'numbers',
+];
 
 for (const name of NAMES) {
   test(`src/shared/${name}.mjs is byte-identical to src/runtime/shared/${name}.mjs`, () => {

@@ -1,7 +1,3 @@
-// Settings › Notifications: pick a device (this PC or a paired one), then set
-// what that device is notified about. Every change is written at once with
-// setNotificationPreferences(deviceId, patch); the PC decides, so the same
-// page works from this PC's window and from a paired device.
 import { Globe, Monitor, Smartphone } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 

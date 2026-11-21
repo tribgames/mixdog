@@ -509,6 +509,53 @@ export interface VisualizeRemoteExport {
   name: string;
 }
 
+function remoteVisualizeTab(tab: VisualizeHostState['tabs'][number]): VisualizeSessionState['tabs'][number] {
+  const problems = (tab.problems ?? []).slice(0, MAX_VISUALIZE_PROBLEMS).map((problem) => ({
+    kind: problem.kind,
+    message: localizeLoopbackUrls(String(problem.message)),
+    source: localizeLoopbackUrls(String(problem.source)),
+    line: problem.line,
+    count: problem.count,
+    pane: problem.pane,
+    ...(typeof problem.version === 'number' ? { version: problem.version } : {}),
+  }));
+  const annotations = visualizeAnnotations(tab.annotations);
+  const thumbnail = visualizeThumbnail(tab.thumbnail);
+  const remoteVersion = (version: NonNullable<typeof tab.versions>[number]) => {
+    const turns = version.turns?.length ? { turns: version.turns.map(({ since, end }) => ({ since, end })) } : {};
+    return { n: version.n, at: version.at, ...(version.label ? { label: version.label } : {}), ...turns };
+  };
+  const versionFields = (versions: NonNullable<typeof tab.versions>) => ({
+    versions: versions.map(remoteVersion),
+    version: tab.version ?? null,
+    ...(tab.compare ? { compare: true } : {}),
+    ...(tab.restoreAssets?.length ? { restoreAssets: tab.restoreAssets.map(String) } : {}),
+  });
+  return {
+    id: tab.id,
+    label: tab.remoteLabel,
+    revision: tab.revision,
+    panes: tab.panes.map((pane) => ({
+      kind: pane.kind,
+      label: pane.label,
+      target: pane.remoteTarget,
+      url: '',
+      // Inline content has no host file: it travels with the state.
+      ...(pane.inline ? { inline: pane.inline } : {}),
+      ...(pane.inline && typeof pane.remoteRenderId === 'string' ? { renderId: pane.remoteRenderId } : {}),
+      ...(typeof pane.version === 'number' ? { version: pane.version } : {}),
+    })),
+    ...(tab.missing === true ? { missing: true as const } : {}),
+    ...(problems.length ? { problems } : {}),
+    // The device's frame drops its no-outside-network CSP only on this flag.
+    ...(tab.networkAllowed === true ? { networkAllowed: true as const } : {}),
+    ...(tab.versions ? versionFields(tab.versions) : {}),
+    ...(thumbnail ? { thumbnail } : {}),
+    ...(thumbnail && Number.isInteger(tab.thumbnailVersion) ? { thumbnailVersion: tab.thumbnailVersion } : {}),
+    ...(annotations.length ? { annotations } : {}),
+  };
+}
+
 /** The client view of a host state: no host paths (only cwd-relative targets
  *  and file names), and no URL a client could load (remote panes fetch their
  *  bytes by tab id and pane index). */
@@ -538,52 +585,7 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
           })),
         }
       : {}),
-    tabs: state.tabs.map((tab) => {
-      const problems = (tab.problems ?? []).slice(0, MAX_VISUALIZE_PROBLEMS).map((problem) => ({
-        kind: problem.kind,
-        message: localizeLoopbackUrls(String(problem.message)),
-        source: localizeLoopbackUrls(String(problem.source)),
-        line: problem.line,
-        count: problem.count,
-        pane: problem.pane,
-        ...(typeof problem.version === 'number' ? { version: problem.version } : {}),
-      }));
-      const annotations = visualizeAnnotations(tab.annotations);
-      const thumbnail = visualizeThumbnail(tab.thumbnail);
-      const remoteVersion = (version: NonNullable<typeof tab.versions>[number]) => {
-        const turns = version.turns?.length ? { turns: version.turns.map(({ since, end }) => ({ since, end })) } : {};
-        return { n: version.n, at: version.at, ...(version.label ? { label: version.label } : {}), ...turns };
-      };
-      const versionFields = (versions: NonNullable<typeof tab.versions>) => ({
-        versions: versions.map(remoteVersion),
-        version: tab.version ?? null,
-        ...(tab.compare ? { compare: true } : {}),
-        ...(tab.restoreAssets?.length ? { restoreAssets: tab.restoreAssets.map(String) } : {}),
-      });
-      return {
-        id: tab.id,
-        label: tab.remoteLabel,
-        revision: tab.revision,
-        panes: tab.panes.map((pane) => ({
-          kind: pane.kind,
-          label: pane.label,
-          target: pane.remoteTarget,
-          url: '',
-          // Inline content has no host file: it travels with the state.
-          ...(pane.inline ? { inline: pane.inline } : {}),
-          ...(pane.inline && typeof pane.remoteRenderId === 'string' ? { renderId: pane.remoteRenderId } : {}),
-          ...(typeof pane.version === 'number' ? { version: pane.version } : {}),
-        })),
-        ...(tab.missing === true ? { missing: true as const } : {}),
-        ...(problems.length ? { problems } : {}),
-        // The device's frame drops its no-outside-network CSP only on this flag.
-        ...(tab.networkAllowed === true ? { networkAllowed: true as const } : {}),
-        ...(tab.versions ? versionFields(tab.versions) : {}),
-        ...(thumbnail ? { thumbnail } : {}),
-        ...(thumbnail && Number.isInteger(tab.thumbnailVersion) ? { thumbnailVersion: tab.thumbnailVersion } : {}),
-        ...(annotations.length ? { annotations } : {}),
-      };
-    }),
+    tabs: state.tabs.map(remoteVisualizeTab),
   };
 }
 

@@ -1,7 +1,3 @@
-// The pool's own part of what the retired PowerShell-host slow tests asserted, over fake native workers: a worker that answers a read with
-// an error (an accessibility read abandoned inside the helper) stays the session's host; first use starts one worker and no spare;
-// retiring a worker, even one still warming up, releases its session. The helper's side (abandoning the read, one deadline across the
-// element search and the enrichment) is native: mixdog-computer `platform/windows/bounded.rs`.
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';

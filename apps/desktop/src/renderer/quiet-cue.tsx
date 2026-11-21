@@ -1,7 +1,3 @@
-// The quiet-time cue on the desktop: the live status line says how long a
-// running turn has gone without counted progress and what it waits on, and
-// offers Stop once the silence reaches the stall watchdog's warn point.
-// Display only: Stop is the ordinary session abort the user asks for.
 import { errorMessage } from './editor-pane-session-errors';
 import type React from 'react';
 import { useCallback, useRef, useSyncExternalStore } from 'react';

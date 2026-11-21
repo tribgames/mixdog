@@ -111,6 +111,98 @@ export function isWorktreeCapability(capability: DesktopCapability): capability 
   return WORKTREE_CAPABILITY_SET.has(capability);
 }
 
+function validateManageProjectBranch(input: Record<string, unknown>): void {
+  allowKeys(
+    input,
+    ['projectPath', 'branch', 'action', 'commit', 'target', 'targetCommit', 'confirmed', 'force'],
+    'manageProjectBranch input'
+  );
+  projectPathText(input.projectPath, 'projectPath');
+  refText(input.branch, 'branch');
+  commitIdText(input.commit, 'commit');
+  optionalBoolean(input, 'force', 'manageProjectBranch input');
+  if (input.force !== undefined && input.action !== 'delete-branch') {
+    throw new TypeError('manageProjectBranch input.force applies to delete-branch only.');
+  }
+  if (!['merge', 'remove-worktree', 'delete-branch'].includes(String(input.action)) || input.confirmed !== true) {
+    throw new TypeError('A supported branch action and explicit confirmation are required.');
+  }
+  if (input.action !== 'remove-worktree') {
+    refText(input.target, 'target');
+    commitIdText(input.targetCommit, 'targetCommit');
+  }
+}
+
+function validateSelectProjectBranch(input: Record<string, unknown>): void {
+  allowKeys(input, ['projectPath', 'branch', 'create', 'remote', 'startPoint', 'detach'], 'selectProjectBranch input');
+  projectPathText(input.projectPath, 'selectProjectBranch input.projectPath');
+  if (input.detach !== undefined) {
+    commitIdText(input.detach, 'selectProjectBranch input.detach');
+    if (['branch', 'create', 'remote', 'startPoint'].some((key) => input[key] !== undefined)) {
+      throw new TypeError('selectProjectBranch input.detach excludes branch, create, remote and startPoint.');
+    }
+    return;
+  }
+  refText(input.branch, 'selectProjectBranch input.branch');
+  optionalBoolean(input, 'create', 'selectProjectBranch input');
+  optionalBoolean(input, 'remote', 'selectProjectBranch input');
+  if (input.create === true && input.remote === true) {
+    throw new TypeError('selectProjectBranch input cannot both create and check out a remote branch.');
+  }
+  if (input.startPoint !== undefined) {
+    commitIdText(input.startPoint, 'selectProjectBranch input.startPoint');
+    if (input.create !== true) throw new TypeError('selectProjectBranch input.startPoint needs create: true.');
+  }
+}
+
+function validateWorktreeSettings(input: Record<string, unknown>): void {
+  allowKeys(
+    input,
+    [
+      'newTaskDefault',
+      'branchPrefix',
+      'sizeWarnBytes',
+      'autoCleanup',
+      'maxWorktrees',
+      'unusedDays',
+      'cleanupArchived',
+      'deleteBranch',
+    ],
+    'worktree settings'
+  );
+  if (!Object.keys(input).length) throw new TypeError('worktree settings require at least one setting.');
+  if (
+    input.newTaskDefault !== undefined &&
+    !(DESKTOP_WORKTREE_NEW_TASK_DEFAULTS as readonly unknown[]).includes(input.newTaskDefault)
+  ) {
+    throw new TypeError('worktree settings newTaskDefault must be branch or worktree.');
+  }
+  if (
+    input.branchPrefix !== undefined &&
+    (typeof input.branchPrefix !== 'string' || input.branchPrefix.length > MAX_REF_LENGTH)
+  ) {
+    throw new TypeError('worktree settings branchPrefix must be a string.');
+  }
+  if (
+    input.sizeWarnBytes !== undefined &&
+    (!Number.isSafeInteger(input.sizeWarnBytes) || (input.sizeWarnBytes as number) < 0)
+  ) {
+    throw new TypeError('worktree settings sizeWarnBytes must be a non-negative integer.');
+  }
+  optionalBoolean(input, 'autoCleanup', 'worktree settings');
+  optionalBoolean(input, 'cleanupArchived', 'worktree settings');
+  optionalBoolean(input, 'deleteBranch', 'worktree settings');
+  for (const [key, limit] of [
+    ['maxWorktrees', DESKTOP_WORKTREE_MAX_WORKTREES_LIMIT],
+    ['unusedDays', DESKTOP_WORKTREE_UNUSED_DAYS_LIMIT],
+  ] as const) {
+    const value = input[key];
+    if (value !== undefined && (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > limit)) {
+      throw new TypeError(`worktree settings ${key} must be an integer from 0 to ${limit}.`);
+    }
+  }
+}
+
 /** Throws TypeError when `args` (already arity-checked) do not fit `capability`. */
 export function validateWorktreeCapabilityArgs(capability: DesktopWorktreeCapability, args: unknown[]): void {
   switch (capability) {
@@ -121,29 +213,9 @@ export function validateWorktreeCapabilityArgs(capability: DesktopWorktreeCapabi
       refText(input.branch, 'branch');
       return;
     }
-    case 'manageProjectBranch': {
-      const input = objectArg(args[0], 'manageProjectBranch input');
-      allowKeys(
-        input,
-        ['projectPath', 'branch', 'action', 'commit', 'target', 'targetCommit', 'confirmed', 'force'],
-        'manageProjectBranch input'
-      );
-      projectPathText(input.projectPath, 'projectPath');
-      refText(input.branch, 'branch');
-      commitIdText(input.commit, 'commit');
-      optionalBoolean(input, 'force', 'manageProjectBranch input');
-      if (input.force !== undefined && input.action !== 'delete-branch') {
-        throw new TypeError('manageProjectBranch input.force applies to delete-branch only.');
-      }
-      if (!['merge', 'remove-worktree', 'delete-branch'].includes(String(input.action)) || input.confirmed !== true) {
-        throw new TypeError('A supported branch action and explicit confirmation are required.');
-      }
-      if (input.action !== 'remove-worktree') {
-        refText(input.target, 'target');
-        commitIdText(input.targetCommit, 'targetCommit');
-      }
+    case 'manageProjectBranch':
+      validateManageProjectBranch(objectArg(args[0], 'manageProjectBranch input'));
       return;
-    }
     case 'selectBranch': {
       const input = objectArg(args[0], 'selectBranch input');
       allowKeys(input, ['branch', 'create', 'expectedRevision', 'confirmLarge'], 'selectBranch input');
@@ -159,33 +231,9 @@ export function validateWorktreeCapabilityArgs(capability: DesktopWorktreeCapabi
       projectPathText(input.projectPath, 'getProjectBranchMenu input.projectPath');
       return;
     }
-    case 'selectProjectBranch': {
-      const input = objectArg(args[0], 'selectProjectBranch input');
-      allowKeys(
-        input,
-        ['projectPath', 'branch', 'create', 'remote', 'startPoint', 'detach'],
-        'selectProjectBranch input'
-      );
-      projectPathText(input.projectPath, 'selectProjectBranch input.projectPath');
-      if (input.detach !== undefined) {
-        commitIdText(input.detach, 'selectProjectBranch input.detach');
-        if (['branch', 'create', 'remote', 'startPoint'].some((key) => input[key] !== undefined)) {
-          throw new TypeError('selectProjectBranch input.detach excludes branch, create, remote and startPoint.');
-        }
-        return;
-      }
-      refText(input.branch, 'selectProjectBranch input.branch');
-      optionalBoolean(input, 'create', 'selectProjectBranch input');
-      optionalBoolean(input, 'remote', 'selectProjectBranch input');
-      if (input.create === true && input.remote === true) {
-        throw new TypeError('selectProjectBranch input cannot both create and check out a remote branch.');
-      }
-      if (input.startPoint !== undefined) {
-        commitIdText(input.startPoint, 'selectProjectBranch input.startPoint');
-        if (input.create !== true) throw new TypeError('selectProjectBranch input.startPoint needs create: true.');
-      }
+    case 'selectProjectBranch':
+      validateSelectProjectBranch(objectArg(args[0], 'selectProjectBranch input'));
       return;
-    }
     case 'mergeProjectBranch': {
       const input = objectArg(args[0], 'mergeProjectBranch input');
       allowKeys(input, ['projectPath', 'branch', 'target'], 'mergeProjectBranch input');
@@ -228,59 +276,9 @@ export function validateWorktreeCapabilityArgs(capability: DesktopWorktreeCapabi
       optionalRevision(input, 'removeWorktree input');
       return;
     }
-    case 'setWorktreeSettings': {
-      const input = objectArg(args[0], 'worktree settings');
-      allowKeys(
-        input,
-        [
-          'newTaskDefault',
-          'branchPrefix',
-          'sizeWarnBytes',
-          'autoCleanup',
-          'maxWorktrees',
-          'unusedDays',
-          'cleanupArchived',
-          'deleteBranch',
-        ],
-        'worktree settings'
-      );
-      if (!Object.keys(input).length) throw new TypeError('worktree settings require at least one setting.');
-      if (
-        input.newTaskDefault !== undefined &&
-        !(DESKTOP_WORKTREE_NEW_TASK_DEFAULTS as readonly unknown[]).includes(input.newTaskDefault)
-      ) {
-        throw new TypeError('worktree settings newTaskDefault must be branch or worktree.');
-      }
-      // "" (no prefix) is a valid choice; the runtime checks the ref shape.
-      if (
-        input.branchPrefix !== undefined &&
-        (typeof input.branchPrefix !== 'string' || input.branchPrefix.length > MAX_REF_LENGTH)
-      ) {
-        throw new TypeError('worktree settings branchPrefix must be a string.');
-      }
-      if (
-        input.sizeWarnBytes !== undefined &&
-        (!Number.isSafeInteger(input.sizeWarnBytes) || (input.sizeWarnBytes as number) < 0)
-      ) {
-        throw new TypeError('worktree settings sizeWarnBytes must be a non-negative integer.');
-      }
-      optionalBoolean(input, 'autoCleanup', 'worktree settings');
-      optionalBoolean(input, 'cleanupArchived', 'worktree settings');
-      optionalBoolean(input, 'deleteBranch', 'worktree settings');
-      for (const [key, limit] of [
-        ['maxWorktrees', DESKTOP_WORKTREE_MAX_WORKTREES_LIMIT],
-        ['unusedDays', DESKTOP_WORKTREE_UNUSED_DAYS_LIMIT],
-      ] as const) {
-        const value = input[key];
-        if (
-          value !== undefined &&
-          (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > limit)
-        ) {
-          throw new TypeError(`worktree settings ${key} must be an integer from 0 to ${limit}.`);
-        }
-      }
+    case 'setWorktreeSettings':
+      validateWorktreeSettings(objectArg(args[0], 'worktree settings'));
       return;
-    }
     case 'deleteWorktree': {
       const input = objectArg(args[0], 'deleteWorktree input');
       allowKeys(input, ['entryId', 'force'], 'deleteWorktree input');

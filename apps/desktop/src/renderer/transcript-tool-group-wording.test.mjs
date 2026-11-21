@@ -1,9 +1,3 @@
-// A tool group keeps its in-progress wording ("Run 1 command, Read file") for
-// as long as its turn can still add calls to it. Between two calls of a turn
-// every call of the group is finished for a moment (the model is deciding on
-// the next one); the group then read "Ran 1 command" and flipped back to
-// "Run 1 command, Read file" when the next call began, over and over while the
-// agent worked. It reads finished once the turn no longer ends in the group.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';

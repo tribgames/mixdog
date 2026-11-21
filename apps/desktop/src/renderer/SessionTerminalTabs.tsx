@@ -1,7 +1,3 @@
-// A conversation session's terminal: a tab strip (same structure and look as
-// the browser pane's BrowserTabStrip) over one TerminalPane per tab. Every tab
-// stays mounted so its PTY and scrollback survive tab switches; only the
-// active one is visible. A shell picked from the header's ⋯ menu opens a NEW tab.
 import { Plus, Terminal, X } from 'lucide-react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
@@ -74,10 +70,6 @@ export function knownDefaultShellLabel(
   return defaultProfile?.label ?? (profiles ? '' : remembered());
 }
 
-// Tab names: the shell's own name (the default tab names the shell it
-// actually spawned); a repeated name gets " 2", " 3", … in tab order.
-// `defaultLabel`: the detected default shell's name, or the remembered one
-// while detection is still answering.
 export function terminalTabTitles(
   tabs: readonly SessionTerminalTab[],
   profiles: readonly ShellProfile[] | null,
@@ -204,14 +196,6 @@ function TerminalTabItem({
   );
 }
 
-/** Warms a session's terminal before it opens (the dock toggle's hover, focus
- *  or touch-down): the shown tab's PTY, when it is already running, attaches
- *  and replays into its view (prewarmTerminal), then the session's root
- *  renders parked and attach-only (`renderParked`), so its pane mounts and
- *  draws the screen off screen and the opening frame only places it. A warm-up
- *  never starts or changes a shell: a tab whose shell is not running is left
- *  for the real open; a session without tabs opens a fresh one that paints at
- *  once. */
 export function prewarmSessionTerminal(sessionId: string, renderParked: (sessionId: string) => void): void {
   const state = getSessionTerminalTabs(sessionId);
   const shown = state.tabs.find((tab) => tab.id === state.activeId);
@@ -225,11 +209,6 @@ export function prewarmSessionTerminal(sessionId: string, renderParked: (session
     .catch(() => {});
 }
 
-/** One tab's terminal. A tab whose terminal paints complete in its mount frame
- *  (terminalPaintsAtOnce: its screen is live here, or it never ran) renders the
- *  loaded pane directly, with no loading cover over it; a tab whose scrollback
- *  must replay first, or whose chunk is still loading, keeps the cover
- *  (ReadyTerminalPane). Decided once, when the tab mounts. */
 function SessionTerminalPane(props: {
   cwd: string | null;
   terminalId: string;
@@ -247,6 +226,25 @@ function SessionTerminalPane(props: {
   }, [direct, terminalId]);
   if (!direct) return <ReadyTerminalPane {...props} />;
   return <direct.default {...props} onReady={() => reportBootSurfaceStage('terminal', terminalId, 'interactive')} />;
+}
+
+/** Prefetches shell profiles so the ⋯ shell list is ready when it opens; setting `loading` (retry) re-runs the load. */
+function useShellProfiles() {
+  const [shells, setShells] = useState<ShellProfilesState>(() => {
+    const cached = cachedShellProfiles();
+    return cached ? { status: 'ready', profiles: cached } : { status: 'loading' };
+  });
+  useEffect(() => {
+    if (shells.status !== 'loading') return undefined;
+    let live = true;
+    void loadShellProfiles().then((next) => {
+      if (live) setShells(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, [shells.status]);
+  return [shells, setShells] as const;
 }
 
 export function SessionTerminalTabs({
@@ -287,23 +285,8 @@ export function SessionTerminalTabs({
   useEffect(() => {
     if (active && !getSessionTerminalTabs(sessionId).tabs.length) openSessionTerminalTab(sessionId, '', cwd ?? '');
   }, [active, sessionId, cwd]);
-  const [shells, setShells] = useState<ShellProfilesState>(() => {
-    const cached = cachedShellProfiles();
-    return cached ? { status: 'ready', profiles: cached } : { status: 'loading' };
-  });
+  const [shells, setShells] = useShellProfiles();
   const profiles = shells.status === 'ready' ? shells.profiles : null;
-  // Prefetch so the ⋯ shell list is ready when it opens; "retry" returns to
-  // loading, which re-runs this.
-  useEffect(() => {
-    if (shells.status !== 'loading') return undefined;
-    let live = true;
-    void loadShellProfiles().then((next) => {
-      if (live) setShells(next);
-    });
-    return () => {
-      live = false;
-    };
-  }, [shells.status]);
   useEffect(() => {
     if (!active || !expanded || !onToggleExpanded) return undefined;
     const onEscape = (event: KeyboardEvent) => {

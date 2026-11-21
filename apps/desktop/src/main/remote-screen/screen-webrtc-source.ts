@@ -176,10 +176,6 @@ export function createScreenWebrtcSource(
     const geometry = screen.geometry();
     const plan = screen.capturePlan();
     if (path !== 'helper' || !geometry || !plan) return;
-    // No byte budget can be derived without a measured IPC throughput, so
-    // the rate is capped by the stream's own frame rate (the helper's 66 ms
-    // cadence is slower still); the host's one-in-flight queue keeps the
-    // bytes to one frame per source at a time.
     const now = Date.now();
     if (now - handedAt < 1000 / plan.maxFrameRate) return;
     handedAt = now;

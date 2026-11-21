@@ -1,9 +1,3 @@
-/**
- * The one foreground lane: the desktop has a single keyboard and pointer, so
- * foreground deliveries from every session run one at a time. A request that
- * had to wait behind another sees a desktop that may have changed, so by
- * default it is refused with a recapture demand rather than run blind.
- */
 import { type ComputerUseCoordinator, queuedForegroundRequiresRecapture } from '../session/coordinator';
 
 /** The lane was entered while the user held the desktop; the caller parks. */

@@ -5,7 +5,7 @@ import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page
 import { linkOpenTarget } from './link-open-target';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import type { ScmContextMenuState } from './ScmContextMenu';
-import { copyTextToClipboard } from './text-format';
+import { copyTextToClipboard, linkFileName } from './text-format';
 
 export function reportOpenFailure(error: unknown) {
   showDesktopToast(t('Unable to open file: {{error}}', { error: errorMessageText(error) }), 'error');
@@ -36,16 +36,6 @@ export async function openWebLink(
 /** Ctrl/Cmd-click and middle-click on a web link: the system browser. */
 export function openWebLinkInSystemBrowser(sessionId: string | undefined, url: string): void {
   void openWebLink(sessionId, url, true).catch(reportOpenFailure);
-}
-
-/** File name offered by "Save link as": the URL's last path segment. */
-function linkSaveName(url: string): string {
-  try {
-    const segment = new URL(url).pathname.split('/').filter(Boolean).at(-1) || '';
-    return decodeURIComponent(segment) || 'download';
-  } catch {
-    return 'download';
-  }
 }
 
 /** The right-click menu of a web link, shared by chat links and page cards.
@@ -92,7 +82,7 @@ export function webLinkMenu(
                   (async () => {
                     const save = window.mixdogDesktop?.saveFileAs;
                     if (!save) throw new Error(t('Desktop file access is unavailable.'));
-                    await save(url, linkSaveName(url));
+                    await save(url, linkFileName(url));
                   })()
                 ),
             },

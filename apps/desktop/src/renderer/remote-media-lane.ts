@@ -1,8 +1,3 @@
-// Page half of the encrypted media lane. The relay serves media as ciphertext;
-// public/sw-media.js turns <img>/<video>/<audio> requests back into playable
-// 200/206 responses. This file gives the worker the session's media key (a
-// non-extractable CryptoKey derived in the E2EE handshake, posted to the worker
-// only — never to a server) and builds the URLs the worker recognizes.
 import { FILE_DOWNLOAD_MEDIA_VARIANT, type FileDownloadTransfer } from '../shared/file-downloads';
 import { MEDIA_SCHEME } from '../shared/remote-media-crypto';
 

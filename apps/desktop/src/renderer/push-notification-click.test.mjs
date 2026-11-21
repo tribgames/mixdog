@@ -402,7 +402,7 @@ function fakeSubscription(endpoint, serverKey) {
   };
 }
 
-test('a subscription made with a PC key is migrated to the relay key and registered with every paired PC', async () => {
+async function migrationWorld() {
   const relayKey = Buffer.concat([Buffer.of(4), Buffer.alloc(64, 1)]).toString('base64url');
   const pcKey = Buffer.concat([Buffer.of(4), Buffer.alloc(64, 2)]).toString('base64url');
   const identityA = await generateRelayE2EEServerIdentity();
@@ -439,15 +439,23 @@ test('a subscription made with a PC key is migrated to the relay key and registe
   };
   const legacyRegistrations = [];
   const api = { registerPushSubscription: async (input) => legacyRegistrations.push(input) };
+  const sync = () => withPushGlobals(pushManager, () => syncPushSubscription(api, environment));
+  const sortedPosts = () => posts.sort((left, right) => left.authorization.localeCompare(right.authorization));
+  return { relayKey, identityA, identityB, legacy, fresh, subscribed, posts, legacyRegistrations, sync, sortedPosts };
+}
 
-  assert.equal(await withPushGlobals(pushManager, () => syncPushSubscription(api, environment)), true);
+test('a subscription made with a PC key is migrated to the relay key and registered with every paired PC', async () => {
+  const world = await migrationWorld();
+  const { relayKey, identityA, identityB, legacy, fresh, subscribed, posts, legacyRegistrations } = world;
+
+  assert.equal(await world.sync(), true);
   // The PC-keyed subscription could only ever reach one PC: it is replaced.
   assert.equal(legacy.unsubscribed, true);
   assert.deepEqual(subscribed, [relayKey]);
   assert.deepEqual(legacyRegistrations, [], 'the legacy per-PC RPC is not used');
   // One registration per paired PC, each with that PC's own credential, and
   // each PC's box opens only for that PC.
-  posts.sort((left, right) => left.authorization.localeCompare(right.authorization));
+  world.sortedPosts();
   assert.deepEqual(
     posts.map((post) => [post.url, post.authorization, post.body.endpoint]),
     [
@@ -459,20 +467,21 @@ test('a subscription made with a PC key is migrated to the relay key and registe
   assert.deepEqual(keysA, fresh.toJSON().keys);
   assert.equal(await openRelayWebPushKeys(identityB, fresh.endpoint, posts[0].body.sealed), null);
   assert.deepEqual(await openRelayWebPushKeys(identityB, fresh.endpoint, posts[1].body.sealed), keysA);
+});
 
-  // Already on the relay key: kept as it is, only restated — with the very
-  // same boxes, so the relay has nothing to write or announce.
-  const firstRound = posts.splice(0);
-  assert.equal(await withPushGlobals(pushManager, () => syncPushSubscription(api, environment)), true);
+test('a subscription already on the relay key is restated with the very same boxes', async () => {
+  const world = await migrationWorld();
+  const { fresh, subscribed } = world;
+  await world.sync();
+  const firstRound = world.sortedPosts().splice(0);
+  assert.equal(await world.sync(), true);
   assert.equal(fresh.unsubscribed, false);
   assert.equal(subscribed.length, 1);
-  posts.sort((left, right) => left.authorization.localeCompare(right.authorization));
   assert.deepEqual(
-    posts.map((post) => post.body),
+    world.sortedPosts().map((post) => post.body),
     firstRound.map((post) => post.body)
   );
 });
-
 /** Two paired PCs; `supported` says which deliver through the relay. */
 async function mixedPcs(supported) {
   const relayKey = Buffer.concat([Buffer.of(4), Buffer.alloc(64, 1)]).toString('base64url');
@@ -835,7 +844,7 @@ test('an existing subscription is not "on" until a PC confirmed it; a partial re
   );
 });
 
-test('a renewed subscription reaches the open app, which restates it at once', async () => {
+test('a renewed subscription is published to the open app', async () => {
   const windows = [];
   const subscribed = [];
   const worker = loadWorker({
@@ -858,7 +867,9 @@ test('a renewed subscription reaches the open app, which restates it at once', a
     windows.map((message) => message.type),
     [PUSH_SUBSCRIPTION_CHANGED_MESSAGE, PUSH_SUBSCRIPTION_CHANGED_MESSAGE]
   );
+});
 
+test('the app restates its subscription at once when the worker publishes a renewal', async () => {
   let calls = 0;
   const api = { registerPushSubscription: async () => (calls += 1) };
   const messages = workerMessages();

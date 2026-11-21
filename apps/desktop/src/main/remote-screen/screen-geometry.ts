@@ -1,12 +1,3 @@
-/**
- * Display geometry for the screen source: which displays exist, the locked
- * video geometry of the chosen one, the video-pixel → desktop-pixel pointer
- * mapping, and fitting a secure-desktop helper frame onto that geometry.
- *
- * "Desktop pixels" are physical pixels of the Windows virtual screen (origin
- * at the primary monitor's top-left; negative on monitors left of or above
- * it), the space SendInput's virtual-desk mapping and the helper both use.
- */
 import type { RemoteScreenDisplaySummary, RemoteWebrtcGeometry } from '../../shared/remote-webrtc';
 
 /** The contract's pixel bound (remote-webrtc.ts MAX_PIXEL_DIMENSION). */

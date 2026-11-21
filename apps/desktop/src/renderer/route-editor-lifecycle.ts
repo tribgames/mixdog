@@ -13,12 +13,6 @@ type RouteSheetRefs = {
   optionFlyout: RefObject<HTMLDivElement | null>;
 };
 
-/** Where the pill rests once the sheet closes. Re-measured after a model
- *  change: the current label can have a different natural width than the
- *  label captured when the sheet opened. The resting pill is capped by its
- *  lane (.route-editor shrinks to the footer's leftover width next to the
- *  context gauge), so a long label lands back on the clipped width instead of
- *  overshooting it. */
 function restingTriggerWidth(trigger: HTMLButtonElement | null, fallback: number | null): number | null {
   if (!trigger) return fallback;
   const lane = trigger.parentElement?.getBoundingClientRect().width;

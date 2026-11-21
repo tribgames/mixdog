@@ -35,10 +35,6 @@ function choiceOptions(
 /** The cached settings, revalidated while the dialog shows. */
 function useWorktreeSettings(active: boolean): DesktopWorktreeSettings | null {
   const settings = useSyncExternalStore(subscribeWorktreeSettings, peekWorktreeSettings, peekWorktreeSettings);
-  // The cached value is the first frame; the host's current one replaces it
-  // when it differs. The dialog keeps this page mounted while it is closed, so
-  // watching follows the dialog showing, not the mount: every opening
-  // revalidates, and a closed dialog reads nothing.
   useEffect(() => (active ? watchWorktreeSettings() : undefined), [active]);
   return settings;
 }

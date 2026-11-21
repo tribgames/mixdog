@@ -202,11 +202,6 @@ export async function applyLspWorkspaceEdit(
     if (!relPath) throw new Error(t('Language server targeted the project directory.'));
     const model = findOpenProjectModel(context, relPath);
     if (model) {
-      // Stale-edit guard: the server computed these ranges against the
-      // version our didOpen/didChange sync reported (= monaco versionId).
-      // Applying them onto a document that moved on (fast typing, an agent
-      // rewriting the file) interleaves lines and splits words — observed as
-      // scrambled "restored" backups.
       if (group.version !== null && model.getVersionId() !== group.version) {
         throw new Error(t('The document changed while the language server prepared this edit. Try again.'));
       }
@@ -249,10 +244,6 @@ export async function applyLspWorkspaceEdit(
   return true;
 }
 
-/** Every provider this pane's language needs, in the order Monaco sees them:
- *  code-graph navigation first, then one provider per declared LSP capability,
- *  then the commands their payloads invoke and the cross-file opener. Each step
- *  claims its own registration, so repeated calls add nothing. */
 export function ensureGraphProviders(languageId: string): void {
   registerCodeGraphProviders(languageId);
   if (lspReadyLanguages.has(languageId)) {

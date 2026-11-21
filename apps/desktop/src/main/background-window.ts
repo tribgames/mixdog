@@ -1,9 +1,3 @@
-// Closing the window can hide it instead of quitting: the page, the Browser
-// and Computer Use hosts, keep-awake and turn notifications all stay alive,
-// and reopening shows the same document. Windows and Linux get a tray icon as
-// the way back; macOS keeps its Dock icon. Settings choose hide to tray (the
-// default) or quit; closing never asks.
-
 export interface BackgroundWindowOptions {
   /** The runInBackground setting: true hides to the tray, false quits. */
   enabled(): boolean;

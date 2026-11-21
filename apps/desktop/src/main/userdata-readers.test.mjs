@@ -1,7 +1,3 @@
-// No desktop source reads or writes a userData file the core moved. The names are the migrated
-// files of native/core/crates/mixdog-migrate/src/desktop_profile/plan.rs (FILE_KINDS) and the
-// supplement files of desktop_profile/supplement.rs (FILES). A name in a non-test source outside
-// the allowlist means a second reader of a file that now has one owner, the core.
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
@@ -29,10 +25,6 @@ const FILE_KINDS = [
 ];
 const SUPPLEMENT_FILES = ['ssh-hosts.json', 'port-forwards.json', 'remote-hosts.json', 'server-windows.json'];
 
-// Files (relative to apps/desktop/src, forward slashes) that may name a moved file, with the reason.
-// These are readers the core has not yet taken over; each entry goes when its module stops naming the
-// file. The test fails on an entry whose file still exists but no longer names a moved file; an entry
-// whose file a deletion task removed (same wave, this file not theirs) is dropped by the lead.
 const ALLOWLIST = new Map([
   ['main/connections/port-forward-store.ts', 'port-forwards.json store, awaiting its deletion'],
   ['main/connections/window-restore.ts', 'server-windows.json store, awaiting its deletion'],

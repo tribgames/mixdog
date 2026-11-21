@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
+import { checkLinuxComputerReadiness } from '../../../shared/core-src/runtime/computer-bridge/linux-readiness.mjs';
 import {
   gnomeShellScreenshot,
   gnomeShellSourceId,
@@ -248,4 +249,77 @@ test('every screenshot gets its own file and is read only after the shell call h
       'remove /run/user/1000/mixdog-shot-id2.png',
     ]
   );
+});
+
+const probes = (over = {}) => ({
+  hasCommand: () => true,
+  hasSessionBus: () => true,
+  windowHelperVersion: async () => 3,
+  windowHelperStatus: async () => ({ installed: true, enabled: true }),
+  accessibilityReachable: async () => true,
+  canWrite: () => true,
+  ...over,
+});
+
+test('readiness: an X11 session without DISPLAY has nothing to drive, only clipboard and ocr stay optional', async () => {
+  const readiness = await checkLinuxComputerReadiness({ env: { XDG_CURRENT_DESKTOP: 'KDE' }, ...probes() });
+  assert.deepEqual(readiness, {
+    session: 'x11',
+    desktop: 'kde',
+    capabilities: {
+      capture: { state: 'unsupported' },
+      windows: { state: 'unsupported' },
+      accessibility: { state: 'unsupported' },
+      semanticActions: { state: 'unsupported' },
+      pointer: { state: 'unsupported' },
+      keyboard: { state: 'unsupported' },
+      clipboard: { state: 'unsupported', optional: true },
+      ocr: { state: 'unsupported', optional: true },
+    },
+  });
+});
+
+test('readiness: GNOME Wayland with everything present is ready, and capture follows the window helper', async () => {
+  const env = { ...GNOME_WAYLAND, WAYLAND_DISPLAY: 'wayland-0' };
+  const readiness = await checkLinuxComputerReadiness({ env, ...probes() });
+  assert.equal(readiness.session, 'wayland');
+  assert.equal(readiness.desktop, 'gnome');
+  assert.deepEqual(readiness.capabilities, {
+    capture: { state: 'ready' },
+    windows: { state: 'ready' },
+    accessibility: { state: 'ready' },
+    semanticActions: { state: 'ready' },
+    pointer: { state: 'ready' },
+    keyboard: { state: 'ready' },
+    clipboard: { state: 'ready', optional: true },
+    ocr: { state: 'ready', optional: true },
+  });
+});
+
+test('readiness: missing uinput access, clipboard tool, tesseract and a stale window helper are named per capability', async () => {
+  const readiness = await checkLinuxComputerReadiness({
+    env: GNOME_WAYLAND,
+    ...probes({
+      canWrite: () => false,
+      hasCommand: (name) => name === 'gdbus',
+      windowHelperVersion: async () => 2,
+    }),
+  });
+  assert.deepEqual(readiness.capabilities.windows, { state: 'needs_setup', fix: 'relogin' });
+  assert.deepEqual(readiness.capabilities.capture, readiness.capabilities.windows);
+  assert.deepEqual(readiness.capabilities.semanticActions, readiness.capabilities.windows);
+  assert.deepEqual(readiness.capabilities.pointer, { state: 'needs_setup', fix: 'allow_input' });
+  assert.deepEqual(readiness.capabilities.keyboard, { state: 'needs_setup', fix: 'allow_input' });
+  assert.deepEqual(readiness.capabilities.clipboard, {
+    state: 'needs_setup',
+    fix: 'install_package',
+    package: 'wl-clipboard',
+    optional: true,
+  });
+  assert.deepEqual(readiness.capabilities.ocr, {
+    state: 'needs_setup',
+    fix: 'install_package',
+    package: 'tesseract-ocr',
+    optional: true,
+  });
 });

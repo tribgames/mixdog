@@ -1,17 +1,9 @@
-// The phone's persisted sessions roster. Sending the whole roster on a cold
-// open (~1,800 rows, ~822KB JSON) would repeat almost everything from the last
-// visit. The phone keeps the rows its decoder last held under the desktop's
-// roster version (main/remote-roster-log.ts) and, on a sync, claims that
-// version with its row count and a digest of its id set — never a row list.
-// The desktop answers with only what changed (`__listCatch`) or with a full
-// baseline; the phone then checks the rebuilt rows against the desktop's
-// digest and resynchronizes from a baseline on any difference.
-//
 // Wire: the optional fourth `synchronizeViews` parameter,
 //   { v: 1 }                                   (can hold a roster, holds none)
 //   { v: 1, e: epoch, r: version, n: count, ids: sha256(sorted ids) }
-// A desktop that predates it ignores the parameter; a phone that predates it
-// never sends one and receives exactly what it always did.
+// Roster versions come from main/remote-roster-log.ts; the desktop answers with
+// `__listCatch` or a full baseline. A desktop that predates it ignores the
+// parameter.
 import { viewResumeDigest, type ViewResumePoint } from './remote-view-resume';
 
 export const ROSTER_CLAIM_VERSION = 1;

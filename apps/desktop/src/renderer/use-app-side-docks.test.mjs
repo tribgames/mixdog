@@ -1,7 +1,3 @@
-// Phone back button vs the right side dock: the dock the user sees is the
-// pane entry overridden by its session's own surface (diff, visualize,
-// browser, terminal), so back must follow that displayed state — and fold it —
-// whichever way the dock was opened.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act, useState } from 'react';
@@ -566,11 +562,7 @@ test("the header buttons on another session never replace the owner's file", asy
 });
 
 test("a pane-level view picked on another session opens there; the owner's file comes back in front", async () => {
-  // The shipped right side pins its views (normalizeWorkbenchSideViewLayout):
-  // its one pane-level view is Pull Requests (Source Control and Search live
-  // on the left rail), off in this build, so the pane docks run here over a
-  // right side that carries it.
-  const { usePaneSideDocks } = await import('./pane-side-dock.tsx');
+  const { usePaneSideDocks } = await import('./pane-side-dock-state.ts');
   const GROUPS = [['session-diff'], ['visualize'], ['browser'], ['terminal'], ['pull-requests']];
   const api = {};
   function Harness() {

@@ -1,7 +1,3 @@
-/**
- * The two reads a capture is made of — the bounded accessibility snapshot and
- * the pixels — and how the snapshot's answer folds into the capture state.
- */
 import { CAPTURE_ACCESSIBILITY_DEADLINE_MS, CAPTURE_ACCESSIBILITY_TIMEOUT_MS, elapsedMs } from '../shared/common';
 import { captureAccessibilityError } from '../input/capability-policy';
 import type { ComputerCommand, ComputerElementRecord, ScreenshotCapture } from '../shared/types';

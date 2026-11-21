@@ -1,7 +1,3 @@
-// The pane dock's Files surface: the Search/Files rail view's explorer tree
-// (FilesRootPane) under the shared DockHeaderRow — project/folder chip at the
-// left; refresh, ⋯, expand and close at the right. A transcript folder link
-// opens it with the folder revealed.
 import { memo, startTransition, useCallback, useState } from 'react';
 import { FilePlus, Folder, FolderPlus, ListCollapse, RefreshCw } from 'lucide-react';
 import { DockHeaderRow, type DockAction } from './pane-dock-chrome';

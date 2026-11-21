@@ -1,9 +1,3 @@
-/**
- * What a page report says when the page is not an ordinary document:
- * downloads, PDFs, clipped text, capped console errors, credential
- * challenges, refused addresses, script failure positions and error status.
- * One measurement turn, background tabs only.
- */
 import assert from 'node:assert/strict';
 
 const REPORT_TURN = 40;

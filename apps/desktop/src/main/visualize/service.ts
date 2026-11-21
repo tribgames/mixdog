@@ -1,10 +1,3 @@
-/**
- * The agent `visualize` tool's desktop half: per-session side-panel tabs that
- * show produced artifacts (pages, documents, media) next to the chat. Main owns
- * the tab state; the renderer draws what `publish` sends. Electron-specific
- * work (preview URLs, frames, capture, file watching) comes in as `deps`, so
- * request handling, containment and routing stay testable without a window.
- */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,6 +15,7 @@ import type {
 import type { ActStepOutcome, VisualizeActStep } from './act-steps';
 import type { VisualizeServiceContext } from './context';
 import { createExportActions } from './export-actions';
+import { sleep } from './host-frames';
 import { createLeaseGuard, type RequesterFrame } from './lease-guard';
 import { createOpenActions } from './open-actions';
 import type { VisualizeOverlayResult } from './overlay-script';
@@ -212,8 +206,6 @@ export interface VisualizeServiceDeps {
   statFile?(path: string): Promise<unknown>;
   goneCheckBudgetMs?: number;
 }
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 type LateGroups = Pick<
   VisualizeServiceContext,
@@ -458,8 +450,7 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
      *  the Export menu's, into a fresh temp folder instead of a save dialog.
      *  The daemon hands the file to the device as a download and removes it.
      *  Drawn without the desktop panel wherever a pane can be, so the panel
-     *  may be hidden. A failed export removes its temp folder here; a
-     *  finished one is the download's to remove. */
+     *  may be hidden. */
     exportForDevice: (command: DesktopVisualizeTabCommand) => exportTabForDevice(sessions, exports, command),
     dispose(): void {
       for (const state of sessions.values()) for (const tab of state.tabs) tabs.dispose(tab);

@@ -1,4 +1,4 @@
-import { type UIEvent, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { t } from './i18n';
 import { useForegroundMedia } from './media-lifecycle';
 import { ErrorNotice } from './ErrorNotice';
@@ -6,14 +6,13 @@ import { StudioCleanupBar } from './studio-cleanup';
 import { ensureStudioLoad, reportStudioLoadStage } from './renderer-load-metrics';
 import type { StudioReferenceStore } from './studio-draft-cache';
 import {
-  errorText,
-  MEDIA_KINDS,
   type MediaAsset,
   modelControls,
   posterFromVideo,
   studioTargetRowHeight,
   type StudioApi,
 } from './studio-support';
+import { errorMessage } from './editor-pane-session-errors';
 import { useStudioDetailView, useStudioDraft, useStudioGridMotion } from './studio-pane-state';
 import { StudioComposer } from './studio-composer';
 import { StudioGallery } from './studio-gallery';
@@ -25,16 +24,10 @@ import {
   type StudioMediaJob,
   type StudioReference,
 } from './studio-media-state';
-import {
-  focusStudioPane,
-  hideStudioPane,
-  publishStudioPaneState,
-  showStudioPane,
-  useStudioPaneOwner,
-} from './studio-panel-bridge';
+import { useStudioBoardSync } from './studio-pane-boards';
+import { useStudioPanelRegistration } from './studio-panel-bridge';
 import {
   moveStudioAssets,
-  onStudioAssetsMoved,
   openStudioBoard,
   refreshStudioBoards,
   useStudioBoards,
@@ -157,14 +150,8 @@ export function StudioPane({
     ensureMetricToken: ensureStudioLoad,
   });
 
-  // A Studio tab is a persistent workspace surface: switching tabs must keep
-  // its prompt, mode, references, selected asset, queue, and scroll position.
   useLayoutEffect(() => {
     if (!active) return;
-    // Entering Studio lands the caret in the prompt so typing starts
-    // immediately, like the session composer. Entry must stay animation-free:
-    // revealing a previously hidden tab restarts its CSS animations and would
-    // replay the unfold effect.
     promptRef.current?.focus();
   }, [active]);
   useEffect(() => {
@@ -282,63 +269,28 @@ export function StudioPane({
   // The rail's Studio panel mirrors the shown pane the user focused last (its
   // runs and open work), opens a work in the one pane it was aimed at, and
   // drops works from all (studio-panel-bridge).
-  const instanceKey = useId();
-  const paneKey = tabKey ?? instanceKey;
-  const focusedRef = useRef(focused);
-  focusedRef.current = focused;
-  useEffect(() => {
-    if (!active) return undefined;
-    showStudioPane(paneKey, focusedRef.current);
-    return () => hideStudioPane(paneKey);
-  }, [active, paneKey]);
-  useEffect(() => {
-    if (active && focused) focusStudioPane(paneKey);
-  }, [active, focused, paneKey]);
-  const owner = useStudioPaneOwner(paneKey);
-  useEffect(() => {
-    if (owner) publishStudioPaneState(paneKey, jobs);
-  }, [owner, paneKey, jobs]);
-  // Another board opened: the gallery reads that board from its first page.
-  const shownBoardRef = useRef(boardId);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the board id is the trigger
-  useEffect(() => {
-    if (shownBoardRef.current === boardId) return;
-    shownBoardRef.current = boardId;
-    exitSelection();
-    setSelected(null);
-    if (!active) return;
-    Promise.all(MEDIA_KINDS.map((assetKind) => refreshAssetKind(assetKind))).catch((reason) =>
-      setError(errorText(reason))
-    );
-  }, [boardId, active]);
-  useEffect(() => onStudioAssetsMoved(moveAssets), [moveAssets]);
-  // A finished run changes its board's count and thumbnail.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runningKey is the trigger
-  useEffect(() => {
-    if (active) void refreshStudioBoards(api).catch(() => {});
-  }, [active, api, runningKey]);
+  useStudioPanelRegistration(tabKey, active, focused, jobs);
+  const boardJobs = useStudioBoardSync({
+    active,
+    allCount,
+    api,
+    boardId,
+    boards,
+    boardsLoaded,
+    exitSelection,
+    jobs,
+    loadedTotal,
+    moveAssets,
+    refreshAssetKind,
+    runningKey,
+    setError,
+    setSelected,
+    syncAssetKind,
+  });
   const recountBoards = () => refreshStudioBoards(api).catch(() => {});
   const removeAndRecount = (asset: MediaAsset) => void remove(asset).then(recountBoards);
   const moveToBoard = (asset: MediaAsset, target: string) =>
-    void moveStudioAssets(api, [asset.id], target).catch((reason) => setError(errorText(reason)));
-  // A board view lists only the runs that land in it.
-  const boardJobs = useMemo(
-    () => (boardId ? jobs.filter((entry) => (entry.request?.boardId ?? '') === boardId) : jobs),
-    [jobs, boardId]
-  );
-  // The count the panel shows for this view; when it moves away from what the
-  // loaded pages were counted at, results came from elsewhere (the agent media
-  // tool, another window or device): fold them in, keeping loaded pages. A run
-  // of this view's own is still landing, so that waits until it settles.
-  const shownCount = boardId ? boards.find((board) => board.id === boardId)?.count : allCount;
-  const viewRunning = boardJobs.some((entry) => entry.status === 'running');
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the shown count and the run settling are the triggers
-  useEffect(() => {
-    if (!active || !boardsLoaded || shownCount === undefined || viewRunning) return;
-    const known = loadedTotal();
-    if (known === null || known === shownCount) return;
-    for (const assetKind of MEDIA_KINDS) void syncAssetKind(assetKind).catch(() => {});
-  }, [active, boardsLoaded, shownCount, viewRunning]);
+    void moveStudioAssets(api, [asset.id], target).catch((reason) => setError(errorMessage(reason)));
 
   useStudioReadyReport({
     active,
@@ -370,7 +322,7 @@ export function StudioPane({
       const element = event.currentTarget;
       const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
       if (remaining > Math.max(240, element.clientHeight * 0.5)) return;
-      void loadMoreAssets(kind).catch((reason) => setError(errorText(reason)));
+      void loadMoreAssets(kind).catch((reason) => setError(errorMessage(reason)));
     },
     [kind, loadMoreAssets]
   );

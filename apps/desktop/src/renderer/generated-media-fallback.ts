@@ -1,7 +1,3 @@
-// A generated-media card on a surface whose host has no media lane (an old
-// host, or a page the service worker does not control yet) reads the asset
-// over RPC like the Studio gallery does, so the card still shows a picture
-// and can be opened.
 import { useEffect, useRef, useState } from 'react';
 import type { MediaAssetRead } from './studio-support';
 import { callCapability, type StudioApi } from './studio-support';
@@ -9,34 +5,35 @@ import { base64Bytes } from './studio-pane-support';
 
 export type ReadMediaAsset = (assetId: string, options: Record<string, unknown>) => Promise<MediaAssetRead | null>;
 
-/** A still: the display rendition of an image, the thumbnail of a clip.
- *  '' when the host returned none or a clip instead of a still. */
-export async function readMediaStill(read: ReadMediaAsset, assetId: string, kind: 'image' | 'video'): Promise<string> {
+async function readStillAsset(
+  read: ReadMediaAsset,
+  assetId: string,
+  kind: 'image' | 'video'
+): Promise<{ base64: string; mime: string } | null> {
   const result = await read(
     assetId,
     kind === 'video' ? { variant: 'thumb' } : { variant: 'display', allowOriginal: true }
   );
-  if (!result?.base64) return '';
+  if (!result?.base64) return null;
   const mime = result.mime || 'image/png';
-  return mime.startsWith('video/') ? '' : `data:${mime};base64,${result.base64}`;
+  return mime.startsWith('video/') ? null : { base64: result.base64, mime };
 }
 
-/** The same still as an object URL over its bytes ('' when none; the caller
- *  revokes it): a card keeps a short blob: URL in state instead of the whole
- *  base64 data URL. */
+/** A still: the display rendition of an image, the thumbnail of a clip.
+ *  '' when the host returned none or a clip instead of a still. */
+export async function readMediaStill(read: ReadMediaAsset, assetId: string, kind: 'image' | 'video'): Promise<string> {
+  const still = await readStillAsset(read, assetId, kind);
+  return still ? `data:${still.mime};base64,${still.base64}` : '';
+}
+
+/** The same still as an object URL ('' when none; the caller revokes it). */
 async function readMediaStillObjectUrl(
   read: ReadMediaAsset,
   assetId: string,
   kind: 'image' | 'video'
 ): Promise<string> {
-  const result = await read(
-    assetId,
-    kind === 'video' ? { variant: 'thumb' } : { variant: 'display', allowOriginal: true }
-  );
-  if (!result?.base64) return '';
-  const mime = result.mime || 'image/png';
-  if (mime.startsWith('video/')) return '';
-  return URL.createObjectURL(new Blob([base64Bytes(result.base64)], { type: mime }));
+  const still = await readStillAsset(read, assetId, kind);
+  return still ? URL.createObjectURL(new Blob([base64Bytes(still.base64)], { type: still.mime })) : '';
 }
 
 /** The clip itself as an object URL (the caller revokes it). */

@@ -37,9 +37,6 @@ function pushLabel(upstream: boolean, ahead: number): string {
   if (!upstream) return t('Publish Branch');
   return `${t('Push')} ${ahead ? `↑${ahead}` : ''}`.trim();
 }
-// Review pane: cumulative diff of the working tree
-// vs merge-base(origin default branch, HEAD) — committed + uncommitted +
-// untracked read as ONE change set.
 export interface GitReviewFile {
   path: string;
   status: string;
@@ -51,9 +48,6 @@ interface GitReviewInfo {
   base: string;
   files: GitReviewFile[];
 }
-// Bare diff bodies: CodeDiff brings its own file header + expand chrome,
-// which duplicates the accordion/row that already names the file. Render the
-// bare diff body (Shiki DiffView) only — no second header, no height cap.
 export function GitDiffBody({
   file,
   mode,
@@ -250,50 +244,10 @@ function ReviewFileSection({
   );
 }
 
-export function ReviewPane({ cwd }: { cwd: string | null }) {
-  const sessionId = useContext(DownloadSessionContext);
-  const [status, setStatus] = useState<GitPanelStatus | null>(null);
-  const [review, setReview] = useState<GitReviewInfo | null>(null);
-  const [readError, setReadError] = useState('');
-  const [actionError, setActionError] = useState('');
-  const [busy, setBusy] = useState(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: cwd is the trigger; switching project clears the stale action error.
-  useEffect(() => setActionError(''), [cwd]);
-  // Single-open accordion: opening a file closes the rest
-  // and snaps the opened card flush under the sticky header.
-  const [openFile, setOpenFile] = useState('');
-  // Right-click context menu: open / reveal / copy
-  // path, plus a confirm-dialog revert.
-  const [menu, setMenu] = useState<{ x: number; y: number; file: GitReviewFile } | null>(null);
-  useEffect(() => {
-    if (!menu) return undefined;
-    const close = (event: Event) => {
-      if (event.target instanceof Element && event.target.closest('.review-context-menu')) return;
-      setMenu(null);
-    };
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') setMenu(null);
-    };
-    window.addEventListener('pointerdown', close, true);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('pointerdown', close, true);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [menu]);
-  // ABB: hardware back closes the menu instead of leaving the PWA.
-  useMobileBack(Boolean(menu), () => setMenu(null));
-  // A phone has no right-click: each header carries a visible ⋯ that opens the
-  // same menu under it, instead of hiding it behind a long-press.
-  const phone = useMobileRemoteSurface();
-  const openMenu = (file: GitReviewFile, x: number, y: number) =>
-    setMenu({ x: Math.min(x, window.innerWidth - 208), y: Math.min(y, window.innerHeight - 168), file });
-  const [forced, setForced] = useState<string[]>([]);
-  // null = loading; a failed read keeps its message apart from patch text.
-  const [diffs, setDiffs] = useState<Record<string, DiffState>>({});
-  // No manual refresh control: Git evidence (file and git-dir events, focus)
-  // owns freshness, so cached diffs self-invalidate when a file's stats change.
-  const reviewRef = useRef<GitReviewInfo | null>(null);
+type ReviewMenu = { x: number; y: number; file: GitReviewFile };
+
+/** The diff layout the reader last chose, kept across sessions. */
+function usePersistedDiffStyle() {
   const [diffStyle, setDiffStyle] = useState<'unified' | 'split'>(() => {
     try {
       return window.localStorage.getItem(REVIEW_DIFF_STYLE_KEY) === 'split' ? 'split' : 'unified';
@@ -308,6 +262,145 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
       /* persistence only */
     }
   }, [diffStyle]);
+  return [diffStyle, setDiffStyle] as const;
+}
+
+/** An open file menu closes on an outside press or Escape. */
+function useReviewMenuDismiss(open: boolean, close: () => void) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPress = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest('.review-context-menu')) return;
+      close();
+    };
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    window.addEventListener('pointerdown', onPress, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', onPress, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open, close]);
+}
+
+function ReviewFileMenu({
+  menu,
+  cwd,
+  sessionId,
+  onClose,
+  onRevert,
+}: {
+  menu: ReviewMenu;
+  cwd: string;
+  sessionId: string;
+  onClose(): void;
+  onRevert(file: GitReviewFile): Promise<unknown> | undefined;
+}) {
+  return (
+    <div className="review-context-menu" role="menu" style={{ left: menu.x, top: menu.y }}>
+      {isRemoteHostRenderer() ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onClose();
+            void startProjectFileDownload(sessionId, menu.file.path);
+          }}
+        >
+          {t('Download / Share')}
+        </button>
+      ) : (
+        <>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onClose();
+              if (isSshConnectionWindow()) void downloadAndOpenServerFile(cwd, menu.file.path);
+              else void window.mixdogDesktop.openFilePath?.(cwd, menu.file.path).catch(() => {});
+            }}
+          >
+            {t('Open file')}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onClose();
+              void revealFileFromWindow(cwd, menu.file.path).catch(() => {});
+            }}
+          >
+            {t('Reveal in Explorer')}
+          </button>
+        </>
+      )}
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          onClose();
+          const sep = cwd.includes('\\') ? '\\' : '/';
+          void copyTextToClipboard(cwd.replace(/[\\/]+$/, '') + sep + menu.file.path.split('/').join(sep));
+        }}
+      >
+        {t('Copy path')}
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        data-danger
+        onClick={() => {
+          const target = menu.file;
+          onClose();
+          const warning = target.untracked
+            ? t('Delete untracked file "{{file}}"? This cannot be undone.', { file: target.path })
+            : t('Discard uncommitted changes to "{{file}}"? This cannot be undone.', { file: target.path });
+          void confirmAction(warning, {
+            danger: true,
+            confirmLabel: target.untracked ? t('Delete file') : t('Revert changes'),
+          }).then((approved) => {
+            if (!approved) return;
+            return onRevert(target);
+          });
+        }}
+      >
+        {menu.file.untracked ? t('Delete file') : t('Revert changes')}
+      </button>
+    </div>
+  );
+}
+export function ReviewPane({ cwd }: { cwd: string | null }) {
+  const sessionId = useContext(DownloadSessionContext);
+  const [status, setStatus] = useState<GitPanelStatus | null>(null);
+  const [review, setReview] = useState<GitReviewInfo | null>(null);
+  const [readError, setReadError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [busy, setBusy] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: cwd is the trigger; switching project clears the stale action error.
+  useEffect(() => setActionError(''), [cwd]);
+  // Single-open accordion: opening a file closes the rest
+  // and snaps the opened card flush under the sticky header.
+  const [openFile, setOpenFile] = useState('');
+  // Right-click context menu: open / reveal / copy
+  // path, plus a confirm-dialog revert.
+  const [menu, setMenu] = useState<ReviewMenu | null>(null);
+  useReviewMenuDismiss(Boolean(menu), () => setMenu(null));
+  // ABB: hardware back closes the menu instead of leaving the PWA.
+  useMobileBack(Boolean(menu), () => setMenu(null));
+  // A phone has no right-click: each header carries a visible ⋯ that opens the
+  // same menu under it, instead of hiding it behind a long-press.
+  const phone = useMobileRemoteSurface();
+  const openMenu = (file: GitReviewFile, x: number, y: number) =>
+    setMenu({ x: Math.min(x, window.innerWidth - 208), y: Math.min(y, window.innerHeight - 168), file });
+  const [forced, setForced] = useState<string[]>([]);
+  // null = loading; a failed read keeps its message apart from patch text.
+  const [diffs, setDiffs] = useState<Record<string, DiffState>>({});
+  // No manual refresh control: Git evidence (file and git-dir events, focus)
+  // owns freshness, so cached diffs self-invalidate when a file's stats change.
+  const reviewRef = useRef<GitReviewInfo | null>(null);
+  const [diffStyle, setDiffStyle] = usePersistedDiffStyle();
   const refresh = useCallback(async () => {
     if (!cwd) {
       setStatus(null);
@@ -484,77 +577,16 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
         </div>
       </div>
       {menu && (
-        <div className="review-context-menu" role="menu" style={{ left: menu.x, top: menu.y }}>
-          {isRemoteHostRenderer() ? (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenu(null);
-                void startProjectFileDownload(sessionId, menu.file.path);
-              }}
-            >
-              {t('Download / Share')}
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMenu(null);
-                  if (isSshConnectionWindow()) void downloadAndOpenServerFile(cwd, menu.file.path);
-                  else void window.mixdogDesktop.openFilePath?.(cwd, menu.file.path).catch(() => {});
-                }}
-              >
-                {t('Open file')}
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMenu(null);
-                  void revealFileFromWindow(cwd, menu.file.path).catch(() => {});
-                }}
-              >
-                {t('Reveal in Explorer')}
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setMenu(null);
-              const sep = cwd.includes('\\') ? '\\' : '/';
-              void copyTextToClipboard(cwd.replace(/[\\/]+$/, '') + sep + menu.file.path.split('/').join(sep));
-            }}
-          >
-            {t('Copy path')}
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            data-danger
-            onClick={() => {
-              const target = menu.file;
-              setMenu(null);
-              const warning = target.untracked
-                ? t('Delete untracked file "{{file}}"? This cannot be undone.', { file: target.path })
-                : t('Discard uncommitted changes to "{{file}}"? This cannot be undone.', { file: target.path });
-              void confirmAction(warning, {
-                danger: true,
-                confirmLabel: target.untracked ? t('Delete file') : t('Revert changes'),
-              }).then((approved) => {
-                if (!approved) return;
-                if (openFile === target.path) setOpenFile('');
-                return act(() => window.mixdogDesktop.gitRevert?.(cwd, target.path, target.untracked, 'all'));
-              });
-            }}
-          >
-            {menu.file.untracked ? t('Delete file') : t('Revert changes')}
-          </button>
-        </div>
+        <ReviewFileMenu
+          menu={menu}
+          cwd={cwd}
+          sessionId={sessionId}
+          onClose={() => setMenu(null)}
+          onRevert={(target) => {
+            if (openFile === target.path) setOpenFile('');
+            return act(() => window.mixdogDesktop.gitRevert?.(cwd, target.path, target.untracked, 'all'));
+          }}
+        />
       )}
     </div>
   );

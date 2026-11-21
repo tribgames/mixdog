@@ -102,10 +102,9 @@ export function listConversationNotifications(snapshot: DesktopSectionsSnapshot,
 
 export { migratedAtOf };
 
-/** `notificationPreferencesState(currentDeviceId, pcCanNotify | null)`: this PC, then the paired devices (the
- *  Connection tab's list, `remote.clients`), each with its stored preferences or the default its kind and pairing
- *  time give it. A paired device can be notified when the core holds a native push registration for it
- *  (`remote.pushRegistered`). `pcCanNotify` null is asked of the host. */
+/** `notificationPreferencesState(currentDeviceId, pcCanNotify | null)`: this PC, then the paired devices (`remote.clients`),
+ *  each with its stored preferences or the default its kind and pairing time give it. A paired device can be notified
+ *  when the core holds a push registration for it (`remote.pushRegistered`). `pcCanNotify` null is asked of the host. */
 export async function notificationPreferencesState(
   snapshot: DesktopSectionsSnapshot,
   args: readonly unknown[],

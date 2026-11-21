@@ -56,7 +56,7 @@ export function registerFilePreview(
     filePreviews.set(existingToken, existing);
     if (options.regenerate) existing.regenerate = options.regenerate;
     return {
-      url: `${FILE_PREVIEW_SCHEME}://preview/${existingToken}/${encodeURIComponent(basename(absolute))}`,
+      url: previewUrl(existingToken, absolute),
       kind: existing.kind,
       mime: existing.mime,
     };
@@ -73,6 +73,15 @@ export function registerFilePreview(
     ...type,
   });
   filePreviewTokensByKey.set(cacheKey, token);
+  evictOldestPreviews();
+  return { url: previewUrl(token, absolute), ...type };
+}
+
+function previewUrl(token: string, absolutePath: string): string {
+  return `${FILE_PREVIEW_SCHEME}://preview/${token}/${encodeURIComponent(basename(absolutePath))}`;
+}
+
+function evictOldestPreviews(): void {
   while (filePreviews.size > MAX_REGISTERED_FILE_PREVIEWS) {
     const oldest = filePreviews.keys().next().value;
     if (!oldest) break;
@@ -82,10 +91,6 @@ export function registerFilePreview(
       filePreviewTokensByKey.delete(dropped.cacheKey);
     }
   }
-  return {
-    url: `${FILE_PREVIEW_SCHEME}://preview/${token}/${encodeURIComponent(basename(absolute))}`,
-    ...type,
-  };
 }
 
 export function resolveFilePreview(token: string): FilePreviewRecord | null {

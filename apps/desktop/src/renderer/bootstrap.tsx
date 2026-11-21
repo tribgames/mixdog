@@ -73,10 +73,6 @@ applyStoredUserTheme();
 // here: usePaneWorkspace first authorizes them against the durable catalog.
 defaultSessionLaneStore.start();
 
-// Kick the webfont fetches BEFORE the first layout: lazily-triggered loads
-// made the first paint render fallback glyphs and then swap (user: the
-// composer hint "pops" right after entry). Local assets resolve in a few ms,
-// so starting them here lands the real faces by first paint.
 const nativeDesktop = isNativeDesktopWindow();
 let criticalFontsReady: Promise<unknown> = Promise.resolve();
 try {
@@ -131,11 +127,6 @@ void reactCommitted.then(() => {
   } catch {
     /* font readiness remains a cosmetic launch guard */
   }
-  // Every face declares font-display:swap, so a reveal that beats the font
-  // parse paints fallback glyphs and then REFLOWS the whole window when
-  // Pretendard (~2MB variable) lands — the user-visible "폰트 튐" + hitch at
-  // entry. Hold the reveal for the critical faces, capped so a broken font
-  // fetch can never stall the launch.
   const fontRevealBudgetMs = nativeDesktop ? 300 : 150;
   const fontsSettled = Promise.race([
     Promise.allSettled([criticalFontsReady, renderedFontsReady]),

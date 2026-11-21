@@ -1,10 +1,3 @@
-// A page the transcript asks the session's browser pane to show. The request
-// crosses two owners that never meet: the app shell reveals the pane (it owns
-// the dock), and the pane itself loads the address (it owns the guest). One
-// request carries both. The latest address per session stays pending until a
-// pane has actually started loading it, so a card works whether the pane is
-// already open, folded, replaced, or not mounted yet.
-
 /** `agent`: an agent tool asked (visualize), not the user, so a browser panel
  *  the user closed stays closed; the address still waits for the pane. */
 export type BrowserPageRequest = { sessionId: string; url?: string; agent?: boolean };

@@ -1,9 +1,3 @@
-/**
- * Where an input lands and whether it may be sent there: frame-bound
- * coordinates become physical screen ones through the frame they name, the
- * frame's window becomes the target, and an observation-bound action must
- * still target the window scope this session last observed.
- */
 import { framePoint } from '../observation/analysis';
 import type { CaptureFrame, ComputerCommand } from '../shared/types';
 import { OBSERVATION_BOUND_INPUT_ACTIONS, PIXEL_INPUT_ACTIONS } from './action-sets';

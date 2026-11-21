@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { DesktopEditorSettings, DesktopTextFileEncoding } from '../shared/contract';
 import { normalizeEditorModelText, type EditorFileLoad } from './editor-file-loader';
 import type { EditorFileHandle, EditorRecovery, FilePreview } from './editor-pane-model';
-import { errorMessage, fileAccessError } from './editor-pane-session-errors';
+import { errorMessage, fileAccessError, isFileChangedOnDisk, isFileGone } from './editor-pane-session-errors';
 import { useEditorDiskWatch } from './editor-pane-session-disk-watch';
 import { useEditorSessionLoad } from './editor-pane-session-load';
 import { t } from './i18n';
@@ -135,12 +135,6 @@ export function useEditorFileSession({
     },
     []
   );
-  /** Brings the backup in line with the model (`modelText` when it differs
-   *  from the saved text, null when clean), for work that started at
-   *  `generation`. A held edit is never left without its backup: held state
-   *  is re-checked after each await, and while held the held text is
-   *  written instead of deleting. Nothing is written once a discard or
-   *  unmount has followed `generation`. */
   const settleBackup = useCallback(
     async (modelText: string | null, generation: number): Promise<void> => {
       if (generation !== backupGeneration.current) return;
@@ -253,7 +247,7 @@ export function useEditorFileSession({
         return true;
       } catch (reason) {
         setSaveError(fileAccessError(reason));
-        if (/changed on disk|ENOENT|no such file|cannot find/i.test(errorMessage(reason))) setDiskChanged(true);
+        if (isFileChangedOnDisk(reason) || isFileGone(reason)) setDiskChanged(true);
         return false;
       } finally {
         savingRef.current = false;

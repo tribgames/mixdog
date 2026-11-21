@@ -269,7 +269,7 @@ test('open policy: every open and update reveals its tab, even after the user cl
   }
 });
 
-test('open policy: a tab the user picked on a shown panel holds; the other tab is marked updated', () => {
+function withPickHarness(run) {
   const restore = withLocalStorage();
   const sent = [];
   const previous = globalThis.window;
@@ -277,48 +277,56 @@ test('open policy: a tab the user picked on a shown panel holds; the other tab i
   const reveals = [];
   const stop = onVisualizeRevealRequested((sessionId) => reveals.push(sessionId));
   try {
-    const tabs = (n) => [versioned('v1', 1), versioned('v2', n)];
-    applyVisualizeEvent({ sessionId: 'k1', state: { sessionId: 'k1', tabs: tabs(1), active: 'v2' } });
-    setVisualizePanelOnScreen('k1', true);
-    activateVisualizeTab('k1', 'v1');
-    sent.length = 0;
-    // The agent opens v2 again: main made it active; the user's v1 stays.
-    applyVisualizeEvent({
-      sessionId: 'k1',
-      state: { sessionId: 'k1', tabs: tabs(2), active: 'v2' },
-      reveal: true,
-      tab: 'v2',
-    });
-    assert.deepEqual(reveals, []);
-    assert.equal(visualizeStateFor('k1').active, 'v1');
-    assert.deepEqual(sent, [{ sessionId: 'k1', tabId: 'v1', action: 'activate' }]);
-    assert.deepEqual([...visualizeUpdatedTabs('k1')], ['v2']);
-    // An update of the picked tab itself shows as usual.
-    applyVisualizeEvent({
-      sessionId: 'k1',
-      state: { sessionId: 'k1', tabs: tabs(2), active: 'v1' },
-      reveal: true,
-      tab: 'v1',
-    });
-    assert.deepEqual(reveals, ['k1']);
-    // Once the panel leaves the screen the pick no longer holds.
-    activateVisualizeTab('k1', 'v1');
-    setVisualizePanelOnScreen('k1', false);
-    applyVisualizeEvent({
-      sessionId: 'k1',
-      state: { sessionId: 'k1', tabs: tabs(3), active: 'v2' },
-      reveal: true,
-      tab: 'v2',
-    });
-    assert.deepEqual(reveals, ['k1', 'k1']);
-    assert.equal(visualizeStateFor('k1').active, 'v2');
-    assert.equal(visualizeUpdatedTabs('k1').has('v2'), false, 'viewing a tab clears its mark');
-    assert.equal(visualizeUpdateShows({ tabs: tabs(1) }, 'v2', true, 'gone'), true, 'a closed pick holds nothing');
+    run({ sent, reveals });
   } finally {
     stop();
     globalThis.window = previous;
     restore();
   }
+}
+
+const pickTabs = (n) => [versioned('v1', 1), versioned('v2', n)];
+const pickState = (n, active) => ({ sessionId: 'k1', tabs: pickTabs(n), active });
+
+function pickV1OnShownPanel(sent) {
+  applyVisualizeEvent({ sessionId: 'k1', state: pickState(1, 'v2') });
+  setVisualizePanelOnScreen('k1', true);
+  activateVisualizeTab('k1', 'v1');
+  sent.length = 0;
+}
+
+test('open policy: a tab the user picked on a shown panel holds against an agent open of another tab', () => {
+  withPickHarness(({ sent, reveals }) => {
+    pickV1OnShownPanel(sent);
+    applyVisualizeEvent({ sessionId: 'k1', state: pickState(2, 'v2'), reveal: true, tab: 'v2' });
+    assert.deepEqual(reveals, []);
+    assert.equal(visualizeStateFor('k1').active, 'v1');
+    assert.deepEqual(sent, [{ sessionId: 'k1', tabId: 'v1', action: 'activate' }]);
+    assert.deepEqual([...visualizeUpdatedTabs('k1')], ['v2']);
+  });
+});
+
+test('open policy: an update of the picked tab itself shows as usual', () => {
+  withPickHarness(({ sent, reveals }) => {
+    pickV1OnShownPanel(sent);
+    applyVisualizeEvent({ sessionId: 'k1', state: pickState(2, 'v1'), reveal: true, tab: 'v1' });
+    assert.deepEqual(reveals, ['k1']);
+  });
+});
+
+test('open policy: once the panel leaves the screen the pick no longer holds', () => {
+  withPickHarness(({ sent, reveals }) => {
+    pickV1OnShownPanel(sent);
+    setVisualizePanelOnScreen('k1', false);
+    applyVisualizeEvent({ sessionId: 'k1', state: pickState(3, 'v2'), reveal: true, tab: 'v2' });
+    assert.deepEqual(reveals, ['k1']);
+    assert.equal(visualizeStateFor('k1').active, 'v2');
+    assert.equal(visualizeUpdatedTabs('k1').has('v2'), false, 'viewing a tab clears its mark');
+  });
+});
+
+test('open policy: a pick of a closed tab holds nothing', () => {
+  assert.equal(visualizeUpdateShows({ tabs: pickTabs(1) }, 'v2', true, 'gone'), true);
 });
 
 test('a content update lands in place: no activation, no reveal, a dot on a background tab until viewed', () => {

@@ -4,11 +4,6 @@ import { useSurfaceActive } from './surface-activity';
 const tickers = new Set<(now: number) => void>();
 let timer = 0;
 
-/** One shared one-second interval for every ticking readout. Each readout
- *  owning its own interval rendered (and restyled) the window once per
- *  readout per second — a running turn with a few agents, tool cards and the
- *  activity band meant a dozen separate commits every second. Every listener
- *  called in one task lands in one batched commit. */
 function subscribeSecond(listener: (now: number) => void): () => void {
   tickers.add(listener);
   if (!timer) {

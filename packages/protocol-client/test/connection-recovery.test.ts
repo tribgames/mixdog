@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { connect } from '../src/client.ts';
-import { MockConn, MockNetwork } from '../src/mock.ts';
+import { type MockConn, MockNetwork } from '../src/mock.ts';
 import type { ConnectOptions } from '../src/api.ts';
 
 const options = JSON.parse(readFileSync(new URL('../conformance/options.json', import.meta.url), 'utf8'));
@@ -15,7 +15,8 @@ const rig = (extra: Partial<ConnectOptions> = {}) => {
   const net = new MockNetwork();
   const lines: Array<{ event: string; fields: Record<string, unknown> }> = [];
   const waiting = new Map<string, Array<() => void>>();
-  const line = (event: string): Promise<void> => new Promise((resolve) => waiting.set(event, [...(waiting.get(event) ?? []), resolve]));
+  const line = (event: string): Promise<void> =>
+    new Promise((resolve) => waiting.set(event, [...(waiting.get(event) ?? []), resolve]));
   const connecting = connect({
     target: { id: 'local' },
     connector: net,
@@ -64,8 +65,14 @@ test('a version refusal before the first connection is not tried again', async (
   const r = rig({ firstConnectDeadlineMs: 60_000 });
   const conn = await r.net.accept();
   const init = JSON.parse(await conn.nextSent());
-  conn.serverSend({ id: init.id, error: { code: -32600, message: 'old', data: { reason: 'clientOutdated', serverVersion: '2', clientVersion: '1' } } });
-  await assert.rejects(r.connecting, (error: { detail?: { kind?: string } }) => error.detail?.kind === 'versionRefused');
+  conn.serverSend({
+    id: init.id,
+    error: { code: -32600, message: 'old', data: { reason: 'clientOutdated', serverVersion: '2', clientVersion: '1' } },
+  });
+  await assert.rejects(
+    r.connecting,
+    (error: { detail?: { kind?: string } }) => error.detail?.kind === 'versionRefused'
+  );
 });
 
 test('a deadline the caller passes on purpose fails a sent read, and the late answer is no protocol violation', async () => {
@@ -74,20 +81,28 @@ test('a deadline the caller passes on purpose fails a sent read, and the late an
   const client = await r.connecting;
   const read = client.call('thread/read', { threadId: 't1', window: { lastItems: 1 } }, { timeoutMs: 30 });
   const frame = JSON.parse(await conn.nextSent());
-  await assert.rejects(read, (error: { detail?: { kind?: string; sent?: boolean } }) => error.detail?.kind === 'requestTimeout' && error.detail.sent === true);
+  await assert.rejects(
+    read,
+    (error: { detail?: { kind?: string; sent?: boolean } }) =>
+      error.detail?.kind === 'requestTimeout' && error.detail.sent === true
+  );
   conn.serverSend({ id: frame.id, result: { thread: { id: 't1' } } });
   assert.equal(conn.clientClose, undefined, 'the connection stays open');
   assert.equal(client.status.state, 'ready');
   await client.close();
 });
 
-test('a mutation whose request was out when the caller\'s own deadline passed fails as an unknown outcome', async () => {
+test("a mutation whose request was out when the caller's own deadline passed fails as an unknown outcome", async () => {
   const r = rig();
   const conn = await r.handshake();
   const client = await r.connecting;
   const pending = client.call('thread/delete', { threadId: 't1' }, { timeoutMs: 30 });
   await conn.nextSent();
-  await assert.rejects(pending, (error: { detail?: { kind?: string; cause?: { kind?: string } } }) => error.detail?.kind === 'opOutcomeUnknown' && error.detail.cause?.kind === 'requestTimeout');
+  await assert.rejects(
+    pending,
+    (error: { detail?: { kind?: string; cause?: { kind?: string } } }) =>
+      error.detail?.kind === 'opOutcomeUnknown' && error.detail.cause?.kind === 'requestTimeout'
+  );
   await client.close();
 });
 
@@ -97,7 +112,11 @@ test('a call that waits for a connection that never comes back fails at its pre-
   const client = await r.connecting;
   first.serverClose(1006);
   const pending = client.call('thread/delete', { threadId: 't1' });
-  await assert.rejects(pending, (error: { detail?: { kind?: string; sent?: boolean } }) => error.detail?.kind === 'requestTimeout' && error.detail.sent === false);
+  await assert.rejects(
+    pending,
+    (error: { detail?: { kind?: string; sent?: boolean } }) =>
+      error.detail?.kind === 'requestTimeout' && error.detail.sent === false
+  );
   const reconnected = r.line('link-reconnected');
   const second = await r.handshake();
   await reconnected;
@@ -116,7 +135,10 @@ test('a restore the core refuses for a passing reason is tried again, not given 
   const second = await r.handshake();
   const settled = r.line('link-restore-settled');
   const refused = JSON.parse(await second.nextSent());
-  second.serverSend({ id: refused.id, error: { code: -32603, message: 'busy', data: { reason: 'internal', incidentId: 'x' } } });
+  second.serverSend({
+    id: refused.id,
+    error: { code: -32603, message: 'busy', data: { reason: 'internal', incidentId: 'x' } },
+  });
   const again = JSON.parse(await second.nextSent());
   assert.equal(again.method, 'thread/resume');
   second.serverSend({ id: again.id, result: attached });
@@ -135,7 +157,10 @@ test('a restore the core refuses because the thread is gone still drops the subs
   const second = await r.handshake();
   const settled = r.line('link-restore-settled');
   const refused = JSON.parse(await second.nextSent());
-  second.serverSend({ id: refused.id, error: { code: -32600, message: 'gone', data: { reason: 'threadNotFound', threadId: 't1' } } });
+  second.serverSend({
+    id: refused.id,
+    error: { code: -32600, message: 'gone', data: { reason: 'threadNotFound', threadId: 't1' } },
+  });
   await settled;
   assert.equal(r.of('link-restore-settled')[0]!.fields.threadsLost, 1);
   await client.close();
@@ -145,13 +170,23 @@ test('a pending approval is held again once the core presents it on the new conn
   const r = rig();
   const first = await r.handshake();
   const client = await r.connecting;
-  const request = { id: 'ap1', method: 'item/tool/requestApproval', params: { threadId: 't1', requestedAt: 1, order: 1, kind: 'shell', tool: 'bash', request: {} } };
+  const request = {
+    id: 'ap1',
+    method: 'item/tool/requestApproval',
+    params: { threadId: 't1', requestedAt: 1, order: 1, kind: 'shell', tool: 'bash', request: {} },
+  };
   first.serverSend(request);
-  assert.deepEqual(client.pendingServerRequests().map((p) => p.id), ['ap1']);
+  assert.deepEqual(
+    client.pendingServerRequests().map((p) => p.id),
+    ['ap1']
+  );
   first.serverClose(1006);
   assert.deepEqual(client.pendingServerRequests(), [], 'a request belongs to its connection');
   await r.handshake((conn) => conn.serverSend(request));
-  assert.deepEqual(client.pendingServerRequests().map((p) => p.id), ['ap1']);
+  assert.deepEqual(
+    client.pendingServerRequests().map((p) => p.id),
+    ['ap1']
+  );
   client.respond('ap1', { result: { approved: true } } as never);
   await client.close();
 });
@@ -168,7 +203,11 @@ test('a listener that throws does not keep the others from hearing the change', 
       throw new Error('a presentation listener failed');
     });
     client.on((event) => heard.push(event.type));
-    conn.serverSend({ id: 'ap1', method: 'item/tool/requestApproval', params: { threadId: 't1', requestedAt: 1, order: 1, kind: 'shell', tool: 'bash', request: {} } });
+    conn.serverSend({
+      id: 'ap1',
+      method: 'item/tool/requestApproval',
+      params: { threadId: 't1', requestedAt: 1, order: 1, kind: 'shell', tool: 'bash', request: {} },
+    });
   } finally {
     console.error = log;
   }
@@ -180,7 +219,10 @@ test('a transport that is accepted but never answers initialize ends the first c
   const r = rig({ firstConnectDeadlineMs: 80 });
   const conn = await r.net.accept();
   await conn.nextSent();
-  await assert.rejects(r.connecting, (error: { detail?: { kind?: string } }) => error.detail?.kind === 'requestTimeout');
+  await assert.rejects(
+    r.connecting,
+    (error: { detail?: { kind?: string } }) => error.detail?.kind === 'requestTimeout'
+  );
   assert.equal(conn.clientClose?.code, 1000, 'the abandoned socket is closed');
 });
 
@@ -207,9 +249,13 @@ test('a request outlives any age while the connection is alive: a delayed instal
     client.call('config/installBuiltinFeature', { name: 'memory' }),
     client.call('thread/compact/start', { threadId: 't1' } as never),
   ];
-  const frames = [JSON.parse(await conn.nextSent()), JSON.parse(await conn.nextSent()), JSON.parse(await conn.nextSent())];
+  const frames = [
+    JSON.parse(await conn.nextSent()),
+    JSON.parse(await conn.nextSent()),
+    JSON.parse(await conn.nextSent()),
+  ];
   await later(120);
-  frames.forEach((frame, i) => conn.serverSend({ id: frame.id, result: { done: i } }));
+  for (const [i, frame] of frames.entries()) conn.serverSend({ id: frame.id, result: { done: i } });
   assert.deepEqual(await Promise.all(running), [{ done: 0 }, { done: 1 }, { done: 2 }]);
   await client.close();
 });
@@ -220,7 +266,11 @@ test('a request that expired before it was sent is never sent', async () => {
   const client = await r.connecting;
   first.serverClose(1006);
   const pending = client.call('thread/delete', { threadId: 't1' });
-  await assert.rejects(pending, (error: { detail?: { kind?: string; sent?: boolean } }) => error.detail?.kind === 'requestTimeout' && error.detail.sent === false);
+  await assert.rejects(
+    pending,
+    (error: { detail?: { kind?: string; sent?: boolean } }) =>
+      error.detail?.kind === 'requestTimeout' && error.detail.sent === false
+  );
   const second = await r.handshake();
   await later(30);
   assert.equal(second.sent.length, 0, 'nothing but the handshake was sent');

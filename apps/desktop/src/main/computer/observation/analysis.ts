@@ -1,9 +1,3 @@
-/**
- * Pure observation shaping and judgment for Computer Use: element and OCR
- * normalization, frame geometry, capture-change summaries, and the predicate
- * evaluator. Nothing here reaches a live session, a worker, or the bridge, so
- * every function is decided by its arguments alone.
- */
 import {
   DEFAULT_CAPTURE_AFTER_DELAY_MS,
   DEFAULT_CAPTURE_MAX_ELEMENTS,
@@ -430,20 +424,10 @@ export function shouldUseOcrFallback(
   filteredRead = false
 ): boolean {
   if (explicitlyRequested) return true;
-  // A query- or role-filtered read returns the slice that was asked for, so its
-  // missing content proves nothing about the window. Recognizing the full frame
-  // to answer a narrow question returns words the caller never asked for — but
-  // only while a tree exists to filter. With no accessibility at all, the filter
-  // would answer every question with nothing and cost the caller another read.
   if (filteredRead && semanticAccessibilityAvailable) return false;
   return !semanticAccessibilityAvailable && (mode === 'state' || mode === 'som');
 }
 
-/** A window that answers with its chrome but no content surface is usually mid
- *  transition rather than semantically empty: its provider is alive and the
- *  content tree is still arriving. Asking that provider once more costs a
- *  fraction of recognizing the same pixels and returns the text exactly, so the
- *  fallback is worth one re-read before it spends a recognition pass. */
 export function shouldRereadContentAccessibility(
   mode: string,
   semanticAccessibilityAvailable: boolean,

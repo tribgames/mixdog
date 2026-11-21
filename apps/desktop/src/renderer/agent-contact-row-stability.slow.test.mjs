@@ -4,13 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// A bot row of the 봇 pane keeps one size while its bot works: the preview
-// swaps from the last message to "Working" when a turn starts and back to the
-// (often two-line) reply when it ends, and the status badge comes and goes in
-// the right column. None of that may change the row's height or move its face,
-// name or preview (user: 봇 목록 창 ... 줄이 바뀌는 건지 살짝 레이아웃 쉬프트).
-// Real component and CSS in headless Chrome at the wide, narrow and phone sizes.
-
 const lazyChunkBoundary = {
   name: 'lazy-chunk-boundary',
   setup(pluginBuild) {
@@ -152,10 +145,6 @@ test('a working bot row keeps its height and its face, name and preview stay put
         })),
       });
     }
-    // The row and the face never move. The text block (name + preview lines)
-    // is centred on the face, so a one-line and a two-line preview put the
-    // name at different tops by design; within one preview height (the "Working"
-    // swap and the badge coming and going) name, preview and time stay put.
     const [first] = frames;
     const num = (value) => value.split('/').map(Number);
     for (const frame of frames) {

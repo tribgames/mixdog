@@ -1,7 +1,3 @@
-// "May this conversation be released?" A conversation kept mounted off screen
-// (retained) is given back once the window idles, but only when nothing in it
-// is unfinished: every part that can hold the user's work registers how it
-// tells, and the pane asks the conversation as a whole.
 import { createContext, useContext, useEffect, useLayoutEffect, useRef } from 'react';
 
 export interface ConversationReleaseGate {

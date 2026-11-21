@@ -1,10 +1,3 @@
-// Getting-started guide: a pill pinned to the foot of the left side panel —
-// shared by every rail destination — that unfolds a short checklist of the
-// setup steps a new user needs after onboarding (onboarding configures the
-// account; this guide teaches the app). It leaves for good once dismissed or
-// once every step is done. Each step opens its screen and runs a spotlight
-// tour over the real controls; a one-time welcome card offers the whole
-// tour in order.
 import { Check, GraduationCap, KeyRound, Smartphone, Star, X, type LucideIcon } from 'lucide-react';
 import { type CSSProperties, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -82,11 +75,6 @@ function mergeGuideState(a: GuideState, b: GuideState): GuideState {
 }
 
 const FRESH_GUIDE: GuideState = { closed: false, welcomed: false, visited: [] };
-/** A first onboarding completion stores a fresh guide state in the config
- *  (src/session-runtime/starter-guide-state.mjs). Onboarding done with no copy
- *  in the config nor in localStorage is therefore a profile onboarded before
- *  the guide was persisted whose localStorage was since lost (Chromium
- *  recreates a missing Local Storage database empty) — not a new user. */
 const RETIRED_GUIDE: GuideState = { closed: true, welcomed: true, visited: [] };
 
 function sameGuideState(a: GuideState, b: GuideState): boolean {
@@ -141,11 +129,6 @@ function markVisited(step: StepId): (current: GuideState) => GuideState {
       : { ...current, visited: [...current.visited, step] };
 }
 
-/** The completion notice takes the pill's exact box — same left, bottom,
- *  width and height — and never extends past it: larger, it covered the
- *  Connectors pill above or the main area beside it (a long step name
- *  ellipsizes instead). With the side panel closed (no visible pill) it takes
- *  a pill-sized box in the window's bottom-left corner. */
 function toastPosition(pill: HTMLElement | null): CSSProperties {
   // On a phone the fixed toast's containing block is the body, pinned to the
   // visual viewport (soft keyboard): measure from that box, not the window.
@@ -299,6 +282,43 @@ export function starterTours(): Record<StepId, TourStop[]> {
   };
 }
 
+/** Merges the config copy with localStorage and writes the merge back once when the config copy lacks any of it. */
+function useGuideDiskSync(
+  api: GuideApi,
+  hadLocalState: boolean,
+  setState: (update: (current: GuideState) => GuideState) => void,
+  setDiskRead: (read: boolean) => void
+) {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read each render, listed so the read follows a replaced bridge
+  useEffect(() => {
+    let live = true;
+    Promise.resolve(invokeOrHeld(api, { capability: 'getOnboardingStatus' }))
+      .then((result) => {
+        if (!live) return;
+        const status = record(result?.value);
+        const stored = storedGuideState(status.starterGuide);
+        const disk = stored ?? (!hadLocalState && status.completed === true ? RETIRED_GUIDE : FRESH_GUIDE);
+        setState((current) => {
+          const merged = mergeGuideState(current, disk);
+          if (!sameGuideState(merged, stored ?? FRESH_GUIDE)) saveGuideStateToDisk(api, merged);
+          if (sameGuideState(merged, current)) return current;
+          writeLocalGuideState(merged);
+          return merged;
+        });
+        setDiskRead(true);
+      })
+      .catch(() => {
+        // Unread config: a local copy still decides; with none, a returning
+        // user cannot be told from a new one, so the guide waits for a launch
+        // that can read it.
+        if (live && hadLocalState) setDiskRead(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [api, hadLocalState, setState, setDiskRead]);
+}
+
 export function StarterGuide({
   descriptors,
   onboardingActive,
@@ -342,42 +362,9 @@ export function StarterGuide({
   const update = (change: (current: GuideState) => GuideState) => setState(persisted(api, change));
   const visit = (step: StepId) => update(markVisited(step));
 
-  // Merge the config copy with localStorage and write the merge back once
-  // when the config copy lacks any of it.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: api is the window bridge read each render, listed so the read follows a replaced bridge
-  useEffect(() => {
-    let live = true;
-    Promise.resolve(invokeOrHeld(api, { capability: 'getOnboardingStatus' }))
-      .then((result) => {
-        if (!live) return;
-        const status = record(result?.value);
-        const stored = storedGuideState(status.starterGuide);
-        const disk = stored ?? (!hadLocalState && status.completed === true ? RETIRED_GUIDE : FRESH_GUIDE);
-        setState((current) => {
-          const merged = mergeGuideState(current, disk);
-          if (!sameGuideState(merged, stored ?? FRESH_GUIDE)) saveGuideStateToDisk(api, merged);
-          if (sameGuideState(merged, current)) return current;
-          writeLocalGuideState(merged);
-          return merged;
-        });
-        setDiskRead(true);
-      })
-      .catch(() => {
-        // Unread config: a local copy still decides; with none, a returning
-        // user cannot be told from a new one, so the guide waits for a launch
-        // that can read it.
-        if (live && hadLocalState) setDiskRead(true);
-      });
-    return () => {
-      live = false;
-    };
-  }, [api, hadLocalState]);
+  useGuideDiskSync(api, hadLocalState, setState, setDiskRead);
 
   const remotePaired = Boolean(api && (getCachedConnectionInfo(api)?.clients?.length ?? 0) > 0);
-  // A paired device completes the step for good. The cached connection info
-  // empties while the relay reconnects or access is switched off, and a
-  // live-only check re-announced "Set up remote access · Done" every time it
-  // came back.
   // biome-ignore lint/correctness/useExhaustiveDependencies: visit only persists the flag.
   useEffect(() => {
     if (diskRead && remotePaired && !state.visited.includes('remote')) visit('remote');
@@ -390,12 +377,6 @@ export function StarterGuide({
     onCloseSettings();
     onOpenView(id);
   };
-  // Each step states what completes it. Provider follows real state only (it
-  // completes the moment one is connected, tour or not); the rest are
-  // completed by finishing their tour, project also by adding a folder and
-  // remote also by pairing a device.
-  // The last stop of a tour whose control opens something is a live
-  // "click it" stop, so the tour ends inside the real action.
   const tours = starterTours();
   const steps: Array<{
     id: StepId;
@@ -506,10 +487,6 @@ export function StarterGuide({
     .map((step) => step.id)
     .join(',');
 
-  // Completing a step says so right away, whichever way it happened (a tour
-  // finished, a provider connected, a project added). Derived while
-  // rendering, so the last step's notice holds the pill in the same commit
-  // that finishes the guide — an effect let the pill vanish first.
   if (!loading && diskRead && seenDone !== doneKey) {
     setSeenDone(doneKey);
     if (seenDone !== null) {

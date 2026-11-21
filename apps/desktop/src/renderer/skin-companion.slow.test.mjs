@@ -788,19 +788,22 @@ test('focus returns to the pet with a ring only for keyboard users: no box after
   assert.deepEqual(options, [false, true], 'a keyboard user keeps the ring');
 });
 
-test('the overlay window claims the pointer over the bot only; a system focus hands the keys to the bot', async (t) => {
+async function mountOverlay(t, { api = {}, query = '' } = {}) {
   const dom = installTestDom(t, {
     expose: ['MouseEvent', 'KeyboardEvent', 'Event', 'HTMLElement'],
     actEnvironment: false,
   });
   const calls = { interactive: [], focusInput: [] };
   const noop = () => {};
-  let readied = false;
+  const page = { showView: null, readied: false };
   dom.window.mixdogPet = {
-    onView: () => noop,
+    onView: (listener) => {
+      page.showView = listener;
+      return noop;
+    },
     onBlurred: () => noop,
     ready: () => {
-      readied = true;
+      page.readied = true;
     },
     painted: noop,
     send: async () => true,
@@ -810,17 +813,23 @@ test('the overlay window claims the pointer over the bot only; a system focus ha
     drag: noop,
     nudge: noop,
     reset: noop,
+    read: noop,
+    copy: noop,
     interactive: (on) => calls.interactive.push(on),
     focusInput: (open) => calls.focusInput.push(open),
+    ...api,
   };
-  await import('./desktop-pet-main');
+  await import(`./desktop-pet-main.tsx${query}`);
   const $ = (selector) => dom.document.querySelector(selector);
-  // The pointer listeners attach in the same effect pass that calls ready(),
-  // after the first paint: on a slow runner the bot shows before them.
-  for (let wait = 0; wait < 200 && (!$('.skin-companion-pet') || !readied); wait += 1)
+  return { dom, calls, page, $ };
+}
+
+test('the overlay window claims the pointer over the bot only; a system focus hands the keys to the bot', async (t) => {
+  const { dom, calls, page, $ } = await mountOverlay(t);
+  for (let wait = 0; wait < 200 && (!$('.skin-companion-pet') || !page.readied); wait += 1)
     await new Promise((r) => setTimeout(r, 10));
   const bot = $('.skin-companion-pet');
-  assert.ok(bot && readied, 'the overlay drew the bot and attached its listeners');
+  assert.ok(bot && page.readied, 'the overlay drew the bot and attached its listeners');
   const move = (target) =>
     target.dispatchEvent(new dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 256, clientY: 176 }));
   // A forwarded move over the bot claims the pointer; over the empty window it passes through again.
@@ -847,42 +856,11 @@ test('the overlay window claims the pointer over the bot only; a system focus ha
 });
 
 test('app layers over the pet are cut out of all it draws (#root clip-path), and the pointer there passes through', async (t) => {
-  const dom = installTestDom(t, {
-    expose: ['MouseEvent', 'KeyboardEvent', 'Event', 'HTMLElement'],
-    actEnvironment: false,
-  });
-  const calls = { interactive: [], focusInput: [] };
-  let showView = null;
-  const noop = () => {};
-  dom.window.mixdogPet = {
-    onView: (listener) => {
-      showView = listener;
-      return noop;
-    },
-    onBlurred: () => noop,
-    ready: noop,
-    painted: noop,
-    send: async () => true,
-    open: noop,
-    command: noop,
-    area: noop,
-    drag: noop,
-    nudge: noop,
-    reset: noop,
-    read: noop,
-    copy: noop,
-    interactive: (on) => calls.interactive.push(on),
-    focusInput: (open) => calls.focusInput.push(open),
-  };
   const { flushSync } = await import('react-dom');
-  // A fresh module instance: this test mounts its own overlay page.
-  await import(`./desktop-pet-main.tsx?cutouts=${Date.now()}`);
-  const $ = (selector) => dom.document.querySelector(selector);
-  // The page subscribes to its view in an effect, after the first paint: wait for that too,
-  // or a view sent earlier is lost on a slow runner.
-  for (let wait = 0; wait < 200 && (!$('.skin-companion-pet') || !showView); wait += 1)
+  const { dom, calls, page, $ } = await mountOverlay(t, { query: `?cutouts=${Date.now()}` });
+  for (let wait = 0; wait < 200 && (!$('.skin-companion-pet') || !page.showView); wait += 1)
     await new Promise((r) => setTimeout(r, 10));
-  assert.ok(showView, 'the page subscribed to its view');
+  assert.ok(page.showView, 'the page subscribed to its view');
   const html = dom.document.documentElement;
   const view = {
     sessionId: 's1',
@@ -899,7 +877,7 @@ test('app layers over the pet are cut out of all it draws (#root clip-path), and
     bubbleSpan: { left: 0, right: 512 },
   };
   const show = async (cutouts) => {
-    flushSync(() => showView({ ...view, cutouts }));
+    flushSync(() => page.showView({ ...view, cutouts }));
     await new Promise((r) => setTimeout(r, 0));
   };
   await show([]);
@@ -959,43 +937,21 @@ test('app layers over the pet are cut out of all it draws (#root clip-path), and
 });
 
 test('a picture face (#178): an empty box while it loads, the picture once read, the mascot only if it cannot be read', async (t) => {
-  const dom = installTestDom(t, {
-    expose: ['MouseEvent', 'KeyboardEvent', 'Event', 'HTMLElement'],
-    actEnvironment: false,
-  });
-  let showView = null;
   const asked = [];
-  const noop = () => {};
-  dom.window.mixdogPet = {
-    onView: (listener) => {
-      showView = listener;
-      return noop;
-    },
-    onBlurred: () => noop,
-    ready: noop,
-    painted: noop,
-    send: async () => true,
-    open: noop,
-    command: noop,
-    area: noop,
-    drag: noop,
-    nudge: noop,
-    reset: noop,
-    read: noop,
-    copy: noop,
-    interactive: noop,
-    focusInput: noop,
-    avatarImage: (id) =>
-      new Promise((resolve, reject) => {
-        asked.push({ id, resolve, reject });
-      }),
-  };
   const { flushSync } = await import('react-dom');
-  await import(`./desktop-pet-main.tsx?picture=${Date.now()}`);
-  const $ = (selector) => dom.document.querySelector(selector);
+  const { dom, page, $ } = await mountOverlay(t, {
+    query: `?picture=${Date.now()}`,
+    api: {
+      avatarImage: (id) =>
+        new Promise((resolve, reject) => {
+          asked.push({ id, resolve, reject });
+        }),
+    },
+  });
+  const showView = (next) => page.showView(next);
   const turn = () => new Promise((r) => setTimeout(r, 10));
-  for (let wait = 0; wait < 200 && (!$('.skin-companion-pet') || !showView); wait += 1) await turn();
-  assert.ok(showView, 'the page subscribed to its view');
+  for (let wait = 0; wait < 200 && (!$('.skin-companion-pet') || !page.showView); wait += 1) await turn();
+  assert.ok(page.showView, 'the page subscribed to its view');
   const { MIXY_AGENT_ID: lead } = await import('../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs');
   const view = (idle) => ({
     sessionId: 's1',
@@ -1487,7 +1443,7 @@ test("the pet's menu: the app's menu look, our labels, checkbox states, keyboard
   assert.equal(calls.close, 3, 'an outside click closes it');
 });
 
-test('the whole menu fits its window with no scrollbar at 50/100/200%, and draws no ring for a mouse user', async (t) => {
+async function petMenuSheets() {
   const { readFile } = await import('node:fs/promises');
   const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
   const parse = (css) =>
@@ -1502,18 +1458,12 @@ test('the whole menu fits its window with no scrollbar at 50/100/200%, and draws
     const found = new RegExp(`(?:^|[;\\s])${prop}:\\s*(\\d+)px`).exec(body);
     return found ? Number(found[1]) : Number.NaN;
   };
-  // The menu's rows: a fixed height (min-height lets a tall row, like the Size
-  // row's steps in their padding, grow past it) holding the steps.
-  const menu = rule('.desktop-pet-menu');
-  const rowHeight = px(menu, '--mx-menu-row-height');
-  assert.match(rule('.desktop-pet-menu .mx-menu-item'), /(?:^|[;\s])height:\s*var\(--mx-menu-row-height\)/);
-  assert.match(rule('.desktop-pet-menu .mx-menu-item'), /padding-block:\s*0/);
-  assert.ok(px(rule('.desktop-pet-menu-step'), 'height') <= rowHeight, 'the steps fit their row');
-  const divider = px(rule('.desktop-pet-menu-separated'), 'margin-top');
-  const inset = px(tokens, '--mx-menu-inset');
+  return { pet, tokens, rule, px };
+}
+
+async function mountPetMenu(t) {
   const dom = installTestDom(t, { rootId: 'root', expose: ['MouseEvent', 'KeyboardEvent', 'Event', 'HTMLElement'] });
   const { PetMenu } = await import('./desktop-pet-menu');
-  const { desktopPetGeometry } = await import('../shared/desktop-pet.ts');
   await act(async () =>
     dom.root.render(
       React.createElement(PetMenu, {
@@ -1524,7 +1474,20 @@ test('the whole menu fits its window with no scrollbar at 50/100/200%, and draws
       })
     )
   );
-  const panel = dom.document.querySelector('.desktop-pet-menu');
+  return { dom, panel: dom.document.querySelector('.desktop-pet-menu') };
+}
+
+test('the whole menu fits its window with no scrollbar at 50/100/200%', async (t) => {
+  const { tokens, rule, px } = await petMenuSheets();
+  const menu = rule('.desktop-pet-menu');
+  const rowHeight = px(menu, '--mx-menu-row-height');
+  assert.match(rule('.desktop-pet-menu .mx-menu-item'), /(?:^|[;\s])height:\s*var\(--mx-menu-row-height\)/);
+  assert.match(rule('.desktop-pet-menu .mx-menu-item'), /padding-block:\s*0/);
+  assert.ok(px(rule('.desktop-pet-menu-step'), 'height') <= rowHeight, 'the steps fit their row');
+  const divider = px(rule('.desktop-pet-menu-separated'), 'margin-top');
+  const inset = px(tokens, '--mx-menu-inset');
+  const { desktopPetGeometry } = await import('../shared/desktop-pet.ts');
+  const { panel } = await mountPetMenu(t);
   const rows = panel.querySelectorAll(':scope > .mx-menu-item').length;
   const dividers = panel.querySelectorAll(':scope > .desktop-pet-menu-separated').length;
   assert.deepEqual([rows, dividers], [10, 3]);
@@ -1536,8 +1499,11 @@ test('the whole menu fits its window with no scrollbar at 50/100/200%, and draws
     const clientHeight = desktopPetGeometry(scale).window.height - 8;
     assert.ok(scrollHeight <= clientHeight, `${scale}%: scrollHeight ${scrollHeight} <= clientHeight ${clientHeight}`);
   }
-  // The ring: only under a real key in the overlay; the menu's own focus on
-  // its first item (and :focus-visible) draws nothing.
+});
+
+test("the menu draws no ring for a mouse user: only a real key in the overlay shows it, not the menu's own focus", async (t) => {
+  const { pet, rule } = await petMenuSheets();
+  const { dom, panel } = await mountPetMenu(t);
   const ringed = pet.filter(
     ({ selector, body }) => /desktop-pet-menu/.test(selector) && /box-shadow:\s*var\(--mx-list-focus-ring\)/.test(body)
   );
@@ -1781,61 +1747,44 @@ test('nothing draws a box around the bot in any state: no outline, border, shado
   );
 });
 
-test('the overlay draws the sprite at the size main made its window for', async (t) => {
-  const dom = installTestDom(t, {
-    expose: ['MouseEvent', 'KeyboardEvent', 'Event', 'HTMLElement'],
-    actEnvironment: false,
-  });
-  let showView = null;
-  const noop = () => {};
-  dom.window.mixdogPet = {
-    onView: (listener) => {
-      showView = listener;
-      return noop;
-    },
-    onBlurred: () => noop,
-    ready: noop,
-    painted: noop,
-    send: async () => true,
-    open: noop,
-    command: noop,
-    area: noop,
-    drag: noop,
-    nudge: noop,
-    reset: noop,
-    interactive: noop,
-    focusInput: noop,
-  };
+async function mountIdleOverlay(t, query) {
   const { flushSync } = await import('react-dom');
-  // A fresh module instance: this test mounts its own overlay page.
-  await import(`./desktop-pet-main.tsx?scale=${Date.now()}`);
-  const root = dom.document.documentElement;
-  // The page subscribes to its view in an effect after the first paint.
-  for (let wait = 0; wait < 200 && (!dom.document.querySelector('.skin-companion-pet') || !showView); wait += 1) {
+  const { dom, page, $ } = await mountOverlay(t, { query });
+  for (let wait = 0; wait < 200 && (!$('.skin-companion-pet') || !page.showView); wait += 1) {
     await new Promise((r) => setTimeout(r, 10));
   }
-  assert.ok(showView, 'the page subscribed to its view');
+  assert.ok(page.showView, 'the page subscribed to its view');
   const base = { sessionId: '', bubble: { kind: 'idle' }, face: { room: false, members: [] }, quiet: false };
   const view = { ...base, collapsed: false, keepAbove: false, pinned: true, theme: null, visible: true };
+  const root = dom.document.documentElement;
+  const show = async (next) => {
+    flushSync(() => page.showView({ ...view, screenRight: 600, ...next }));
+    await new Promise((r) => setTimeout(r, 0));
+  };
+  return { root, show };
+}
+
+test('the overlay draws the sprite at the size main made its window for', async (t) => {
+  const { root, show } = await mountIdleOverlay(t, `?scale=${Date.now()}`);
   for (const [scale, size] of [
     [50, '28px'],
     [100, '56px'],
     [150, '84px'],
     [200, '112px'],
   ]) {
-    flushSync(() => showView({ ...view, scale, screenRight: 600 }));
-    await new Promise((r) => setTimeout(r, 0));
+    await show({ scale });
     assert.equal(root.style.getPropertyValue('--pet-size'), size, `${scale}%`);
   }
-  // The visible feet are the box's bottom (main stands it on the island's
-  // bottom line): a look with empty rows under its feet is lowered by them.
+});
+
+test("a look with empty rows under its feet is lowered by them, so the visible feet are the box's bottom", async (t) => {
+  const { root, show } = await mountIdleOverlay(t, `?feet=${Date.now()}`);
   const { mascotCells } = await import('../shared/core-src/runtime/shared/agent-avatar.mjs');
   const face = (avatar) => ({ room: false, members: [{ id: 'bot', name: 'Bot', avatar }] });
   for (const species of ['mixy', 'labrador', 'corgi']) {
     const avatar = { kind: 'mascot', species, accessory: 'none', expression: 'calm', color: '#e6e6e6' };
     const feetRow = Math.max(...mascotCells(avatar).map((cell) => cell.y));
-    flushSync(() => showView({ ...view, face: face(avatar), scale: 100, screenRight: 600 }));
-    await new Promise((r) => setTimeout(r, 0));
+    await show({ face: face(avatar), scale: 100 });
     assert.equal(root.style.getPropertyValue('--pet-feet-gap'), String(11 - feetRow), species);
   }
   assert.notEqual(root.style.getPropertyValue('--pet-feet-gap'), '0', 'the corgi stands on short legs');
@@ -1866,12 +1815,6 @@ test('the publisher sends no composer while the app still shows its boot cover',
 
 // @test-input ./desktop-pet-main.tsx
 test('the pet window paints nothing but the pet: html/body out-rank every root background in its sheets', async () => {
-  // The installed build painted a black plate behind the pet: the tokens'
-  // `:root { background: var(--mx-bg-deep) }` (0,1,0) beat the pet's
-  // `html, body { background: transparent }` (html: 0,0,1). jsdom ignores
-  // specificity, so compare it here: in every theme state (light, swap,
-  // ligatures) the pet's own rule must win on html and body regardless of
-  // bundle order.
   const { readFile } = await import('node:fs/promises');
   const sheet = (path) => readFile(new URL(path, import.meta.url), 'utf8');
   const main = await sheet('./desktop-pet-main.tsx');

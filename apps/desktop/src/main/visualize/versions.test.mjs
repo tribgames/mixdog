@@ -394,7 +394,7 @@ function interceptPictureWrites(onWrite) {
   };
 }
 
-test("a card picture file is part of the tab's work: settled() and drop() wait for it", async () => {
+async function withHeldPictureWrites(body) {
   const space = workspace();
   const held = [];
   const restore = interceptPictureWrites(
@@ -404,7 +404,15 @@ test("a card picture file is part of the tab's work: settled() and drop() wait f
       })
   );
   try {
-    const store = createVisualizeVersionStore({ directory: space.store });
+    await body({ space, held, store: createVisualizeVersionStore({ directory: space.store }) });
+  } finally {
+    restore();
+    space.cleanup();
+  }
+}
+
+test("a card picture file is part of the tab's work: settled() waits for it", () =>
+  withHeldPictureWrites(async ({ space, held, store }) => {
     space.write('chart.png', 'png-1');
     const version = await store.snapshot('s1', 'v1', [space.source('image', 'chart.png')]);
     assert.equal(store.keepThumbnail('s1', 'v1', 1, dataUrl('PIC-1')), true);
@@ -420,8 +428,12 @@ test("a card picture file is part of the tab's work: settled() and drop() wait f
     held.shift()();
     await waiting;
     assert.equal(readFileSync(`${version.dir}.png`, 'utf8'), 'PIC-1');
+  }));
 
-    // A close while the next picture is being written waits for it, then removes everything.
+test('a close while a card picture is being written waits for it, then removes everything', () =>
+  withHeldPictureWrites(async ({ space, held, store }) => {
+    space.write('chart.png', 'png-1');
+    const version = await store.snapshot('s1', 'v1', [space.source('image', 'chart.png')]);
     assert.equal(store.keepThumbnail('s1', 'v1', 1, dataUrl('PIC-2')), true);
     await tick();
     assert.equal(held.length, 1);
@@ -434,15 +446,17 @@ test("a card picture file is part of the tab's work: settled() and drop() wait f
     held.shift()();
     await dropping;
     assert.equal(existsSync(dirname(version.dir)), false, 'no folder or stray file is left');
+  }));
 
-    // A drop nobody awaits (as the service closes a tab) is still waited for by settled().
+test('a drop nobody awaits (as the service closes a tab) is still waited for by settled()', () =>
+  withHeldPictureWrites(async ({ space, held, store }) => {
     space.write('chart.png', 'png-2');
     const second = await store.snapshot('s1', 'v2', [space.source('image', 'chart.png')]);
     store.keepThumbnail('s1', 'v2', 1, dataUrl('PIC-3'));
     await tick();
     assert.equal(held.length, 1);
     void store.drop('s1', 'v2');
-    settled = false;
+    let settled = false;
     const closing = store.settled().then(() => {
       settled = true;
     });
@@ -451,11 +465,7 @@ test("a card picture file is part of the tab's work: settled() and drop() wait f
     held.shift()();
     await closing;
     assert.equal(existsSync(dirname(second.dir)), false, 'the closed tab left no folder or file');
-  } finally {
-    restore();
-    space.cleanup();
-  }
-});
+  }));
 
 test('a failed picture write is logged and blocks nothing; a version evicted while it waited gets no file', async () => {
   const space = workspace();

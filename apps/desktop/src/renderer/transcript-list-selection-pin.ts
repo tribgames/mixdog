@@ -2,11 +2,8 @@ import { type MutableRefObject, useCallback, useRef, useState } from 'react';
 import type { TranscriptRowModel } from './transcript-rows';
 import type { TranscriptSelectionEndpoint, TranscriptSelectionPin } from './transcript-selection-drag';
 
-/** Native text selection keeps DOM boundary points. If virtualization
- *  unmounts either endpoint while a drag auto-scrolls, Chromium reconnects
- *  the range to an unrelated surviving node and the highlight appears to
- *  flip back up the transcript. Keep the selected row span mounted until the
- *  browser selection collapses. */
+/** Chromium reconnects a selection range to an unrelated node when an endpoint
+ *  unmounts mid-drag, so the selected row span stays mounted until it collapses. */
 export function useSelectionPin(rowsRef: MutableRefObject<readonly TranscriptRowModel[]>) {
   const selectionPinned = useRef<TranscriptSelectionPin | null>(null);
   const [, invalidateSelectionPin] = useState(0);

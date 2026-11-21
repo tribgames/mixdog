@@ -1,14 +1,3 @@
-/**
- * A person (no agent) driving the pane through a payment-style flow: the page
- * says something with alert()/confirm()/prompt() before it opens a
- * cross-origin payment layer, the layer itself speaks, or the payment opens in
- * a window.open popup whose first document speaks while it is still parsing.
- * Every dialog must reach the pane as a card the person answers, and the
- * payment layer must take their clicks afterwards. It runs once with the pixel
- * surface and once with native presentation (MIXDOG_BROWSER_NATIVE_VIEW) on the
- * core harness: the agent's commands reach the browser host as the core
- * forwards them (`browser/command`).
- */
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 

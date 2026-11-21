@@ -7,10 +7,17 @@ import {
   useSyncExternalStore,
   type ComponentProps,
   type ReactNode,
+  type RefObject,
 } from 'react';
 import { dismissShellJobs, useDismissedShellJobs } from './background-jobs-dismissed-store';
 import { AgentPoolRow } from './AgentActivityPane';
-import { clearableAgentNode, dismissFinishedAgentRows, useVisibleAgentPool } from './agent-dismiss';
+import {
+  clearableAgentNode,
+  dismissFinishedAgentRows,
+  hostAgentListing,
+  hostDismissListing,
+  useVisibleAgentPool,
+} from './agent-dismiss';
 import type { DesktopAgentActivityState } from '../shared/agent-activity';
 import type { DesktopAgentPoolRow } from '../shared/contract';
 import {
@@ -22,6 +29,7 @@ import {
 } from './agent-activity-model';
 import {
   backgroundJobRows,
+  listedShellKeys,
   EMPTY_SHELL_ROW_RETENTION,
   expiredShellRows,
   retainVanishedShellRows,
@@ -236,11 +244,6 @@ const SUMMARY_UNKNOWN = '-';
 const SUMMARY_KEEP_ORDER = ['total', 'cost', 'hit'];
 const SUMMARY_DISPLAY_ORDER = ['total', 'hit', 'cost'];
 
-/** The session's totals below the agent rows, in the composer usage
- *  readout's own form (its items, formatters and fitting): the ledger's exact
- *  figures for the Lead and its listed agents, the Lead/Agents split in the
- *  total's worded form and the cost after. A figure not yet measured, or one
- *  the ledger cannot attribute exactly, reads "-", never an estimate or a zero. */
 function AgentsSummary({ usage }: { usage: IslandUsageSummary }) {
   const { totalTokens, leadTokens, agentTokens, cacheHitRate, costUsd } = usage;
   const splitKnown = totalTokens !== null && leadTokens !== null && agentTokens !== null;
@@ -279,12 +282,14 @@ function AgentsSummary({ usage }: { usage: IslandUsageSummary }) {
 function AgentsPanel({
   sessionId,
   agents,
+  shellKeys,
   usage,
   onClose,
   onOpenSession,
 }: {
   sessionId: string;
   agents: IslandAgentRow[];
+  shellKeys: ReadonlySet<string> | null;
   usage: IslandUsageSummary;
   onClose(): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
@@ -342,7 +347,7 @@ function AgentsPanel({
             description={t('Clear finished')}
             named
             disabled={clearable.length === 0}
-            onClick={() => dismissFinishedAgentRows(clearable)}
+            onClick={() => dismissFinishedAgentRows(clearable, hostAgentListing(), { sessionId, keys: shellKeys })}
           />
         }
       >
@@ -433,7 +438,7 @@ function useShellRowsUntilFinished(sessionId: string, hostRows: JobRow[]): JobRo
 
 /** Dismisses each cleanly exited shell row SHELL_AUTO_DISMISS_MS after it
  *  finished (after it was first listed, when its finish time is unknown). */
-function useAutoDismissShells(sessionId: string, rows: JobRow[]): void {
+function useAutoDismissShells(sessionId: string, rows: JobRow[], shellKeys: ReadonlySet<string> | null): void {
   const seen = useRef({ sessionId, at: new Map<string, number>() });
   const [tick, setTick] = useState(0);
   // `tick` re-evaluates once the next row's listing time is over.
@@ -445,11 +450,11 @@ function useAutoDismissShells(sessionId: string, rows: JobRow[]): void {
     const at = seen.current.at;
     for (const row of rows) if (row.finished && !at.has(row.key)) at.set(row.key, now);
     const { keys, nextAt } = expiredShellRows(rows, now, (row) => at.get(row.key) ?? now);
-    if (keys.length > 0) dismissShellJobs(sessionId, keys);
+    if (keys.length > 0) dismissShellJobs(sessionId, keys, hostDismissListing(sessionId, shellKeys));
     if (!nextAt) return undefined;
     const timer = setTimeout(() => setTick((value) => value + 1), Math.max(0, nextAt - now) + 1);
     return () => clearTimeout(timer);
-  }, [sessionId, rows, tick]);
+  }, [sessionId, rows, shellKeys, tick]);
 }
 
 /** The session's agent rows, finished ones included; polls the shared pool
@@ -469,6 +474,31 @@ function useIslandAgentRows(sessionId: string): {
   return { agentRows, poolRows };
 }
 
+function useIslandTabDismiss(
+  expanded: ComposerIslandTab,
+  setExpanded: (tab: ComposerIslandTab) => void,
+  islandRef: RefObject<HTMLDivElement | null>
+): void {
+  const surfaceActive = useSurfaceActive();
+  useEffect(() => {
+    if (!surfaceActive || !['agents', 'shells', 'resume', 'branch', 'git'].includes(expanded)) return undefined;
+    const onPointerDown = (event: PointerEvent) => {
+      const island = islandRef.current;
+      if (island && event.target instanceof Node && island.contains(event.target)) return;
+      setExpanded('');
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExpanded('');
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [expanded, surfaceActive, setExpanded, islandRef]);
+}
+
 /** How many turns of the session have settled (busy, then idle) since it was shown. */
 function useSettledTurns(busy: boolean): number {
   const wasBusy = useRef(busy);
@@ -480,10 +510,6 @@ function useSettledTurns(busy: boolean): number {
   return settled;
 }
 
-/** The pill's agents segment counts the agents still working, as the shell
- *  segment counts running shells. With only finished agents left it reads
- *  "Agent", muted and without a number; the mark pulses while any runs or
- *  queues. */
 function AgentsSegment({
   agents,
   expanded,
@@ -670,14 +696,7 @@ interface ComposerIslandProps {
   carriedAdvances?: Partial<IslandSegmentReserves>;
 }
 
-/**
- * The single island above a session's composer. Its slot takes the island's
- * real height in the dock while it carries something and eases between
- * heights (see useIslandSlotPresence); the transcript viewport above resizes
- * with it and the end pin keeps a following tail in place on every frame.
- * Memoised (sameIslandProps): its dock re-renders with every conversation
- * commit, a session switch several times.
- */
+/** The single island above a session's composer; memoised by sameIslandProps. */
 export const ComposerIsland = memo(function ComposerIsland({
   sessionId,
   routeSessionId = sessionId,
@@ -699,8 +718,12 @@ export const ComposerIsland = memo(function ComposerIsland({
   const dismissedShells = useDismissedShellJobs(sessionId);
   const hostJobRows = useMemo(() => backgroundJobRows(snapshot, dismissedShells), [snapshot, dismissedShells]);
   const jobRows = useShellRowsUntilFinished(sessionId, hostJobRows);
-  useAutoDismissShells(sessionId, jobRows);
   const { agentRows, poolRows } = useIslandAgentRows(sessionId);
+  const shellKeys = useMemo(
+    () => listedShellKeys(lane, [...backgroundJobRows(snapshot), ...jobRows]),
+    [lane, snapshot, jobRows]
+  );
+  useAutoDismissShells(sessionId, jobRows, shellKeys);
   const shellRows = jobRows.filter((row) => !row.finished);
   const finishedShellCount = jobRows.filter((row) => row.finished).length;
   const shellCount = Math.max(Number(snapshot.shellJobs?.count) || 0, shellRows.length);
@@ -711,9 +734,6 @@ export const ComposerIsland = memo(function ComposerIsland({
   const [expanded, setExpanded] = useState<ComposerIslandTab>('');
   const toggle = (tab: 'agents' | 'shells') => setExpanded(expanded === tab ? '' : tab);
   const agentSessionIds = useMemo(() => agentRows.map(({ node }) => node.sessionId).filter(Boolean), [agentRows]);
-  // The ledger is read on opening and whenever the token of this session's
-  // group (carried on the pool rows) moves or a turn of the Lead settles; the
-  // hook never overlaps two reads.
   const settledTurns = useSettledTurns(Boolean(snapshot.busy));
   const usageCue = islandUsageCue(poolRows, sessionId, settledTurns);
   const sessionUsage = useIslandSessionUsage(sessionId, agentSessionIds, expanded === 'agents', usageCue);
@@ -744,28 +764,7 @@ export const ComposerIsland = memo(function ComposerIsland({
   useEffect(() => {
     setExpanded('');
   }, [sessionId]);
-  // Outside press or Escape collapses the island's own tabs and the branch
-  // and git tabs. The Goal and files tabs own their dismissal (they also
-  // guard their dialogs and pickers). An island whose conversation is off
-  // screen listens to nothing: those presses and keys belong to the shown one.
-  const surfaceActive = useSurfaceActive();
-  useEffect(() => {
-    if (!surfaceActive || !['agents', 'shells', 'resume', 'branch', 'git'].includes(expanded)) return undefined;
-    const onPointerDown = (event: PointerEvent) => {
-      const island = islandRef.current;
-      if (island && event.target instanceof Node && island.contains(event.target)) return;
-      setExpanded('');
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setExpanded('');
-    };
-    document.addEventListener('pointerdown', onPointerDown, true);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown, true);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [expanded, surfaceActive]);
+  useIslandTabDismiss(expanded, setExpanded, islandRef);
 
   let mode = 'pill';
   if (approval) mode = 'approval';
@@ -840,11 +839,12 @@ export const ComposerIsland = memo(function ComposerIsland({
                 sessionId={sessionId}
                 shells={jobRows}
                 onClose={() => setExpanded('')}
-                onDismiss={(row) => dismissShellJobs(sessionId, [row.key])}
+                onDismiss={(row) => dismissShellJobs(sessionId, [row.key], hostDismissListing(sessionId, shellKeys))}
                 onDismissAll={(rows) =>
                   dismissShellJobs(
                     sessionId,
-                    rows.map((row) => row.key)
+                    rows.map((row) => row.key),
+                    hostDismissListing(sessionId, shellKeys)
                   )
                 }
               />
@@ -853,6 +853,7 @@ export const ComposerIsland = memo(function ComposerIsland({
               <AgentsPanel
                 sessionId={sessionId}
                 agents={agentRows}
+                shellKeys={shellKeys}
                 usage={usageSummary}
                 onClose={() => setExpanded('')}
                 onOpenSession={

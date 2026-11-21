@@ -1,10 +1,3 @@
-/**
- * Everything the host remembers about one guest page, in one place. Refs,
- * visual grounding, dialogs, console and network ledgers, crash state and the
- * remote-frame cache share a single record per WebContents, which keeps their
- * lifetimes aligned and makes "forget what this page looked like" a one-line
- * operation. The record's shape is in host-types.ts.
- */
 import type { WebContents } from 'electron';
 
 import { BrowserConsoleLedger } from './console';
@@ -38,10 +31,6 @@ class GuestConsoleLedger extends BrowserConsoleLedger {
 
 export class BrowserGuestStateStore {
   private readonly states = new WeakMap<WebContents, BrowserGuestState>();
-  /** The last document, load or snapshot number issued to any page. Every
-   *  such number comes from this one counter, so none is ever issued twice,
-   *  whatever tab id a page carries or whichever guest held it before. Only
-   *  greater is newer holds between numbers; they are not consecutive. */
   private lastIssued = 0;
   private readonly listeners = new Set<GuestStateListener>();
   private nextPageId = 0;

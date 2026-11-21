@@ -1,11 +1,3 @@
-/**
- * Frames written beside the run instead of into the conversation, shared by the
- * Computer Use and Browser Use hosts. The host chooses the path — a caller
- * never names a file, so this can never become an arbitrary write — and old
- * frames are pruned so a long session cannot fill the disk. A failed write
- * returns nothing and the caller keeps the inline frame, because losing the
- * pixels silently would be worse than spending the tokens.
- */
 import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 

@@ -5,14 +5,6 @@ import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-launch.mjs';
 
-// A long settled reply keeps only the blocks near the reader in the DOM
-// (markdown-block-parking). In a real Chrome against the app's stylesheets and
-// markdown components, the same reply is rendered twice, once whole: wherever
-// the reader scrolls, every block of the parked one sits where the whole one
-// has it, to the layout unit, and the reply is as tall. A reply still arriving
-// does the same for every body but its last. A long code block does it with
-// its lines, in stretches (markdown-code-lines).
-
 const SECTIONS = 40;
 const ARRIVING_SECTIONS = 12;
 
@@ -70,9 +62,6 @@ const HAST = `
     // A heading whose title is still to arrive takes no box while the reply streams.
     untitled: () => el('h2', []),
   };
-  // A code block of \`lines\` lines, as highlighted: every line opens on a mark
-  // (data-line), every tenth is empty, some wrap, and a comment runs over 45
-  // lines out of every 100.
   // \`mark\`: the class of the line marks, which is what a highlighting sets.
   const codeLine = (n, mark) => [
     el('span', [text(n % 2 ? 'let' : 'const')], { className: [mark], dataLine: String(n) }),

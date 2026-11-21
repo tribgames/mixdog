@@ -1,7 +1,3 @@
-// What a bot's chat shows of the OTHER session it talks to (its "sent to"
-// line, its folded answer): the session's current title and whether the
-// daemon runs a turn of it. Fed by the session catalog (app-session-catalog.ts),
-// so a rename and a turn's end reach the chat without any polling.
 import { useSyncExternalStore } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { sessionDisplayTitle } from './session-display-title';

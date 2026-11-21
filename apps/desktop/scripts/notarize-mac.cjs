@@ -1,9 +1,5 @@
-// electron-builder afterSign hook: notarizes the signed macOS app and staples
-// its ticket before the dmg and zip are made. electron-builder's own notarize
-// step gives the staple only a few seconds of retries, while Apple's ticket
-// service (api.apple-cloudkit.com) drops hosted runners' connections for many
-// minutes (stapler exit 68). Only that failure is retried here; every other
-// failure, and a rejected submission, fails the build.
+// Apple's ticket service (api.apple-cloudkit.com) drops hosted runners' connections for many minutes
+// (stapler exit 68); electron-builder's own staple retries only a few seconds.
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 

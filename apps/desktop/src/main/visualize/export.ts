@@ -1,8 +1,3 @@
-/**
- * Exports of a visualize tab: a file name for the save dialog, and inline
- * content saved into the project under `design/mockups/<slug>/` (never over
- * an existing file, never outside the working directory).
- */
 import { lstat, mkdir, realpath } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 

@@ -1,11 +1,3 @@
-// The dedicated Electron window for "Connect to another PC": it loads the
-// host's relay web app and runs the ordinary web pairing/claim flow in its own
-// persistent session partition (one per host). It gets only the tiny
-// remote-window preload — never the local desktop bridge — so the page installs
-// the remote shim and every host action keeps going through the E2EE relay.
-// Local conveniences (native file picker for attachments, OS notifications,
-// links in the default browser) are this machine's own Chromium/Electron
-// features and need no bridge into the host.
 import { app, BrowserWindow, ipcMain, session, shell } from 'electron';
 import { tagRendererSurface } from './process-memory-diagnostics';
 
@@ -88,10 +80,6 @@ export function createRemoteHostWindows(
     });
   };
 
-  // The remote window's own PC switcher (top bar). Only a window this module
-  // opened may ask, and it can only list names, open a SAVED host, or ask this
-  // machine's main window to show its connection settings; it never learns a
-  // host's route or credential.
   const hostWindowId = (sender: Electron.WebContents): string | null => {
     for (const [id, window] of windows) if (!window.isDestroyed() && window.webContents.id === sender.id) return id;
     return null;

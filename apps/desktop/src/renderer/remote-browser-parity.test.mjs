@@ -2,12 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { withPhoneApi } from './test-support/phone-api-rig.mjs';
 
-// Node's version (b6f10295a) read each gate off the relay challenge's flags and re-read them on every leg. The table is the same
-// (remote-shim-api.ts); the gates are the context's `peer*` flags, which the phone sets per connection from the core's capabilities
-// (apps/mobile/src/phone-capabilities.ts, `peerFlagsOf`; remote-host-parity.test.mjs holds that mapping). A gate reads the flag at the time of
-// the access, so a flag withdrawn by a later leg withdraws the member. Not kept: the normalization of pushed tab lists and import progress
-// (malformed rows dropped, `loading` coerced) -- nothing in the phone delivers those pushes until PH-2's browser adapter does.
-
 const BROWSER_MEMBERS = [
   'remoteBrowserTabs',
   'remoteBrowserOpenTab',

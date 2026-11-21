@@ -1,11 +1,3 @@
-/**
- * Drawing one cursor event. The virtual pointer travels from where it was
- * last drawn to the action point and plays the action effect only once it has
- * arrived, mirroring where the worker then acts. A background cursor sits
- * just above its exact target window, never raising or activating it; a
- * foreground cursor rides above everything. Every stage leaves a diagnostic
- * so an invisible cursor can be explained afterwards.
- */
 import type { BrowserWindow } from 'electron';
 import { screen } from 'electron';
 

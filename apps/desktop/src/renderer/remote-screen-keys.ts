@@ -1,8 +1,3 @@
-// The phone's keyboard for the whole-PC screen view (docs/remote-screen.md):
-// what typed text and the bar's keys become as `screen-text` / `screen-key`
-// input, and the Chrome-Remote-Desktop-style special keys. The bar sends at
-// once (remote-send-bar.ts): text goes only on Send. Pure: no DOM, so each
-// rule is tested on plain objects.
 import { remoteScreenKeyForCode } from '../shared/remote-screen';
 import { MAX_REMOTE_SCREEN_TEXT, type RemoteScreenInput } from '../shared/remote-webrtc';
 import { createSendBar, type SendBarKey } from './remote-send-bar';
@@ -58,13 +53,17 @@ function screenKeyPress(press: SendBarKey): RemoteScreenInput[] {
   return screenKeyChord([...modifiers, code]);
 }
 
-/** Down for each code in order, then up in reverse: a chord, or one key. */
-export function screenKeyChord(codes: readonly string[]): RemoteScreenInput[] {
-  const keys = codes.map((code) => {
+function screenKeysForCodes(codes: readonly string[]) {
+  return codes.map((code) => {
     const key = remoteScreenKeyForCode(code);
     if (!key) throw new TypeError(`No screen key for ${code}`);
     return key;
   });
+}
+
+/** Down for each code in order, then up in reverse: a chord, or one key. */
+export function screenKeyChord(codes: readonly string[]): RemoteScreenInput[] {
+  const keys = screenKeysForCodes(codes);
   return [
     ...keys.map((key): RemoteScreenInput => ({ type: 'screen-key', action: 'down', ...key })),
     ...[...keys].reverse().map((key): RemoteScreenInput => ({ type: 'screen-key', action: 'up', ...key })),
@@ -113,12 +112,7 @@ export const SCREEN_SPECIAL_KEYS: readonly ScreenSpecialKey[] = [
 export function screenSpecialKeyInputs(id: ScreenSpecialKey['id']): RemoteScreenInput[] {
   const special = SCREEN_SPECIAL_KEYS.find((candidate) => candidate.id === id);
   if (!special) throw new TypeError(`Unknown special key ${id}`);
-  const keys = special.codes.map((code) => {
-    const key = remoteScreenKeyForCode(code);
-    if (!key) throw new TypeError(`No screen key for ${code}`);
-    return key;
-  });
-  return [{ type: 'screen-keys', keys }];
+  return [{ type: 'screen-keys', keys: screenKeysForCodes(special.codes) }];
 }
 
 /** The phone bar's field: typing stays in the bar; Send (or Enter) delivers

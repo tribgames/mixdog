@@ -5,6 +5,7 @@ import { DEFAULT_THEME_ID, THEME_ALIASES, THEME_REGISTRY } from '../../../../src
 import { DESKTOP_THEME_PREFERENCE_KEY } from '../shared/host-display-preferences';
 import { hasLocalDisplayChoice, markHostDisplayChoice, markLocalDisplayChoice } from './display-preference-source';
 import { refreshTitleBarDim } from './titlebar-dim';
+import { safeLocalStorage } from './local-storage';
 
 type ThemePalette = Record<string, string>;
 type ThemeEntry = { id: string; label: string; palette: ThemePalette };
@@ -27,9 +28,6 @@ function cssVariables(palette: ThemePalette): Record<string, string> {
     '--mx-bg-layer-2': palette.mdCodeSpanBg,
     '--mx-bg-layer-3': palette.userMessageBackgroundHover,
     '--mx-bg-contrast': palette.selectionBackground,
-    // Shell chrome derives from the same depth axis as the built-in themes
-    // (deep → band → sheet → base); without these the titlebar, side rails,
-    // and workspace sheet stayed on the default warm-dark for registry themes.
     '--mx-window-band': `color-mix(in srgb, ${palette.mdCodeBlockBg} 30%, ${deep})`,
     '--mx-workspace-sheet': `color-mix(in srgb, ${palette.mdCodeBlockBg} 65%, ${deep})`,
     '--mx-surface-plate': `color-mix(in srgb, ${palette.text} 4%, transparent)`,
@@ -52,17 +50,9 @@ function cssVariables(palette: ThemePalette): Record<string, string> {
     '--mx-warning': palette.warning,
     '--mx-success-bg': palette.mdDiffAddedBg,
     '--mx-success': palette.success,
-    // Status ACCENTS follow the palette, so their companion plates must too:
-    // without these a registry theme drew everforest/nord greens inside a
-    // default-dark green hairline.
     '--mx-success-border': `color-mix(in srgb, ${palette.success} 45%, transparent)`,
     '--mx-scrollbar-thumb': `color-mix(in srgb, ${palette.promptBorder} 72%, transparent)`,
     '--mx-scrollbar-thumb-hover': palette.promptBorder,
-    // The highlight ramp belongs to the palette too: without these a registry
-    // theme repainted every surface except the inside of its own code card,
-    // which kept the Dark+ hues from desktop.css. Fallbacks mirror the
-    // TUI renderer (comment → subtle, the rest → the flat code-body ink) so a
-    // palette without a full syntax ramp still lands in-theme.
     '--mx-syntax-comment': palette.syntaxComment || palette.subtle,
     '--mx-syntax-keyword': palette.syntaxKeyword || palette.mdCodeBlock,
     '--mx-syntax-control': palette.syntaxKeyword || palette.mdCodeBlock,
@@ -104,24 +94,13 @@ function builtinTheme(resolved: string): boolean {
   return resolved === DEFAULT_THEME_ID || resolved === 'dark' || resolved === 'light';
 }
 
-// theme-color is the window band of the resolved theme (--mx-window-band,
-// desktop/01-tokens.css), the same color index.html, the manifest and the boot
-// gate start from: Android standalone browsers paint both system bars with it,
-// and the other-PC Electron window tints its caption buttons from it.
+// theme-color: Android standalone browsers paint both system bars with it and the other-PC Electron window tints its caption buttons from it.
 const THEME_COLOR_DARK = '#181818';
 const THEME_COLOR_LIGHT = '#f7f7f7';
 
 // 'system' | 'dark' | 'white' are the desktop surface modes; any TUI registry
 // theme id (nord, dracula, …) is also accepted as a desktop-local preference.
 export type DesktopThemePreference = 'system' | 'dark' | 'white' | (string & {});
-
-function desktopThemeStorage(): Storage | null {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage;
-  } catch {
-    return null;
-  }
-}
 
 /** A known preference for a raw stored/received value; null when unknown. */
 function normalizeDesktopThemePreference(value: string): DesktopThemePreference | null {
@@ -132,7 +111,7 @@ function normalizeDesktopThemePreference(value: string): DesktopThemePreference 
 }
 
 export function getDesktopThemePreference(): DesktopThemePreference | null {
-  return normalizeDesktopThemePreference(desktopThemeStorage()?.getItem(DESKTOP_THEME_PREFERENCE_KEY) || '');
+  return normalizeDesktopThemePreference(safeLocalStorage()?.getItem(DESKTOP_THEME_PREFERENCE_KEY) || '');
 }
 
 /** Whether this device's theme was chosen here (see display-preference-source.ts).
@@ -142,10 +121,7 @@ export function hasLocalThemeChoice(): boolean {
   return hasLocalDisplayChoice('theme', stored !== null && stored !== 'dark');
 }
 
-/** Settings picker options — Desktop owns System + White/Dark.
- * The TUI registry themes (nord, dracula, …) stay
- * TUI-only; a previously stored registry id still resolves for rendering,
- * it just is not offered here anymore. */
+/** Settings picker options: System, White and Dark. A stored registry id still resolves for rendering but is not offered. */
 export function desktopThemeOptions(): Array<{ value: DesktopThemePreference; label: string }> {
   return [
     { value: 'system', label: 'System' },
@@ -161,14 +137,10 @@ function resolveRegisteredThemeId(requested: string): string | null {
   return alias && registry[alias] ? alias : null;
 }
 
-/** A user JSON theme (appearance/user-theme.ts) decides the appearance while it
- *  is on: 'dark' / 'light' for a single-appearance theme, 'follow' for a
- *  {dark, light} theme (System / White / Dark still apply; a stored TUI
- *  registry palette yields to the theme), null when none is on. Registered
- *  by that module so this one does not import it. */
 type ThemeAppearanceOverride = () => 'dark' | 'light' | 'follow' | null;
 let themeAppearanceOverride: ThemeAppearanceOverride | null = null;
 
+/** Registers the user JSON theme's appearance: 'dark' / 'light' for a single-appearance theme, 'follow' for a {dark, light} theme, null when none is on. */
 export function registerThemeAppearanceOverride(override: ThemeAppearanceOverride): void {
   themeAppearanceOverride = override;
 }
@@ -196,16 +168,12 @@ export function applyDesktopThemePreference(preference: DesktopThemePreference):
   return applyDesktopTheme(resolveThemePreference(preference));
 }
 
-// Whether the LAST applied preference was 'system': the main process then
-// keeps nativeTheme on 'system' instead of pinning light/dark, so
-// prefers-color-scheme keeps reporting the real OS theme. When a pin is
-// released and the OS truth differs, the matchMedia change listener in
-// App.tsx re-resolves the theme — the one-beat stale read self-heals.
+// The main process keeps nativeTheme on 'system' while the last applied preference was 'system', so prefers-color-scheme reports the OS theme.
 let systemPreferenceActive = false;
 
 /** The user's own choice on this device: it wins over the host PC from now on. */
 export function setDesktopThemePreference(preference: DesktopThemePreference): string {
-  desktopThemeStorage()?.setItem(DESKTOP_THEME_PREFERENCE_KEY, preference);
+  safeLocalStorage()?.setItem(DESKTOP_THEME_PREFERENCE_KEY, preference);
   markLocalDisplayChoice('theme');
   return applyDesktopThemePreference(preference);
 }
@@ -217,7 +185,7 @@ export function adoptHostThemePreference(value: string): boolean {
   if (!preference) return false;
   markHostDisplayChoice('theme');
   if ((getDesktopThemePreference() ?? 'dark') === preference) return false;
-  desktopThemeStorage()?.setItem(DESKTOP_THEME_PREFERENCE_KEY, preference);
+  safeLocalStorage()?.setItem(DESKTOP_THEME_PREFERENCE_KEY, preference);
   applyDesktopThemePreference(preference);
   return true;
 }

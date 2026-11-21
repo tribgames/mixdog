@@ -62,10 +62,6 @@ export function composerScopeOpensFreshDraft(nextScope: string): boolean {
  *  and handed back when that tab is shown again. Empty text drops the entry. */
 const composerDraftsByScope = new Map<string, string>();
 
-/** The stash outlives the page: a phone app sent to the background can be
- *  reloaded (deploy adoption) or killed by the OS, and the half-typed prompt
- *  must come back. The page writes it when it leaves the screen; a fresh page
- *  reads it once. */
 const PERSISTED_DRAFTS_KEY = 'mixdog.composer-drafts';
 const PERSISTED_DRAFTS_LIMIT = 50;
 let persistedDraftsLoaded = false;
@@ -104,10 +100,6 @@ export function persistComposerDrafts(): void {
   }
 }
 
-/** Conversations deleted for good. A composer still showing one parks its
- *  content AFTER the deletion signal (tabs close once the session is gone), so
- *  the stashes below refuse these identities instead of re-adding them. Ids are
- *  never reused. */
 const forgottenComposerScopes = new Set<string>();
 const FORGOTTEN_SCOPES_LIMIT = 500;
 
@@ -123,10 +115,6 @@ export function stashedComposerDraft(scope: string): string {
   return composerDraftsByScope.get(scope) ?? '';
 }
 
-/** Attachment chips per composer identity, parked beside the text when the
- *  user leaves a tab before sending. Chips keep their ids, so the tokens in
- *  the parked text still name them. Memory only — image data is too large for storage — and
- *  bounded, oldest tab dropped first. */
 const composerAttachmentsByScope = new Map<string, ComposerAttachment[]>();
 const PARKED_ATTACHMENT_SCOPES_LIMIT = 20;
 
@@ -225,10 +213,6 @@ export function composerDraftAfterScopeChange({
   return typingLive && candidate.trim() ? candidate : '';
 }
 
-// New Task drafts whose first submission minted a session, by draft scope.
-// The submit router records the pair when the host acknowledges the mint; the
-// composer reads it when its identity moves, so only the session THIS draft
-// became takes its chips along.
 const promotedDraftSessions = new Map<string, string>();
 const PROMOTED_DRAFT_LIMIT = 64;
 

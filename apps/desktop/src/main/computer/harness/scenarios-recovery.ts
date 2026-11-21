@@ -5,17 +5,17 @@ import type { CapturePayload } from './scenario-types';
 import { capturePayload, actionPayload, ocrText, ocrMark } from './scenario-ocr';
 import { progress, eventually, runScenario } from './scenario-runtime';
 import { createDenseFixture, foregroundHwnd, nativeHwnd, spawnNativeDialogFixture } from './scenario-fixtures';
+import { windowIdByTitle } from './window-listing';
 import type { ScenarioContext, ScenarioGroup } from './scenario-context';
 
 async function findNativeDialogParent(command: ScenarioContext['command']): Promise<string> {
-  const parentLine = (text: string) =>
-    text.split(/\r?\n/).find((line) => line.includes('"Mixdog Native Dialog Fixture"')) || '';
+  const parentTitle = 'Mixdog Native Dialog Fixture';
   const listed = await eventually(
     async () => (await command({ action: 'list_windows' }, 'popup-transition')).text,
-    (text) => Boolean(parentLine(text)),
+    (text) => Boolean(windowIdByTitle(text, parentTitle)),
     20_000
   );
-  const parentWindowId = parentLine(listed).match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '';
+  const parentWindowId = windowIdByTitle(listed, parentTitle);
   assert.ok(parentWindowId, listed);
   await command(
     {
@@ -34,8 +34,7 @@ async function warmUpOpenDialog(command: ScenarioContext['command'], parentWindo
   // outlast any settle budget the transition is sampled at. Paying it here
   // keeps the measured open about the host's transition report, not about
   // how busy Windows was when the dialog first painted.
-  const dialogLine = (text: string) =>
-    text.split(/\r?\n/).find((line) => line.includes('"Mixdog Native Open Dialog"')) || '';
+  const dialogTitle = 'Mixdog Native Open Dialog';
   const warmup = actionPayload(
     await command(
       {
@@ -59,10 +58,10 @@ async function warmUpOpenDialog(command: ScenarioContext['command'], parentWindo
   );
   const warmupListed = await eventually(
     async () => (await command({ action: 'list_windows' }, 'popup-transition')).text,
-    (text) => Boolean(dialogLine(text)),
+    (text) => Boolean(windowIdByTitle(text, dialogTitle)),
     20_000
   );
-  const warmupPopupId = dialogLine(warmupListed).match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '';
+  const warmupPopupId = windowIdByTitle(warmupListed, dialogTitle);
   assert.ok(warmupPopupId, warmupListed);
   await command(
     {
@@ -85,7 +84,7 @@ async function warmUpOpenDialog(command: ScenarioContext['command'], parentWindo
   );
   await eventually(
     async () => (await command({ action: 'list_windows' }, 'popup-transition')).text,
-    (text) => !dialogLine(text),
+    (text) => !windowIdByTitle(text, dialogTitle),
     10_000
   );
 }
@@ -403,11 +402,7 @@ export const recoveryScenarios: ScenarioGroup = {
       ctx.denseFixture = await createDenseFixture();
       windows.push(ctx.denseFixture);
       const listed = (await command({ action: 'list_windows' }, 'closed-target')).text;
-      ctx.denseWindowId =
-        listed
-          .split(/\r?\n/)
-          .find((line) => line.includes('"Mixdog Dense Accessibility Fixture"'))
-          ?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '';
+      ctx.denseWindowId = windowIdByTitle(listed, 'Mixdog Dense Accessibility Fixture');
       assert.ok(ctx.denseWindowId);
     });
   },
@@ -524,11 +519,7 @@ export const recoveryScenarios: ScenarioGroup = {
         );
         disposable.showInactive();
         const listed = await command({ action: 'list_windows' }, sessionId);
-        const closedWindowId =
-          listed.text
-            .split(/\r?\n/)
-            .find((line) => line.includes('"Mixdog Failed Capture Fixture"'))
-            ?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '';
+        const closedWindowId = windowIdByTitle(listed.text, 'Mixdog Failed Capture Fixture');
         assert.ok(closedWindowId, listed.text);
         await command(
           {
@@ -587,11 +578,7 @@ export const recoveryScenarios: ScenarioGroup = {
         );
         disposable.showInactive();
         const listed = await command({ action: 'list_windows' }, sessionId);
-        const windowId =
-          listed.text
-            .split(/\r?\n/)
-            .find((line) => line.includes('"Mixdog Closed Scope Fixture"'))
-            ?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '';
+        const windowId = windowIdByTitle(listed.text, 'Mixdog Closed Scope Fixture');
         assert.ok(windowId, listed.text);
         await command(
           {
@@ -707,13 +694,11 @@ export const recoveryScenarios: ScenarioGroup = {
           });
           windows.push(peer);
           await peer.loadURL('data:text/html,<title>Mixdog Turn End Peer</title><body>PEER</body>');
-          const peerLine = (text: string) =>
-            text.split(/\r?\n/).find((line) => line.includes('"Mixdog Turn End Peer"')) || '';
           const listed = await eventually(
             async () => (await command({ action: 'list_windows' }, sessionB)).text,
-            (text) => Boolean(peerLine(text))
+            (text) => Boolean(windowIdByTitle(text, 'Mixdog Turn End Peer'))
           );
-          const peerWindowId = peerLine(listed).match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '';
+          const peerWindowId = windowIdByTitle(listed, 'Mixdog Turn End Peer');
           assert.ok(peerWindowId, listed);
           // Both targets are observed first; the home window is settled right before the clicks.
           const captureOf = async (windowId: string, sessionId: string) =>

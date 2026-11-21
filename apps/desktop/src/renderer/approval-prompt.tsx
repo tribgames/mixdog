@@ -1,19 +1,8 @@
-// The one approval surface (design/mockups/approval-buttons): content centred
-// and decided with buttons. The requester's face with the "needs you" dot, a
-// one-line question, who asks (chain, service, a link to a sub-agent's
-// session), the preview box, an optional reason, then one row of equal
-// buttons exactly as wide as the preview and the scope line under it. Deny
-// ends the request in one click (onDeny with no reason).
-// Keys follow question-card-keys.ts: Esc denies, Enter allows
-// only where the card says so; never while typing, never right after a card
-// appears or another one was decided. They answer while focus is anywhere in
-// the card's own conversation on something that is neither a typing target nor
-// a control with keys of its own (a button, a link), or nowhere; the chips
-// (data-keys) show on exactly that condition.
 import {
   type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
   createContext,
   useContext,
   useEffect,
@@ -144,7 +133,7 @@ export interface ApprovalPromptProps {
   children?: ReactNode;
 }
 
-const clock = (ms: number) => {
+export const clock = (ms: number) => {
   const seconds = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 };
@@ -174,17 +163,6 @@ const idle = () => {
   return !active || active === document.body;
 };
 
-// Anything with key semantics of its own is not the card's. This fails closed
-// in two ways: (1) the focused element, or any ancestor of it, is a control or
-// a keyboard-owning widget/surface from the list below (native controls, the
-// ARIA widget and composite roles, an element driving an active descendant, a
-// contenteditable, embedded documents and the editor / terminal hosts), and
-// (2) the focused element or any ancestor of it within the card's pane that
-// declares an ARIA role outside PASSIVE_ROLES is treated as a widget, so a
-// role the list does not know about (an `application`, say) still wins over
-// the card. What is left is the transcript's role="log" scroller, regions,
-// row containers and the pane background. A role-less tabindex div with its own
-// onKeyDown cannot be told from a scroller; the app has none in a conversation.
 const OWN_KEY_CONTROLS = [
   'button',
   'a[href]',
@@ -261,12 +239,6 @@ const ownsItsKeys = (active: Element, scope: Element): boolean => {
   return false;
 };
 
-/** Where focus lets the card answer Enter / Esc: nowhere (`active` null or the
- *  body), anywhere in the card (a typing target aside), or in the card's own
- *  conversation (the enclosing `.conversation`; the card itself when it sits
- *  in none) on something that is neither a typing target nor a control of its
- *  own (a button or link there keeps its Enter). Focus in another pane, the
- *  sidebar or settings, or in the composer, is not. */
 function keysOpen(card: HTMLElement, active: Element | null): boolean {
   if (!active || active === document.body) return true;
   if (isTypingTarget(active)) return false;
@@ -277,13 +249,6 @@ function keysOpen(card: HTMLElement, active: Element | null): boolean {
 
 const phoneSurface = () => document.documentElement.hasAttribute('data-mixdog-mobile-tabs');
 
-/** A composer holding no unsent text gives up focus, so the card takes it and
- *  its Enter / Esc answer (and show their chips); that includes the moment
- *  right after Send, when a tool call usually lands. On a phone it also
- *  closes the soft keyboard. A draft keeps the caret (Enter sends it).
- *  Only the composer of the card's own conversation (`scope`, the enclosing
- *  `.conversation`): a card in another pane leaves the typing pane alone.
- *  Returns the released composer so the card can hand focus back. */
 function releaseIdleComposer(scope: Element | null): HTMLElement | null {
   const active = document.activeElement;
   if (!(active instanceof HTMLElement) || !scope?.contains(active) || !active.closest('.composer-input-row')) {
@@ -294,6 +259,113 @@ function releaseIdleComposer(scope: Element | null): HTMLElement | null {
   if (draft?.trim() || isComposerComposing(active)) return null;
   active.blur();
   return active;
+}
+
+function useApprovalInitialFocus(ref: RefObject<HTMLElement | null>, decided: boolean) {
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || decided) return;
+    const released = releaseIdleComposer(node.closest('.conversation'));
+    const giveBack = () => {
+      if (!released?.isConnected || phoneSurface() || touchPrimaryPointer()) return;
+      if (!idle() && !node.contains(document.activeElement)) return;
+      released.focus({ preventScroll: true });
+    };
+    if (!idle() && !node.contains(document.activeElement)) return;
+    const target = node.querySelector<HTMLElement>('[data-initial]') ?? node;
+    target.focus({ preventScroll: true });
+    node.scrollIntoView?.({ block: 'nearest' });
+    return giveBack;
+  }, [ref, decided]);
+}
+
+interface ApprovalLiveState {
+  press(button: ApprovalButton): void;
+  buttons: ApprovalButton[];
+  primaryIndex: number;
+  denyIndex: number;
+  enterAllows: boolean | undefined;
+  onClose: (() => void) | undefined;
+}
+
+/** Whether Enter / Esc answer the card right now, with the key and focus
+ *  listeners that decide it; the chips show on exactly this (`data-keys`). */
+function useApprovalKeys(
+  ref: RefObject<HTMLElement | null>,
+  decided: boolean,
+  mountedAt: { current: number },
+  live: { current: ApprovalLiveState }
+): boolean {
+  const [keys, setKeys] = useState(false);
+  // Off screen (retained or parked conversation) the card owns no key, focus
+  // or window listener; it binds again when its conversation is shown.
+  const surfaceActive = useSurfaceActive();
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || decided || !surfaceActive) return;
+    let settleEnd = 0;
+    const refresh = (active: Element | null = document.activeElement) => {
+      const wait = settleLeft(mountedAt.current);
+      window.clearTimeout(settleEnd);
+      if (wait > 0) settleEnd = window.setTimeout(() => refresh(), wait);
+      setKeys(wait === 0 && document.hasFocus() && keysOpen(node, active) && ownsKeyboard(node, active));
+    };
+    const unbind = bindCardKeys(node, (event) => {
+      if (isTypingTarget(event.target)) return;
+      const target = event.target instanceof Node ? event.target : null;
+      const inside = Boolean(target && node.contains(target));
+      if (!document.hasFocus() || !keysOpen(node, document.activeElement)) return;
+      const state = live.current;
+      const settling = settleLeft(mountedAt.current) > 0;
+      const handled = () => {
+        event.preventDefault();
+        event.stopPropagation();
+      };
+      if (event.key === 'Escape') {
+        // Like Enter, a key meant for the previous card never lands here.
+        if (settling) return handled();
+        handled();
+        if (state.onClose) state.onClose();
+        else if (state.denyIndex >= 0) state.press(state.buttons[state.denyIndex]);
+        return;
+      }
+      if (event.key !== 'Enter') return;
+      // A focused button answers Enter itself (native activation), except in
+      // the first moment, so a key meant for the previous card never lands here.
+      const control = event.target instanceof Element && event.target.closest('button, a');
+      if (settling) return handled();
+      if (control && inside) return;
+      if (!state.enterAllows || state.primaryIndex < 0) return;
+      handled();
+      state.press(state.buttons[state.primaryIndex]);
+    });
+    const onFocusIn = () => refresh();
+    let settleTimer = 0;
+    const onFocusOut = (event: FocusEvent) => {
+      refresh(event.relatedTarget instanceof Element ? event.relatedTarget : null);
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => refresh(), 0);
+    };
+    const onWindowBlur = () => refresh();
+    const onWindowFocus = () => refresh();
+    document.addEventListener('focusin', onFocusIn, true);
+    document.addEventListener('focusout', onFocusOut, true);
+    window.addEventListener('blur', onWindowBlur);
+    window.addEventListener('focus', onWindowFocus);
+    const unwatch = watchCardKeyOwner(refresh);
+    refresh();
+    return () => {
+      unwatch();
+      window.clearTimeout(settleTimer);
+      window.clearTimeout(settleEnd);
+      document.removeEventListener('focusin', onFocusIn, true);
+      document.removeEventListener('focusout', onFocusOut, true);
+      window.removeEventListener('blur', onWindowBlur);
+      window.removeEventListener('focus', onWindowFocus);
+      unbind();
+    };
+  }, [ref, decided, surfaceActive, mountedAt, live]);
+  return keys;
 }
 
 export function ApprovalPrompt(props: ApprovalPromptProps) {
@@ -348,110 +420,9 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
   const live = useRef({ press, buttons, primaryIndex, denyIndex, enterAllows: enterPresses, onClose });
   live.current = { press, buttons, primaryIndex, denyIndex, enterAllows: enterPresses, onClose };
 
-  // The designated button takes focus when nothing else holds it (a person
-  // typing in the composer keeps the caret; an empty composer lets go). Once
-  // the card is decided or gone, an idle focus (or one left inside the card)
-  // goes back to the composer it was taken from, so typing goes on. Not on a
-  // phone or touch screen: that would raise the keyboard.
-  useEffect(() => {
-    const node = ref.current;
-    if (!node || decided) return;
-    const released = releaseIdleComposer(node.closest('.conversation'));
-    const giveBack = () => {
-      if (!released?.isConnected || phoneSurface() || touchPrimaryPointer()) return;
-      if (!idle() && !node.contains(document.activeElement)) return;
-      released.focus({ preventScroll: true });
-    };
-    if (!idle() && !node.contains(document.activeElement)) return;
-    const target = node.querySelector<HTMLElement>('[data-initial]') ?? node;
-    target.focus({ preventScroll: true });
-    node.scrollIntoView?.({ block: 'nearest' });
-    return giveBack;
-  }, [decided]);
+  useApprovalInitialFocus(ref, decided);
 
-  // Whether Enter / Esc answer this card right now; the chips show on exactly
-  // this (`data-keys`), both read from `keysOpen`.
-  const [keys, setKeys] = useState(false);
-  // Off screen (retained or parked conversation) the card owns no key, focus
-  // or window listener; it binds again when its conversation is shown.
-  const surfaceActive = useSurfaceActive();
-  useEffect(() => {
-    const node = ref.current;
-    if (!node || decided || !surfaceActive) return;
-    let settleEnd = 0;
-    // The chips follow exactly what the handler below answers: not while the
-    // card settles (re-evaluated when that ends), not with the window blurred,
-    // focus elsewhere, a modal open or another card owning the pane's keys.
-    const refresh = (active: Element | null = document.activeElement) => {
-      const wait = settleLeft(mountedAt.current);
-      window.clearTimeout(settleEnd);
-      if (wait > 0) settleEnd = window.setTimeout(() => refresh(), wait);
-      setKeys(wait === 0 && document.hasFocus() && keysOpen(node, active) && ownsKeyboard(node, active));
-    };
-    const unbind = bindCardKeys(node, (event) => {
-      if (isTypingTarget(event.target)) return;
-      const target = event.target instanceof Node ? event.target : null;
-      const inside = Boolean(target && node.contains(target));
-      // Enter / Esc belong to the card while focus is in its conversation on
-      // something that is not a typing target, or nowhere (see keysOpen); a
-      // card that appears while someone types takes no key until then. Of
-      // several cards in one pane only the newest hears the key (bindCardKeys).
-      // A window without focus answers nothing (the chips are off then too).
-      if (!document.hasFocus() || !keysOpen(node, document.activeElement)) return;
-      const state = live.current;
-      const settling = settleLeft(mountedAt.current) > 0;
-      const handled = () => {
-        event.preventDefault();
-        event.stopPropagation();
-      };
-      if (event.key === 'Escape') {
-        // Like Enter, a key meant for the previous card never lands here.
-        if (settling) return handled();
-        handled();
-        if (state.onClose) state.onClose();
-        else if (state.denyIndex >= 0) state.press(state.buttons[state.denyIndex]);
-        return;
-      }
-      if (event.key !== 'Enter') return;
-      // A focused button answers Enter itself (native activation), except in
-      // the first moment, so a key meant for the previous card never lands here.
-      const control = event.target instanceof Element && event.target.closest('button, a');
-      if (settling) return handled();
-      if (control && inside) return;
-      if (!state.enterAllows || state.primaryIndex < 0) return;
-      handled();
-      state.press(state.buttons[state.primaryIndex]);
-    });
-    const onFocusIn = () => refresh();
-    // During focusout the focus is already gone; the element it goes to is the
-    // relatedTarget (none: nothing holds focus).
-    // A removed focused element ends in a focusout too (no relatedTarget); the
-    // deferred pass reads where focus really settled.
-    let settleTimer = 0;
-    const onFocusOut = (event: FocusEvent) => {
-      refresh(event.relatedTarget instanceof Element ? event.relatedTarget : null);
-      window.clearTimeout(settleTimer);
-      settleTimer = window.setTimeout(() => refresh(), 0);
-    };
-    const onWindowBlur = () => refresh();
-    const onWindowFocus = () => refresh();
-    document.addEventListener('focusin', onFocusIn, true);
-    document.addEventListener('focusout', onFocusOut, true);
-    window.addEventListener('blur', onWindowBlur);
-    window.addEventListener('focus', onWindowFocus);
-    const unwatch = watchCardKeyOwner(refresh);
-    refresh();
-    return () => {
-      unwatch();
-      window.clearTimeout(settleTimer);
-      window.clearTimeout(settleEnd);
-      document.removeEventListener('focusin', onFocusIn, true);
-      document.removeEventListener('focusout', onFocusOut, true);
-      window.removeEventListener('blur', onWindowBlur);
-      window.removeEventListener('focus', onWindowFocus);
-      unbind();
-    };
-  }, [decided, surfaceActive]);
+  const keys = useApprovalKeys(ref, decided, mountedAt, live);
 
   const left = expiresAt && !status ? t('{{left}} left', { left: clock(expiresAt - now) }) : '';
   // A wide button takes its own row; the others share the row below it.
@@ -558,11 +529,6 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
                 if (button.deny && !onClose) shortcut = 'Esc';
                 else if (index === primaryIndex && enterPresses) shortcut = 'Enter';
                 const chip = keyChips ? shortcut : '';
-                // Where Enter does not allow (payment, permanent delete, an
-                // unconfirmed receiver, a file from outside the project), an
-                // allow is never activated by Enter or Space on the focused
-                // button: those keys are cancelled, so the browser never makes
-                // their click. A pointer, touch, pen or assistive-tech click allows.
                 const pointerOnly = !enterAllows && !button.deny;
                 const blockKey = (event: KeyboardEvent<HTMLButtonElement>) => {
                   if (pointerOnly && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();

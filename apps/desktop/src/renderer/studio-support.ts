@@ -126,13 +126,7 @@ export interface StudioOptions {
   duration: number;
 }
 
-/**
- * One readMediaAsset answer.
- *
- * `variant` is what the host actually produced, not what was asked for: a host
- * without sharp/ffmpeg cannot build a rendition and either reports the miss
- * (`available: false`) or returns the original marked `downgraded`.
- */
+/** `variant` is what the host produced, not what was asked: without sharp/ffmpeg it reports `available: false` or returns the original marked `downgraded`. */
 export interface MediaAssetRead {
   base64?: string;
   mime?: string;
@@ -149,13 +143,7 @@ export function mediaTransportIsLocal(): boolean {
   return !isRemoteHostRenderer();
 }
 
-/**
- * Direct byte-lane URL for an asset/rendition, or '' when this host has none.
- *
- * Everything about the gallery's cost model follows from using it: the DOM
- * fetches media itself, the browser caches and revalidates it, and a <video>
- * seeks with byte ranges instead of downloading the whole clip first.
- */
+/** Direct byte-lane URL for an asset/rendition, or '' when this host has none. */
 export function mediaUrl(api: StudioApi | undefined, assetId: string, variant: string): string {
   try {
     return api?.mediaUrl?.(assetId, variant) || '';
@@ -168,14 +156,6 @@ export function mediaVariantKey(assetId: string, variant: string): string {
   return `${assetId}:${variant}`;
 }
 
-/**
- * One probe that answers "does THIS host serve the byte lane at all".
- *
- * Without it the gallery learns the answer tile by tile, from a failed image
- * load per asset — and a host that was merely mid-reconnect strands those
- * assets on the RPC payload for the rest of the session. Local (Electron)
- * transport always serves it, so only a remote surface pays the round trip.
- */
 export async function probeMediaLane(api: StudioApi | undefined): Promise<boolean> {
   if (mediaTransportIsLocal()) return true;
   const url = mediaUrl(api, 'healthz', 'original');
@@ -196,12 +176,6 @@ export const DEFAULT_STUDIO_OPTIONS: StudioOptions = {
   duration: 5,
 };
 
-/**
- * Stable gallery ratio before a thumbnail or video poster decodes.
- *
- * Generated assets carry their requested aspect in metadata. Falling back by
- * media kind keeps a new tile from painting square and resizing a frame later.
- */
 export function mediaFrameRatio(
   media: Pick<MediaAsset, 'kind' | 'options'> | Pick<MediaJob, 'kind' | 'options'>
 ): number {
@@ -296,10 +270,6 @@ export async function callCapability(
   return result?.value;
 }
 
-export function errorText(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
-}
-
 /** '16:9' → 1.78; 'auto' or anything unparsable → 0 (caller picks a default). */
 function parseAspect(value: string): number {
   const match = /^(\d+)\s*:\s*(\d+)$/.exec(String(value || '').trim());
@@ -329,14 +299,6 @@ export function studioTargetRowHeight(columns: number, width = STUDIO_GRID_MAX_W
   return Math.max(1, (Math.max(1, width) - gap * (count - 1)) / count);
 }
 
-/**
- * Justified rows (Flickr/Google Photos grammar).
- *
- * Pack tiles at a target height until the row would overflow, then solve the
- * row height so the widths add up to EXACTLY the container width. flex-grow
- * cannot do this: it stretches widths while the height stays fixed, which
- * crops every tile and leaves one item per row.
- */
 export function justifiedRows(
   assets: MediaAsset[],
   ratios: Record<string, number>,
@@ -394,13 +356,7 @@ interface VideoPoster {
   duration: number;
 }
 
-/**
- * Downscale a still to a gallery-sized JPEG.
- *
- * Full-resolution base64 stills (2-4 MP each) kept the whole grid in GPU
- * memory; a repaint storm (dragging the duration slider) then took the window
- * down. Tiles only ever need ~420px.
- */
+/** Full-resolution stills held the grid in GPU memory and a repaint storm took the window down; tiles need ~420px. */
 export function thumbFromImage(dataUrl: string, maxEdge = 420, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -443,13 +399,7 @@ export function thumbFromImage(dataUrl: string, maxEdge = 420, signal?: AbortSig
   });
 }
 
-/**
- * Grab a still from a video data URL.
- *
- * Keeping live <video> elements in the gallery kept a decoder alive per tile;
- * on Windows that stack blacked the window out whenever another layer
- * repainted (slider drags). A one-shot canvas grab leaves only images behind.
- */
+/** A live <video> per tile kept a decoder alive and blacked out the window on Windows; a one-shot canvas grab leaves only images. */
 export function posterFromVideo(sourceUrl: string, maxEdge = 420): Promise<VideoPoster> {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');

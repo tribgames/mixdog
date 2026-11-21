@@ -1,11 +1,3 @@
-/**
- * How the runtime finds one bridge, and how one request is answered.
- * The discovery file is the only thing that makes the tool surface appear, so
- * it is written after the backend is warm and removed the moment it is not.
- * Shared by the Computer Use and Browser Use bridges: each publishes its own
- * file name into the same directory and keeps ownership through the same
- * probe-and-reclaim heartbeat.
- */
 import { mkdirSync, readFileSync, unlinkSync, utimesSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -41,45 +33,49 @@ interface DiscoveryHost {
   probeDiscovery?: (record: BridgeDiscoveryRecord) => Promise<BridgeDiscoveryProbeOutcome>;
 }
 
+type DiscoverySnapshot = {
+  state: 'missing' | 'present' | 'unreadable';
+  raw: string | null;
+  record: BridgeDiscoveryRecord | null;
+};
+
+function readDiscoverySnapshot(path: string): DiscoverySnapshot {
+  try {
+    const raw = readFileSync(path, 'utf8');
+    let value: unknown = null;
+    try {
+      value = parseJsonText(raw);
+    } catch {
+      return { state: 'missing', raw: null, record: null };
+    }
+    return { state: 'present', raw, record: parseBridgeDiscovery(value) };
+  } catch (error) {
+    return (error as NodeJS.ErrnoException)?.code === 'ENOENT'
+      ? { state: 'missing', raw: null, record: null }
+      : { state: 'unreadable', raw: null, record: null };
+  }
+}
+
+function respond(response: ServerResponse, status: number, body: unknown): void {
+  const payload = JSON.stringify(body);
+  response.writeHead(status, {
+    'content-type': 'application/json',
+    'content-length': Buffer.byteLength(payload),
+  });
+  response.end(payload);
+}
+
 export function createBridgeDiscovery(host: DiscoveryHost) {
   const { dataDirectory, fileName } = host;
   const probeDiscovery = host.probeDiscovery || probeBridgeDiscovery;
   let discoveryPath: string | null = null;
   let activeDiscovery: BridgeDiscoveryRecord | null = null;
 
-  type DiscoverySnapshot = {
-    state: 'missing' | 'present' | 'unreadable';
-    raw: string | null;
-    record: BridgeDiscoveryRecord | null;
-  };
-
   function ensureDiscoveryPath(): string {
     const directory = dataDirectory();
     mkdirSync(directory, { recursive: true });
     discoveryPath = join(directory, fileName);
     return discoveryPath;
-  }
-
-  function readDiscoverySnapshot(path: string): DiscoverySnapshot {
-    try {
-      const raw = readFileSync(path, 'utf8');
-      let value: unknown = null;
-      try {
-        value = parseJsonText(raw);
-      } catch {
-        // Publication is atomic, so text that does not parse (empty or
-        // NUL-filled after a crash, truncated) is no owner's record: it counts
-        // as missing and the next publish replaces it. A record that parses
-        // but is not ours stays 'present': a foreign owner is never
-        // overwritten blind.
-        return { state: 'missing', raw: null, record: null };
-      }
-      return { state: 'present', raw, record: parseBridgeDiscovery(value) };
-    } catch (error) {
-      return (error as NodeJS.ErrnoException)?.code === 'ENOENT'
-        ? { state: 'missing', raw: null, record: null }
-        : { state: 'unreadable', raw: null, record: null };
-    }
   }
 
   function publishDiscovery(record: BridgeDiscoveryRecord): boolean {
@@ -120,15 +116,6 @@ export function createBridgeDiscovery(host: DiscoveryHost) {
       return 'inconclusive';
     }
     return publishDiscovery(record) ? 'owned' : 'inconclusive';
-  }
-
-  function respond(response: ServerResponse, status: number, body: unknown): void {
-    const payload = JSON.stringify(body);
-    response.writeHead(status, {
-      'content-type': 'application/json',
-      'content-length': Buffer.byteLength(payload),
-    });
-    response.end(payload);
   }
 
   async function writeDiscovery(record: BridgeDiscoveryRecord): Promise<DiscoveryOwnership> {

@@ -1,9 +1,3 @@
-/**
- * Screen-source helpers shared by the phone and the sender renderer
- * (docs/remote-screen.md). The wire types — `screen-input`, `screen-status`,
- * the capture plan and its constraints — are owned by remote-webrtc.ts; this
- * module adds only the phone's key table and the sender's track opener.
- */
 import { remoteScreenCaptureConstraints, type RemoteScreenCapturePlan, type RemoteScreenKey } from './remote-webrtc';
 
 // ---------------------------------------------------------------------------

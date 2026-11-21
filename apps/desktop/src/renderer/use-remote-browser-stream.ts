@@ -26,11 +26,6 @@ export type StreamFrameMeta = Omit<DesktopRemoteBrowserStreamFrame, 'image'>;
 
 const NO_INPUT_GEOMETRY = { width: 0, height: 0, viewportWidth: 0, viewportHeight: 0 };
 
-/** Input maps through the image shown only while it is the picture the
- *  newest frame describes. A frame describing none (0×0: its size's first
- *  image is still to come) or another size than the one shown refuses input
- *  (0×0) rather than mapping it through stale geometry; the old image may
- *  stay on screen meanwhile. */
 function inputGeometry(
   described: Pick<DesktopRemoteBrowserStreamFrame, 'width' | 'height' | 'viewportWidth' | 'viewportHeight'>,
   shown: { width: number; height: number } | null

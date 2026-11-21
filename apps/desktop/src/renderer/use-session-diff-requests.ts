@@ -61,9 +61,6 @@ export function useSessionDiffRequests({
   const fileRequest = pendingRequest?.path ? pendingRequest : null;
   const fileRequestSeq = fileRequest?.seq ?? 0;
   const [fileRequestRead, setFileRequestRead] = useState(0);
-  // The file is already among the rows on screen (the cached diff "Changes"
-  // paints at once): open its tab right away, as fast as "Changes"; the
-  // re-read below still confirms it and refreshes its diff, or says it left.
   // biome-ignore lint/correctness/useExhaustiveDependencies: once per request; later row updates are the re-read's job
   useLayoutEffect(() => {
     if (!fileRequest) return;

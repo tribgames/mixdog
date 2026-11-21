@@ -146,6 +146,10 @@ test('signaling parser: roles, fingerprints bound to the SDP, strict fields', as
       ),
     /sdp/
   );
+});
+
+test('signaling parser: candidates', () => {
+  const sessionId = 'A'.repeat(43);
   assert.equal(
     parseRemoteTransportSignal({ ...ref(sessionId), t: 'candidate', candidate: null }, 'client').candidate,
     null
@@ -166,6 +170,10 @@ test('signaling parser: roles, fingerprints bound to the SDP, strict fields', as
       ),
     /candidate/
   );
+});
+
+test('signaling parser: close reason and strict envelope fields', () => {
+  const sessionId = 'A'.repeat(43);
   assert.equal(
     parseRemoteTransportSignal({ ...ref(sessionId), t: 'close', reason: 'stall' }, 'client').reason,
     'stall'
@@ -575,14 +583,17 @@ test('a lost FINAL record is found through the authenticated ping.sent probe', a
     [3]
   );
   assert.deepEqual(receiver.repairDue(100_000), []);
-  // A probe is strictly validated.
+});
+
+test('a probe ping is strictly validated', () => {
   assert.throws(
     () =>
       readRemoteTransportControl({ stale: false, sequence: 9, value: { v: 1, t: 'ping', id: 1, sent: -1 } }, 'desktop'),
     /ping sent/
   );
-  // The sender's PTO (§6.2.1) says when to send that probe ping: after one
-  // PTO without a send or an ack, doubling per expiry, reset by an ack.
+});
+
+test('the sender PTO (§6.2.1) says when to send the probe ping', async () => {
   const probing = new RemoteTransportSender();
   probing.push(await (await session()).client.encryptBinary({ tail: 1 }));
   probing.markSent(1, 'direct:a', 0);
@@ -1181,15 +1192,24 @@ test('control boundary: the largest valid signal fills one carrier message exact
   assert.throws(() => parseRemoteTransportSignal(offer(pad + 1), 'desktop'), /control size/);
   // An SDP the shared validator accepts (≤ 64 KiB) but no control box can carry.
   assert.throws(() => parseRemoteTransportSignal(offer(65_536 - offer(0).sdp.length), 'desktop'), /sdp size/);
-  // The shared ICE normalizer turns a scalar `urls` into a list.
-  const scalar = parseRemoteTransportSignal(
-    { ...offer(0), iceServers: [{ urls: 'stun:stun.example.org:3478' }] },
-    'desktop'
-  );
-  assert.deepEqual(scalar.iceServers, [{ urls: ['stun:stun.example.org:3478'] }]);
   const oversize = new Uint8Array(REMOTE_TRANSPORT_MAX_CONTROL_BOX_BYTES + 1);
   oversize.set([0x4d, 0x58, 0x43, 0x01], 0);
   assert.throws(() => encodeRemoteTransportControl(oversize), /control size/);
+});
+
+test('the shared ICE normalizer turns a scalar `urls` into a list', () => {
+  const sessionId = 'A'.repeat(43);
+  const scalar = parseRemoteTransportSignal(
+    {
+      ...ref(sessionId),
+      t: 'offer',
+      sdp: SDP,
+      fingerprints: [{ algorithm: 'sha-256', value: FINGERPRINT }],
+      iceServers: [{ urls: 'stun:stun.example.org:3478' }],
+    },
+    'desktop'
+  );
+  assert.deepEqual(scalar.iceServers, [{ urls: ['stun:stun.example.org:3478'] }]);
 });
 
 test('one repair round is one control box, however many records it names', async () => {

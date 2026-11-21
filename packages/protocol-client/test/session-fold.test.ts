@@ -13,7 +13,8 @@ type O = Record<string, any>;
 const options = JSON.parse(readFileSync(new URL('../conformance/options.json', import.meta.url), 'utf8'));
 
 test('prompt history and history reset fold from the core', () => {
-  const snap = (state: unknown, hasOlder = true) => sessionReducer.initial({ thread: { id: 't' }, items: [], state, hasOlder } as unknown as Json);
+  const snap = (state: unknown, hasOlder = true) =>
+    sessionReducer.initial({ thread: { id: 't' }, items: [], state, hasOlder } as unknown as Json);
   const at = (s: SessionFold, method: string, params: unknown) => sessionReducer.apply(s, { method, params } as never);
   let s = snap({ promptHistoryList: ['b  c', 'a'] });
   assert.deepEqual(s.fields.promptHistoryList, ['b  c', 'a']);
@@ -32,13 +33,36 @@ test('prompt history and history reset fold from the core', () => {
 });
 
 test('a compaction archives the rows the store holds in place and adds none of the older ones below the divider', () => {
-  const at = (s: SessionFold, item: O) => sessionReducer.apply(s, { method: 'item/completed', params: { threadId: 't', turnId: '', item } } as never);
-  const user = (id: string, text: string, ext: O = {}) => ({ type: 'userMessage', id, content: [{ type: 'text', text }], meta: { ext } });
+  const at = (s: SessionFold, item: O) =>
+    sessionReducer.apply(s, { method: 'item/completed', params: { threadId: 't', turnId: '', item } } as never);
+  const user = (id: string, text: string, ext: O = {}) => ({
+    type: 'userMessage',
+    id,
+    content: [{ type: 'text', text }],
+    meta: { ext },
+  });
   const reply = (id: string, text: string, ext: O = {}) => ({ type: 'agentMessage', id, text, meta: { ext } });
-  const call = (id: string, name: string, ext: O = {}) => ({ type: 'toolCall', id, name, input: { path: '.' }, run: { callId: id, result: 'ok' }, meta: { status: 'completed', ext } });
-  const divider = { type: 'contextCompaction', id: 'divider:c1', meta: { label: 'Conversation compacted', detail: '520k→41k' } };
+  const call = (id: string, name: string, ext: O = {}) => ({
+    type: 'toolCall',
+    id,
+    name,
+    input: { path: '.' },
+    run: { callId: id, result: 'ok' },
+    meta: { status: 'completed', ext },
+  });
+  const divider = {
+    type: 'contextCompaction',
+    id: 'divider:c1',
+    meta: { label: 'Conversation compacted', detail: '520k→41k' },
+  };
   // The store's tail: the last turn before the compaction, then the turn the compaction ran in.
-  const held = [user('u1', 'look'), call('call:read-1', 'read'), call('call:grep-1', 'grep'), reply('a1', 'found it'), user('u2', 'go on')];
+  const held = [
+    user('u1', 'look'),
+    call('call:read-1', 'read'),
+    call('call:grep-1', 'grep'),
+    reply('a1', 'found it'),
+    user('u2', 'go on'),
+  ];
   let s = sessionReducer.initial({ thread: { id: 't' }, items: held, state: {}, hasOlder: true } as unknown as Json);
   s = at(s, divider);
   // The core then sends every row of its window again, archived: rows older than this tail first, then the held ones.
@@ -54,12 +78,22 @@ test('a compaction archives the rows the store holds in place and adds none of t
   }
   assert.deepEqual(
     s.items.map((row) => [row.id, row.archived === true]),
-    [['u1', true], ['call:read-1', true], ['call:grep-1', true], ['a1', true], ['u2', false], ['divider:c1', false]],
+    [
+      ['u1', true],
+      ['call:read-1', true],
+      ['call:grep-1', true],
+      ['a1', true],
+      ['u2', false],
+      ['divider:c1', false],
+    ],
     'held rows dim where they are; none of the older ones lands after the divider'
   );
   // The current turn goes on below the divider as before.
   s = at(s, call('call:shell-2', 'shell'));
-  assert.deepEqual(s.items.slice(-2).map((row) => row.id), ['divider:c1', 'call:shell-2']);
+  assert.deepEqual(
+    s.items.slice(-2).map((row) => row.id),
+    ['divider:c1', 'call:shell-2']
+  );
 });
 
 test('a snapshot and the notifications after it fold into the thread state a client reads', async () => {
@@ -78,10 +112,21 @@ test('a snapshot and the notifications after it fold into the thread state a cli
   conn.serverSend({ id: init.id, result: { ...options.initializeResult, serverInstanceId: 's1' } });
   await conn.nextSent(); // initialized
   const client = await connecting;
-  const answer = async (result: Json): Promise<void> => conn.serverSend({ id: JSON.parse(await conn.nextSent()).id, result });
+  const answer = async (result: Json): Promise<void> =>
+    conn.serverSend({ id: JSON.parse(await conn.nextSent()).id, result });
   let seq = 0;
-  const feed = (method: string, params: unknown) => conn.serverSend({ method, params, feed: { id: 'lead', epoch: 'e1', seq: seq++ } });
-  const thread = { id: 'lead', preview: '', title: '', updatedAt: 1, messageCount: 0, cwd: '/w', classification: {}, projectPath: null };
+  const feed = (method: string, params: unknown) =>
+    conn.serverSend({ method, params, feed: { id: 'lead', epoch: 'e1', seq: seq++ } });
+  const thread = {
+    id: 'lead',
+    preview: '',
+    title: '',
+    updatedAt: 1,
+    messageCount: 0,
+    cwd: '/w',
+    classification: {},
+    projectPath: null,
+  };
   const resumed = client.resumeThread('lead', { lastItems: 50 });
   await answer({ thread, subscription: { id: 'sub', mode: 'snapshot', epoch: 'e1', startSeq: 1 } } as unknown as Json);
   await resumed;
@@ -93,7 +138,11 @@ test('a snapshot and the notifications after it fold into the thread state a cli
     hasOlder: false,
   });
   feed('thread/runtime/updated', { threadId: 'lead', value: { busy: true, thinking: true } });
-  feed('item/completed', { threadId: 'lead', turnId: 'turn', item: { type: 'agentMessage', id: 'a1', text: 'hello', meta: { ext: {} } } });
+  feed('item/completed', {
+    threadId: 'lead',
+    turnId: 'turn',
+    item: { type: 'agentMessage', id: 'a1', text: 'hello', meta: { ext: {} } },
+  });
   feed('thread/goal/updated', { threadId: 'lead', value: null });
   for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
 
@@ -101,6 +150,12 @@ test('a snapshot and the notifications after it fold into the thread state a cli
   assert.equal(got.busy, true);
   assert.equal(got.thinking, true);
   assert.equal(got.goal, null);
-  assert.deepEqual(got.items.map((row: O) => [row.id, row.kind, row.text]), [['u1', 'user', 'hi'], ['a1', 'assistant', 'hello']]);
+  assert.deepEqual(
+    got.items.map((row: O) => [row.id, row.kind, row.text]),
+    [
+      ['u1', 'user', 'hi'],
+      ['a1', 'assistant', 'hello'],
+    ]
+  );
   await client.close();
 });

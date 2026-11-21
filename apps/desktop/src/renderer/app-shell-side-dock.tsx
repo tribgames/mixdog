@@ -184,78 +184,9 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
             />
           )}
           renderFileProblems={context.renderFileProblems}
-          renderFileSurface={(file, surfaceActive, side) => {
-            const reveal = file.line ? { line: file.line, column: file.column, nonce: file.nonce } : null;
-            const onOpenAt = file.accessToken
-              ? undefined
-              : (rel: string, line?: number) => context.openFileTab(file.project, rel, line);
-            return (
-              <DeferredPersistentSurface
-                // A replacement file remounts, so its model, dirty state and save
-                // handle never carry over from the previous one.
-                key={sideFileKey(file)}
-                active
-                startupDelayMs={EDITOR_STARTUP_DELAY_MS}
-                fallback={<DesktopLoadingSurface label={t('Loading editor…')} />}
-              >
-                {file.sidePreview ? (
-                  <Suspense fallback={<DesktopLoadingSurface label={t('Loading editor…')} />}>
-                    <SideMarkdownPreview
-                      projectPath={file.project}
-                      relPath={file.rel}
-                      accessToken={file.accessToken}
-                      onSideChrome={side.onChrome}
-                      onOpenFile={(project, rel, line) =>
-                        context.sideFileGuard.openFileInSideDock(
-                          leaf.id,
-                          project,
-                          rel,
-                          line,
-                          undefined,
-                          undefined,
-                          sideFileKey(file)
-                        )
-                      }
-                    />
-                  </Suspense>
-                ) : (
-                  <ReadyEditorPane
-                    surfaceKey={`${leaf.id}:side-file:${sideFileKey(file)}`}
-                    projectPath={file.project}
-                    relPath={file.rel}
-                    accessToken={file.accessToken}
-                    active={surfaceActive}
-                    focused={surfaceActive && focused}
-                    onSideChrome={side.onChrome}
-                    onShowProblems={side.onShowProblems}
-                    onDirty={(dirty) => {
-                      context.handleFileDirty(sideFileDirtyKey(leaf.id, file), dirty);
-                      // An edit makes a preview tab a normal one.
-                      if (dirty) context.paneSideDocks.keepFile(leaf.id, sideFileKey(file));
-                    }}
-                    onSaveHandle={(save, released) =>
-                      context.registerEditorSaveHandle(sideFileDirtyKey(leaf.id, file), save, released)
-                    }
-                    reveal={reveal}
-                    onOpenAt={onOpenAt}
-                    // A link followed inside this tab opens in the dock, remembering
-                    // its origin tab (a fresh preview tab is kept, not replaced).
-                    onOpenFile={(project, rel, line, accessToken) =>
-                      context.sideFileGuard.openFileInSideDock(
-                        leaf.id,
-                        project,
-                        rel,
-                        line,
-                        accessToken,
-                        undefined,
-                        sideFileKey(file)
-                      )
-                    }
-                  />
-                )}
-              </DeferredPersistentSurface>
-            );
-          }}
+          renderFileSurface={(file, surfaceActive, side) =>
+            renderSideFileSurface(leaf.id, focused, context, file, surfaceActive, side)
+          }
           renderBrowserSurface={(surfaceActive, exiting) => {
             if (!sessionId) return null;
             return (
@@ -303,10 +234,87 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
   );
 }
 
-/** A session pane's toggle descriptors: its Terminal toggle's prefetch also
- *  warms that session's terminal (prewarmSessionTerminal), and its Changes
- *  toggle's starts that session's first screen of diffs
- *  (prefetchSessionChanges, for the dock of pane `leafId`). */
+/** One file of a pane's side dock: the editor (or Markdown preview) in its persistent surface. */
+function renderSideFileSurface(
+  leafId: string,
+  focused: boolean,
+  context: PaneDockContext,
+  file: PaneSideDockFile,
+  surfaceActive: boolean,
+  side: Parameters<NonNullable<React.ComponentProps<typeof PaneSideDock>['renderFileSurface']>>[2]
+): React.ReactNode {
+  const reveal = file.line ? { line: file.line, column: file.column, nonce: file.nonce } : null;
+  const onOpenAt = file.accessToken
+    ? undefined
+    : (rel: string, line?: number) => context.openFileTab(file.project, rel, line);
+  return (
+    <DeferredPersistentSurface
+      // A replacement file remounts, so its model, dirty state and save
+      // handle never carry over from the previous one.
+      key={sideFileKey(file)}
+      active
+      startupDelayMs={EDITOR_STARTUP_DELAY_MS}
+      fallback={<DesktopLoadingSurface label={t('Loading editor…')} />}
+    >
+      {file.sidePreview ? (
+        <Suspense fallback={<DesktopLoadingSurface label={t('Loading editor…')} />}>
+          <SideMarkdownPreview
+            projectPath={file.project}
+            relPath={file.rel}
+            accessToken={file.accessToken}
+            onSideChrome={side.onChrome}
+            onOpenFile={(project, rel, line) =>
+              context.sideFileGuard.openFileInSideDock(
+                leafId,
+                project,
+                rel,
+                line,
+                undefined,
+                undefined,
+                sideFileKey(file)
+              )
+            }
+          />
+        </Suspense>
+      ) : (
+        <ReadyEditorPane
+          surfaceKey={`${leafId}:side-file:${sideFileKey(file)}`}
+          projectPath={file.project}
+          relPath={file.rel}
+          accessToken={file.accessToken}
+          active={surfaceActive}
+          focused={surfaceActive && focused}
+          onSideChrome={side.onChrome}
+          onShowProblems={side.onShowProblems}
+          onDirty={(dirty) => {
+            context.handleFileDirty(sideFileDirtyKey(leafId, file), dirty);
+            // An edit makes a preview tab a normal one.
+            if (dirty) context.paneSideDocks.keepFile(leafId, sideFileKey(file));
+          }}
+          onSaveHandle={(save, released) =>
+            context.registerEditorSaveHandle(sideFileDirtyKey(leafId, file), save, released)
+          }
+          reveal={reveal}
+          onOpenAt={onOpenAt}
+          // A link followed inside this tab opens in the dock, remembering
+          // its origin tab (a fresh preview tab is kept, not replaced).
+          onOpenFile={(project, rel, line, accessToken) =>
+            context.sideFileGuard.openFileInSideDock(
+              leafId,
+              project,
+              rel,
+              line,
+              accessToken,
+              undefined,
+              sideFileKey(file)
+            )
+          }
+        />
+      )}
+    </DeferredPersistentSurface>
+  );
+}
+
 function sessionToggleDescriptors(
   base: ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor>,
   leafId: string,

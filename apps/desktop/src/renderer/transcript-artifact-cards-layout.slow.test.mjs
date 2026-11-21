@@ -1,7 +1,3 @@
-// Real-Chrome geometry of the artifact cards under a turn: a browser page,
-// documents with a rendered first page (portrait and landscape), one whose
-// preview failed (type glyph) and a deleted one all share one thumbnail box
-// and one card height, at the conversation's width and at a narrow one.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';

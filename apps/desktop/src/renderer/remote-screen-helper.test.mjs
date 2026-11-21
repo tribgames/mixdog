@@ -190,7 +190,7 @@ test('the install request enrolls the pairing key, and fails if there is none to
   );
 });
 
-test('a grant is signed only for the current run, while the surface is active, and verifies', async () => {
+test('a grant for the current run is signed over nonce, challenge and epoch, and verifies', async () => {
   const key = await generateSecureDesktopControllerKey();
   const state = { epoch: 4, active: true, key };
   const sent = [];
@@ -228,6 +228,22 @@ test('a grant is signed only for the current run, while the surface is active, a
     true,
     'signed over nonce, challenge and the run epoch'
   );
+});
+
+test('a grant is not signed for another run, an inactive surface or a missing key', async () => {
+  const key = await generateSecureDesktopControllerKey();
+  const state = { epoch: 4, active: true, key };
+  const sent = [];
+  const grants = createScreenHelperGrants({
+    key: async () => state.key,
+    epoch: () => state.epoch,
+    active: () => state.active,
+    send: (message) => {
+      sent.push(message);
+      return true;
+    },
+  });
+  const challenge = (epoch) => ({ epoch, nonce: nonce(1), challenge: nonce(2) });
 
   // A challenge for another run is stale, whichever way.
   assert.equal(await grants.challenge(challenge(3)), 'stale');
@@ -243,7 +259,7 @@ test('a grant is signed only for the current run, while the surface is active, a
   state.key = null;
   assert.equal(await grants.challenge(challenge(4)), 'no-key');
   state.key = key;
-  assert.equal(sent.length, 1, 'only the first was ever sent');
+  assert.deepEqual(sent, [], 'nothing was sent');
 });
 
 test('a grant is dropped if the run or the surface changed while it was being signed', async () => {
@@ -298,16 +314,15 @@ test('a grant is dropped if the run or the surface changed while it was being si
   assert.equal(await closed.challenge(challenge), 'failed');
 });
 
-test('a transition during the key load or the signature ends the challenge, even if the surface is active again', async () => {
+const deferred = () => {
+  let release;
+  const promise = new Promise((resolve) => (release = resolve));
+  return { promise, release };
+};
+
+test('a challenge that went inactive while the key loaded signs and sends nothing', async () => {
   const key = await generateSecureDesktopControllerKey();
   const challenge = { epoch: 2, nonce: nonce(1), challenge: nonce(2) };
-  const deferred = () => {
-    let release;
-    const promise = new Promise((resolve) => (release = resolve));
-    return { promise, release };
-  };
-
-  // Inactive while the key was still loading: nothing is signed.
   {
     const state = { active: true };
     const load = deferred();
@@ -329,9 +344,11 @@ test('a transition during the key load or the signature ends the challenge, even
     assert.equal(await result, 'inactive');
     assert.deepEqual([signed.length, sent.length], [0, 0]);
   }
+});
 
-  // Hidden and shown again while the key loaded (active at both checks): the
-  // generation moved on, so the old challenge is not signed.
+test('a challenge invalidated while the key loaded is not signed even if the surface is active again', async () => {
+  const key = await generateSecureDesktopControllerKey();
+  const challenge = { epoch: 2, nonce: nonce(1), challenge: nonce(2) };
   {
     const load = deferred();
     const signed = [];
@@ -351,8 +368,11 @@ test('a transition during the key load or the signature ends the challenge, even
     assert.equal(await result, 'stale');
     assert.equal(signed.length, 0);
   }
+});
 
-  // Inactive → active during the signature: the old grant is not sent.
+test('a challenge invalidated during the signature is not sent, and the next one goes out', async () => {
+  const key = await generateSecureDesktopControllerKey();
+  const challenge = { epoch: 2, nonce: nonce(1), challenge: nonce(2) };
   {
     const hold = deferred();
     const sent = [];

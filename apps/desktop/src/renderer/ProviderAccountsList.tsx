@@ -71,10 +71,6 @@ function checkedAge(at: number | null): string {
   return format.format(-Math.floor(seconds / 86_400), 'day');
 }
 
-// Quota windows last seen per account, and how many rows each account showed.
-// The usage read lands after the roster, so a cold list would show one line
-// and then grow by up to two meters. Remembering both (the row count survives
-// restarts) paints the last known meters at once and reserves their height.
 const USAGE_ROWS_KEY = 'mixdog.providerAccountUsageRows';
 const USAGE_ROWS_FALLBACK = 2;
 const USAGE_ROWS_LIMIT = 64;
@@ -432,12 +428,6 @@ function usePointerReorder(
   reorder: (from: number, to: number) => void,
   { drag, setDrag, listRef }: PointerReorderState
 ) {
-  // ── Pointer reorder ──────────────────────────────────────────────────
-  // The gesture lives in a ref and writes the lifted row's transform straight
-  // to the DOM inside one animation frame per pointer sample. React state only
-  // changes when the TARGET SLOT changes (once per row crossed) — re-rendering
-  // every row on every pointermove is what made this list drag sluggishly
-  // while the rest of the app felt fine.
   const gesture = useRef<DragState | null>(null);
   const liftedRow = useRef<HTMLElement | null>(null);
   const frame = useRef(0);
@@ -531,10 +521,6 @@ function usePointerReorder(
     },
     []
   );
-  // Displaced rows between the origin and target slot shift one row height.
-  // The lifted row's own transform is written to the DOM by the gesture, so
-  // React must NOT set `style.transform` on it — a value here would overwrite
-  // the pointer-tracked one on every slot change.
   const rowStyle = (index: number): React.CSSProperties | undefined => {
     if (!drag?.moved || index === drag.from) return undefined;
     if (drag.from < drag.to && index > drag.from && index <= drag.to)
@@ -546,23 +532,9 @@ function usePointerReorder(
   return { beginDrag, moveDrag, endDrag, clearGesture, rowStyle };
 }
 
-export function ProviderAccountsList({
-  api,
-  provider,
-  title,
-  listOnly = false,
-  renderActions,
-  headerAction,
-  onChange,
-}: {
-  api?: UsageApi;
-  provider: string;
-  title?: string;
-  listOnly?: boolean;
-  renderActions?(account: ProviderAccount): ReactNode;
-  headerAction?: ReactNode;
-  onChange?(): void;
-}) {
+/** The account roster of one provider: its load, its mutations and the usage
+ *  re-measure, with the shared pool cache kept in step. */
+function useProviderAccountPool(api: UsageApi | undefined, provider: string, onChange?: () => void) {
   const [pool, setPoolState] = useState<Pool | null>(() => lastPools.get(provider) ?? null);
   const setPool = useCallback(
     (next: Pool) => {
@@ -575,10 +547,6 @@ export function ProviderAccountsList({
   const [pending, setPending] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [editing, setEditing] = useState<string | null>(null);
-  const [name, setName] = useState('');
-  const [drag, setDrag] = useState<DragState | null>(null);
-  const listRef = useRef<HTMLOListElement>(null);
   const generation = useRef(0);
   const mutating = useRef(false);
   const invoke = useCallback(
@@ -668,6 +636,30 @@ export function ProviderAccountsList({
       setRefreshing(false);
     }
   };
+  return { pool, pending, refreshing, error, change, refreshUsage };
+}
+export function ProviderAccountsList({
+  api,
+  provider,
+  title,
+  listOnly = false,
+  renderActions,
+  headerAction,
+  onChange,
+}: {
+  api?: UsageApi;
+  provider: string;
+  title?: string;
+  listOnly?: boolean;
+  renderActions?(account: ProviderAccount): ReactNode;
+  headerAction?: ReactNode;
+  onChange?(): void;
+}) {
+  const { pool, pending, refreshing, error, change, refreshUsage } = useProviderAccountPool(api, provider, onChange);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [drag, setDrag] = useState<DragState | null>(null);
+  const listRef = useRef<HTMLOListElement>(null);
   const reorder = (from: number, to: number) => {
     if (!pool || from === to) return;
     const order = pool.accounts.map((row) => row.id);

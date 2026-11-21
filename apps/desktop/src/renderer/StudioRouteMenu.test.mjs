@@ -113,9 +113,8 @@ test('the model pane groups by lane, filters by query, clears and reports no mat
   }
 });
 
-test('option rows pick only a new value, and hovering another row with a pane open switches after a dwell', async () => {
-  const picks = [];
-  const rows = [
+function aspectAndSizeRows(picks) {
+  return [
     {
       id: 'aspect',
       label: 'Aspect',
@@ -136,7 +135,11 @@ test('option rows pick only a new value, and hovering another row with a pane op
       onPick: (value) => picks.push(value),
     },
   ];
-  const view = await mount({ rows });
+}
+
+test('option rows pick only a new value', async () => {
+  const picks = [];
+  const view = await mount({ rows: aspectAndSizeRows(picks) });
   try {
     await click(view.trigger());
     await hover(sheetRow('Aspect'));
@@ -153,13 +156,31 @@ test('option rows pick only a new value, and hovering another row with a pane op
     assert.deepEqual(picks, []);
     await click(options()[1]);
     assert.deepEqual(picks, ['16:9']);
+  } finally {
+    await view.dispose();
+  }
+});
 
+test('hovering another row with a pane open switches after a dwell', async () => {
+  const view = await mount({ rows: aspectAndSizeRows([]) });
+  try {
+    await click(view.trigger());
+    await hover(sheetRow('Aspect'));
     await hover(sheetRow('Size'));
     assert.equal(sheetRow('Aspect').getAttribute('aria-expanded'), 'true', 'no switch before the dwell');
     await wait(200);
     assert.equal(sheetRow('Size').getAttribute('aria-expanded'), 'true');
     assert.equal(document.querySelector('.route-sheet-flyout').getAttribute('aria-label'), 'Size');
+  } finally {
+    await view.dispose();
+  }
+});
 
+test('Escape closes an open pane before the sheet', async () => {
+  const view = await mount({ rows: aspectAndSizeRows([]) });
+  try {
+    await click(view.trigger());
+    await hover(sheetRow('Aspect'));
     await act(async () =>
       document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     );

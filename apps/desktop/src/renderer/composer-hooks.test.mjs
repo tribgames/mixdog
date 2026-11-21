@@ -186,7 +186,7 @@ test('submission hook commits accepted text and restores interrupted text', asyn
   }
 });
 
-test('every Stop is logged with the core answer, and one that stopped nothing says so', async () => {
+async function mountStopComposer() {
   const records = [];
   const previous = window.mixdogDesktop.rendererDiagnostic;
   window.mixdogDesktop.rendererDiagnostic = (record) => records.push(record);
@@ -232,20 +232,28 @@ test('every Stop is logged with the core answer, and one that stopped nothing sa
     return null;
   }
   const mounted = mountHarness(Harness, {});
-  const stopWith = async (reply, ...args) => {
-    answer = reply;
-    records.length = 0;
-    notices.length = 0;
-    await act(async () => {
-      await current.stop(...args);
-    });
-    assert.equal(records.length, 1, 'one record per Stop');
-    return { record: records[0], notices: [...notices] };
+  await mounted.render({});
+  return {
+    draft: () => current.draft,
+    stopWith: async (reply, ...args) => {
+      answer = reply;
+      await act(async () => {
+        await current.stop(...args);
+      });
+      assert.equal(records.length, 1, 'one record per Stop');
+      return { record: records[0], notices: [...notices] };
+    },
+    cleanup: async () => {
+      window.mixdogDesktop.rendererDiagnostic = previous;
+      await mounted.cleanup();
+    },
   };
+}
+
+test('a Stop that stopped the turn is logged without a notice', async () => {
+  const composer = await mountStopComposer();
   try {
-    await mounted.render({});
-    // A turn stopped: logged, no notice (the turn ending is the outcome).
-    let seen = await stopWith(async () => ({ aborted: true, restoreText: '' }));
+    const seen = await composer.stopWith(async () => ({ aborted: true, restoreText: '' }));
     assert.equal(seen.record.kind, 'composer-action');
     assert.equal(seen.record.action, 'stop');
     assert.equal(seen.record.source, 'stop-button');
@@ -253,9 +261,15 @@ test('every Stop is logged with the core answer, and one that stopped nothing sa
     assert.equal(seen.record.stopOutcome, 'stopped');
     assert.equal(seen.record.aborted, true);
     assert.deepEqual(seen.notices, []);
+  } finally {
+    await composer.cleanup();
+  }
+});
 
-    // Node's idle reply: `aborted: false` with no reason is "nothing was running".
-    seen = await stopWith(
+test("a Stop on an idle core ('aborted: false' with no reason) says nothing was running", async () => {
+  const composer = await mountStopComposer();
+  try {
+    const seen = await composer.stopWith(
       async () => ({ aborted: false, restoreText: '', restoredSubmissionIds: [] }),
       false,
       '',
@@ -266,14 +280,26 @@ test('every Stop is logged with the core answer, and one that stopped nothing sa
     assert.equal(seen.record.aborted, false);
     assert.equal('stopReason' in seen.record, false);
     assert.deepEqual(seen.notices, [['Nothing was running to stop.', 'info']]);
+  } finally {
+    await composer.cleanup();
+  }
+});
 
-    // The core's `could-not-stop` has its own words, and rides in the record.
-    seen = await stopWith(async () => ({ aborted: false, reason: 'could-not-stop' }));
+test("the core's could-not-stop reason has its own notice and rides in the record", async () => {
+  const composer = await mountStopComposer();
+  try {
+    const seen = await composer.stopWith(async () => ({ aborted: false, reason: 'could-not-stop' }));
     assert.equal(seen.record.stopReason, 'could-not-stop');
     assert.deepEqual(seen.notices, [['The turn could not be stopped.', 'info']]);
+  } finally {
+    await composer.cleanup();
+  }
+});
 
-    // A queued prompt handed back is an outcome of its own: no notice, the draft returns.
-    seen = await stopWith(
+test('a Stop that hands a queued prompt back restores the draft without a notice', async () => {
+  const composer = await mountStopComposer();
+  try {
+    const seen = await composer.stopWith(
       async () => ({ aborted: false, restoreText: 'queued text', restoredSubmissionIds: ['s1'] }),
       false,
       's1'
@@ -281,21 +307,25 @@ test('every Stop is logged with the core answer, and one that stopped nothing sa
     assert.equal(seen.record.stopOutcome, 'restored');
     assert.equal(seen.record.targeted, true);
     assert.deepEqual(seen.notices, []);
-    assert.equal(current.draft, 'queued text');
+    assert.equal(composer.draft(), 'queued text');
+  } finally {
+    await composer.cleanup();
+  }
+});
 
-    // The call itself failed: logged and shown as an error.
-    seen = await stopWith(async () => {
+test('a Stop whose call fails is logged and shown as an error', async () => {
+  const composer = await mountStopComposer();
+  try {
+    const seen = await composer.stopWith(async () => {
       throw new Error('link down');
     });
     assert.equal(seen.record.stopOutcome, 'failed');
     assert.equal(seen.record.stopReason, 'link down');
     assert.deepEqual(seen.notices, [['The turn could not be stopped.', 'error']]);
   } finally {
-    window.mixdogDesktop.rendererDiagnostic = previous;
-    await mounted.cleanup();
+    await composer.cleanup();
   }
 });
-
 test('an ambiguous failure restored onto a colliding chip id is renumbered and resent under the same submission id', async () => {
   let current;
   const sends = [];
@@ -798,9 +828,9 @@ test('submission hook refuses to send while an attachment is still loading and k
   }
 });
 
-test('keyboard hook restores history, inserts mentions, and scrolls only appended newlines', async () => {
+async function mountKeyboardComposer() {
   let current;
-  let sent = 0;
+  const sent = { count: 0 };
   function Harness() {
     const [draft, setDraft] = useState('');
     const draftRef = useRef(draft);
@@ -877,7 +907,7 @@ test('keyboard hook restores history, inserts mentions, and scrolls only appende
         ime: { composing, suppressLineBreak },
         actions: {
           send: async () => {
-            sent += 1;
+            sent.count += 1;
           },
           stop: async () => {},
           clearAttachments() {},
@@ -891,18 +921,17 @@ test('keyboard hook restores history, inserts mentions, and scrolls only appende
     });
   }
   const mounted = mountHarness(Harness, {});
-  try {
-    await mounted.render({});
-    const textarea = current.textarea.current;
-    textarea.setSelectionRange(0, 0);
+  await mounted.render({});
+  const textarea = current.textarea.current;
+  const pressKey = async (key, keyCode, { ctrlKey = false } = {}) => {
     let prevented = false;
     await act(async () => {
       current.onKeyDown({
-        key: 'ArrowUp',
+        key,
         currentTarget: textarea,
-        nativeEvent: { isComposing: false, keyCode: 38 },
+        nativeEvent: { isComposing: false, keyCode },
         shiftKey: false,
-        ctrlKey: false,
+        ctrlKey,
         metaKey: false,
         altKey: false,
         repeat: false,
@@ -912,83 +941,85 @@ test('keyboard hook restores history, inserts mentions, and scrolls only appende
         stopPropagation() {},
       });
     });
-    assert.equal(prevented, true);
-    assert.equal(current.draft, 'previous prompt');
+    return prevented;
+  };
+  return {
+    view: () => current,
+    textarea,
+    sent,
+    pressKey,
+    cleanup: () => mounted.cleanup(),
+  };
+}
 
-    await act(async () => current.setDraft(''));
-    await act(async () => current.selectMention('src/App.tsx'));
-    assert.equal(current.draft, '@src/App.tsx ');
-    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 0)));
+test('keyboard hook: ArrowUp at the start restores the previous prompt from history', async () => {
+  const composer = await mountKeyboardComposer();
+  try {
+    composer.textarea.setSelectionRange(0, 0);
+    assert.equal(await composer.pressKey('ArrowUp', 38), true);
+    assert.equal(composer.view().draft, 'previous prompt');
+  } finally {
+    await composer.cleanup();
+  }
+});
 
+test('keyboard hook: selecting a mention inserts it into the draft', async () => {
+  const composer = await mountKeyboardComposer();
+  try {
+    await act(async () => composer.view().selectMention('src/App.tsx'));
+    assert.equal(composer.view().draft, '@src/App.tsx ');
+  } finally {
+    await composer.cleanup();
+  }
+});
+
+test('keyboard hook: Ctrl+Enter inserts a newline and scrolls only when it is appended', async () => {
+  const composer = await mountKeyboardComposer();
+  try {
+    const { textarea } = composer;
     // JSDOM has no layout; provide an overflowing textarea's measured height.
     Object.defineProperty(textarea, 'scrollHeight', { configurable: true, get: () => 480 });
     for (const caret of [11, 5]) {
-      await act(async () => current.setDraft('first\nlast!'));
+      await act(async () => composer.view().setDraft('first\nlast!'));
       textarea.setSelectionRange(caret, caret);
       textarea.scrollTop = 20;
-      prevented = false;
-      await act(async () => {
-        current.onKeyDown({
-          key: 'Enter',
-          currentTarget: textarea,
-          nativeEvent: { isComposing: false, keyCode: 13 },
-          shiftKey: false,
-          ctrlKey: true,
-          metaKey: false,
-          altKey: false,
-          repeat: false,
-          preventDefault: () => {
-            prevented = true;
-          },
-          stopPropagation() {},
-        });
-      });
+      const prevented = await composer.pressKey('Enter', 13, { ctrlKey: true });
       await act(async () => new Promise((resolve) => window.setTimeout(resolve, 0)));
       assert.equal(prevented, true);
-      assert.equal(current.draft, caret === 11 ? 'first\nlast!\n' : 'first\n\nlast!');
+      assert.equal(composer.view().draft, caret === 11 ? 'first\nlast!\n' : 'first\n\nlast!');
       assert.equal(textarea.selectionStart, caret + 1);
       assert.equal(textarea.selectionEnd, caret + 1);
       assert.equal(textarea.scrollTop, caret === 11 ? 480 : 20);
     }
-
-    // Plain Enter sends on desktop but keeps its native line break on phones.
-    const plainEnter = () =>
-      current.onKeyDown({
-        key: 'Enter',
-        currentTarget: textarea,
-        nativeEvent: { isComposing: false, keyCode: 13 },
-        shiftKey: false,
-        ctrlKey: false,
-        metaKey: false,
-        altKey: false,
-        repeat: false,
-        preventDefault: () => {
-          prevented = true;
-        },
-        stopPropagation() {},
-      });
-    prevented = false;
-    await act(async () => plainEnter());
-    assert.equal(prevented, true);
-    assert.equal(sent, 1);
-
-    Object.defineProperty(navigator, 'userAgent', {
-      configurable: true,
-      get: () => 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile',
-    });
-    try {
-      prevented = false;
-      await act(async () => plainEnter());
-      assert.equal(prevented, false);
-      assert.equal(sent, 1);
-    } finally {
-      delete navigator.userAgent;
-    }
   } finally {
-    await mounted.cleanup();
+    await composer.cleanup();
   }
 });
 
+test('keyboard hook: plain Enter sends on desktop', async () => {
+  const composer = await mountKeyboardComposer();
+  try {
+    assert.equal(await composer.pressKey('Enter', 13), true);
+    assert.equal(composer.sent.count, 1);
+  } finally {
+    await composer.cleanup();
+  }
+});
+
+test('keyboard hook: plain Enter keeps its native line break on phones', async () => {
+  const composer = await mountKeyboardComposer();
+  Object.defineProperty(navigator, 'userAgent', {
+    configurable: true,
+    get: () => 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile',
+  });
+  try {
+    assert.equal(await composer.pressKey('Enter', 13), false);
+    assert.equal(composer.sent.count, 0);
+  } finally {
+    delete navigator.userAgent;
+    await composer.cleanup();
+  }
+});
 test('a shared payload lands only in the composer the user can see', async () => {
   resetSharedIntake();
   const attached = [];

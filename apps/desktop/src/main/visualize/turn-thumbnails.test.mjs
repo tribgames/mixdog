@@ -1,7 +1,3 @@
-// Chat-card pictures and agent turns (thumbnails.ts `takeAtTurnEnd`): none is
-// taken while a turn runs; its end takes one per opened tab, off screen, on
-// the final version, before the publish that shows the cards, and each is
-// kept per version so an earlier card keeps its own.
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -250,13 +246,30 @@ test('a turn starting while the previous turn flushes keeps its own span; versio
   }
 });
 
-test('a picture not ready in time (or refused) leaves the card its placeholder, never an older picture', async () => {
-  let refuse = false;
+test('a picture refused leaves the card its placeholder, never an older picture', async () => {
+  const t = setup({
+    async thumbnailOffscreen() {
+      throw new Error('the page shows a password field');
+    },
+  });
+  try {
+    await t.run('open', { targets: ['site/a.html'] });
+    await t.service.settled();
+    await t.service.setTurnActive(SESSION, true);
+    writeFileSync(join(t.cwd, 'site', 'a.html'), '<h1>two</h1>');
+    await t.run('open', { targets: ['site/a.html'] });
+    await t.service.setTurnActive(SESSION, false);
+    assert.equal(t.shownTabs()[0].thumbnail, undefined);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('a picture not ready in time leaves the card its placeholder, never an older picture', async () => {
   let started = 0;
   let requestSignal;
   const t = setup({
     async thumbnailOffscreen(_sessionId, _tab, _files, signal) {
-      if (refuse) throw new Error('the page shows a password field');
       started += 1;
       requestSignal = signal;
       // Never ready: only the deadline ends it.
@@ -290,20 +303,13 @@ test('a picture not ready in time (or refused) leaves the card its placeholder, 
     assert.equal(tab.versions.at(-1).n, 2);
     assert.equal(tab.thumbnail, undefined, 'version 1 picture is not shown as version 2');
     assert.equal(await t.thumbnailOf('v1', 1), dataUrl('ONSCREEN'), 'version 1 keeps its own');
-
-    refuse = true;
-    await t.service.setTurnActive(SESSION, true);
-    writeFileSync(join(t.cwd, 'site', 'a.html'), '<h1>three</h1>');
-    await t.run('open', { targets: ['site/a.html'] });
-    await t.service.setTurnActive(SESSION, false);
-    assert.equal(t.shownTabs()[0].thumbnail, undefined);
   } finally {
     mock.timers.reset();
     t.cleanup();
   }
 });
 
-test("a split tab's card picture tiles its panes on one screen; a document gives its first page", async () => {
+function tileFixture() {
   const drawn = [];
   const pages = [];
   const base = {
@@ -321,6 +327,11 @@ test("a split tab's card picture tiles its panes on one screen; a document gives
   };
   const renderers = { ...thumbnailRenderers(base, new AbortController().signal), document: base.document };
   const tab = (panes) => ({ id: 'v1', label: '', revision: 0, panes });
+  return { drawn, pages, renderers, tab };
+}
+
+test("a split tab's card picture tiles its panes on one screen", async () => {
+  const { drawn, renderers, tab } = tileFixture();
   const split = await exportTabBytes(
     () => Promise.reject(new Error('panel')),
     tab([
@@ -335,6 +346,10 @@ test("a split tab's card picture tiles its panes on one screen; a document gives
   const tiles = drawn.at(-1).files;
   const html = Object.values(tiles).find((file) => String(file.type).startsWith('text/html'));
   assert.match(String(html.body), /grid-template-columns:repeat\(2,1fr\)/);
+});
+
+test('a document card picture is its first page', async () => {
+  const { pages, renderers, tab } = tileFixture();
   const pdf = await exportTabBytes(
     () => Promise.reject(new Error('panel')),
     tab([{ kind: 'pdf', url: '', label: 'r', target: 'r' }]),
@@ -344,6 +359,10 @@ test("a split tab's card picture tiles its panes on one screen; a document gives
   );
   assert.equal(pdf.toString(), 'P1');
   assert.deepEqual(pages, [[1]], 'only the first page is drawn');
+});
+
+test('a tab only the panel can draw has no card picture', async () => {
+  const { renderers, tab } = tileFixture();
   await assert.rejects(
     exportTabBytes(
       () => Promise.reject(new Error('only the panel can draw this tab')),

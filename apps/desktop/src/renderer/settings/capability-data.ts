@@ -335,10 +335,7 @@ async function readAllCapabilitySettings(
       await readIndividually();
       return;
     }
-    // The engine runs a batch as one ordered sweep, so a single batch only
-    // lands when its slowest getter finishes. Small batches keep that sweep
-    // semantics per group; the groups themselves go out TOGETHER — sending them one after another let a slow getter (provider
-    // setup, MCP/plugin/skill status) hold back every group queued behind it.
+    // The engine answers a batch only when its slowest getter finishes, so the groups go out together.
     try {
       const chunks: (typeof prepared)[] = [];
       for (let index = 0; index < prepared.length; index += READ_BATCH_SIZE) {

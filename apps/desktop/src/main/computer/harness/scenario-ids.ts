@@ -1,9 +1,5 @@
 import scenarioGroups from './scenario-groups.json';
 
-// The harness declares its scenarios imperatively, interleaved with fixture
-// setup, so the ids a run may select are only knowable from the group map
-// before any work starts. `runScenario` refuses to declare an id that is
-// missing here, which keeps the map and the harness in step.
 /** Group name → scenario ids; the same file sizes the repeat runner's shards. */
 export const SCENARIO_GROUPS: Readonly<Record<string, readonly string[]>> = scenarioGroups;
 

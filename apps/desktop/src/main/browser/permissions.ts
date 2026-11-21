@@ -69,10 +69,6 @@ const PROMPTED = new Set([
  *  gesture, and Esc always leaves it), so a video's own fullscreen button works. */
 const GRANTED_BY_DEFAULT = new Set(['mediaKeySystem', 'fullscreen']);
 
-/** Granted on request without asking, as Chrome grants it to a frame that can
- *  already use its own cookies, which this partition never blocks (an
- *  embedded sign-in or reCAPTCHA frame). Only the top page holds it
- *  beforehand, as in Chrome; a frame still reads it as not granted. */
 const STORAGE_ACCESS = 'storage-access';
 
 /** Clipboard operations that reach beyond the page: reading, and writing

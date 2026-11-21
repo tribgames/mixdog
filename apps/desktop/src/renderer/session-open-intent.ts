@@ -29,12 +29,6 @@ export function rowsMountedAtEnd(sessionId: string, rows: readonly TranscriptRow
   return mounted;
 }
 
-/** The reads the first commit of a session's rows would otherwise wait on
- *  (the mounted rows' changed-files cards, the island's entry review), started
- *  once its lane is held. They go through the shared reads and caches the
- *  mounted rows use (keyed by session, turn and epoch, and de-duplicated while
- *  in flight), so the render finds them and never repeats them, and a failed
- *  or outdated one is asked again by the next intent. */
 function prepareSessionRows(sessionId: string): void {
   const lane = defaultSessionLaneStore.get(sessionId);
   const items = lane?.items;
@@ -54,11 +48,6 @@ function prepareSessionRows(sessionId: string): void {
   prefetchTurnReview(sessionId, items);
 }
 
-/** The one open intent in flight: its lane read, and, once that is
- *  acknowledged before the lane is delivered, the wait for the lane.
- *  `token` names this intent, so that a late finalize from an older press
- *  never touches a newer one. `confirmed`: the open itself happened, so the
- *  wait now belongs to it and runs to the lane's delivery. */
 interface OpenIntent {
   token: number;
   sessionId: string;

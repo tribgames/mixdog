@@ -3,7 +3,6 @@ import type { DesktopGitStatus } from '../shared/contract';
 export type DockGitState = {
   projectPath: string;
   status: DesktopGitStatus | null;
-  loading: boolean;
   ready: boolean;
   error: string;
 };
@@ -16,13 +15,12 @@ const dockGitRequests = new Map<string, Promise<DockGitState>>();
 
 export function readCachedDockGitState(projectPath: string): DockGitState {
   if (!projectPath) {
-    return { projectPath: '', status: null, loading: false, ready: true, error: '' };
+    return { projectPath: '', status: null, ready: true, error: '' };
   }
   return (
     dockGitCache.get(projectPath) ?? {
       projectPath,
       status: null,
-      loading: false,
       ready: false,
       error: '',
     }
@@ -32,17 +30,16 @@ export function readCachedDockGitState(projectPath: string): DockGitState {
 function loadDockGitState(projectPath: string): Promise<DockGitState> {
   const gitStatus = window.mixdogDesktop?.gitStatus;
   if (typeof gitStatus !== 'function') {
-    return Promise.resolve({ projectPath, status: null, loading: false, ready: true, error: '' });
+    return Promise.resolve({ projectPath, status: null, ready: true, error: '' });
   }
   // Source Control/Search only consume repository, branch and changed-file
   // shape. Line totals belong to Review surfaces, so making this dock wait
   // for two numstat passes and every untracked file read was pure latency.
   return gitStatus(projectPath, { skipLineStats: true }).then(
-    (status) => ({ projectPath, status: status ?? null, loading: false, ready: true, error: '' }),
+    (status) => ({ projectPath, status: status ?? null, ready: true, error: '' }),
     (reason) => ({
       projectPath,
       status: null,
-      loading: false,
       ready: true,
       error: reason instanceof Error ? reason.message : String(reason),
     })

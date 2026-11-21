@@ -1,9 +1,3 @@
-// What keeps the draft-pane prefs (use-draft-pane-preferences.ts) in step with
-// the host: the engine snapshot's route while it owns the draft, the host's
-// Main route, the persisted prefs at start-up, and the project catalog once
-// validated. Each hook is called where its state sat in that hook, so the
-// effects keep their declaration order (hydration before the focused-draft
-// restore).
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react';
 import type { DesktopModelSelection } from '../shared/contract';
 import type { Snapshot } from './desktop-types';
@@ -33,20 +27,12 @@ const sameSelection = (a: DesktopModelSelection | null, b: DesktopModelSelection
 export const focusedDraftKey = (selection: NavigationSelection): string =>
   selection.kind === 'new' ? selection.draftId || 'default' : '';
 
-/** Before the user explicitly changes a draft route, the engine snapshot is
- *  still its authoritative default. Preserve that route in the same prefs
- *  chain so unfocused panes (whose lane snapshot is intentionally empty)
- *  render exactly what the focused pane renders. */
 export function useSnapshotDraftModelSelection(
   selectionKind: NavigationSelection['kind'],
   snapshot: Snapshot
 ): DesktopModelSelection | null {
   // biome-ignore lint/correctness/useExhaustiveDependencies: lists the snapshot fields the seed reads instead of the snapshot object, whose identity changes on every publication
   return useMemo(
-    // ONLY while the engine snapshot actually owns the draft: a blank engine
-    // (no session id) is the new task's own route. A draft focused while the
-    // engine still runs the PREVIOUS session must never inherit — let alone
-    // freeze — that unrelated session's model.
     () =>
       selectionKind === 'new' && !String(snapshot.sessionId || '') ? draftModelSelectionFromSnapshot(snapshot) : null,
     [
@@ -62,10 +48,6 @@ export function useSnapshotDraftModelSelection(
   );
 }
 
-/** The Main route the host holds. An unpicked draft paints and runs on it,
- *  never on the last-used cache (a stale effort there used to be submitted
- *  back as the Lead). Read when a draft opens, on the setup-change event the
- *  host and the Workflows/Settings editors raise, and when the window returns. */
 export function useHostMainRoute({
   selectionRef,
   draftPanePrefs,

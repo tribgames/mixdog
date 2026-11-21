@@ -1,7 +1,3 @@
-// The window's desktop bridge: the HOST half of DesktopApi (Electron and OS methods, window.mixdogDesktopHost, with the
-// boot values main passes on the command line) and the window's own port to its core (window.mixdogCorePort). The renderer
-// composes window.mixdogDesktop from both (renderer/core-direct/install.ts): the core's methods go over the window's own
-// core connection, not through main. Explicit method allow-list, no arbitrary invoke.
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 import type { DesktopBootContext, DesktopConnectionIdentity } from '../shared/contract';

@@ -55,6 +55,81 @@ function supportedItems(source: DesktopBrowserImportSource | undefined): Record<
   };
 }
 
+function ImportItemRow({
+  item,
+  label,
+  icon,
+  source,
+  checked,
+  progress,
+  busy,
+  finished,
+  loading,
+  onToggle,
+}: {
+  item: DesktopBrowserImportItem;
+  label: string;
+  icon: React.ReactNode;
+  source: DesktopBrowserImportSource | undefined;
+  checked: boolean;
+  progress: Partial<Record<DesktopBrowserImportItem, DesktopBrowserImportProgress>>;
+  busy: boolean;
+  finished: boolean;
+  loading: boolean;
+  onToggle(checked: boolean): void;
+}) {
+  const supported = source?.supports[item] !== false;
+  const itemProgress = progress[item];
+  const selected = supported && checked;
+  const showProgress = (busy || finished) && selected;
+  const progressState = itemProgress?.state || (busy ? 'running' : 'failed');
+  const passwordReason = item === 'passwords' ? source?.passwordSupportReason : '';
+  const unsupportedReason = supported ? '' : source?.supportReasons?.[item] || passwordReason || '';
+  const importedCount = itemProgress?.count
+    ? ` · ${t('{{total}} imported', { total: itemProgress.count.toLocaleString(uiFormatLocale()) })}`
+    : '';
+  let control: React.ReactNode = (
+    <input
+      type="checkbox"
+      checked={supported && checked}
+      disabled={!supported || loading}
+      onChange={(event) => onToggle(event.target.checked)}
+    />
+  );
+  if (showProgress) {
+    control = (
+      // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the state icon span needs an accessible name for the import progress
+      <span className={`browser-import-state is-${progressState}`} aria-label={progressStateLabel(progressState)}>
+        <ProgressStateIcon state={progressState} />
+      </span>
+    );
+  } else if (busy || finished) {
+    control = <span className="browser-import-skipped">{t('Excluded')}</span>;
+  }
+  return (
+    // biome-ignore lint/a11y/noLabelWithoutControl: the checkbox control is rendered through the `control` variable inside this label
+    <label className={`browser-import-item${supported ? '' : ' is-disabled'}`}>
+      <span className="browser-import-item-icon">{icon}</span>
+      <span className="browser-import-item-label">
+        <strong>{label}</strong>
+        {unsupportedReason ? <small>{unsupportedReason}</small> : null}
+        {showProgress && progressState === 'completed' ? (
+          <small>
+            {t('{{total}} imported', { total: itemProgress?.count?.toLocaleString(uiFormatLocale()) || '0' })}
+          </small>
+        ) : null}
+        {showProgress && progressState === 'failed' ? (
+          <small>
+            {t('Failed to import')}
+            {importedCount}
+          </small>
+        ) : null}
+      </span>
+      {control}
+    </label>
+  );
+}
+
 export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps) {
   const desktopApi = window.mixdogDesktop;
   const dialogRef = useRef<HTMLElement | null>(null);
@@ -192,65 +267,13 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
       });
   }, [administratorApproved, desktopApi, items, profileId, selectedSource, sourceId]);
 
-  const importItemRow = (item: DesktopBrowserImportItem, label: string, icon: React.ReactNode) => {
-    const supported = selectedSource?.supports[item] !== false;
-    const itemProgress = progress[item];
-    const selected = supported && items[item];
-    const showProgress = (busy || finished) && selected;
-    const progressState = itemProgress?.state || (busy ? 'running' : 'failed');
-    const passwordReason = item === 'passwords' ? selectedSource?.passwordSupportReason : '';
-    const unsupportedReason = supported ? '' : selectedSource?.supportReasons?.[item] || passwordReason || '';
-    const importedCount = itemProgress?.count
-      ? ` · ${t('{{total}} imported', { total: itemProgress.count.toLocaleString(uiFormatLocale()) })}`
-      : '';
-    let control: React.ReactNode = (
-      <input
-        type="checkbox"
-        checked={supported && items[item]}
-        disabled={!supported || loading}
-        onChange={(event) =>
-          setItems((current) => ({
-            ...current,
-            [item]: event.target.checked,
-          }))
-        }
-      />
-    );
-    if (showProgress) {
-      control = (
-        // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the state icon span needs an accessible name for the import progress
-        <span className={`browser-import-state is-${progressState}`} aria-label={progressStateLabel(progressState)}>
-          <ProgressStateIcon state={progressState} />
-        </span>
-      );
-    } else if (busy || finished) {
-      control = <span className="browser-import-skipped">{t('Excluded')}</span>;
-    }
-    return (
-      // biome-ignore lint/a11y/noLabelWithoutControl: the checkbox control is rendered through the `control` variable inside this label
-      <label className={`browser-import-item${supported ? '' : ' is-disabled'}`}>
-        <span className="browser-import-item-icon">{icon}</span>
-        <span className="browser-import-item-label">
-          <strong>{label}</strong>
-          {unsupportedReason ? <small>{unsupportedReason}</small> : null}
-          {showProgress && progressState === 'completed' ? (
-            <small>
-              {t('{{total}} imported', { total: itemProgress?.count?.toLocaleString(uiFormatLocale()) || '0' })}
-            </small>
-          ) : null}
-          {showProgress && progressState === 'failed' ? (
-            <small>
-              {t('Failed to import')}
-              {importedCount}
-            </small>
-          ) : null}
-        </span>
-        {control}
-      </label>
-    );
-  };
-
   if (!open) return null;
+
+  const importItems: { item: DesktopBrowserImportItem; label: string; icon: React.ReactNode }[] = [
+    { item: 'passwords', label: t('Saved passwords'), icon: <KeyRound size={18} /> },
+    { item: 'cookies', label: t('Cookies'), icon: <Cookie size={18} /> },
+    { item: 'history', label: t('Browsing history'), icon: <History size={18} /> },
+  ];
 
   let description = t('Select data to import into the built-in browser');
   if (busy) description = t('Importing browser data…');
@@ -306,9 +329,21 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
           </div>
         )}
         <div className="browser-import-items">
-          {importItemRow('passwords', t('Saved passwords'), <KeyRound size={18} />)}
-          {importItemRow('cookies', t('Cookies'), <Cookie size={18} />)}
-          {importItemRow('history', t('Browsing history'), <History size={18} />)}
+          {importItems.map(({ item, label, icon }) => (
+            <ImportItemRow
+              key={item}
+              item={item}
+              label={label}
+              icon={icon}
+              source={selectedSource}
+              checked={items[item]}
+              progress={progress}
+              busy={busy}
+              finished={finished}
+              loading={loading}
+              onToggle={(checked) => setItems((current) => ({ ...current, [item]: checked }))}
+            />
+          ))}
         </div>
         {items.cookies && (
           <p className="browser-import-auth-notice" role="note">

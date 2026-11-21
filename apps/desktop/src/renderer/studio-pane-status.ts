@@ -16,10 +16,6 @@ export function useStudioJobClock(active: boolean, generating: boolean): void {
   }, [active, generating]);
 }
 
-/** The pane reports ready once its surface is settled: the grid geometry, the
- *  gallery and catalog answers, and the kind, route and options the composer
- *  paints. Thumbnail bytes are tile-local decoration: a cold, large, or broken
- *  first asset must not hold the opaque Studio cover over a usable pane. */
 export function useStudioReadyReport({
   active,
   gridMotionReady,

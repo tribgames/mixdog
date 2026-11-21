@@ -93,11 +93,6 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   // or stale capability read must not permanently disable an otherwise valid
   // checkpoint, but a known ID mismatch is never allowed to hit another turn.
   const canRevertTurn = Boolean(cwd && sessionId && requestedCheckpointId && checkpointMatches);
-  // The prior turn's review must leave at the next user boundary. Conversation
-  // reserves geometry only after the CURRENT turn actually touches files, so
-  // carrying an empty review row through every busy turn creates a fixed black
-  // gap above the composer while new output streams above it.
-  // An undecided entry holds the conversation's reveal (use-transcript-reveal).
   if (!reviewVisible) {
     if (entryPending) return <IslandSegmentPending kind="files" holdEntry />;
     // The island's count waits on the session's changes read: until it

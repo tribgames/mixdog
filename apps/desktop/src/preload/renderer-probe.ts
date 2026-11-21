@@ -4,10 +4,6 @@ import { DESKTOP_IPC } from '../shared/contract';
 import { DESKTOP_PET_IPC } from '../shared/desktop-pet';
 import type { DesktopRendererProbeApi } from '../shared/renderer-probe';
 
-// Every channel main can send this window. While counting, each gets one
-// listener of its own beside the subscriptions, which stay untouched: an off
-// probe adds nothing to any message, and a channel nobody subscribes to still
-// shows what it costs.
 const CHANNELS = [...new Set<string>([...Object.values(DESKTOP_IPC), ...Object.values(DESKTOP_PET_IPC)])];
 
 export function createRendererProbeBridge(ipcRenderer: IpcRenderer): DesktopRendererProbeApi {

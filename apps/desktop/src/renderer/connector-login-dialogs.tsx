@@ -1,7 +1,3 @@
-// The paste-back dialogs of connector sign-ins started away from the host
-// (phone, a second PC): the existing MCP OAuth fallback, where the browser
-// opens on this device and the final redirect is pasted back. Mounted by
-// the 커넥터 tab and by chat connect cards; one mounted host renders them.
 import { useEffect, useId, useState, useSyncExternalStore } from 'react';
 import { cancelConnectorLogin, completeConnectorLogin, useConnectorLogins } from './connector-connect';
 import { t } from './i18n';

@@ -1,62 +1,35 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { isAgentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { isOtherDevice, sessionUsesMultipleDevices } from '../shared/session-devices';
-import type { DesktopPromptContent, DesktopSubmitOptions, ToolApprovalDecision } from '../shared/contract';
+import type { ToolApprovalDecision } from '../shared/contract';
 import { ApprovalCard, approvalRecordLabel, publishHeldSettlements } from './ApprovalCard';
 import { BrowserApprovalCard, useBrowserApprovals } from './BrowserApprovalHost';
 import { QuestionCard } from './QuestionCard';
 import { useAgentChatSession } from './agent-chat-mode';
-import { useHandoffTarget } from './agent-task-line';
-import { approvalQuestions, buildAnswers, questionAwareSubmit, type QuestionDraft } from './question-card-logic';
+import { approvalQuestions, buildAnswers, type QuestionDraft } from './question-card-logic';
 import type { ComposerIslandFlash } from './ComposerIsland';
 import type { Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { approvalInstanceKey } from './renderer-logic.mjs';
 import { RETIRED_APPROVAL_MS, type RetiredApproval, useRetiredApproval } from './use-retired-approval';
+import { useRelayedQuestion } from './use-relayed-question';
 import { useViewerDevice } from './use-viewer-device';
 
 /** A refusal the core did not confirm as a decision: the card clears its resolving state and can be answered again. */
 export const UNCONFIRMED = 'unconfirmed';
 type AnsweredElsewhere = { id: string; device: string };
-type ComposerSubmit<R> = (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<R>;
 
 /** Tool approvals for the session this pane renders: the pending card, the
  *  approvals this device answered itself, and whether the conversation was
  *  used from several devices (only then is a device named). */
-export function useConversationApprovals(
-  snapshot: Snapshot,
-  routeSessionIdRef: RefObject<string>,
-  /** `docked`: this view renders the composer dock (a read-only view does
-   *  not, so it claims no browser approval and those only mark the session). */
-  { docked = true }: { docked?: boolean } = {}
-) {
-  // Bounded to this session, and to the ids the retired-approval check can
-  // still consult: the pending approval and the last published result.
-  const decidedLocally = useRef<{ sessionId: string; ids: Set<string> }>({ sessionId: '', ids: new Set() });
-  const decidedSessionId = String(snapshot.sessionId || '');
-  if (decidedLocally.current.sessionId !== decidedSessionId) {
-    decidedLocally.current = { sessionId: decidedSessionId, ids: new Set() };
-  } else if (decidedLocally.current.ids.size > 0) {
-    const relevant = new Set([String(snapshot.toolApproval?.id ?? ''), String(snapshot.toolApprovalResult?.id ?? '')]);
-    for (const id of decidedLocally.current.ids) if (!relevant.has(id)) decidedLocally.current.ids.delete(id);
-  }
-  const otherDeviceApproval = useRetiredApproval(snapshot, decidedLocally.current.ids);
-  // The approval this device answered, kept once it left the dock
-  // (device '' names this PC) so the island can say what was decided.
-  // It belongs to the session it was answered in: another chat never shows it.
-  // `resultBefore` is the server's resolved approval at the time of the answer.
-  const [localDecided, setLocalDecided] = useState<
-    (RetiredApproval & { sessionId: string; resultBefore: string }) | null
-  >(null);
+type LocalDecidedApproval = RetiredApproval & { sessionId: string; resultBefore: string };
+
+/** The approval this device answered, kept once it left the dock (device ''
+ *  names this PC) so the island can say what was decided. It belongs to the
+ *  session it was answered in: another chat never shows it. `resultBefore` is
+ *  the server's resolved approval at the time of the answer. */
+function useLocalDecidedApproval(snapshot: Snapshot, decidedSessionId: string) {
+  const [localDecided, setLocalDecided] = useState<LocalDecidedApproval | null>(null);
   const resolvedId = String(snapshot.toolApprovalResult?.id ?? '');
   const resolvedIdRef = useRef(resolvedId);
   resolvedIdRef.current = resolvedId;
@@ -76,6 +49,26 @@ export function useConversationApprovals(
     const timer = window.setTimeout(() => setLocalDecided(null), RETIRED_APPROVAL_MS);
     return () => window.clearTimeout(timer);
   }, [localDecided]);
+  return { localDecided, setLocalDecided, resolvedIdRef };
+}
+
+export function useConversationApprovals(
+  snapshot: Snapshot,
+  routeSessionIdRef: RefObject<string>,
+  /** `docked`: this view renders the composer dock (a read-only view does
+   *  not, so it claims no browser approval and those only mark the session). */
+  { docked = true }: { docked?: boolean } = {}
+) {
+  const decidedLocally = useRef<{ sessionId: string; ids: Set<string> }>({ sessionId: '', ids: new Set() });
+  const decidedSessionId = String(snapshot.sessionId || '');
+  if (decidedLocally.current.sessionId !== decidedSessionId) {
+    decidedLocally.current = { sessionId: decidedSessionId, ids: new Set() };
+  } else if (decidedLocally.current.ids.size > 0) {
+    const relevant = new Set([String(snapshot.toolApproval?.id ?? ''), String(snapshot.toolApprovalResult?.id ?? '')]);
+    for (const id of decidedLocally.current.ids) if (!relevant.has(id)) decidedLocally.current.ids.delete(id);
+  }
+  const otherDeviceApproval = useRetiredApproval(snapshot, decidedLocally.current.ids);
+  const { localDecided, setLocalDecided, resolvedIdRef } = useLocalDecidedApproval(snapshot, decidedSessionId);
   const retiredApproval =
     otherDeviceApproval ??
     (localDecided &&
@@ -94,11 +87,6 @@ export function useConversationApprovals(
     if (isAgentHomeSessionId(decidedSessionId)) publishHeldSettlements(decidedSessionId, snapshot.items ?? []);
   }, [decidedSessionId, snapshot.items]);
 
-  // A pending ask_user question renders in the transcript, where the turn
-  // waits on it; a pending approval (the session's own, then its browser
-  // approvals) docks above the composer. An approval answered on another
-  // device leaves the dock and stays in the transcript as one line saying who
-  // answered; a question's answer flashes in the island.
   const browserPrompts = useBrowserApprovals(docked ? decidedSessionId : '');
   let approvalDock: ReactNode = null;
   let questionCard: ReactNode = null;
@@ -210,66 +198,10 @@ export function useConversationApprovals(
       );
     }
   }
-  // A session this chat handed work to asks (its card shows at its hand-off
-  // line). With nothing of this chat's own waiting, what its composer sends
-  // answers the oldest such question, decided at send time, by the asking
-  // session's own composer rules (questionAwareSubmit), straight to that
-  // session through this chat's copy: never a message or a turn of this
-  // chat's agent. An answer over the cap is refused, not sent on.
-  const relayPending = (snapshot.handoffQuestions ?? []).filter((question) => typeof question.record !== 'string');
-  const relayQuestion = pendingApproval ? undefined : relayPending[0];
-  const relayId = String(relayQuestion?.id ?? '');
-  // The relayed card's picks, sent along with a composer answer; one question's.
-  const relayDrafts = useRef<QuestionDraft[]>([]);
-  const relayDraftsId = useRef('');
-  if (relayDraftsId.current !== relayId) {
-    relayDraftsId.current = relayId;
-    relayDrafts.current = [];
-  }
-  const relayHandoff = (relayQuestion?.handoff ?? {}) as { title?: unknown; agentId?: unknown };
-  const relayName = useHandoffTarget(
-    String(relayQuestion?.sessionId || ''),
-    String(relayHandoff.agentId || ''),
-    String(relayHandoff.title || '')
-  ).name;
-  let answerHint: string | undefined = dismissQuestion ? t('Sending answers the question') : undefined;
-  if (relayQuestion) answerHint = t('Sending answers the question from {{name}}', { name: relayName });
-  const relay = relayQuestion ? { id: relayId, draftsRef: relayDrafts } : null;
-  // Read when a message is sent, not when this render made the callback.
-  const live = useRef({ relayQuestion, dismissQuestion, answerQuestion });
-  live.current = { relayQuestion, dismissQuestion, answerQuestion };
-  /** `submit` as this chat's composer sends: its own question's answer, else
-   *  the oldest relayed question's, else a message. */
-  const wrapSubmit = useCallback(
-    <R,>(submit: ComposerSubmit<R>): ComposerSubmit<R | boolean> =>
-      async (content, options) => {
-        const { relayQuestion: asked, dismissQuestion: dismiss, answerQuestion: answer } = live.current;
-        if (answer && dismiss) return questionAwareSubmit(submit, answer, dismiss)(content, options);
-        const questions = asked ? approvalQuestions(asked.args) : null;
-        if (!asked || !questions) return submit(content, options);
-        const id = String(asked.id ?? '');
-        const resolve = async (decision: ToolApprovalDecision) => {
-          const sessionId = routeSessionIdRef.current;
-          if (!sessionId) return false;
-          return window.mixdogDesktop.resolveToolApprovalForSession(sessionId, id, decision);
-        };
-        const picks = relayDraftsId.current === id ? relayDrafts.current : [];
-        return questionAwareSubmit(
-          submit,
-          (reply) => resolve({ approved: true, answers: buildAnswers(questions, picks), reply }),
-          () => resolve({ approved: false, reason: 'dismissed by user' }),
-          {
-            tooLong: (max) =>
-              new Error(
-                t('This answer is too long for the question (up to {{max}} characters). Your draft has been kept.', {
-                  max,
-                })
-              ),
-          }
-        )(content, options);
-      },
-    [routeSessionIdRef]
-  );
+  const { answerHint, relay, wrapSubmit } = useRelayedQuestion(snapshot, Boolean(pendingApproval), routeSessionIdRef, {
+    dismiss: dismissQuestion,
+    answer: answerQuestion,
+  });
   if (!approvalDock && browserPrompts.length > 0) {
     approvalDock = (
       <BrowserApprovalCard
@@ -308,10 +240,6 @@ export function conversationIslandFlash(
   answeredElsewhere: AnsweredElsewhere | null,
   viewerDevice: string | null
 ): ComposerIslandFlash | null {
-  // Answered on another device: the docked card leaves and this one line
-  // says what was decided and where ("Send an email · Allowed from DESKTOP-7").
-  // Answered on this PC: the same line without a device ("Run a command · Allowed").
-  // A question's answer or timeout leaves no trace here (its card is in the transcript).
   if (
     retiredApproval &&
     retiredApproval.approval.kind !== 'question' &&

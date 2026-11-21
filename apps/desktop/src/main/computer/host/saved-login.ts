@@ -165,9 +165,6 @@ export async function assertSavedLoginPixelsAllowed(
  *  process (that id and creation time) is gone (bridge-server-contract.ts). */
 export type SavedLoginProcessFate = (process: { pid: number; created: string }) => Promise<{ state: string }>;
 
-/** Owners' OS answers still pending, per registry: every reconcile that asks
- *  about an owner meanwhile (concurrent captures, an owner event) shares the
- *  one worker call instead of making its own. */
 const pendingFates = new WeakMap<SecretInputs, Map<string, Promise<string>>>();
 
 function readOwnerState(

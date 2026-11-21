@@ -2,11 +2,6 @@ import { type MutableRefObject, useCallback, useRef } from 'react';
 import type { TranscriptVirtualizer } from './transcript-list-geometry';
 import type { TranscriptRowModel } from './transcript-rows';
 
-/** Sizes measured DURING a reader gesture for rows fully above the viewport
- *  are deferred here. Applying them mid-gesture shifts the whole timeline
- *  under the reader or competes with native touch motion. Applying them after
- *  the gesture lands the size and its scroll compensation in one pre-paint
- *  transaction instead. */
 export function useDeferredResizes({
   rowsRef,
   hasScrollGestureRef,
@@ -58,18 +53,10 @@ export function useDeferredResizes({
     resizeFlushFrame.current = 0;
     const pending = pendingResizes.current;
     if (pending.size === 0) return;
-    // Full flush waits for the gesture window AND the native ramp: the ramp
-    // outlives the window, and sizes applied mid-ramp shift content before
-    // the (deferred) compensation can land — flushing at true scroll idle
-    // keeps size and compensation in one pre-paint transaction.
     if (!hasScrollGestureRef.current() && !virtualizerRef.current.isScrolling) {
       flushDeferredResizes();
       return;
     }
-    // A pending row the reader scrolled back INTO must not keep painting at
-    // stale geometry. It applies with its compensation now; during a wheel
-    // ramp or a touch fling that compensation is held as a row offset, never
-    // written into the scroll (transcript-list-touch-deviation).
     const instance = virtualizerRef.current;
     const offset = visibleTop(instance);
     pending.forEach((entry, key) => {

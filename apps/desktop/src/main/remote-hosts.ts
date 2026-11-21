@@ -1,8 +1,3 @@
-// "Connect to another PC": the rules of a saved host's dedicated remote window (its storage partition, title, user
-// agent, which links stay inside it) and the watch on the core's host lists. The hosts themselves (the saved list, the
-// pairing code, presence) are the core's `remoteHosts/*`; remote-host-windows.ts owns the windows. Pure and
-// Electron-free so every rule is testable.
-
 /** Each host gets its own persistent storage container, so its pairing
  *  credential and E2EE keys never mix with another host or the local app. */
 export function remoteHostPartition(id: string): string {

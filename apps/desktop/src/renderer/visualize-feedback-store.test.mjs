@@ -16,6 +16,7 @@ import {
   resetVisualizeFeedback,
   setVisualizeChoice,
   setVisualizePinImage,
+  setVisualizeTweakSet,
   updateVisualizePinNote,
   visualizeChoicesChip,
   visualizeFeedbackFor,
@@ -80,8 +81,7 @@ const choice = (overrides = {}) => ({
   ...overrides,
 });
 
-test('pins number in session order, and the pages and chips renumber together', () => {
-  resetVisualizeFeedback();
+function queuePinsAcrossPanes() {
   const first = addVisualizePin('s1', elementPin());
   const region = addVisualizePin(
     's1',
@@ -97,7 +97,12 @@ test('pins number in session order, and the pages and chips renumber together', 
     elementPin({ label: 'Heading · Title', target: elementTarget({ selector: 'h1' }) })
   );
   addVisualizePin('s2', elementPin());
+  return { first, region, third };
+}
 
+test('pins number in session order and the pages and chips show those numbers', () => {
+  resetVisualizeFeedback();
+  const { first, region } = queuePinsAcrossPanes();
   assert.deepEqual(visualizePaneMarkers(visualizeFeedbackFor('s1'), 'v1', 0), {
     markers: [
       { n: 1, selector: 'main > button.rename' },
@@ -111,7 +116,11 @@ test('pins number in session order, and the pages and chips renumber together', 
     [[2, region.id]]
   );
   assert.equal(visualizePinChip(first, 1), '1 · Button · Rename');
+});
 
+test('removing a pin renumbers the pages and chips together and leaves other sessions alone', () => {
+  resetVisualizeFeedback();
+  const { first } = queuePinsAcrossPanes();
   removeVisualizePin('s1', first.id);
   const after = visualizeFeedbackFor('s1');
   assert.deepEqual(visualizePaneMarkers(after, 'v1', 0).markers, [{ n: 2, selector: 'h1' }]);
@@ -121,8 +130,12 @@ test('pins number in session order, and the pages and chips renumber together', 
     ['1 · PDF · Region', '2 · Heading · Title']
   );
   assert.equal(visualizeFeedbackFor('s2').pins.length, 1, 'sessions keep their own pins');
+});
 
-  // A crop for a pin already gone is dropped.
+test('a crop for a pin already gone is dropped', () => {
+  resetVisualizeFeedback();
+  const { first, third } = queuePinsAcrossPanes();
+  removeVisualizePin('s1', first.id);
   setVisualizePinImage('s1', first.id, { data: 'AAAA', mimeType: 'image/png', width: 1, height: 1 });
   assert.equal(
     visualizeFeedbackFor('s1').pins.some((pin) => pin.image),
@@ -132,23 +145,40 @@ test('pins number in session order, and the pages and chips renumber together', 
   assert.equal(visualizeFeedbackFor('s1').pins[1].image.data, 'AAAA');
 });
 
-test('an anchored HTML region is drawn by its page, keeps a valid anchor only, and names it in the message', () => {
-  resetVisualizeFeedback();
-  const anchor = { selector: '#card', rect: { x: 0.125, y: 0.25, width: 0.5, height: 0.5 }, path: ['Section · Card'] };
+const anchoredRegionAnchor = {
+  selector: '#card',
+  rect: { x: 0.125, y: 0.25, width: 0.5, height: 0.5 },
+  path: ['Section · Card'],
+};
+
+function queueAnchoredRegions() {
   const region = addVisualizePin(
     's1',
     elementPin({
       label: 'Region · 2 elements',
       note: 'Tighter',
-      target: { type: 'region', view: { x: 0.1, y: 0.1, width: 0.5, height: 0.3 }, elements: 2, anchor },
+      target: {
+        type: 'region',
+        view: { x: 0.1, y: 0.1, width: 0.5, height: 0.3 },
+        elements: 2,
+        anchor: anchoredRegionAnchor,
+      },
     })
   );
   const legacy = addVisualizePin(
     's1',
     elementPin({ label: 'Region', note: 'Old', target: { type: 'region', view: { x: 0, y: 0, width: 1, height: 1 } } })
   );
+  return { region, legacy };
+}
+
+test('an anchored HTML region is drawn by its page and names its anchor in the message', () => {
+  resetVisualizeFeedback();
+  const { region, legacy } = queueAnchoredRegions();
   const panes = visualizePaneMarkers(visualizeFeedbackFor('s1'), 'v1', 0);
-  assert.deepEqual(panes.markers, [{ n: 1, selector: '#card', region: { pin: region.id, rect: anchor.rect } }]);
+  assert.deepEqual(panes.markers, [
+    { n: 1, selector: '#card', region: { pin: region.id, rect: anchoredRegionAnchor.rect } },
+  ]);
   assert.deepEqual(
     panes.regions.map(({ n, pin }) => [n, pin.id]),
     [
@@ -161,12 +191,15 @@ test('an anchored HTML region is drawn by its page, keeps a valid anchor only, a
   const inside = lines.filter((line) => line.startsWith('  inside:'));
   assert.deepEqual(inside, ['  inside: Section · Card'], 'only the anchored region has an inside line');
   assert.equal(lines[lines.indexOf(inside[0]) - 1].startsWith('  region:'), true);
+  resetVisualizeFeedback();
+});
 
-  // Stored: a valid anchor round-trips (fractions normalized), a broken one
-  // is dropped with the pin kept, and only an HTML pane keeps one.
+test('a stored anchor round-trips with its fractions normalized', () => {
+  resetVisualizeFeedback();
+  const { region } = queueAnchoredRegions();
   const stored = {
     ...region,
-    target: { ...region.target, anchor: { ...anchor, rect: { x: 0.5, y: 0, width: 0.75, height: 1 } } },
+    target: { ...region.target, anchor: { ...anchoredRegionAnchor, rect: { x: 0.5, y: 0, width: 0.75, height: 1 } } },
   };
   assert.deepEqual(visualizeStoredPin(stored).target.anchor, {
     selector: '#card',
@@ -174,8 +207,14 @@ test('an anchored HTML region is drawn by its page, keeps a valid anchor only, a
     path: ['Section · Card'],
   });
   assert.deepEqual(visualizeStoredPin(region), region);
+  resetVisualizeFeedback();
+});
+
+test('a broken stored anchor is dropped and the pin kept', () => {
+  resetVisualizeFeedback();
+  const { region } = queueAnchoredRegions();
   for (const broken of [
-    { selector: '', rect: anchor.rect },
+    { selector: '', rect: anchoredRegionAnchor.rect },
     { selector: '#card', rect: { x: 0, y: 0, width: 'wide', height: 1 } },
     { selector: '#card', rect: { x: 1, y: 0, width: 1, height: 1 } },
     'body',
@@ -184,6 +223,12 @@ test('an anchored HTML region is drawn by its page, keeps a valid anchor only, a
     assert.equal(pin.target.anchor, undefined);
     assert.equal(pin.note, 'Tighter', 'the pin itself stays');
   }
+  resetVisualizeFeedback();
+});
+
+test('only an HTML pane keeps a region anchor', () => {
+  resetVisualizeFeedback();
+  const { region } = queueAnchoredRegions();
   const image = visualizeStoredPin({ ...region, paneKind: 'image', label: 'Image · Region' });
   assert.equal(image.target.anchor, undefined, 'an image region has no page element');
   resetVisualizeFeedback();
@@ -331,6 +376,9 @@ test('the message carries every pin field, the crops as numbered images, and the
       '☑ layout: Two columns',
     ].join('\n')
   );
+});
+
+test('withFeedbackText adds the feedback after the text, before the images', () => {
   assert.equal(withFeedbackText('Hi', 'Hi', 'F'), 'Hi\n\nF');
   assert.deepEqual(
     withFeedbackText(
@@ -347,6 +395,24 @@ test('the message carries every pin field, the crops as numbered images, and the
       { type: 'image', data: 'x', mimeType: 'image/png' },
     ]
   );
+});
+
+test('the message lists the tweaks the user moved, per tab and pane', () => {
+  resetVisualizeFeedback();
+  setVisualizeTweakSet('s1', {
+    tabId: 'v1',
+    tabLabel: 'Mockup',
+    pane: 1,
+    file: 'a/index.html',
+    changes: [{ id: 'accent', target: '--accent', value: '#2f6fed', was: '#3b82f6' }],
+  });
+  const prompt = visualizeFeedbackPrompt(visualizeFeedbackFor('s1'), 1);
+  assert.deepEqual(prompt.text.split('\n').slice(3, 5), [
+    '  - tab: v1 "Mockup" · pane 2 · file: a/index.html',
+    '    accent (--accent): #2f6fed (was #3b82f6)',
+  ]);
+  assert.equal(prompt.display, '🎚 accent: #2f6fed (was #3b82f6)');
+  resetVisualizeFeedback();
 });
 
 test('a session holds at most 20 pins and 20 choice groups', () => {
@@ -530,8 +596,7 @@ test('queued feedback survives a renderer reload, crops dropped only when storag
   resetVisualizeFeedback();
 });
 
-test('pins stored before `target` are migrated with human labels; invalid ones are dropped', async () => {
-  resetVisualizeFeedback();
+function legacyPins() {
   const legacyElement = {
     id: 'p7',
     tabId: 'v1',
@@ -559,6 +624,18 @@ test('pins stored before `target` are migrated with human labels; invalid ones a
     image: undefined,
     region: { view: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }, image: { x: 1, y: 2, width: 30, height: 40 } },
   };
+  return { legacyElement, legacyRegion };
+}
+
+const currentVideoPin = (current) => ({
+  ...current,
+  paneKind: 'video',
+  label: 'Video 0:12 · Region',
+  target: { type: 'region', view: { x: 0, y: 0, width: 1, height: 1 }, time: 12 },
+});
+
+test('pins stored before `target` are migrated with human labels', () => {
+  const { legacyElement, legacyRegion } = legacyPins();
   assert.deepEqual(visualizeStoredPin(legacyElement), {
     id: 'p7',
     tabId: 'v1',
@@ -586,18 +663,18 @@ test('pins stored before `target` are migrated with human labels; invalid ones a
     image: { x: 1, y: 2, width: 30, height: 40 },
   });
   assert.equal(visualizeStoredPin({ ...legacyElement, label: 'div.card' }).label, 'Box', 'unknown tags read as a box');
+});
 
-  // Today's shape round-trips as stored, label and all.
+test('a pin in today’s shape round-trips as stored, label and all', () => {
   const current = { ...elementPin(), id: 'p9' };
   assert.deepEqual(visualizeStoredPin(current), current);
-  const video = {
-    ...current,
-    paneKind: 'video',
-    label: 'Video 0:12 · Region',
-    target: { type: 'region', view: { x: 0, y: 0, width: 1, height: 1 }, time: 12 },
-  };
+  const video = currentVideoPin(current);
   assert.deepEqual(visualizeStoredPin(video), video);
+});
 
+test('stored pins that cannot be pins of a commentable pane are dropped', () => {
+  const current = { ...elementPin(), id: 'p9' };
+  const video = currentVideoPin(current);
   for (const [why, broken] of [
     ['no target at all', { ...current, target: undefined }],
     ['an element pin on a region-only pane', { ...current, paneKind: 'pdf' }],
@@ -610,8 +687,12 @@ test('pins stored before `target` are migrated with human labels; invalid ones a
   ]) {
     assert.equal(visualizeStoredPin(broken), null, why);
   }
+});
 
-  // On a reload: migrated, the broken one gone, a session left empty dropped.
+test('on a reload stored pins are migrated, broken ones gone and an emptied session dropped', async () => {
+  resetVisualizeFeedback();
+  const { legacyElement, legacyRegion } = legacyPins();
+  const current = { ...elementPin(), id: 'p9' };
   sessionStorage.setItem(
     'mixdog:visualize-feedback:v1',
     JSON.stringify([
@@ -644,18 +725,18 @@ test('a reopened pin takes a new note; an empty one keeps the old', () => {
   resetVisualizeFeedback();
 });
 
-test('queued feedback alone is sendable, rides with the message and clears only once accepted', async () => {
-  resetVisualizeFeedback();
+function queueFeedback() {
   const pin = addVisualizePin('s1', elementPin());
   setVisualizePinImage('s1', pin.id, { data: 'PNGDATA', mimeType: 'image/png', width: 80, height: 28 });
   setVisualizeChoice('s1', choice(), true);
+}
+
+async function mountComposer({ accept = false } = {}) {
   let current;
-  let accept = false;
+  let submit;
   const submissions = [];
   const errors = [];
   const commands = [];
-  /** Overrides the session's answer (a transport failure). */
-  let submit;
   function Harness() {
     const [draft, setDraft] = useState('');
     const [, setSubmitting] = useState(false);
@@ -708,11 +789,36 @@ test('queued feedback alone is sendable, rides with the message and clears only 
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
+  await act(async () => root.render(React.createElement(Harness)));
+  return {
+    submissions,
+    errors,
+    commands,
+    failSubmitWith: (error) => {
+      submit = async () => {
+        throw error;
+      };
+    },
+    send: async (draft) => {
+      if (draft !== undefined) await act(async () => current.setDraft(draft));
+      await act(async () => current.send());
+    },
+    unmount: async () => {
+      await act(async () => root.unmount());
+      host.remove();
+      resetVisualizeFeedback();
+    },
+  };
+}
+
+test('queued feedback alone is sendable and rides with the message', async () => {
+  resetVisualizeFeedback();
+  queueFeedback();
+  const composer = await mountComposer();
   try {
-    await act(async () => root.render(React.createElement(Harness)));
-    await act(async () => current.send());
-    assert.equal(submissions.length, 1, 'no text, but the pins make it sendable');
-    const [first] = submissions;
+    await composer.send();
+    assert.equal(composer.submissions.length, 1, 'no text, but the pins make it sendable');
+    const [first] = composer.submissions;
     assert.equal(first.content[0].type, 'text');
     assert.match(first.content[0].text, /^<visualize_feedback>\n.*\npin 1 · Button · Rename\n/);
     assert.match(first.content[0].text, /choice: "b"/);
@@ -722,49 +828,82 @@ test('queued feedback alone is sendable, rides with the message and clears only 
     ]);
     assert.equal(first.options.displayText, '1 · Button · Rename — Make this bigger\n☑ layout: Two columns');
     assert.equal(Object.keys(first.options.pastedImages).length, 1);
-    assert.equal(visualizeFeedbackFor('s1').pins.length, 1, 'a refused send keeps the pins');
-    assert.equal(visualizeFeedbackFor('s1').choices.length, 1);
-    assert.deepEqual(errors, ['The message was not sent. It has been kept for retry.'], 'and says so');
+  } finally {
+    await composer.unmount();
+  }
+});
 
-    // A send that throws keeps them too, and shows the failure.
-    await act(async () => current.setDraft('Looks close'));
-    submit = async () => {
-      throw new Error('session transport closed');
-    };
-    await act(async () => current.send());
-    assert.equal(errors.at(-1), 'session transport closed');
+test('a refused send keeps the queued feedback and says so', async () => {
+  resetVisualizeFeedback();
+  queueFeedback();
+  const composer = await mountComposer({ accept: false });
+  try {
+    await composer.send();
     assert.equal(visualizeFeedbackFor('s1').pins.length, 1);
     assert.equal(visualizeFeedbackFor('s1').choices.length, 1);
-    submit = undefined;
+    assert.deepEqual(composer.errors, ['The message was not sent. It has been kept for retry.']);
+  } finally {
+    await composer.unmount();
+  }
+});
 
-    accept = true;
-    await act(async () => current.setDraft('Looks close'));
-    await act(async () => current.send());
-    const second = submissions[1];
-    assert.equal(second.content[0].text, 'Looks close');
-    assert.match(second.content[1].text, /^<visualize_feedback>/);
-    assert.equal(second.options.displayText.split('\n')[0], 'Looks close');
-    assert.deepEqual(visualizeFeedbackFor('s1'), { pins: [], choices: [], tweaks: [] }, 'sent feedback clears');
-
-    // Registered slash commands never carry feedback.
-    addVisualizePin('s1', elementPin());
-    await act(async () => current.setDraft('/model'));
-    await act(async () => current.send());
-    assert.equal(submissions.length, 2);
-    assert.deepEqual(commands, ['/model']);
+test('a send that throws keeps the queued feedback and shows the failure', async () => {
+  resetVisualizeFeedback();
+  queueFeedback();
+  const composer = await mountComposer();
+  try {
+    composer.failSubmitWith(new Error('session transport closed'));
+    await composer.send('Looks close');
+    assert.equal(composer.errors.at(-1), 'session transport closed');
     assert.equal(visualizeFeedbackFor('s1').pins.length, 1);
+    assert.equal(visualizeFeedbackFor('s1').choices.length, 1);
+  } finally {
+    await composer.unmount();
+  }
+});
 
-    // An unregistered slash is literal text and carries pending feedback.
-    await act(async () => current.setDraft('/help'));
-    await act(async () => current.send());
-    assert.equal(submissions.length, 3);
-    assert.match(submissions[2].content, /^\/help\n\n<visualize_feedback>\n/);
-    assert.deepEqual(commands, ['/model']);
+test('an accepted send carries the typed text with the feedback and clears it', async () => {
+  resetVisualizeFeedback();
+  queueFeedback();
+  const composer = await mountComposer({ accept: true });
+  try {
+    await composer.send('Looks close');
+    const [sent] = composer.submissions;
+    assert.equal(sent.content[0].text, 'Looks close');
+    assert.match(sent.content[1].text, /^<visualize_feedback>/);
+    assert.equal(sent.options.displayText.split('\n')[0], 'Looks close');
     assert.deepEqual(visualizeFeedbackFor('s1'), { pins: [], choices: [], tweaks: [] });
   } finally {
-    await act(async () => root.unmount());
-    host.remove();
-    resetVisualizeFeedback();
+    await composer.unmount();
+  }
+});
+
+test('registered slash commands never carry feedback', async () => {
+  resetVisualizeFeedback();
+  addVisualizePin('s1', elementPin());
+  const composer = await mountComposer({ accept: true });
+  try {
+    await composer.send('/model');
+    assert.equal(composer.submissions.length, 0);
+    assert.deepEqual(composer.commands, ['/model']);
+    assert.equal(visualizeFeedbackFor('s1').pins.length, 1);
+  } finally {
+    await composer.unmount();
+  }
+});
+
+test('an unregistered slash is literal text and carries pending feedback', async () => {
+  resetVisualizeFeedback();
+  addVisualizePin('s1', elementPin());
+  const composer = await mountComposer({ accept: true });
+  try {
+    await composer.send('/help');
+    assert.equal(composer.submissions.length, 1);
+    assert.match(composer.submissions[0].content, /^\/help\n\n<visualize_feedback>\n/);
+    assert.deepEqual(composer.commands, []);
+    assert.deepEqual(visualizeFeedbackFor('s1'), { pins: [], choices: [], tweaks: [] });
+  } finally {
+    await composer.unmount();
   }
 });
 

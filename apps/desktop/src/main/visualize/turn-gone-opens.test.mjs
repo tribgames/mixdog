@@ -1,7 +1,3 @@
-// The host decides once, at a turn's end, which of the turn's file opens
-// (named by tool call id) have nothing left to show (closed, or their files
-// gone), records it on the session's state, and every window and device
-// receives it with the state.
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

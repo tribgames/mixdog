@@ -1,7 +1,3 @@
-// The touch layer on the PC screen's stage: finger events → remote-touch-
-// gestures.ts (direct or trackpad strategy, over the viewport store) →
-// abstract actions in video pixels → `ScreenGestureAction`s for the adapter in
-// remote-screen-gesture.ts, which makes the screen-* messages.
 import type { ScreenGestureAction, ScreenInputMode, ScreenPoint } from './remote-screen-gesture';
 import {
   createTouchGestures,

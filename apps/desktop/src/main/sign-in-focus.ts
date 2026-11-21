@@ -1,10 +1,3 @@
-// After a connector's browser sign-in, the window that started it comes back
-// to the front so the user sees its row turn 연결됨. Only a sign-in this
-// window began with the host browser (beginMcpOAuthLogin through its own
-// capability IPC) is tracked, and it raises the window at most once: when the
-// host reports the browser callback arrived (or the flow settled after the
-// browser step). A cancel, a timeout or anything else never takes focus.
-
 type Row = Record<string, unknown>;
 
 // A sign-in nobody finishes is forgotten after the host's own deadline.

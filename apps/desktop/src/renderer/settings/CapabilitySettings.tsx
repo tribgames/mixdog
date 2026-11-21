@@ -45,6 +45,34 @@ const serverWindow = isSshConnectionWindow();
 // Read-only provider probes that can run for most of a minute.
 const UNQUEUED_PROBES: ReadonlySet<DesktopCapability> = new Set(['discoverCustomProviderModels', 'testCustomProvider']);
 
+/** The route for a picked model: the active route's effort/fast/auto-effort when it is that model, else the model's saved or preferred ones. */
+function modelRouteRequest(model: DesktopModelOption, active: Record<string, unknown>) {
+  const isActiveRoute = active.provider === model.provider && active.model === model.model;
+  const activeEffort = String(active.effort || '');
+  const effort =
+    isActiveRoute && model.effortOptions.some((entry) => entry.value === activeEffort)
+      ? activeEffort
+      : preferredModelEffort(model);
+  let fast: boolean | undefined;
+  if (model.fastCapable) {
+    if (isActiveRoute && typeof active.fast === 'boolean') fast = active.fast;
+    else if (typeof model.savedFast === 'boolean') fast = model.savedFast;
+    else fast = model.fastPreferred;
+  }
+  let autoEffort: boolean | undefined;
+  if (routeAutoEffortCapable(model)) {
+    if (isActiveRoute && typeof active.autoEffort === 'boolean') autoEffort = active.autoEffort;
+    else autoEffort = model.savedAutoEffort ?? true;
+  }
+  return {
+    provider: model.provider,
+    model: model.model,
+    ...(effort ? { effort } : {}),
+    ...(fast === undefined ? {} : { fast }),
+    ...(autoEffort === undefined ? {} : { autoEffort }),
+  };
+}
+
 export const CapabilitySettings = memo(function CapabilitySettings({
   api,
   category,
@@ -214,12 +242,6 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       errorMode: 'toast' | 'throw' = 'toast'
     ): Promise<T | undefined> => {
       if (!api.invokeCapability || hydrating) return undefined;
-      // Serialize instead of dropping: a fast second click used to be swallowed
-      // while the first mutation was still in flight, so the toggle silently
-      // ignored the press (the control stays enabled, so the user sees nothing).
-      // A provider probe writes nothing: it neither waits for queued writes nor
-      // holds them, so a discovery the user stopped waiting for (up to a
-      // minute on a slow service) never blocks the Save that follows.
       const probe = UNQUEUED_PROBES.has(capability);
       const previous = probe ? undefined : mutationChain.current;
       const task = (async (): Promise<T | undefined> => {
@@ -327,31 +349,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       setPending('model-route');
       setError('');
       try {
-        const active = record(liveSnapshot);
-        const isActiveRoute = active.provider === model.provider && active.model === model.model;
-        const activeEffort = String(active.effort || '');
-        const effort =
-          isActiveRoute && model.effortOptions.some((entry) => entry.value === activeEffort)
-            ? activeEffort
-            : preferredModelEffort(model);
-        let fast: boolean | undefined;
-        if (model.fastCapable) {
-          if (isActiveRoute && typeof active.fast === 'boolean') fast = active.fast;
-          else if (typeof model.savedFast === 'boolean') fast = model.savedFast;
-          else fast = model.fastPreferred;
-        }
-        let autoEffort: boolean | undefined;
-        if (routeAutoEffortCapable(model)) {
-          if (isActiveRoute && typeof active.autoEffort === 'boolean') autoEffort = active.autoEffort;
-          else autoEffort = model.savedAutoEffort ?? true;
-        }
-        const snapshot = await api.setModelRoute({
-          provider: model.provider,
-          model: model.model,
-          ...(effort ? { effort } : {}),
-          ...(fast === undefined ? {} : { fast }),
-          ...(autoEffort === undefined ? {} : { autoEffort }),
-        });
+        const snapshot = await api.setModelRoute(modelRouteRequest(model, record(liveSnapshot)));
         // As Workflows does: no older preset read may replace the answered Lead.
         acknowledgeLeadRoute(api, { ...draftModelSelectionFromSnapshot(snapshot) });
         announceSetupChange('set_route');

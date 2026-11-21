@@ -4,13 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// The phone's right sheet (PaneSideDock on a phone surface) carries its body
-// on every frame of its slide: the open mounts and shows the body in the
-// commit that starts the slide, and a close keeps the last open body on the
-// sheet (useSheetExit) until the sheet's own transform transition ends, while
-// the panel is hidden, inert and aria-hidden from the close commit. The real
-// component runs in headless Chrome with the app's stylesheet.
-
 const ENTRY = `
   import React from 'react';
   import { flushSync } from 'react-dom';

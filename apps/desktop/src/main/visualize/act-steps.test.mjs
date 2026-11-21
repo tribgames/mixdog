@@ -53,7 +53,9 @@ test('act requests are validated and normalized', () => {
     { do: 'wait', ms: 200 },
     { do: 'evaluate', script: 'document.title' },
   ]);
+});
 
+test('act requests with invalid input are rejected with the reason', () => {
   const rejects = [
     [{ tab: 'v1' }, /steps must list 1-25 steps/],
     [{ tab: 'v1', steps: Array.from({ length: 26 }, () => ({ do: 'wait', ms: 1 })) }, /steps must list 1-25/],

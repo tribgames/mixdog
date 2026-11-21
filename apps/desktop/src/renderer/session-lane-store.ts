@@ -122,17 +122,6 @@ function laneUpdateIsUrgent(previous: Snapshot | null, next: Snapshot | null): b
   );
 }
 
-// Only the transcript's completeness is reconciled here:
-//   * alignment failure          -> replace (host/channel clear, genuine
-//     deletion, compaction, branch resume, retry/edit rewrite).
-//   * settled source, aligned but missing the HEAD this cache still holds
-//     -> restore that head only; the frame keeps owning its tail, so trailing
-//     removal and streaming settle are never blocked.
-// Every LIVE field (busy, spinner, queued, approvals, agent activity,
-// streaming tail) is always taken from the incoming frame. A frame that omits
-// transcript history also tends to omit the presentation read-outs derived
-// from it (usage/context, route, workflow, project): those are filled from
-// the last known value ONLY when the frame carries none — never pinned.
 function laneTranscript(snapshot: Snapshot | null): TranscriptItem[] | null {
   const items = snapshot?.items;
   return Array.isArray(items) ? items : null;
@@ -194,12 +183,6 @@ function mergedLaneFrame(
   return merged;
 }
 
-// The ROUTE (provider/model/effort/fast) is session state, not transcript
-// state, and a disk projection or a partial delta publishes it as an EMPTY
-// string instead of omitting the field — so the null-only fill above let such
-// a frame blank a pane's model controls to "Select model" on every focus swap.
-// The last route a lane knew
-// for a session survives until a frame names a real one.
 function laneRouteText(snapshot: Snapshot | null, field: 'provider' | 'model' | 'effort'): string {
   const value = snapshot?.[field];
   return typeof value === 'string' ? value.trim() : '';
@@ -257,15 +240,6 @@ function laneFrameWithRetainedRoute(prior: Snapshot | null, next: Snapshot): Sna
   return changed ? merged : next;
 }
 
-// The context WINDOW fields are DERIVED session state, and the session runtime
-// republishes them as 0 — not absent — whenever its own route comparison misses
-// (context-state.mjs: routeState). A 0 therefore means "not resolved on this
-// frame", never "this session has no window": adopting it dropped the gauge's
-// denominator, and the gauge then fell back to its last complete reading and
-// froze on the PRE-compact number for the rest of the session after an
-// auto-compact. Only a frame that stays on
-// the SAME provider+model may inherit them, so a real model switch still drops
-// the previous window instead of painting it against a new one.
 const LANE_CONTEXT_WINDOW_FIELDS: ReadonlyArray<'contextWindow' | 'displayContextWindow' | 'autoCompactTokenLimit'> = [
   'contextWindow',
   'displayContextWindow',
@@ -290,15 +264,6 @@ function laneFrameWithRetainedContextWindow(prior: Snapshot | null, next: Snapsh
   return merged ?? next;
 }
 
-// Background shell jobs are HOST-injected (session-host: snapshotWithShellJobs):
-// the session runtime state carries none, so every snapshot returned by a
-// runtime CALL — slash command, model/Fast switch, workflow change, new-task
-// submit — reaches this lane with the field absent. Adopting such a frame
-// whole dropped the running shells from view while one was still running,
-// until the next host frame refilled it (the hover then claimed no shell was
-// working). A host frame ALWAYS names the
-// bucket, empty ones included, so retaining the last known jobs for a frame
-// that omits the field entirely can never keep a finished shell on screen.
 function laneFrameWithRetainedShellJobs(prior: Snapshot | null, next: Snapshot): Snapshot {
   if (!prior || !sameLaneSession(prior, next)) return next;
   if (next.shellJobs != null || prior.shellJobs == null) return next;
@@ -537,25 +502,6 @@ export function createSessionLaneStore({
     reportSessionReadFrame(update, 'received');
     const prior = snapshots.get(sessionId);
     const priorSnapshot = prior?.snapshot ?? null;
-    // A lane that merely STOPPED PUBLISHING must never erase what a pane is
-    // already showing. The daemon evicts an unwatched idle session to reclaim
-    // memory and its transport can drop; both reload on demand, so the cached
-    // transcript stays authoritative until a real frame replaces it. Without
-    // this, switching away for two minutes and back repainted a live task as
-    // an empty New Task. Only a genuine teardown ('gone') clears the entry.
-    //
-    // The reason is OPTIONAL on the wire, and the transport baseline release
-    // (ipc.ts: releaseHiddenSessionStateEntries) omits it. Requiring a reason
-    // here therefore left THAT frame free to erase a pane that was on screen
-    // and mid-turn: one
-    // registration that momentarily omits a mounted session id releases its
-    // baseline, and the lane went blank until the next live frame refilled it.
-    // An unnamed null is a baseline release, never a teardown — the decoder
-    // baseline is dropped in preload and this cache is bounded by prune(), so
-    // holding the frame costs nothing and keeps the pane painted.
-    // Any lane end (a daemon disconnect, an unload, a baseline release, a
-    // teardown) means its frames are no longer current: the transcript stays,
-    // but the lane stops being the approval source until its next real frame.
     // The lane handed on the state this entry already shows, current at a later feed position (a frame or a note that changed
     // nothing shown): only the position moves; nothing is decorated, decided or re-rendered.
     if (update.snapshot && prior?.incoming?.deref() === update.snapshot) {

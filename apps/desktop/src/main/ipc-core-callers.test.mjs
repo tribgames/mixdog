@@ -1,7 +1,3 @@
-// The window IPC handlers whose work is the core's (`desktop/localLink/open`, `feedback/upload`, `desktop/userFile/write`,
-// `desktop/attachment/write`, `desktop/attachment/thumbnail`): each sends its request to this PC's core connection, hands a file or folder
-// to the operating system only as the core answered, and fails without one. The decisions themselves are the core's tests
-// (mixdog-core-domains desktop_residual_b_tests.rs, feedback/tests.rs).
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DESKTOP_IPC } from '../shared/contract';

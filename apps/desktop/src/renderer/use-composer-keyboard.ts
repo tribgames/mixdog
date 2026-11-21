@@ -336,6 +336,48 @@ export function useComposerKeyboard({
     [draft, history]
   );
 
+  const navigateHistory = useCallback(
+    (event: TextareaKeyEvent) => {
+      const historyIntent = shouldNavigatePromptHistory({
+        key: event.key,
+        value: draft.value,
+        selectionStart: event.currentTarget.selectionStart,
+        selectionEnd: event.currentTarget.selectionEnd,
+        shiftKey: event.shiftKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        altKey: event.altKey,
+        historyActive: history.navigation.current.index >= 0,
+      });
+      if (event.key === 'ArrowUp' && historyIntent && history.entries.length) {
+        event.preventDefault();
+        const navigation = history.navigation.current;
+        if (navigation.index < 0) {
+          navigation.seed = event.currentTarget.value;
+          history.seedAttachments.current = history.attachmentsRef.current.map((attachment) => ({ ...attachment }));
+        }
+        navigation.index = Math.min(history.entries.length - 1, navigation.index + 1);
+        applyHistoryEntry(history.entries[navigation.index]);
+        window.setTimeout(() => draft.textarea.current?.setSelectionRange(0, 0), 0);
+        return true;
+      }
+      if (event.key === 'ArrowDown' && historyIntent && history.navigation.current.index >= 0) {
+        event.preventDefault();
+        const navigation = history.navigation.current;
+        navigation.index -= 1;
+        const entry: ComposerHistoryEntry =
+          navigation.index < 0
+            ? { text: navigation.seed, attachments: history.seedAttachments.current }
+            : history.entries[navigation.index];
+        const value = applyHistoryEntry(entry);
+        window.setTimeout(() => draft.textarea.current?.setSelectionRange(value.length, value.length), 0);
+        return true;
+      }
+      return false;
+    },
+    [applyHistoryEntry, draft, history]
+  );
+
   const handleEscape = useCallback(
     (event: TextareaKeyEvent) => {
       const element = event.currentTarget;
@@ -450,41 +492,7 @@ export function useComposerKeyboard({
         handleEscape(event);
         return;
       }
-      const historyIntent = shouldNavigatePromptHistory({
-        key: event.key,
-        value: draft.value,
-        selectionStart: event.currentTarget.selectionStart,
-        selectionEnd: event.currentTarget.selectionEnd,
-        shiftKey: event.shiftKey,
-        ctrlKey: event.ctrlKey,
-        metaKey: event.metaKey,
-        altKey: event.altKey,
-        historyActive: history.navigation.current.index >= 0,
-      });
-      if (event.key === 'ArrowUp' && historyIntent && history.entries.length) {
-        event.preventDefault();
-        const navigation = history.navigation.current;
-        if (navigation.index < 0) {
-          navigation.seed = event.currentTarget.value;
-          history.seedAttachments.current = history.attachmentsRef.current.map((attachment) => ({ ...attachment }));
-        }
-        navigation.index = Math.min(history.entries.length - 1, navigation.index + 1);
-        applyHistoryEntry(history.entries[navigation.index]);
-        window.setTimeout(() => draft.textarea.current?.setSelectionRange(0, 0), 0);
-        return;
-      }
-      if (event.key === 'ArrowDown' && historyIntent && history.navigation.current.index >= 0) {
-        event.preventDefault();
-        const navigation = history.navigation.current;
-        navigation.index -= 1;
-        const entry: ComposerHistoryEntry =
-          navigation.index < 0
-            ? { text: navigation.seed, attachments: history.seedAttachments.current }
-            : history.entries[navigation.index];
-        const value = applyHistoryEntry(entry);
-        window.setTimeout(() => draft.textarea.current?.setSelectionRange(value.length, value.length), 0);
-        return;
-      }
+      if (navigateHistory(event)) return;
       if (event.key === 'Enter') {
         if (mobile) return;
         event.preventDefault();
@@ -494,12 +502,11 @@ export function useComposerKeyboard({
     },
     [
       actions,
-      applyHistoryEntry,
       draft,
       handleEscape,
-      history,
       ime,
       insertNewline,
+      navigateHistory,
       navigateMentionPalette,
       navigateMessageSelector,
       navigateSkillMentionPalette,

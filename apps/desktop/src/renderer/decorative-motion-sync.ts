@@ -1,9 +1,5 @@
-/** Decorative loops that step at 24 fps (14-live-activity.css,
- *  22-markdown.css). Each one's frame edges fall on its own start time, and a
- *  CSS animation starts on whichever display frame mounted or resumed it: two
- *  loops out of phase made the compositor draw both sets of edges (up to 48
- *  frames a second instead of 24). Anchoring every one to the document
- *  timeline's origin puts them all on one 1/24 s grid. */
+/** Loops that step at 24 fps (14-live-activity.css, 22-markdown.css). A CSS animation starts on the display frame that mounted
+ *  or resumed it, so anchoring every loop's start time to the timeline origin puts them on one 1/24 s grid. */
 const DECORATIVE_LOOPS = new Set([
   'live-activity-arc-flow',
   'live-activity-logo-spin',
@@ -11,11 +7,8 @@ const DECORATIVE_LOOPS = new Set([
   'text-shimmer-window-copy',
 ]);
 
-/** The phone's shimmer has no CSS animation (22-markdown.css): WebView
- *  re-evaluated its stepped mask animation every vsync, between steps too.
- *  Its glint carries the same duration and `steps()` as declared CSS (the
- *  animation's name is `none`), and the mask position follows the step index
- *  this module writes, once per step, onto `--text-shimmer-step`. */
+/** The phone's shimmer has no CSS animation (22-markdown.css): WebView re-evaluates a stepped mask animation every vsync. The mask
+ *  position follows the step index written onto `--text-shimmer-step`. */
 const SHIMMER_GLINT = '[data-slot="text-shimmer-glint"]';
 const SHIMMER_STEP = '--text-shimmer-step';
 
@@ -26,8 +19,6 @@ interface ShimmerMask {
   step: number;
 }
 
-/** Every mounted glint; `null` while it is not driven (desktop layout, or held
- *  by a pause rule or reduced motion). */
 const maskGlints = new Map<Element, ShimmerMask | null>();
 let maskTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -119,24 +110,11 @@ function signalHolds(target: Element, attribute: string | null): boolean {
   return attribute !== null && target.getAttribute(attribute) === 'true';
 }
 
-/** Phase-locks the running decorative loops on `element` and its subtree
- *  (pseudo-elements included) to the timeline origin. A held loop is left
- *  alone: giving it a start time would play it and detach it from its CSS
- *  play state for good; it is locked when it resumes. Every element's loops
- *  are read before any is written: a written start time invalidates style,
- *  and a read after it forced another full style update.
- *  Only loop hosts are asked for their animations: `getAnimations` flushes
- *  style for the whole document, and asked of every transcript row whose
- *  offscreen mark changed it ran a full style update after each scroll range
- *  change (and a 224ms one on a phone opening a session) though no loop
- *  was there. A subtree without a host is skipped with a selector query,
- *  which reads no style.
- *  The hosts share one document read: every `getAnimations` call, an
- *  element's too, collects and orders all of the document's animations (a
- *  transcript's word fades included) before it filters them, so a read per
- *  host repeated that for each one (81-97 ms locking the hosts of a phone
- *  back from the background). A loop runs on its host or the host's
- *  pseudo-element, and both report the host as their target. */
+/** Phase-locks the running decorative loops on `element` and its subtree to the timeline origin. A held loop is left alone: a
+ *  start time would play it and detach it from its CSS play state for good. Every loop is read before any is written (a written
+ *  start time invalidates style), and one document-wide `getAnimations` call serves all hosts (it flushes style and collects
+ *  every animation of the document); a subtree without a host is skipped with a selector query. A loop on a host's
+ *  pseudo-element reports the host as its target. */
 function syncDecorativeLoops(...elements: Element[]): void {
   const hosts = new Set<Element>();
   for (const element of elements) {
@@ -157,14 +135,8 @@ function syncDecorativeLoops(...elements: Element[]): void {
   for (const animation of unlocked) animation.startTime = 0;
 }
 
-/** Every lock a frame asks for (mounts, starts, resumes, root modes) runs in
- *  one pass in its animation callbacks, which come after the frame's tasks and
- *  before its style update and paint: the pass shares that style update, one
- *  `getAnimations` read serves every host, and the loops still paint locked.
- *  A lock per cause forced a full style update and a read of every animation
- *  each time: a resume (a phone back from the background) changes the root
- *  mode and unpauses rows across many commits (31 ms in one resumed task),
- *  and a commit mounting several marks read once per mark. */
+/** Every lock a frame asks for runs in one pass in its animation callbacks, before the frame's style update and paint: one
+ *  `getAnimations` read serves every host and the loops still paint locked. */
 const pendingLocks = new Set<Element>();
 let lockFrame = 0;
 
@@ -179,21 +151,14 @@ function lockPending(): void {
   refreshShimmerMasks();
 }
 
-/** A hidden window runs no frames, and rows resumed or started meanwhile
- *  may be removed before one comes: each enqueue first drops the queued
- *  elements no longer in the document (the frame pass skips them anyway), so
- *  the queue holds at most the connected elements still waiting, never a
- *  removed row's subtree. */
 function queueDecorativeLocks(targets: Iterable<Element>): void {
   for (const queued of pendingLocks) if (!queued.isConnected) pendingLocks.delete(queued);
   for (const target of targets) pendingLocks.add(target);
   if (pendingLocks.size && !lockFrame) lockFrame = requestAnimationFrame(lockPending);
 }
 
-/** Ref callback for the element a loop mounts on: locks it before its first
- *  paint, in the frame's one lock pass. Its cleanup (React runs it on unmount)
- *  drops a lock still queued: a hidden window runs no frames, and the queue
- *  held every element mounted and unmounted meanwhile, with its subtree. */
+/** Ref callback for the element a loop mounts on: locks it before its first paint, in the frame's one lock pass. Its cleanup
+ *  drops a lock still queued. */
 export function lockDecorativeLoops(element: Element | null): (() => void) | undefined {
   if (!element) return undefined;
   if (element.matches(SHIMMER_GLINT)) maskGlints.set(element, null);
@@ -205,17 +170,9 @@ export function lockDecorativeLoops(element: Element | null): (() => void) | und
   };
 }
 
-/** Locks every decorative loop the window starts or resumes.
- *  - Any start, whatever recreated the animation: `animationstart`. Chromium
- *    dispatches it on the frame after the animation's first, so that one
- *    frame still shows the unlocked pose; the hooks below lock the known
- *    causes before the first paint instead. The starts of one frame lock
- *    together in its animation callbacks.
- *  - Resumes, which raise no event: a pause signal changed.
- *  - Root modes (hidden document, phone layout, theme...) and the reduced
- *    motion preference recreate loops page-wide.
- *  All of a frame's causes lock together in its animation callbacks, ahead
- *  of its style update and paint. */
+/** Locks every decorative loop the window starts or resumes: on `animationstart` (Chromium dispatches it a frame after the
+ *  animation's first, so the known causes below lock before the first paint instead), on a change of a pause signal (a resume
+ *  raises no event), and on a root mode or reduced-motion change (both recreate loops page-wide). */
 export function installDecorativeMotionSync(root: HTMLElement = document.documentElement): () => void {
   // A burst of starts (a list mounting its running marks) arrives as one
   // event each in the same frame: they lock together in that frame's pass.

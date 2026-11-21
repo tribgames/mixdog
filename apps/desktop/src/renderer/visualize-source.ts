@@ -1,7 +1,3 @@
-// The visualize panel's read-only source view: a pane's text as highlighted
-// lines (the app's own highlighter, lowlight/highlight.js), and the small
-// helpers around it — which panes have a source, their language, and the
-// file a download of it gets.
 import { common, createLowlight } from 'lowlight';
 
 import type { VisualizeInlineKind, VisualizePaneView } from '../shared/visualize';

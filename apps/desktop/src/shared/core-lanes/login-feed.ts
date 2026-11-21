@@ -1,7 +1,5 @@
-// The sign-in flows' scoped feeds, `login:<flowId>` (desktop-services.md §5.4, §15 P8): the core opens one per
-// GitHub CLI, provider OAuth and MCP OAuth flow and publishes its progress on it as `login/updated {flowId, state}`;
-// a subscriber's first frame is `feed/snapshot {feedId, state}`, the flow's current status. A feed is delivered only
-// to a connection that subscribed (`feed/subscribe`), so the connection follows the feed of every flow it starts.
+// Protocol: feed `login:<flowId>` carries `login/updated {flowId, state}`; a subscriber's first frame is
+// `feed/snapshot {feedId, state}`. A feed reaches only a connection that sent `feed/subscribe`.
 
 export interface LoginUpdate {
   flowId: string;
@@ -35,4 +33,73 @@ export function loginUpdateOf(method: string, params: unknown): LoginUpdate | nu
     return { flowId: body.feedId.slice(FEED_PREFIX.length), state: body.state };
   }
   return null;
+}
+
+/** The most sign-in flow feeds one connection keeps once flows have ended; the oldest ended one is let go first. A
+ *  flow still pending (or whose first frame has not arrived) is never let go: a status read answers for any
+ *  live flow, and a dialog waiting on it would never be told. */
+export const MAX_FOLLOWED_LOGINS = 32;
+
+/** What the connection holds of a followed sign-in flow's feed. */
+export interface LoginFeedState {
+  /** The last state the feed delivered; null before the first frame. */
+  state: unknown;
+  lost: boolean;
+}
+
+/** A held login state that has left `pending` (complete, failed, cancelled, expired): nothing more will arrive. */
+const isFinalLoginState = (state: unknown): boolean => {
+  const name = (state as { state?: unknown } | null)?.state;
+  return typeof name === 'string' && name !== 'pending';
+};
+
+/** The sign-in flows a connection follows. A scoped feed reaches only its subscriber and does not survive the socket,
+ *  so a followed feed whose subscription failed, or whose link went down, is lost for good: the flow goes on in the
+ *  core, but its progress will not arrive, and `onLost` tells the windows. */
+export function createLoginFollower({
+  onLost,
+  unsubscribe,
+}: {
+  onLost(flowId: string): void;
+  unsubscribe(feedId: string): void;
+}) {
+  const feeds = new Map<string, LoginFeedState>();
+  const lose = (flowId: string, feed: LoginFeedState): void => {
+    if (feed.lost) return;
+    feed.lost = true;
+    onLost(flowId);
+  };
+  const unfollow = (flowId: string): void => {
+    if (feeds.delete(flowId)) unsubscribe(loginFeedId(flowId));
+  };
+  return {
+    unfollow,
+    async follow(live: { call(method: string, params: unknown): Promise<unknown> }, flowId: string): Promise<void> {
+      const feed: LoginFeedState = { state: null, lost: false };
+      feeds.set(flowId, feed);
+      for (const [oldest, held] of [...feeds]) {
+        if (feeds.size <= MAX_FOLLOWED_LOGINS) break;
+        if (isFinalLoginState(held.state)) unfollow(oldest);
+      }
+      try {
+        await live.call('feed/subscribe', { feedId: loginFeedId(flowId) });
+      } catch {
+        lose(flowId, feed);
+      }
+    },
+    loseAll(): void {
+      for (const [flowId, feed] of feeds) lose(flowId, feed);
+    },
+    record(flowId: string, state: unknown): void {
+      const feed = feeds.get(flowId);
+      if (feed) feed.state = state;
+    },
+    read(flowId: string): LoginFeedState {
+      const feed = feeds.get(flowId);
+      return feed ? { ...feed } : { state: null, lost: true };
+    },
+    clear(): void {
+      feeds.clear();
+    },
+  };
 }

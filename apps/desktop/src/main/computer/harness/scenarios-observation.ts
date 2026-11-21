@@ -6,6 +6,7 @@ import type { CapturePayload } from './scenario-types';
 import { capturePayload, actionPayload, ocrMark } from './scenario-ocr';
 import { ScenarioSkip, runScenario } from './scenario-runtime';
 import type { ScenarioGroup } from './scenario-context';
+import { windowIdByTitle } from './window-listing';
 
 export const observationScenarios: ScenarioGroup = {
   S01: async (ctx) => {
@@ -391,11 +392,7 @@ export const observationScenarios: ScenarioGroup = {
           assert.equal(title.observed_elements, 0, JSON.stringify(title));
 
           const listed = await command({ action: 'list_windows' }, sessionId);
-          const closedWindowId =
-            listed.text
-              .split(/\r?\n/)
-              .find((line) => line.includes('"Mixdog Verify Closed Fixture"'))
-              ?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '';
+          const closedWindowId = windowIdByTitle(listed.text, 'Mixdog Verify Closed Fixture');
           assert.ok(closedWindowId, listed.text);
           disposable.destroy();
           const closed = actionPayload(

@@ -1,23 +1,3 @@
-// Cross-source transcript identity adoption.
-//
-// One conversation reaches the renderer under two id namespaces: the engine's
-// runtime ids and the deterministic disk-restore ids (hist_<session>_N).
-// Entering a working session crosses namespaces (cached previous visit → disk
-// restore → live runtime frame), and every crossing used
-// to reissue the React/virtualizer key of the SAME visible row: measured
-// heights were dropped, the bottom of the transcript remounted at estimate
-// heights, and the pinned view corrected itself frame over frame (user:
-// entering the working session made the work script shake up and down until
-// it stopped). Adopting the first-seen id for the aligned, content-compatible
-// row keeps row identity stable across sources: content updates in place,
-// nothing remounts, nothing shakes.
-//
-// Transcripts are append-only per session, so the positional walk is safe; a
-// hard kind mismatch aborts adoption for the rest of the frame (conservative
-// pass-through). Ids are DISPLAY identity only in the renderer (React keys,
-// virtualizer measurement keys, image-preview keys), so adopting an id never
-// changes what any host API is called with.
-
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import {
   alignedRow,
@@ -38,12 +18,6 @@ interface SessionTranscriptIdentity {
   tail: TranscriptItem | null;
 }
 
-// Reconciliation reads only a row's id, kind, name and the short text-ish
-// fields below (alignedRow / sameRowContent / the strong-match signature).
-// The baseline therefore keeps a reduced record per row instead of the full
-// item (tool args/results, images, markdown bodies). Long strings are cut to
-// a prefix PLUS a fingerprint of the full text (length + hash), so two long
-// texts sharing the prefix never compare equal or prefix-compatible.
 const IDENTITY_TEXT_CAP = 512;
 const capText = (value: unknown): string | undefined => {
   if (value === undefined || value === null) return undefined;
@@ -96,6 +70,85 @@ function liveIdentityRecord(item: TranscriptItem): TranscriptItem {
   };
 }
 
+interface ItemAdoption {
+  items?: TranscriptItem[];
+  accepted: boolean;
+  consumed: number;
+  offset: number;
+}
+
+function adoptItemIds(
+  previous: SessionTranscriptIdentity,
+  prevItems: readonly TranscriptItem[],
+  incomingItems: readonly TranscriptItem[],
+  carriedByIncoming: (id: unknown) => boolean
+): ItemAdoption {
+  // A lone weak match (one completion row against another) is not evidence:
+  // adopting across it gave an older page's first row the newest row's id.
+  // An older page loaded above the displayed rows starts BEFORE them.
+  const { inWindow, prepend } = transcriptWindowAlignment(prevItems, incomingItems);
+  // No candidate at all: the incoming transcript is a different history.
+  // It keeps its own ids and replaces the baseline.
+  const accepted = inWindow !== null || prepend !== null;
+  const offset = prepend ? 0 : (inWindow?.offset ?? 0);
+  const start = prepend?.start ?? 0;
+  let out: TranscriptItem[] | null = null;
+  let index = start;
+  for (; accepted && index < incomingItems.length; index += 1) {
+    const inc = incomingItems[index] as TranscriptItem;
+    const prev = prevItems[index - start + offset];
+    if (!prev) break;
+    if (prev === inc) continue;
+    if (!alignedRow(prev, inc)) break;
+    if (hasOwnId(prev) && !sameRowId(prev, inc) && !carriedByIncoming(prev.id)) {
+      out ||= incomingItems.slice();
+      out[index] = { ...inc, id: prev.id };
+    }
+  }
+  const walked = index - start;
+  const consumed = accepted ? Math.min(walked + offset, prevItems.length) : 0;
+  // Settle carryover: the first row past the shared history may be the
+  // previously merged streaming tail landing as a settled row under a
+  // fresh id — keep the id it was displayed with.
+  const tailDonor = previous.tail;
+  if (accepted && index < incomingItems.length && tailDonor && consumed >= prevItems.length) {
+    const inc = incomingItems[index] as TranscriptItem;
+    if (
+      hasOwnId(tailDonor) &&
+      !sameRowId(tailDonor, inc) &&
+      alignedRow(tailDonor, inc) &&
+      !carriedByIncoming(tailDonor.id)
+    ) {
+      out ||= incomingItems.slice();
+      out[index] = { ...inc, id: tailDonor.id };
+    }
+  }
+  return { items: out ?? undefined, accepted, consumed, offset: walked > 0 ? offset : 0 };
+}
+
+function adoptTailId(
+  previous: SessionTranscriptIdentity | undefined,
+  prevItems: readonly TranscriptItem[] | undefined,
+  incomingTail: TranscriptItem,
+  adoption: Pick<ItemAdoption, 'accepted' | 'consumed'>,
+  carriedByIncoming: (id: unknown) => boolean
+): TranscriptItem | undefined {
+  // The live row keeps its id from frame to frame: under the id the baseline's tail already shows, it is that row, and
+  // nothing of its (growing) text is read.
+  if (previous?.tail && sameRowId(previous.tail, incomingTail)) return undefined;
+  const leftover =
+    adoption.accepted && prevItems && adoption.consumed < prevItems.length
+      ? (prevItems[adoption.consumed] as TranscriptItem)
+      : undefined;
+  let donor: TranscriptItem | undefined;
+  if (previous?.tail && alignedRow(previous.tail, incomingTail)) donor = previous.tail;
+  else if (leftover && alignedRow(leftover, incomingTail)) donor = leftover;
+  if (donor && hasOwnId(donor) && !sameRowId(donor, incomingTail) && !carriedByIncoming(donor.id)) {
+    return { ...incomingTail, id: donor.id };
+  }
+  return undefined;
+}
+
 export function adoptTranscriptIdentity(
   previous: SessionTranscriptIdentity | undefined,
   incomingItems: readonly TranscriptItem[] | undefined,
@@ -104,90 +157,22 @@ export function adoptTranscriptIdentity(
   sameItems = false
 ): { items?: TranscriptItem[]; tail?: TranscriptItem; offset?: number } {
   const prevItems = previous?.items;
-  const identical = sameItems || incomingItems === prevItems;
-  // An id one of the incoming rows still carries is that row's own: the row
-  // that held it moved, it was not replaced. A group room's typing row sits
-  // below the message that just landed in its place; adopting its id for the
-  // message put one key on two rows, and the virtual list's rows fought over
-  // one measured size (the room shook up and down while members spoke).
   let incomingIds: Set<string> | null = null;
   const carriedByIncoming = (id: unknown) => {
     incomingIds ??= new Set((incomingItems ?? []).filter(hasOwnId).map((item) => String(item.id)));
     return incomingIds.has(String(id));
   };
-  let adoptedItems: TranscriptItem[] | undefined;
-  let consumed = 0;
-  // Whether ANY offset candidate was accepted. Without one the incoming list
-  // is a different history: no id adoption, no settle carryover, no tail
-  // donation from leftover baseline rows.
-  let acceptedAlignment = false;
-  // Index in `previous.items` the incoming window aligned at. > 0 means the
-  // frame is a tail WINDOW of the transcript already displayed.
-  let alignedOffset = 0;
-  if (incomingItems && prevItems && incomingItems.length > 0 && prevItems.length > 0 && !identical) {
-    // A lone weak match (one completion row against another) is not evidence:
-    // adopting across it gave an older page's first row the newest row's id.
-    // An older page loaded above the displayed rows starts BEFORE them.
-    const { inWindow, prepend } = transcriptWindowAlignment(prevItems, incomingItems);
-    // No candidate at all: the incoming transcript is a different history.
-    // It keeps its own ids and replaces the baseline.
-    acceptedAlignment = inWindow !== null || prepend !== null;
-    const offset = prepend ? 0 : (inWindow?.offset ?? 0);
-    const start = prepend?.start ?? 0;
-    let out: TranscriptItem[] | null = null;
-    let index = start;
-    for (; acceptedAlignment && index < incomingItems.length; index += 1) {
-      const inc = incomingItems[index] as TranscriptItem;
-      const prev = prevItems[index - start + offset];
-      if (!prev) break;
-      if (prev === inc) continue;
-      if (!alignedRow(prev, inc)) break;
-      if (hasOwnId(prev) && !sameRowId(prev, inc) && !carriedByIncoming(prev.id)) {
-        out ||= incomingItems.slice();
-        out[index] = { ...inc, id: prev.id };
-      }
-    }
-    const walked = index - start;
-    consumed = acceptedAlignment ? Math.min(walked + offset, prevItems.length) : 0;
-    // Only a walk that actually aligned a row proves the offset.
-    if (walked > 0) alignedOffset = offset;
-    // Settle carryover: the first row past the shared history may be the
-    // previously merged streaming tail landing as a settled row under a
-    // fresh id — keep the id it was displayed with.
-    const tailDonor = previous?.tail;
-    if (acceptedAlignment && index < incomingItems.length && tailDonor && consumed >= prevItems.length) {
-      const inc = incomingItems[index] as TranscriptItem;
-      if (
-        hasOwnId(tailDonor) &&
-        !sameRowId(tailDonor, inc) &&
-        alignedRow(tailDonor, inc) &&
-        !carriedByIncoming(tailDonor.id)
-      ) {
-        out ||= incomingItems.slice();
-        out[index] = { ...inc, id: tailDonor.id };
-      }
-    }
-    adoptedItems = out ?? undefined;
-  } else if (incomingItems && prevItems && identical) {
-    consumed = prevItems.length;
-    acceptedAlignment = true;
-  }
-  let adoptedTail: TranscriptItem | undefined;
-  // The live row keeps its id from frame to frame: under the id the baseline's tail already shows, it is that row, and
-  // nothing of its (growing) text is read.
-  if (incomingTail && !(previous?.tail && sameRowId(previous.tail, incomingTail))) {
-    const leftover =
-      acceptedAlignment && prevItems && consumed < prevItems.length
-        ? (prevItems[consumed] as TranscriptItem)
-        : undefined;
-    let donor: TranscriptItem | undefined;
-    if (previous?.tail && alignedRow(previous.tail, incomingTail)) donor = previous.tail;
-    else if (leftover && alignedRow(leftover, incomingTail)) donor = leftover;
-    if (donor && hasOwnId(donor) && !sameRowId(donor, incomingTail) && !carriedByIncoming(donor.id)) {
-      adoptedTail = { ...incomingTail, id: donor.id };
+  let adoption: ItemAdoption = { accepted: false, consumed: 0, offset: 0 };
+  if (previous && prevItems && incomingItems) {
+    if (sameItems || incomingItems === prevItems) adoption = { accepted: true, consumed: prevItems.length, offset: 0 };
+    else if (incomingItems.length > 0 && prevItems.length > 0) {
+      adoption = adoptItemIds(previous, prevItems, incomingItems, carriedByIncoming);
     }
   }
-  return { items: adoptedItems, tail: adoptedTail, offset: alignedOffset };
+  const adoptedTail = incomingTail
+    ? adoptTailId(previous, prevItems, incomingTail, adoption, carriedByIncoming)
+    : undefined;
+  return { items: adoption.items, tail: adoptedTail, offset: adoption.offset };
 }
 
 interface TranscriptIdentityReconciler {
@@ -199,6 +184,20 @@ interface TranscriptIdentityReconciler {
 interface RecordedIdentity extends SessionTranscriptIdentity {
   /** The displayed array the records came from; weak, so the baseline never pins a transcript. */
   source?: WeakRef<readonly TranscriptItem[]>;
+}
+
+function nextBaseline(
+  previous: RecordedIdentity | undefined,
+  nextItems: readonly TranscriptItem[],
+  offset: number,
+  sameItems: boolean
+): { items: readonly TranscriptItem[]; source?: WeakRef<readonly TranscriptItem[]> } {
+  if (previous && previous.items.length > 0 && nextItems.length === 0) return { items: previous.items };
+  if (previous && previous.items.length > 0 && offset > 0) {
+    return { items: [...previous.items.slice(0, offset), ...nextItems.map(identityRecord)] };
+  }
+  if (sameItems && previous) return { items: previous.items, source: previous.source };
+  return { items: nextItems.map(identityRecord), source: new WeakRef(nextItems) };
 }
 
 /** Per-session sticky adoption: the last DISPLAYED items are the baseline for
@@ -225,29 +224,7 @@ export function createTranscriptIdentityReconciler(): TranscriptIdentityReconcil
       const nextItems = adopted.items ?? items;
       const nextTail = adopted.tail ?? tail;
       sessions.delete(sessionId);
-      // A frame that carries LESS history than the baseline must not become
-      // the baseline. A transitional EMPTY frame (focus routing, engine
-      // resume, cold handshake) and a tail-windowed disk/replay frame both
-      // left the recovered full frame with nothing to align against: every
-      // row id was reissued and the whole settled transcript remounted one
-      // frame after a pane was clicked (user report, CDP-attributed). The
-      // baseline therefore keeps the aligned SUPERSET; a genuine rewrite
-      // (clear, compaction, branch/fork resume) fails alignment on content
-      // and replaces it untouched.
-      let baselineItems: readonly TranscriptItem[];
-      // Set only while the baseline is a 1:1 record of `nextItems`, so the
-      // same array arriving again skips the alignment walk entirely.
-      let source: WeakRef<readonly TranscriptItem[]> | undefined;
-      if (previous && previous.items.length > 0 && nextItems.length === 0) baselineItems = previous.items;
-      else if (previous && previous.items.length > 0 && (adopted.offset || 0) > 0)
-        baselineItems = [...previous.items.slice(0, adopted.offset), ...nextItems.map(identityRecord)];
-      else if (sameItems && previous) {
-        baselineItems = previous.items;
-        source = previous.source;
-      } else {
-        baselineItems = nextItems.map(identityRecord);
-        source = new WeakRef(nextItems);
-      }
+      const { items: baselineItems, source } = nextBaseline(previous, nextItems, adopted.offset || 0, sameItems);
       sessions.set(sessionId, { items: baselineItems, tail: nextTail ? liveIdentityRecord(nextTail) : null, source });
       while (sessions.size > IDENTITY_SESSION_LIMIT) {
         const oldest = sessions.keys().next().value;

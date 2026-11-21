@@ -1,5 +1,13 @@
 import { Braces, Command as CommandIcon, FileText, Search } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ButtonHTMLAttributes,
+  type MouseEvent,
+} from 'react';
 import { createPortal } from 'react-dom';
 
 import {
@@ -73,6 +81,91 @@ function projectRelativePath(projectPath: string, uri: string): string | null {
   } catch {
     return null;
   }
+}
+
+const QUICK_ACCESS_PAGE_ROWS = 10;
+
+/** The next selected index for a list-navigation key, as an updater of the
+ *  current one; null for any other key. */
+function quickAccessSelectionMove(key: string, count: number): ((current: number) => number) | null {
+  switch (key) {
+    case 'ArrowDown':
+      return (current) => (count ? (current + 1) % count : 0);
+    case 'ArrowUp':
+      return (current) => (count ? (current - 1 + count) % count : 0);
+    case 'Home':
+      return () => 0;
+    case 'End':
+      return () => Math.max(0, count - 1);
+    case 'PageDown':
+      return (current) => Math.min(count - 1, current + QUICK_ACCESS_PAGE_ROWS);
+    case 'PageUp':
+      return (current) => Math.max(0, current - QUICK_ACCESS_PAGE_ROWS);
+    default:
+      return null;
+  }
+}
+
+function QuickAccessRowButton({
+  row,
+  ...buttonProps
+}: { row: QuickAccessRow } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'type'> & { type: 'button' }) {
+  if (row.kind === 'command') {
+    return (
+      <button aria-disabled={row.command.enabled === false} {...buttonProps}>
+        <CommandIcon size={14} aria-hidden="true" />
+        <span>
+          <small>{row.command.category}</small>
+          {row.command.label}
+        </span>
+        {row.command.shortcut && !isPhoneSurfaceMarked() && <kbd>{row.command.shortcut}</kbd>}
+      </button>
+    );
+  }
+  if (row.kind === 'project-symbol') {
+    return (
+      <button {...buttonProps}>
+        <Braces size={14} aria-hidden="true" />
+        <span>
+          <b>{row.name}</b>
+          <small>{row.detail}</small>
+        </span>
+      </button>
+    );
+  }
+  if (row.kind === 'symbol') {
+    return (
+      <button {...buttonProps}>
+        <Braces size={14} aria-hidden="true" />
+        <span>
+          <b>{row.item.name}</b>
+          {row.item.detail && <small>{row.item.detail}</small>}
+        </span>
+        <kbd>{t('Ln {{value0}}', { value0: row.item.line })}</kbd>
+      </button>
+    );
+  }
+  if (row.kind === 'line') {
+    return (
+      <button {...buttonProps}>
+        <Search size={14} aria-hidden="true" />
+        <span>{t('Go to line {{line}}', { line: row.line })}</span>
+      </button>
+    );
+  }
+  const normalized = row.path.replace(/\\/g, '/');
+  const split = normalized.lastIndexOf('/');
+  const name = split >= 0 ? normalized.slice(split + 1) : normalized;
+  const parent = split >= 0 ? normalized.slice(0, split) : '';
+  return (
+    <button {...buttonProps}>
+      <FileText size={14} aria-hidden="true" />
+      <span>
+        <b>{name}</b>
+        {parent && <small>{parent}</small>}
+      </span>
+    </button>
+  );
 }
 
 function projectSymbolRows(projectPath: string, result: unknown): ProjectSymbolRow[] {
@@ -388,28 +481,16 @@ export function WorkbenchQuickAccess({
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
             onKeyDown={(event) => {
-              if (event.key === 'ArrowDown') {
-                event.preventDefault();
-                setSelectedIndex((current) => (rows.length ? (current + 1) % rows.length : 0));
-              } else if (event.key === 'ArrowUp') {
-                event.preventDefault();
-                setSelectedIndex((current) => (rows.length ? (current - 1 + rows.length) % rows.length : 0));
-              } else if (event.key === 'Home') {
-                event.preventDefault();
-                setSelectedIndex(0);
-              } else if (event.key === 'End') {
-                event.preventDefault();
-                setSelectedIndex(Math.max(0, rows.length - 1));
-              } else if (event.key === 'PageDown') {
-                event.preventDefault();
-                setSelectedIndex((current) => Math.min(rows.length - 1, current + 10));
-              } else if (event.key === 'PageUp') {
-                event.preventDefault();
-                setSelectedIndex((current) => Math.max(0, current - 10));
-              } else if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+              if (event.key === 'Enter') {
+                if (event.nativeEvent.isComposing) return;
                 event.preventDefault();
                 runRow(selected);
+                return;
               }
+              const move = quickAccessSelectionMove(event.key, rows.length);
+              if (!move) return;
+              event.preventDefault();
+              setSelectedIndex(move);
             }}
           />
         </div>
@@ -419,64 +500,9 @@ export function WorkbenchQuickAccess({
               {listMessage}
             </p>
           )}
-          {rows.map((row, index) => {
-            if (row.kind === 'command') {
-              return (
-                <button key={row.key} aria-disabled={row.command.enabled === false} {...optionProps(row, index)}>
-                  <CommandIcon size={14} aria-hidden="true" />
-                  <span>
-                    <small>{row.command.category}</small>
-                    {row.command.label}
-                  </span>
-                  {row.command.shortcut && !isPhoneSurfaceMarked() && <kbd>{row.command.shortcut}</kbd>}
-                </button>
-              );
-            }
-            if (row.kind === 'project-symbol') {
-              return (
-                <button key={row.key} {...optionProps(row, index)}>
-                  <Braces size={14} aria-hidden="true" />
-                  <span>
-                    <b>{row.name}</b>
-                    <small>{row.detail}</small>
-                  </span>
-                </button>
-              );
-            }
-            if (row.kind === 'symbol') {
-              return (
-                <button key={row.key} {...optionProps(row, index)}>
-                  <Braces size={14} aria-hidden="true" />
-                  <span>
-                    <b>{row.item.name}</b>
-                    {row.item.detail && <small>{row.item.detail}</small>}
-                  </span>
-                  <kbd>{t('Ln {{value0}}', { value0: row.item.line })}</kbd>
-                </button>
-              );
-            }
-            if (row.kind === 'line') {
-              return (
-                <button key={row.key} {...optionProps(row, index)}>
-                  <Search size={14} aria-hidden="true" />
-                  <span>{t('Go to line {{line}}', { line: row.line })}</span>
-                </button>
-              );
-            }
-            const normalized = row.path.replace(/\\/g, '/');
-            const split = normalized.lastIndexOf('/');
-            const name = split >= 0 ? normalized.slice(split + 1) : normalized;
-            const parent = split >= 0 ? normalized.slice(0, split) : '';
-            return (
-              <button key={row.key} {...optionProps(row, index)}>
-                <FileText size={14} aria-hidden="true" />
-                <span>
-                  <b>{name}</b>
-                  {parent && <small>{parent}</small>}
-                </span>
-              </button>
-            );
-          })}
+          {rows.map((row, index) => (
+            <QuickAccessRowButton key={row.key} row={row} {...optionProps(row, index)} />
+          ))}
         </div>
       </section>
     </div>,

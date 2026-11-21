@@ -1,7 +1,3 @@
-/**
- * Form controls addressed by ref: text entry, selection, checkboxes, file
- * uploads, and answering the dialog that a submit may have opened.
- */
 import { redactBrowserText } from '../redaction';
 import { mutateRef } from './ref-mutation';
 import { actionRef, adoptResolvedTargets } from './target';
@@ -19,6 +15,37 @@ async function afterEdit(
   return services.reply.decorateRecovery(await actionSnapshot(), refRecovery);
 }
 
+const FILL_FIELD_SHAPE = 'each fill field requires ref or target and exactly one of text/value, values, or checked';
+
+type FillField = NonNullable<BrowserActionContext['command']['fields']>[number];
+
+function fieldOperation(
+  { guest, signal, services }: BrowserActionContext,
+  field: FillField
+): { operation: (ref: string) => Promise<unknown>; isText: boolean } {
+  const { refActions } = services;
+  const hasText = typeof field?.text === 'string';
+  const hasValue = typeof field?.value === 'string';
+  const hasValues =
+    Array.isArray(field?.values) && field.values.length > 0 && field.values.every((value) => typeof value === 'string');
+  const hasChecked = typeof field?.checked === 'boolean';
+  const payloadCount = Number(hasText || hasValue) + Number(hasValues) + Number(hasChecked);
+  if (payloadCount !== 1 || (hasText && hasValue)) throw new Error(FILL_FIELD_SHAPE);
+  if (hasValues) {
+    return { operation: (ref) => refActions.selectRef(guest, ref, field.values as string[], signal), isText: false };
+  }
+  if (hasChecked) {
+    return {
+      operation: (ref) => refActions.setCheckedRef(guest, ref, field.checked as boolean, signal),
+      isText: false,
+    };
+  }
+  return {
+    operation: (ref) => refActions.fillRef(guest, ref, String(field.text ?? field.value), signal),
+    isText: true,
+  };
+}
+
 /** Several fields in one call: every item is addressed by ref or every one by target, and a
  *  failure part-way reports how far it got without replaying any input. */
 async function fillFields(
@@ -26,7 +53,7 @@ async function fillFields(
   fields: NonNullable<BrowserActionContext['command']['fields']>
 ): Promise<void> {
   const { guest, command, signal, services } = context;
-  const { refActions, state } = services;
+  const { state } = services;
   if (fields.length > 30) throw new Error('fill requires at most 30 fields');
   // Targets are resolved against ONE fresh observation before any field
   // changes; refs and targets cannot mix because that observation would
@@ -49,24 +76,9 @@ async function fillFields(
   try {
     for (const [index, field] of fields.entries()) {
       const fieldRef = fieldRefs[index];
-      const hasText = typeof field?.text === 'string';
-      const hasValue = typeof field?.value === 'string';
-      const hasValues =
-        Array.isArray(field?.values) &&
-        field.values.length > 0 &&
-        field.values.every((value) => typeof value === 'string');
-      const hasChecked = typeof field?.checked === 'boolean';
-      const payloadCount = Number(hasText || hasValue) + Number(hasValues) + Number(hasChecked);
-      if (!fieldRef || payloadCount !== 1 || (hasText && hasValue)) {
-        throw new Error('each fill field requires ref or target and exactly one of text/value, values, or checked');
-      }
-      let operation: (ref: string) => Promise<unknown> = (ref) =>
-        refActions.fillRef(guest, ref, String(field.text ?? field.value), signal);
-      if (hasValues) operation = (ref) => refActions.selectRef(guest, ref, field.values as string[], signal);
-      else if (hasChecked) {
-        operation = (ref) => refActions.setCheckedRef(guest, ref, field.checked as boolean, signal);
-      }
-      await mutateRef(context, fieldRef, operation, !hasValues && !hasChecked);
+      if (!fieldRef) throw new Error(FILL_FIELD_SHAPE);
+      const { operation, isText } = fieldOperation(context, field);
+      await mutateRef(context, fieldRef, operation, isText);
       completed++;
     }
   } catch (error) {

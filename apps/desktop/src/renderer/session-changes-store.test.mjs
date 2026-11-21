@@ -67,58 +67,60 @@ test('the source preference persists in localStorage, defaults to uncommitted an
   assert.equal(readSessionChangesSource(), 'staged');
 });
 
-test('switching the source reads that source: review, index, worktree and the last turn', async (t) => {
+const switchStatus = {
+  repository: true,
+  root: 'C:/switch',
+  files: [
+    {
+      path: 'staged.ts',
+      index: 'M',
+      worktree: ' ',
+      untracked: false,
+      stagedAdditions: 2,
+      stagedDeletions: 1,
+      unstagedAdditions: 0,
+      unstagedDeletions: 0,
+    },
+    {
+      path: 'both.ts',
+      index: 'A',
+      worktree: 'M',
+      untracked: false,
+      stagedAdditions: 5,
+      stagedDeletions: 0,
+      unstagedAdditions: 1,
+      unstagedDeletions: 1,
+    },
+    {
+      path: 'new.ts',
+      index: '?',
+      worktree: '?',
+      untracked: true,
+      stagedAdditions: 0,
+      stagedDeletions: 0,
+      unstagedAdditions: 3,
+      unstagedDeletions: 0,
+    },
+  ],
+};
+
+async function readSource(t, source) {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const cwd = `C:/switch-${source}`;
   const calls = [];
-  const status = {
-    repository: true,
-    root: 'C:/switch',
-    files: [
-      {
-        path: 'staged.ts',
-        index: 'M',
-        worktree: ' ',
-        untracked: false,
-        stagedAdditions: 2,
-        stagedDeletions: 1,
-        unstagedAdditions: 0,
-        unstagedDeletions: 0,
-      },
-      {
-        path: 'both.ts',
-        index: 'A',
-        worktree: 'M',
-        untracked: false,
-        stagedAdditions: 5,
-        stagedDeletions: 0,
-        unstagedAdditions: 1,
-        unstagedDeletions: 1,
-      },
-      {
-        path: 'new.ts',
-        index: '?',
-        worktree: '?',
-        untracked: true,
-        stagedAdditions: 0,
-        stagedDeletions: 0,
-        unstagedAdditions: 3,
-        unstagedDeletions: 0,
-      },
-    ],
-  };
   const view = mount(t, {
-    gitReview: async (_cwd, source) => {
-      calls.push(['review', source]);
+    gitReview: async (_cwd, reviewSource) => {
+      calls.push(['review', reviewSource]);
       return {
         repository: true,
-        root: 'C:/switch',
-        base: source === 'branch' ? 'origin/main' : 'HEAD',
-        files: [reviewFile(`${source}.ts`)],
+        root: cwd,
+        base: reviewSource === 'branch' ? 'origin/main' : 'HEAD',
+        files: [reviewFile(`${reviewSource}.ts`)],
       };
     },
     gitStatus: async (_cwd, options) => {
       calls.push(['status', options?.skipLineStats ? 'skip' : 'lines']);
-      return status;
+      return switchStatus;
     },
     invokeCapability: async (request) => {
       // The agent catalog is the core's `agents` section; the test host serves its first read through this capability.
@@ -148,10 +150,65 @@ test('switching the source reads that source: review, index, worktree and the la
       };
     },
   });
+  setSessionChangesSource(source);
   const states = {};
   const Probe = probes(states);
-  await act(async () => view.root.render(h(Probe, { name: 'a', cwd: 'C:/switch', sessionId: 's1', active: true })));
+  await act(async () => view.root.render(h(Probe, { name: 'a', cwd, sessionId: 's1', active: true })));
   await view.settle();
+  return { calls, view, states, state: states.a };
+}
+
+const rowFacts = (rows) => rows.map((row) => [row.path, row.status, row.additions, row.deletions]);
+
+test('the uncommitted source reads the review against HEAD', async (t) => {
+  const { calls, state } = await readSource(t, 'uncommitted');
+  assert.deepEqual(calls, [['review', 'uncommitted']]);
+  assert.equal(state.repository, true);
+  assert.equal(state.base, 'HEAD');
+  assert.deepEqual(
+    state.rows.map((row) => row.path),
+    ['uncommitted.ts']
+  );
+});
+
+test('the branch source reads the review against the branch base', async (t) => {
+  const { calls, state } = await readSource(t, 'branch');
+  assert.deepEqual(calls, [['review', 'branch']]);
+  assert.equal(state.base, 'origin/main');
+});
+
+test('the staged source lists the index changes with their staged counts', async (t) => {
+  const { calls, state } = await readSource(t, 'staged');
+  assert.deepEqual(calls, [['status', 'lines']]);
+  assert.deepEqual(rowFacts(state.rows), [
+    ['staged.ts', 'M', 2, 1],
+    ['both.ts', 'A', 5, 0],
+  ]);
+});
+
+test('the unstaged source lists the worktree changes, untracked files as added', async (t) => {
+  const { state } = await readSource(t, 'unstaged');
+  assert.deepEqual(rowFacts(state.rows), [
+    ['both.ts', 'M', 1, 1],
+    ['new.ts', 'A', 3, 0],
+  ]);
+});
+
+test('the last-turn source reads the turn review after validating the repository', async (t) => {
+  const { calls, state } = await readSource(t, 'last-turn');
+  assert.deepEqual(calls, [
+    ['status', 'skip'],
+    ['capability', 'getTurnReviewDiff', 's1'],
+  ]);
+  assert.deepEqual(
+    state.rows.map((row) => row.path),
+    ['turn.ts']
+  );
+  assert.equal(state.summary.additions, 4);
+});
+
+test('switching the source in place on one mounted hook reads each source in turn', async (t) => {
+  const { calls, view, states } = await readSource(t, 'uncommitted');
   assert.deepEqual(calls, [['review', 'uncommitted']]);
   assert.equal(states.a.repository, true);
   assert.equal(states.a.base, 'HEAD');
@@ -159,38 +216,30 @@ test('switching the source reads that source: review, index, worktree and the la
     states.a.rows.map((row) => row.path),
     ['uncommitted.ts']
   );
+  const switchTo = async (source) => {
+    calls.length = 0;
+    await act(async () => states.a.setSource(source));
+    await view.settle();
+  };
 
-  calls.length = 0;
-  await act(async () => states.a.setSource('branch'));
-  await view.settle();
+  await switchTo('branch');
   assert.deepEqual(calls, [['review', 'branch']]);
   assert.equal(states.a.base, 'origin/main');
 
-  calls.length = 0;
-  await act(async () => states.a.setSource('staged'));
-  await view.settle();
+  await switchTo('staged');
   assert.deepEqual(calls, [['status', 'lines']]);
-  assert.deepEqual(
-    states.a.rows.map((row) => [row.path, row.status, row.additions, row.deletions]),
-    [
-      ['staged.ts', 'M', 2, 1],
-      ['both.ts', 'A', 5, 0],
-    ]
-  );
+  assert.deepEqual(rowFacts(states.a.rows), [
+    ['staged.ts', 'M', 2, 1],
+    ['both.ts', 'A', 5, 0],
+  ]);
 
-  await act(async () => states.a.setSource('unstaged'));
-  await view.settle();
-  assert.deepEqual(
-    states.a.rows.map((row) => [row.path, row.status, row.additions, row.deletions]),
-    [
-      ['both.ts', 'M', 1, 1],
-      ['new.ts', 'A', 3, 0],
-    ]
-  );
+  await switchTo('unstaged');
+  assert.deepEqual(rowFacts(states.a.rows), [
+    ['both.ts', 'M', 1, 1],
+    ['new.ts', 'A', 3, 0],
+  ]);
 
-  calls.length = 0;
-  await act(async () => states.a.setSource('last-turn'));
-  await view.settle();
+  await switchTo('last-turn');
   assert.deepEqual(calls, [
     ['status', 'skip'],
     ['capability', 'getTurnReviewDiff', 's1'],
@@ -201,10 +250,7 @@ test('switching the source reads that source: review, index, worktree and the la
   );
   assert.equal(states.a.summary.additions, 4);
 
-  // The whole session: the runtime's session review, still a Git root.
-  calls.length = 0;
-  await act(async () => states.a.setSource('session'));
-  await view.settle();
+  await switchTo('session');
   assert.deepEqual(
     calls.filter((call) => call[0] === 'capability'),
     [['capability', 'getSessionReviewDiff', 's1']]
@@ -217,6 +263,19 @@ test('switching the source reads that source: review, index, worktree and the la
   assert.equal(states.a.summary.additions, 11);
 });
 
+test('the session source reads the runtime session review of a Git root', async (t) => {
+  const { calls, state } = await readSource(t, 'session');
+  assert.deepEqual(
+    calls.filter((call) => call[0] === 'capability'),
+    [['capability', 'getSessionReviewDiff', 's1']]
+  );
+  assert.equal(state.repository, true);
+  assert.deepEqual(
+    state.rows.map((row) => row.path),
+    ['turn.ts', 'earlier.ts']
+  );
+  assert.equal(state.summary.additions, 11);
+});
 const sessionPatch = (path, line) =>
   `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-x\n+${line}\n`;
 const sessionFile = (path) => ({ path, status: 'M', additions: 1, deletions: 1 });
@@ -721,70 +780,91 @@ test('a cwd switch never renders the counts cached before the move, only the new
   );
 });
 
-test('only Git evidence refreshes: no reads on render, git-changed re-reads at once, a burst coalesces, hidden pauses', async (t) => {
+function mountEvidence(t, name) {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
-  let files = [reviewFile('a.ts')];
-  let reads = 0;
+  const cwd = `C:/evidence-${name}`;
+  const evidence = { files: [reviewFile('a.ts')], reads: 0, visibility: 'visible' };
   const view = mount(t, {
     gitReview: async () => {
-      reads += 1;
-      return { repository: true, root: 'C:/evidence', base: 'HEAD', files };
+      evidence.reads += 1;
+      return { repository: true, root: cwd, base: 'HEAD', files: evidence.files };
     },
   });
-  let visibility = 'visible';
-  Object.defineProperty(view.document, 'visibilityState', { configurable: true, get: () => visibility });
+  Object.defineProperty(view.document, 'visibilityState', { configurable: true, get: () => evidence.visibility });
   const states = {};
   const Probe = probes(states);
   const render = (props = {}) =>
-    act(async () =>
-      view.root.render(h(Probe, { name: 'a', cwd: 'C:/evidence', sessionId: 's', active: true, ...props }))
-    );
+    act(async () => view.root.render(h(Probe, { name: 'a', cwd, sessionId: 's', active: true, ...props })));
+  const gitChanged = (count = 1) =>
+    act(async () => {
+      for (let event = 0; event < count; event += 1) {
+        view.window.dispatchEvent(new view.window.Event('mixdog:git-changed'));
+      }
+    });
+  const setVisibility = (visibility) =>
+    act(async () => {
+      evidence.visibility = visibility;
+      view.document.dispatchEvent(new view.window.Event('visibilitychange'));
+    });
+  return { view, evidence, states, render, gitChanged, setVisibility };
+}
+
+test('re-renders and time alone never re-read a Git source', async (t) => {
+  const { view, evidence, render } = mountEvidence(t, 'clock');
   await render();
   await view.settle();
-  assert.equal(reads, 1);
-  // Re-renders and time alone do not read: nothing runs on a clock.
+  assert.equal(evidence.reads, 1);
   await render();
   await view.settle(20_000);
-  assert.equal(reads, 1);
-  files = [reviewFile('a.ts'), reviewFile('b.ts', 0, 4)];
-  await act(async () => view.window.dispatchEvent(new view.window.Event('mixdog:git-changed')));
+  assert.equal(evidence.reads, 1);
+});
+
+test('git-changed re-reads at once, with no timer holding it back', async (t) => {
+  const { view, evidence, states, render, gitChanged } = mountEvidence(t, 'at-once');
+  await render();
   await view.settle();
-  assert.equal(reads, 2, 'Git evidence reads at once: no timer holds it back');
+  evidence.files = [reviewFile('a.ts'), reviewFile('b.ts', 0, 4)];
+  await gitChanged();
+  await view.settle();
+  assert.equal(evidence.reads, 2);
   assert.deepEqual(
     states.a.rows.map((row) => row.path),
     ['a.ts', 'b.ts']
   );
-  // A burst coalesces by single flight: the run in flight plus one trailing run, however many events.
-  await act(async () => {
-    for (let event = 0; event < 5; event += 1) {
-      view.window.dispatchEvent(new view.window.Event('mixdog:git-changed'));
-    }
-  });
-  await view.settle();
-  assert.equal(reads, 4, 'a burst costs one run and one trailing run');
-  // Hidden: no evidence-driven or safety read.
-  await act(async () => {
-    visibility = 'hidden';
-    view.document.dispatchEvent(new view.window.Event('visibilitychange'));
-  });
-  await act(async () => view.window.dispatchEvent(new view.window.Event('mixdog:git-changed')));
-  await view.settle(60_000);
-  assert.equal(reads, 4);
-  assert.equal(await states.a.refresh(true), false, 'a hidden refresh is not adopted');
-  // Visible again: it catches up at once.
-  await act(async () => {
-    visibility = 'visible';
-    view.document.dispatchEvent(new view.window.Event('visibilitychange'));
-  });
-  await view.settle();
-  assert.equal(reads, 5);
-  // Inactive: the watch is released.
-  await render({ active: false });
-  await act(async () => view.window.dispatchEvent(new view.window.Event('mixdog:git-changed')));
-  await view.settle(60_000);
-  assert.equal(reads, 5);
 });
 
+test('a burst of git-changed events costs the run in flight plus one trailing run', async (t) => {
+  const { view, evidence, render, gitChanged } = mountEvidence(t, 'burst');
+  await render();
+  await view.settle();
+  await gitChanged(5);
+  await view.settle();
+  assert.equal(evidence.reads, 3);
+});
+
+test('a hidden window reads nothing and catches up once visible', async (t) => {
+  const { view, evidence, states, render, gitChanged, setVisibility } = mountEvidence(t, 'hidden');
+  await render();
+  await view.settle();
+  await setVisibility('hidden');
+  await gitChanged();
+  await view.settle(60_000);
+  assert.equal(evidence.reads, 1);
+  assert.equal(await states.a.refresh(true), false, 'a hidden refresh is not adopted');
+  await setVisibility('visible');
+  await view.settle();
+  assert.equal(evidence.reads, 2);
+});
+
+test('an inactive reader releases the evidence watch', async (t) => {
+  const { view, evidence, render, gitChanged } = mountEvidence(t, 'inactive');
+  await render();
+  await view.settle();
+  await render({ active: false });
+  await gitChanged();
+  await view.settle(60_000);
+  assert.equal(evidence.reads, 1);
+});
 test('staged and unstaged count lines afresh on evidence and refresh; nothing re-reads on a clock', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
   // The main process's reused stats are keyed by status only: a growing file

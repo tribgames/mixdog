@@ -1,28 +1,7 @@
-/**
- * The saved-login vault: every login the agent may use, whatever filled it —
- * a Chrome import, a CSV file, a login typed into a chat card, or 설정 › 인증
- * 관리. One sealed file (`browser-password-vault.bin`, credential-vault-file.ts)
- * in the format the Chrome import always wrote, `{ version: 1, credentials }`,
- * so older vaults keep opening; the fields added here (source, authenticator
- * key, the auto sign-in pause) are optional. One login per HTTPS origin and
- * username: saving the same pair again replaces it, everything else stays.
- * The username is compared exactly — `Alice` and `alice` are two logins, as
- * the Chrome import and the ids derived from it always kept them. Case is
- * ignored only to rank a page's prefilled identifier: an email that differs
- * only by case ranks after the exact one, and for any identifier, several
- * stored usernames that equal it only ignoring case, with none exactly, are
- * ambiguous and never guessed.
- *
- * Recency, which orders the accounts that tie on that identifier: a login's
- * latest of its auto sign-in use or explicit `savedAccount` fill
- * (`lastUsedAt`), its save (`savedAt`: a chat card, 설정 or a re-saved
- * password) and, for a Chrome import, Chrome's own last use of it
- * (`chromeUsedAt`). All three are metadata, never secrets.
- *
- * Passwords and authenticator keys never leave this process: listings carry
- * only the site, the username and what is stored, and the agent sees masked
- * labels.
- */
+/** The saved-login vault: one sealed file (`browser-password-vault.bin`) in the `{ version: 1, credentials }`
+ *  format the Chrome import wrote, so older vaults keep opening; fields added since are optional. One login per
+ *  HTTPS origin and exact username. Passwords and authenticator keys never leave this process: listings
+ *  carry only the site, the username and masked labels. */
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -164,11 +143,6 @@ function parseSource(value: unknown): VaultLoginSource {
 
 const unsealVault = noticingSafeStorage((sealed: Buffer): string => safeStorage.decryptString(sealed));
 
-// One sealed file, possibly several CredentialVault instances (the importer
-// builds its own). A read-modify-write must not interleave with another's, or
-// a save clobbers logins it never saw — a lost login, or a resurrected delete.
-// Every transaction runs in a per-path queue keyed by the resolved file path,
-// so instances sharing a file share the queue.
 const vaultLocks = new Map<string, Promise<unknown>>();
 
 function withVaultLock<T>(key: string, work: () => Promise<T>): Promise<T> {
@@ -491,10 +465,6 @@ export class CredentialVault {
     if (!origin) throw new Error('A saved login needs an HTTPS site.');
     const username = patch.username !== undefined ? field(patch.username).trim() : login.username;
     if (!username) throw new Error('A saved login needs a username.');
-    // A re-entered password with real content is an explicit re-save of the
-    // credential; a metadata-only edit (note/username) — or a blank or
-    // whitespace-only field — is not and must keep the paused state. The stored
-    // value itself is kept verbatim, so a real password keeps its whitespace.
     const credentialResaved = patch.password !== undefined && patch.password.trim() !== '';
     if (credentialResaved) login.password = field(patch.password);
     if (!login.password) throw new Error('A saved login needs a password.');
@@ -609,10 +579,6 @@ export class CredentialVault {
   }
 }
 
-/** Apply a save to `logins` in memory and return the login it produced: the
- *  one already stored for the origin and exact username (its id kept as it is,
- *  whatever derived it), else a new one. A username that differs only by case
- *  is another login. Nothing is written here. */
 function upsertInto(logins: StoredVaultLogin[], entry: VaultLoginEntry): StoredVaultLogin {
   const origin = secureOrigin(entry.origin);
   if (!origin) throw new Error('A saved login needs an HTTPS site.');

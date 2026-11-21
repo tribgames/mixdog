@@ -1,14 +1,4 @@
-/**
- * runtime/shared/time-format.mjs — compact elapsed-time labels shared by every
- * surface (TUI, terminal, desktop renderer). Tool-card detail rows ("Running · 12s") derive
- * from ONE formatter; the TUI module re-exports from here.
- *
- * Examples:
- *   42s
- *   9m 23s
- *   1h 2m 3s
- *   1d 3h 20m
- */
+/** Compact elapsed label (`42s`, `9m 23s`, `1h 2m 3s`, `1d 3h 20m`); '' below one second. */
 export function formatDuration(ms, options = {}) {
   if (!Number.isFinite(Number(ms))) return '';
   const value = Math.max(0, Number(ms) || 0);

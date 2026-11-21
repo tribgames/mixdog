@@ -1,7 +1,3 @@
-/**
- * One resident worker process: how it is launched on each platform, and how
- * its streams and lifecycle events are routed back to the pool.
- */
 import type { spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
 
 import { FOREGROUND_LOCK_LINE_PREFIX } from './foreground-lock-host';
@@ -12,10 +8,6 @@ import { createComputerLineDecoder } from '../../../shared/core-src/runtime/comp
 
 const POINTER_LINE_PREFIX = '@@MIXDOG_POINTER@@';
 
-/** Every platform runs the native `mixdog-computer` backend, which speaks the
- *  host's line protocol. On Windows it also journals the windows it holds
- *  inactive into its own ledger and leases the foreground lock from the bridge
- *  host. */
 export function launchHostProcess(options: {
   ledgers: WorkerLedgers;
   inputMarker: string;

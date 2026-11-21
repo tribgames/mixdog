@@ -1,9 +1,3 @@
-// The timeline's end is the spacer plus the thread's top inset (44px). The
-// inset is a style read: taken while the pane's host was out of the document
-// (PersistentPanePortal moves and re-slots its host), it read "" and was kept
-// as 0 for the list's whole life, so every end pin landed 44px short of the
-// bottom — a group room then rested with its last reply clipped under the
-// composer (QA C-23).
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { installTestDom } from './test-support/test-dom.mjs';

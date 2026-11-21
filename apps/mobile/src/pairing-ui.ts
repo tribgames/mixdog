@@ -1,9 +1,3 @@
-// The phone app's connect screens as ONE full-screen layout: a centered column
-// whose fixed-height logo/title/subtitle/middle block is centered above the
-// actions pinned to the bottom, so every step lands at the same place. Pure DOM and
-// strings (no Capacitor), so every step renders in tests and in the preview
-// switch without a network.
-
 export const PREVIEW_STATES = [
   'start-empty',
   'start-with-pcs',
@@ -23,7 +17,14 @@ export type PreviewState = (typeof PREVIEW_STATES)[number];
 
 /** Steps the app can be on. `camera-off` is a variant of scan-unavailable. */
 export type Step = 'start' | 'code' | 'waiting' | 'waiting-offline' | 'result';
-export type ResultKind = 'declined' | 'expired' | 'revoked' | 'network-error' | 'outdated' | 'scan-unavailable' | 'camera-off';
+export type ResultKind =
+  | 'declined'
+  | 'expired'
+  | 'revoked'
+  | 'network-error'
+  | 'outdated'
+  | 'scan-unavailable'
+  | 'camera-off';
 
 export const STRINGS = {
   en: {
@@ -233,7 +234,9 @@ export function viewFor(state: ScreenState, s: Strings): View {
       title: s.heading,
       sub: s.note,
       extra: state.update ? 'update' : 'none',
-      actions: state.update ? updateActions(state.update.phase, s) : [[act('scan', s.scan, true)], [act('enter-code', s.enterCode, false)]],
+      actions: state.update
+        ? updateActions(state.update.phase, s)
+        : [[act('scan', s.scan, true)], [act('enter-code', s.enterCode, false)]],
     };
   }
   if (state.step === 'code') {
@@ -303,8 +306,18 @@ export function stateForPreview(name: PreviewState, s: Strings): ScreenState {
       return {
         step: 'start',
         pcs: [
-          { url: 'https://relay.example/d/0a1b2c3d4e5f60718293a4b5c6d7e8f9/', name: 'Home PC', last: true, online: false },
-          { url: 'https://relay.example/d/f9e8d7c6b5a4938271605f4e3d2c1b0a/', name: 'Office PC', last: false, online: true },
+          {
+            url: 'https://relay.example/d/0a1b2c3d4e5f60718293a4b5c6d7e8f9/',
+            name: 'Home PC',
+            last: true,
+            online: false,
+          },
+          {
+            url: 'https://relay.example/d/f9e8d7c6b5a4938271605f4e3d2c1b0a/',
+            name: 'Office PC',
+            last: false,
+            online: true,
+          },
         ],
       };
     case 'code':
@@ -323,10 +336,7 @@ export function stateForPreview(name: PreviewState, s: Strings): ScreenState {
 }
 
 /** `?mxPairingPreview=<state>`, honored only when the debug flag is set. */
-export function previewFromLocation(
-  search: string,
-  storage: Pick<Storage, 'getItem'> | null
-): PreviewState | null {
+export function previewFromLocation(search: string, storage: Pick<Storage, 'getItem'> | null): PreviewState | null {
   try {
     if (storage?.getItem('mixdog.debug.pairingPreview') !== '1') return null;
     const name = new URLSearchParams(search).get('mxPairingPreview');
@@ -358,7 +368,13 @@ const el = (doc: Document, tag: string, className = '', text = ''): HTMLElement 
   return node;
 };
 
-function actionButton(doc: Document, action: Action, disabled: boolean, hooks: Hooks, label?: string): HTMLButtonElement {
+function actionButton(
+  doc: Document,
+  action: Action,
+  disabled: boolean,
+  hooks: Hooks,
+  label?: string
+): HTMLButtonElement {
   const button = el(doc, 'button', `mxp-btn${action.primary ? '' : ' sec'}`) as HTMLButtonElement;
   button.type = 'button';
   button.dataset.action = action.id;
@@ -417,23 +433,7 @@ function codeEntry(root: HTMLElement, input: RenderInput, hooks: Hooks): { otp: 
   };
 }
 
-/** Replace `root`'s content with the layout for `input`. */
-export function renderPairing(root: HTMLElement, input: RenderInput, hooks: Hooks, logoSrc = './mixdog-logo-titanium.svg'): void {
-  const doc = root.ownerDocument;
-  const { view } = input;
-  root.textContent = '';
-  root.className = `mxp-screen${view.extra === 'code' ? ' mxp-code-step' : ''}`;
-  const col = el(doc, 'div', 'mxp-col');
-  const main = el(doc, 'main', 'mxp-main');
-  // One fixed-height block, centered above the pinned actions, so every step
-  // puts the logo, title, subtitle and middle slot at the same place.
-  const block = el(doc, 'div', 'mxp-block');
-  const vis = el(doc, 'div', 'mxp-vis');
-  const logo = el(doc, 'img', 'mxp-logo') as HTMLImageElement;
-  logo.src = logoSrc;
-  logo.alt = '';
-  logo.draggable = false;
-  vis.append(logo);
+function subtitle(doc: Document, view: View): HTMLElement {
   const sub = el(doc, 'p', 'mxp-sub');
   const at = view.subBold ? view.sub.indexOf(view.subBold) : -1;
   if (at < 0) sub.textContent = view.sub;
@@ -441,7 +441,81 @@ export function renderPairing(root: HTMLElement, input: RenderInput, hooks: Hook
     const name = el(doc, 'b', '', view.subBold);
     sub.append(view.sub.slice(0, at), name, view.sub.slice(at + (view.subBold?.length ?? 0)));
   }
-  block.append(vis, el(doc, 'h1', 'mxp-title', view.title), sub);
+  return sub;
+}
+
+function pcRow(doc: Document, pc: SavedPc, input: RenderInput, hooks: Hooks): HTMLButtonElement {
+  const s = input.strings;
+  const row = el(doc, 'button', 'mxp-step mxp-pc') as HTMLButtonElement;
+  row.type = 'button';
+  row.dataset.action = 'open-pc';
+  row.dataset.url = pc.url;
+  row.classList.toggle('last', pc.last);
+  const busy = input.state.opening === pc.url;
+  row.disabled = Boolean(input.state.opening);
+  row.classList.toggle('busy', busy);
+  if (busy) row.setAttribute('aria-busy', 'true');
+  const meta = busy
+    ? s.connecting
+    : [...(pc.last ? [s.pcLast] : []), ...(pc.online === undefined ? [] : [pc.online ? s.pcOnline : s.pcOffline])].join(
+        ' · '
+      );
+  row.append(el(doc, 'span', 'mxp-pc-name', pc.name));
+  if (meta) row.append(el(doc, 'span', 'mxp-pc-meta', meta));
+  row.addEventListener('click', () => hooks.onOpenHost(pc.url));
+  return row;
+}
+
+function updateText(update: NonNullable<ScreenState['update']>, s: Strings): string {
+  const pct = update.percent === undefined ? '' : ` ${update.percent}%`;
+  return {
+    available: s.updateAvailable,
+    downloading: `${s.updateDownloadingText}${pct}`,
+    downloaded: s.updateDownloadedText,
+    installing: s.updateBusy,
+    failed: s.updateFailedText,
+  }[update.phase].replace('{v}', update.version);
+}
+
+function actionsFooter(doc: Document, input: RenderInput, hooks: Hooks): HTMLElement {
+  const footer = el(doc, 'footer', 'mxp-actions');
+  for (const action of input.view.actions.flat()) {
+    footer.append(
+      actionButton(
+        doc,
+        action,
+        (action.id === 'connect' && (input.codeValue.length !== 6 || Boolean(input.state.busy))) ||
+          (action.id === 'update-get' &&
+            (input.state.update?.phase === 'downloading' || input.state.update?.phase === 'installing')),
+        hooks,
+        action.id === 'connect' && input.state.busy ? input.strings.connecting : undefined
+      )
+    );
+  }
+  return footer;
+}
+
+/** Replace `root`'s content with the layout for `input`. */
+export function renderPairing(
+  root: HTMLElement,
+  input: RenderInput,
+  hooks: Hooks,
+  logoSrc = './mixdog-logo-titanium.svg'
+): void {
+  const doc = root.ownerDocument;
+  const { view } = input;
+  root.textContent = '';
+  root.className = `mxp-screen${view.extra === 'code' ? ' mxp-code-step' : ''}`;
+  const col = el(doc, 'div', 'mxp-col');
+  const main = el(doc, 'main', 'mxp-main');
+  const block = el(doc, 'div', 'mxp-block');
+  const vis = el(doc, 'div', 'mxp-vis');
+  const logo = el(doc, 'img', 'mxp-logo') as HTMLImageElement;
+  logo.src = logoSrc;
+  logo.alt = '';
+  logo.draggable = false;
+  vis.append(logo);
+  block.append(vis, el(doc, 'h1', 'mxp-title', view.title), subtitle(doc, view));
   const extra = el(doc, 'div', 'mxp-extra');
   let focusCode: (() => void) | null = null;
   if (view.extra === 'code') {
@@ -456,28 +530,7 @@ export function renderPairing(root: HTMLElement, input: RenderInput, hooks: Hook
   }
   if (view.extra === 'pcs') {
     block.classList.add('pcs');
-    const s = input.strings;
-    for (const pc of input.state.pcs ?? []) {
-      const row = el(doc, 'button', 'mxp-step mxp-pc') as HTMLButtonElement;
-      row.type = 'button';
-      row.dataset.action = 'open-pc';
-      row.dataset.url = pc.url;
-      row.classList.toggle('last', pc.last);
-      const busy = input.state.opening === pc.url;
-      row.disabled = Boolean(input.state.opening);
-      row.classList.toggle('busy', busy);
-      if (busy) row.setAttribute('aria-busy', 'true');
-      const meta = busy
-        ? s.connecting
-        : [
-            ...(pc.last ? [s.pcLast] : []),
-            ...(pc.online === undefined ? [] : [pc.online ? s.pcOnline : s.pcOffline]),
-          ].join(' · ');
-      row.append(el(doc, 'span', 'mxp-pc-name', pc.name));
-      if (meta) row.append(el(doc, 'span', 'mxp-pc-meta', meta));
-      row.addEventListener('click', () => hooks.onOpenHost(pc.url));
-      extra.append(row);
-    }
+    for (const pc of input.state.pcs ?? []) extra.append(pcRow(doc, pc, input, hooks));
   }
   if (view.extra === 'wait') {
     const row = el(doc, 'p', 'mxp-wait');
@@ -485,35 +538,11 @@ export function renderPairing(root: HTMLElement, input: RenderInput, hooks: Hook
     extra.append(row);
   }
   if (view.extra === 'update' && input.state.update) {
-    const { version, phase, percent } = input.state.update;
-    const s = input.strings;
-    const pct = percent === undefined ? '' : ` ${percent}%`;
-    const text = {
-      available: s.updateAvailable,
-      downloading: `${s.updateDownloadingText}${pct}`,
-      downloaded: s.updateDownloadedText,
-      installing: s.updateBusy,
-      failed: s.updateFailedText,
-    }[phase].replace('{v}', version);
-    extra.append(el(doc, 'p', 'mxp-fine', text));
+    extra.append(el(doc, 'p', 'mxp-fine', updateText(input.state.update, input.strings)));
   }
   block.append(extra);
   main.append(block);
-  const actions = el(doc, 'footer', 'mxp-actions');
-  // One rule on every step: the primary button full width, the rest as text
-  // buttons below it.
-  for (const action of view.actions.flat()) {
-    actions.append(actionButton(
-        doc,
-        action,
-        (action.id === 'connect' && (input.codeValue.length !== 6 || Boolean(input.state.busy))) ||
-          (action.id === 'update-get' &&
-            (input.state.update?.phase === 'downloading' || input.state.update?.phase === 'installing')),
-        hooks,
-        action.id === 'connect' && input.state.busy ? input.strings.connecting : undefined
-      ));
-  }
-  col.append(main, actions);
+  col.append(main, actionsFooter(doc, input, hooks));
   root.append(col);
   focusCode?.();
 }
@@ -535,4 +564,3 @@ export function trackKeyboardInset(root: HTMLElement, win: Window = window): () 
     viewport.removeEventListener('scroll', update);
   };
 }
-

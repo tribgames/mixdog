@@ -16,8 +16,13 @@ test('AppWorkspaceMain renders PaneWorkspace with conversation header and contro
   globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
   dom.window.requestAnimationFrame = globalThis.requestAnimationFrame;
   dom.window.cancelAnimationFrame = globalThis.cancelAnimationFrame;
+  const registered = [];
   globalThis.window.mixdogDesktop = {
     invokeCapability: async () => ({}),
+    setVisibleSessions: async (ids) => {
+      registered.push(ids);
+      return true;
+    },
   };
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -70,7 +75,6 @@ test('AppWorkspaceMain renders PaneWorkspace with conversation header and contro
     openFileTab: () => {},
     openConversationCommandSurface: () => {},
     paneWorkspace,
-    observedAgentSessionIds: [],
     paneStripFor: () => null,
     paneConversationSurface: () => React.createElement('div', { className: 'mock-conv' }),
     paneFileEditors: null,
@@ -88,6 +92,8 @@ test('AppWorkspaceMain renders PaneWorkspace with conversation header and contro
 
   const conv = dom.window.document.querySelector('.mock-conv');
   assert.notEqual(conv, null);
+  // The window follows the transcripts its panes show, and no other session's.
+  assert.deepEqual(registered, [['s1']]);
 
   await act(async () => {
     root.unmount();

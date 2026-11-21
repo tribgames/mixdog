@@ -1,9 +1,3 @@
-/**
- * `open`'s reveal: the page becomes the session's shown tab and its panel is
- * asked to open, then the host waits briefly for a panel to show it. The
- * answer is `shown` or `pending`; a page that closes before or during the
- * wait is a failure, never a pending reveal of nothing.
- */
 import type { WebContents } from 'electron';
 import type { DesktopBrowserOpenRequest } from '../../shared/contract';
 
@@ -26,10 +20,7 @@ export function browserOpenRequest(
   return request;
 }
 
-/** What a takeover's surface request names: the handed-over page (its
- *  session-local id and title), so the shell opens exactly that page where
- *  the session's work is on screen; nothing once that page is gone — no tab
- *  is ever guessed in its place. */
+/** The handed-over page's session-local id and title; nothing once that page is gone. */
 export function takeoverRevealDetail(
   guest: WebContents | null,
   pageId: (guest: WebContents) => string

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 
-async function mount(t, { phone }) {
+function installDrawerDom(t, { phone }) {
   const { root, document } = installTestDom(t, {
     rootId: 'root',
     expose: ['HTMLElement', 'CustomEvent'],
@@ -18,6 +18,11 @@ async function mount(t, { phone }) {
   window.HTMLElement.prototype.attachEvent ??= () => {};
   window.HTMLElement.prototype.detachEvent ??= () => {};
   if (phone) document.documentElement.setAttribute('data-mixdog-mobile-tabs', '');
+  return { root, document };
+}
+
+async function mount(t, { phone }) {
+  const { root, document } = installDrawerDom(t, { phone });
   const { SessionSidebar } = await import('./session-sidebar.tsx');
   let sliding = false;
   const props = {
@@ -148,24 +153,11 @@ test('desktop: inert follows open at once', async (t) => {
 });
 
 async function mountPanel(t, { phone }) {
-  const { root, document } = installTestDom(t, {
-    rootId: 'root',
-    expose: ['HTMLElement', 'CustomEvent'],
-    globals: {
-      ResizeObserver: class {
-        observe() {}
-        unobserve() {}
-        disconnect() {}
-      },
-    },
-  });
-  window.HTMLElement.prototype.attachEvent ??= () => {};
-  window.HTMLElement.prototype.detachEvent ??= () => {};
+  const { root, document } = installDrawerDom(t, { phone });
   globalThis.CSSTransition = class {};
   t.after(() => {
     delete globalThis.CSSTransition;
   });
-  if (phone) document.documentElement.setAttribute('data-mixdog-mobile-tabs', '');
   const { WorkbenchSidePanel } = await import('./workbench-side-view-layout.tsx');
   let sliding = false;
   const descriptors = new Map([['sessions', { id: 'sessions', label: 'Sessions', icon: () => null }]]);

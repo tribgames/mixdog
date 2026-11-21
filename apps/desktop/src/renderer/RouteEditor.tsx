@@ -304,9 +304,6 @@ export function RouteEditor({
       focusPane={focusPane}
     />
   );
-  // Drilled: ONE panel — the sheet itself takes the pane's box and content,
-  // so the menu stays a single window growing out of the pill instead of a
-  // second card floating over it (the sheet would stop feeling like one window).
   const drilled = drill && Boolean(pane);
   const panelBox = drilled && flyoutBox ? flyoutBox : sheetBox;
   // One catalog, hosted either by the drilled sheet or by its own flyout.

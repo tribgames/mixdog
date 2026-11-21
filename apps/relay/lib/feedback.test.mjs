@@ -643,60 +643,46 @@ test('attachment mail retries across restart with identical bytes', async () => 
   await app.relay.close();
 });
 
-test('legacy records without attachments still load and send; corrupt attachments fail closed', async () => {
+async function bootWithStoredRecord(payload, sent) {
   const dataDir = tempData();
   const { mkdirSync, writeFileSync } = await import('node:fs');
   mkdirSync(join(dataDir, 'feedback'));
-  const legacy = randomUUID();
-  const record = (id, payload) =>
-    JSON.stringify({
-      id,
-      hash: 'h',
-      payload,
-      createdAt: 1,
-      attempts: 0,
-      nextAttemptAt: 0,
-      sentAt: 0,
-    });
+  const id = randomUUID();
   writeFileSync(
-    join(dataDir, 'feedback', `${legacy}.json`),
-    record(legacy, { kind: 'bug', message: 'old', replyTo: '' })
+    join(dataDir, 'feedback', `${id}.json`),
+    JSON.stringify({ id, hash: 'h', payload, createdAt: 1, attempts: 0, nextAttemptAt: 0, sentAt: 0 })
   );
-  const sent = [];
   const original = console.error;
   console.error = () => {};
-  let app;
   try {
-    app = await boot(dataDir, { sender: async (m) => sent.push(m) });
+    return await boot(dataDir, { sender: async (m) => sent.push(m) });
   } finally {
     console.error = original;
   }
+}
+
+test('legacy records without attachments still load and send', async () => {
+  const sent = [];
+  const app = await bootWithStoredRecord({ kind: 'bug', message: 'old', replyTo: '' }, sent);
   await waitFor(() => sent.length === 1, 'legacy mail sent');
   assert.equal(sent[0].text, 'old');
   assert.equal('attachments' in sent[0], false);
   await app.relay.close();
+});
 
-  const dir2 = tempData();
-  mkdirSync(join(dir2, 'feedback'));
-  const corrupt = randomUUID();
-  writeFileSync(
-    join(dir2, 'feedback', `${corrupt}.json`),
-    record(corrupt, {
+test('a stored record with corrupt attachments fails closed', async () => {
+  const sent = [];
+  const app = await bootWithStoredRecord(
+    {
       kind: 'bug',
       message: 'x',
       replyTo: '',
       attachments: [{ name: '../x', mimeType: 'image/png', data: 'AAAA' }],
-    })
+    },
+    sent
   );
-  console.error = () => {};
-  const sent2 = [];
-  try {
-    app = await boot(dir2, { sender: async (m) => sent2.push(m) });
-  } finally {
-    console.error = original;
-  }
   await settle();
-  assert.equal(sent2.length, 0);
+  assert.equal(sent.length, 0);
   assert.equal((await app.post(valid())).status, 503);
   await app.relay.close();
 });
@@ -718,12 +704,6 @@ test('pending attachment storage is bounded and freed after delivery', async () 
   assert.deepEqual(await res.json(), { error: 'feedback_busy' });
   assert.equal((await post(valid())).status, 202, 'attachment-free feedback is unaffected');
   fail = false;
-  // A failed attempt arms its retry timer only after the record is persisted
-  // (real file I/O), and the manual clock fires nothing by itself. One
-  // advance right after the posts could land before that, and the retry then
-  // sat unfired until a 5 s wait timed out. Advancing on every poll fires the
-  // retry as soon as it is armed. The polled condition is the mail count, not
-  // a POST: the per-IP rate limit (10 requests) must not be spent on polling.
   await waitFor(
     async () => {
       await clock.advance(30_000);

@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { installTestDom } from '../test-support/test-dom.mjs';
 import { useAppSettingsRouter } from './use-app-settings-router.ts';
 
-test('useAppSettingsRouter handles openSettings and UI requests routing', async () => {
+async function mountRouter() {
   const { dom } = installTestDom(null, {
     html: '<!doctype html><html><body><div id="root"></div></body></html>',
     jsdom: { url: 'about:blank' },
@@ -17,39 +17,41 @@ test('useAppSettingsRouter handles openSettings and UI requests routing', async 
   };
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-  let settingsOpen = false;
-  let settingsSection = null;
-  let activeSideViews = { left: 'projects', right: null };
-  let sidebarOpen = false;
-  let mountedPanel = null;
-  let loadedPanel = null;
+  const state = {
+    settingsOpen: false,
+    settingsSection: null,
+    activeSideViews: { left: 'projects', right: null },
+    sidebarOpen: false,
+    mountedPanel: null,
+    loadedPanel: null,
+  };
   window.__mixdogSidebarPanelLoader = () => new Promise(() => {});
 
-  let hookResult = null;
+  const hook = { current: null };
   function TestHarness() {
-    hookResult = useAppSettingsRouter({
+    hook.current = useAppSettingsRouter({
       workbenchSideLayout: { sideOf: () => 'left' },
       setExtensionsSection: () => {},
       setSettingsOpen: (open) => {
-        settingsOpen = open;
+        state.settingsOpen = open;
       },
       setCommandSurface: () => {},
       mountSidebarPanel: (panel) => {
-        mountedPanel = panel;
+        state.mountedPanel = panel;
       },
       trackSidebarPanelModule: (panel) => {
-        loadedPanel = panel;
+        state.loadedPanel = panel;
       },
       paneSideDocks: { open: () => {} },
       focusedLeafIdRef: { current: 'leaf-1' },
       setActiveSideViews: (update) => {
-        activeSideViews = update(activeSideViews);
+        state.activeSideViews = update(state.activeSideViews);
       },
       applySidebarOpen: (open) => {
-        sidebarOpen = open;
+        state.sidebarOpen = open;
       },
       setSettingsSection: (s) => {
-        settingsSection = s;
+        state.settingsSection = s;
       },
       uiOpenRequest: null,
       sessionId: 's1',
@@ -63,28 +65,31 @@ test('useAppSettingsRouter handles openSettings and UI requests routing', async 
   await act(async () => {
     root.render(React.createElement(TestHarness));
   });
+  return { hook, state, unmount: () => act(async () => root.unmount()) };
+}
 
-  assert.notEqual(hookResult, null);
-  assert.equal(typeof hookResult.openSettings, 'function');
-
-  // Open general settings
+test('useAppSettingsRouter opens the settings dialog at the requested section', async () => {
+  const { hook, state, unmount } = await mountRouter();
+  assert.equal(typeof hook.current.openSettings, 'function');
   await act(async () => {
-    hookResult.openSettings('theme');
+    hook.current.openSettings('theme');
   });
-  assert.equal(settingsOpen, true);
-  assert.equal(settingsSection, 'theme');
+  assert.equal(state.settingsOpen, true);
+  assert.equal(state.settingsSection, 'theme');
+  await unmount();
+});
 
+test('useAppSettingsRouter routes workflow and websearch sections to the workflows side panel', async () => {
+  const { hook, state, unmount } = await mountRouter();
   for (const section of ['workflow', 'websearch']) {
-    activeSideViews = { left: 'projects', right: null };
-    await act(async () => hookResult.openSettings(section));
-    assert.equal(settingsOpen, false);
-    assert.equal(activeSideViews.left, 'workflows');
-    assert.equal(sidebarOpen, true);
-    assert.equal(mountedPanel, 'workflows');
-    assert.equal(loadedPanel, 'workflows');
+    state.activeSideViews = { left: 'projects', right: null };
+    state.settingsOpen = true;
+    await act(async () => hook.current.openSettings(section));
+    assert.equal(state.settingsOpen, false);
+    assert.equal(state.activeSideViews.left, 'workflows');
+    assert.equal(state.sidebarOpen, true);
+    assert.equal(state.mountedPanel, 'workflows');
+    assert.equal(state.loadedPanel, 'workflows');
   }
-
-  await act(async () => {
-    root.unmount();
-  });
+  await unmount();
 });

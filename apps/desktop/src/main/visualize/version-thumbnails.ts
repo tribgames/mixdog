@@ -1,9 +1,3 @@
-/**
- * The chat card's picture of each kept version: a card of an earlier version
- * keeps the picture its own turn ended on. File tabs keep it in the version
- * store (memory and the versions folder), inline tabs on their in-memory
- * history entry.
- */
 import { MAX_VERSION_TURNS, type VisualizeVersionTurn } from '../../shared/visualize';
 import type { VisualizeServiceContext } from './context';
 import type { TabState } from './tab-state';

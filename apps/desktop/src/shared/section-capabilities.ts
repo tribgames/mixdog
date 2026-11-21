@@ -1,8 +1,3 @@
-// The session capabilities the core replaced by pushed sections (D-desktop-core-2 group 1): which section carries each
-// one's value. On a connection with a core endpoint the capability is answered from that section and never sent; on any
-// other connection it goes to the host. The choice is the connection's alone (desktop-core-route-1), never
-// whether a section happens to be present.
-
 export interface SectionRef {
   readonly section: string;
   readonly key: string | null;

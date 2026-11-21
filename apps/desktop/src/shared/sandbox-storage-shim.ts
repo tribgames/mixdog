@@ -1,13 +1,5 @@
-/**
- * Sandboxed previews run page scripts in an opaque origin (`sandbox
- * allow-scripts`, no allow-same-origin). There, merely touching
- * `window.localStorage` / `sessionStorage` throws a SecurityError, which kills
- * the typical generated "tabs" page before it wires anything up. The shim is
- * a tiny inline script, injected first in the document, that replaces a
- * storage which throws with an in-memory Storage for the document's lifetime.
- * A storage that works is left alone. Sandbox and CSP isolation are untouched.
- */
-
+// Sandboxed previews (`sandbox allow-scripts`, opaque origin) throw SecurityError on any
+// `window.localStorage` / `sessionStorage` access; the shim swaps a throwing storage for an in-memory one.
 // Plain ES5 text run inside the previewed page (no `</script` inside).
 const SHIM_SOURCE = `(function () {
   function broken(name) {
@@ -111,11 +103,6 @@ function startTagEnd(html: string, from: number): number {
   return -1;
 }
 
-/** Where a script must go to run before any page content: just inside
- *  `<head>`; with no head before the first content, after the prelude
- *  (BOM, comments, doctype, `<html>`), so it never precedes the doctype.
- *  Scans tag by tag, so `<head>` text in comments, in script bodies or in
- *  attribute values is never mistaken for the real tag. */
 function headInsertionPoint(html: string): number {
   let safe = html.startsWith('\uFEFF') ? 1 : 0;
   let i = safe;

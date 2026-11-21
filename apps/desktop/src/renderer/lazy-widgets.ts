@@ -21,11 +21,8 @@ export const editorPaneModule = deferredModule(async () => {
 export type EditorPaneProps = ComponentProps<typeof import('./EditorPane.lazy')['default']>;
 const importEditorPane = () => editorPaneModule.load();
 
-/** The Terminal and Browser pane chunks as deferred modules: once loaded (the
- *  phone's lane, a touch-down), their surfaces render them synchronously. A
- *  React.lazy suspends its first render even when the chunk is already in,
- *  and the Suspense reveal that follows is throttled ~300ms behind the
- *  fallback, so a first open sat on a blank body. */
+// React.lazy suspends its first render even when the chunk is in, and the Suspense reveal is
+// throttled ~300ms behind the fallback; a loaded deferred module renders synchronously instead.
 export const terminalPaneModule = deferredModule(importTerminalPane);
 export const browserPaneModule = deferredModule(importBrowserPane);
 
@@ -43,11 +40,6 @@ export async function disposeTerminalPane(id: string): Promise<void> {
   await module.disposeTerminalPane(id);
 }
 
-// First-scroll hitch fix: the DiffView chunk is ~1.7MB — when the first
-// edit/diff tool card mounted mid-scroll, the on-demand chunk load+compile
-// stalled the main thread for the whole hitch. A real session resume warms ONLY that
-// transcript dependency; editor and terminal stay behind their own navigation
-// intent so a chat never retains Monaco/xterm without using them.
 /** One shared in-flight import per chunk; a failed import clears itself so the
  *  next call retries. */
 function createChunkPrefetch(load: () => Promise<unknown>) {
@@ -79,16 +71,6 @@ export const prefetchTerminalPane = (): Promise<unknown> => terminalPrefetch.run
 export const prefetchBrowserPane = (): Promise<unknown> => browserPrefetch.run();
 export const prefetchEditorPane = (): Promise<unknown> => editorPrefetch.run();
 const prefetchStudioView = (): Promise<unknown> => loadStudioViewModule();
-/**
- * Start the chunk a selection is about to need, without waiting for it.
- *
- * Pointer surfaces call this from hover/focus. A phone has neither, so its
- * first open of a file/terminal/diff tab paid the ENTIRE fetch and
- * evaluate at open time — over the relay that is ~1MB brotli for Monaco alone.
- * Touch-down is the phone's equivalent intent
- * signal, and because every prefetch here returns the same shared promise the
- * real open awaits, an unfinished one simply merges into that load.
- */
 const SURFACE_PREFETCH: Partial<Record<WorkspaceSelection['kind'], () => Promise<unknown>>> = {
   file: prefetchEditorPane,
   diff: prefetchDiffView,
@@ -97,6 +79,7 @@ const SURFACE_PREFETCH: Partial<Record<WorkspaceSelection['kind'], () => Promise
   studio: prefetchStudioView,
 };
 
+/** Starts the chunk a selection is about to need, without waiting for it; a phone calls it on touch-down, having no hover or focus. */
 export function prefetchSurfaceForSelection(selection: WorkspaceSelection): void {
   void SURFACE_PREFETCH[selection.kind]?.().catch(() => undefined);
 }
@@ -108,25 +91,10 @@ type EditorIntentHost = typeof window & {
 };
 let editorIntentScheduled = false;
 const EDITOR_INTENT_QUIET_MS = 150;
-/**
- * Files-pane intent (hover/selection inside the explorer) starts the editor
- * chunk BEFORE the open click, which otherwise pays ~187ms of fetch + link +
- * eval on the first open. The boot idle lane (useAppModuleWarmup) loads the
- * same chunks on desktop surfaces, so this is the early path for a link or row
- * seen before that lane reaches it, and for a phone, whose lane never carries
- * Monaco. Startup can never carry it (both the
- * first visible frame and the boot reveal must have happened), the import is
- * queued from an idle callback so pointer/key handling never blocks, and a
- * real open awaits the same shared promise — so an unfinished prefetch just
- * merges into the normal load.
- */
+/** Starts the editor chunk on explorer intent, before the open click, once the first frame and the boot reveal have happened. */
 export function scheduleEditorPanePrefetch(): void {
   if (editorIntentScheduled || editorPrefetch.started() || typeof window === 'undefined') return;
   const host = window as EditorIntentHost;
-  // Only the Electron main process emits the window-shown handshake, so
-  // requiring it here excluded every relay-served browser and phone from this
-  // prefetch entirely — exactly the surfaces where the fetch costs the most.
-  // The boot gate sets the reveal marker on both, and it still holds startup.
   if (host.__mixdogDesktopRevealed !== true) return;
   const nativeWindow = isNativeDesktopWindow();
   if (nativeWindow && host.__mixdogWindowShown !== true) return;

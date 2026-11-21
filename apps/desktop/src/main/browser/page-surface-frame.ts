@@ -8,10 +8,8 @@ import type { BrowserDisplayTexture } from './display-textures';
 import type { BrowserPageSurfaceHost } from './page-surface';
 import type { PageSurfaceState } from './page-surface-state';
 
-// Chromium's compositor occasionally rejects one display sample (it reports
-// "UnknownVizError" while a large capture is in flight). That single miss
-// keeps the last good frame on screen; only a capture that stays broken past
-// STALE_FRAME_MS reaches the client as a failure.
+// Chromium's compositor sometimes rejects one display sample ("UnknownVizError"
+// during a large capture); the last good frame is served until STALE_FRAME_MS.
 const STALE_FRAME_MS = 3000;
 const PAGE_CHANGED = 'Browser page changed during capture.';
 

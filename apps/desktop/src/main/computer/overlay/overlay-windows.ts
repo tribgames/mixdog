@@ -1,9 +1,3 @@
-/**
- * One overlay window per display, keyed by Electron display id. Windows are
- * transparent, always on top, never focusable, and carry the controls
- * preload; a renderer that dies is retired once and recovered on the next
- * render, never spun into an automatic crash loop.
- */
 import { errorMessage } from '../shared/common';
 import { join } from 'node:path';
 
@@ -41,10 +35,7 @@ export interface OverlayWindowsHost {
 const RENDERER_BACKOFF_BASE_MS = 5_000;
 const RENDERER_BACKOFF_MAX_MS = 60_000;
 
-/** The controls need their bundled preload. The built main process is CommonJS,
- * where `__dirname` is the build output; runners that load the TypeScript
- * sources as ESM have no `__dirname` at all, and resolving it there threw
- * before the window was ever created. */
+// The built main process is CommonJS; runners loading the TypeScript sources as ESM have no `__dirname`.
 function overlayPreloadPath(): string {
   const directory =
     typeof __dirname === 'string' ? join(__dirname, '../preload') : join(app.getAppPath(), 'out/preload');
@@ -62,13 +53,48 @@ export function pillWindowOptions(display: Display): Electron.BrowserWindowConst
   };
 }
 
+function createRendererBackoff(host: OverlayWindowsHost) {
+  const failures = new Map<number, number>();
+  const retryAfter = new Map<number, number>();
+  const timers = new Set<NodeJS.Timeout>();
+
+  return {
+    blocked(displayId: number): boolean {
+      return (failures.get(displayId) || 0) > 1 && Date.now() < (retryAfter.get(displayId) || 0);
+    },
+    recordFailure(displayId: number, bornAt: number | undefined): void {
+      if (bornAt !== undefined && Date.now() - bornAt >= RENDERER_BACKOFF_MAX_MS) {
+        failures.delete(displayId);
+        retryAfter.delete(displayId);
+      }
+      const count = (failures.get(displayId) || 0) + 1;
+      failures.set(displayId, count);
+      if (count <= 1) return;
+      const delay = Math.min(RENDERER_BACKOFF_BASE_MS * 2 ** (count - 2), RENDERER_BACKOFF_MAX_MS);
+      retryAfter.set(displayId, Date.now() + delay);
+      const timer = setTimeout(() => {
+        timers.delete(timer);
+        if (!host.isDisposed()) host.requestRender?.();
+      }, delay);
+      timer.unref?.();
+      timers.add(timer);
+    },
+    reset(): void {
+      failures.clear();
+      retryAfter.clear();
+    },
+    dispose(): void {
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+    },
+  };
+}
+
 export function createOverlayWindows(host: OverlayWindowsHost) {
   const windows = new Map<number, OverlayWindowEntry>();
   const creatingWindows = new Map<number, Promise<BrowserWindow>>();
-  const rendererFailures = new Map<number, number>();
-  const retryAfter = new Map<number, number>();
   const createdAt = new WeakMap<BrowserWindow, number>();
-  const retryTimers = new Set<NodeJS.Timeout>();
+  const backoff = createRendererBackoff(host);
 
   const liveEntries = (): OverlayWindowEntry[] => [...windows.values()].filter((entry) => !entry.window.isDestroyed());
 
@@ -83,30 +109,7 @@ export function createOverlayWindows(host: OverlayWindowsHost) {
     next.webContents.on('will-navigate', (event) => event.preventDefault());
     const retireUnavailableWindow = (): void => {
       if (host.isDisposed() || next.isDestroyed()) return;
-      // A recreated window that rendered and stayed up past the longest backoff
-      // was healthy, so its eventual failure starts the count over.
-      const born = createdAt.get(next);
-      if (born !== undefined && Date.now() - born >= RENDERER_BACKOFF_MAX_MS) {
-        rendererFailures.delete(display.id);
-        retryAfter.delete(display.id);
-      }
-      const failures = (rendererFailures.get(display.id) || 0) + 1;
-      rendererFailures.set(display.id, failures);
-      if (failures > 1) {
-        // Repeated failure: back off (5 s doubling to 60 s) instead of either
-        // a crash loop or giving up while the user still needs the pill.
-        const delay = Math.min(RENDERER_BACKOFF_BASE_MS * 2 ** (failures - 2), RENDERER_BACKOFF_MAX_MS);
-        retryAfter.set(display.id, Date.now() + delay);
-        const timer = setTimeout(() => {
-          retryTimers.delete(timer);
-          if (!host.isDisposed()) host.requestRender?.();
-        }, delay);
-        timer.unref?.();
-        retryTimers.add(timer);
-      }
-      // A hung renderer cannot handle controls, navigation, or another render.
-      // Retire only this control window; the host retains the input interlock.
-      // Release its creation slot even if loadURL/executeJavaScript never settles.
+      backoff.recordFailure(display.id, createdAt.get(next));
       creatingWindows.delete(display.id);
       next.destroy();
       void host.controller.invoke('pause', host.presentation().sessionIds);
@@ -143,9 +146,7 @@ export function createOverlayWindows(host: OverlayWindowsHost) {
   }
 
   async function ensureWindowForDisplay(display: Display): Promise<BrowserWindow> {
-    // Repeated renderer failure must not spawn a tight crash loop, but the pill
-    // is the user's way out, so recreation is retried after a bounded backoff.
-    if ((rendererFailures.get(display.id) || 0) > 1 && Date.now() < (retryAfter.get(display.id) || 0)) {
+    if (backoff.blocked(display.id)) {
       throw new Error('computer_control_surface_unavailable: overlay renderer repeatedly failed');
     }
     const existing = windows.get(display.id);
@@ -186,10 +187,6 @@ export function createOverlayWindows(host: OverlayWindowsHost) {
     );
   }
 
-  /** Repeating identical bounds still hands the window back to the window
-   * manager on every snapshot revision, which repaints a transparent
-   * always-on-top surface for nothing; only a real work-area change moves the
-   * pill. `force` re-asserts a position the OS itself may have shifted. */
   function repositionAll(force = false): void {
     for (const display of screen.getAllDisplays()) {
       const entry = windows.get(display.id);
@@ -206,14 +203,8 @@ export function createOverlayWindows(host: OverlayWindowsHost) {
     for (const entry of windows.values()) entry.lastRenderedPresentation = '';
   }
 
-  function resetRendererFailures(): void {
-    rendererFailures.clear();
-    retryAfter.clear();
-  }
-
   function destroyAll(): void {
-    for (const timer of retryTimers) clearTimeout(timer);
-    retryTimers.clear();
+    backoff.dispose();
     for (const entry of windows.values()) {
       if (!entry.window.isDestroyed()) entry.window.destroy();
     }
@@ -226,7 +217,7 @@ export function createOverlayWindows(host: OverlayWindowsHost) {
     dropWindowsForMissingDisplays,
     repositionAll,
     forgetRendered,
-    resetRendererFailures,
+    resetRendererFailures: backoff.reset,
     destroyAll,
   };
 }

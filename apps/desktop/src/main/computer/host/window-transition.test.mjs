@@ -90,6 +90,10 @@ test('computer window transition selects one deterministic successor', () => {
     main.id
   );
   assert.equal(ambiguous.next_target, undefined);
+});
+
+test('a launch targets the window of its process or of the app it delegated to', () => {
+  const main = windowRecord('hwnd:0x1', { title: 'main', focused: true });
 
   const launched = computeComputerWindowTransition(
     [main],
@@ -114,16 +118,6 @@ test('computer window transition selects one deterministic successor', () => {
     ['hwnd:0x5']
   );
 
-  const delegatedExisting = computeComputerWindowTransition(
-    [main, windowRecord('hwnd:0x9', { app: 'Notepad', pid: 505 })],
-    [main, windowRecord('hwnd:0x9', { app: 'Notepad', pid: 505 })],
-    '',
-    606,
-    'Notepad'
-  );
-  assert.equal(delegatedExisting.next_target?.id, 'hwnd:0x9');
-  assert.equal(delegatedExisting.next_target_reason, 'launched_app_existing');
-
   const delegatedOpened = computeComputerWindowTransition(
     [main],
     [{ ...main, focused: false }, windowRecord('hwnd:0x6', { app: 'Notepad', pid: 505, focused: true })],
@@ -133,6 +127,19 @@ test('computer window transition selects one deterministic successor', () => {
   );
   assert.equal(delegatedOpened.next_target?.id, 'hwnd:0x6');
   assert.equal(delegatedOpened.next_target_reason, 'launched_app_opened');
+});
+
+test('a launch confirms its target only when the window proves it', () => {
+  const main = windowRecord('hwnd:0x1', { title: 'main', focused: true });
+  const delegatedExisting = computeComputerWindowTransition(
+    [main, windowRecord('hwnd:0x9', { app: 'Notepad', pid: 505 })],
+    [main, windowRecord('hwnd:0x9', { app: 'Notepad', pid: 505 })],
+    '',
+    606,
+    'Notepad'
+  );
+  assert.equal(delegatedExisting.next_target?.id, 'hwnd:0x9');
+  assert.equal(delegatedExisting.next_target_reason, 'launched_app_existing');
 
   const shellAssociated = computeComputerWindowTransition(
     [main],

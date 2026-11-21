@@ -475,7 +475,7 @@ test('a dock-view tap before the dock chunk loads opens the page once the chunk 
   }
 });
 
-test('a Search tap waits for its project root listing too, then opens with rows already cached', async () => {
+async function searchTapFixture() {
   const { resetExplorerRootCache, peekExplorerRoot, setCurrentExplorerProject } = await import(
     './explorer-root-cache.ts'
   );
@@ -490,69 +490,75 @@ test('a Search tap waits for its project root listing too, then opens with rows 
     },
   };
   const loaded = { peek: () => ({}), load: async () => ({}) };
-  {
-    resetExplorerRootCache();
-    setCurrentExplorerProject('C:/demo');
-    const view = await mountPhoneSelection(loaded, () => true, undefined, { explorerProjectPath: 'C:/demo' });
-    window.mixdogDesktop = api;
-    try {
-      await view.select('search');
-      await view.select('search');
-      assert.deepEqual(view.docked, [], 'the chunk is in but the root is not: nothing opens yet');
-      assert.equal(reads.length, 1, 'one read serves both taps');
-      assert.equal(peekExplorerRoot('C:/demo'), undefined);
-      await act(async () => {
-        reads[0].read.resolve([{ name: 'src', dir: true }]);
-        await new Promise((resolve) => setImmediate(resolve));
-      });
-      assert.deepEqual(view.docked, ['left:search'], 'opens once, with the root cached for its first frame');
-      assert.equal(peekExplorerRoot('C:/demo').length, 1);
-      await view.select('search');
-      assert.deepEqual(view.docked, ['left:search', 'left:search'], 'cached root: opens at once');
-    } finally {
-      await view.unmount();
-    }
-    // A failed read opens anyway: the tree reports it itself.
+  const mountSearch = async () => {
     resetExplorerRootCache();
     setCurrentExplorerProject('C:/demo');
     reads.length = 0;
-    const failing = await mountPhoneSelection(loaded, () => true, undefined, { explorerProjectPath: 'C:/demo' });
+    const view = await mountPhoneSelection(loaded, () => true, undefined, { explorerProjectPath: 'C:/demo' });
     window.mixdogDesktop = api;
+    return view;
+  };
+  return { reads, peekExplorerRoot, mountSearch };
+}
+
+test('a Search tap waits for its project root listing too, then opens with rows already cached', async () => {
+  const { reads, peekExplorerRoot, mountSearch } = await searchTapFixture();
+  const view = await mountSearch();
+  try {
+    await view.select('search');
+    await view.select('search');
+    assert.deepEqual(view.docked, [], 'the chunk is in but the root is not: nothing opens yet');
+    assert.equal(reads.length, 1, 'one read serves both taps');
+    assert.equal(peekExplorerRoot('C:/demo'), undefined);
+    await act(async () => {
+      reads[0].read.resolve([{ name: 'src', dir: true }]);
+      await new Promise((resolve) => setImmediate(resolve));
+    });
+    assert.deepEqual(view.docked, ['left:search'], 'opens once, with the root cached for its first frame');
+    assert.equal(peekExplorerRoot('C:/demo').length, 1);
+    await view.select('search');
+    assert.deepEqual(view.docked, ['left:search', 'left:search'], 'cached root: opens at once');
+  } finally {
+    await view.unmount();
+  }
+});
+
+test('a Search tap whose root listing fails opens anyway and keeps the failure for the tree', async () => {
+  const { reads, mountSearch } = await searchTapFixture();
+  const failing = await mountSearch();
+  try {
+    await failing.select('search');
+    assert.deepEqual(failing.docked, []);
+    await act(async () => {
+      reads[0].read.reject(new Error('EACCES'));
+      await new Promise((resolve) => setImmediate(resolve));
+    });
+    assert.deepEqual(failing.docked, ['left:search']);
+    // The failure is kept for the tree that opens: a further tap opens at once, no new read.
+    await failing.select('search');
+    assert.deepEqual(failing.docked, ['left:search', 'left:search']);
+    assert.equal(reads.length, 1);
+  } finally {
+    await failing.unmount();
+  }
+});
+
+test('another view or a drawer dismissal drops a pending Search open', async () => {
+  const { reads, mountSearch } = await searchTapFixture();
+  const { announceDrawerDismiss } = await import('./drawer-intent.ts');
+  for (const moveOn of [(v) => v.select('terminal'), () => act(async () => announceDrawerDismiss())]) {
+    const dropped = await mountSearch();
     try {
-      await failing.select('search');
-      assert.deepEqual(failing.docked, []);
+      await dropped.select('search');
+      await moveOn(dropped);
+      const before = [...dropped.docked];
       await act(async () => {
-        reads[0].read.reject(new Error('EACCES'));
+        reads[0].read.resolve([]);
         await new Promise((resolve) => setImmediate(resolve));
       });
-      assert.deepEqual(failing.docked, ['left:search']);
-      // The failure is kept for the tree that opens: a further tap opens at once, no new read.
-      await failing.select('search');
-      assert.deepEqual(failing.docked, ['left:search', 'left:search']);
-      assert.equal(reads.length, 1);
+      assert.deepEqual(dropped.docked, before, 'a request the user moved on from never opens');
     } finally {
-      await failing.unmount();
-    }
-    // Another view, or a drawer dismissal, drops the pending Search open.
-    const { announceDrawerDismiss } = await import('./drawer-intent.ts');
-    for (const moveOn of [(v) => v.select('terminal'), () => act(async () => announceDrawerDismiss())]) {
-      resetExplorerRootCache();
-      setCurrentExplorerProject('C:/demo');
-      reads.length = 0;
-      const dropped = await mountPhoneSelection(loaded, () => true, undefined, { explorerProjectPath: 'C:/demo' });
-      window.mixdogDesktop = api;
-      try {
-        await dropped.select('search');
-        await moveOn(dropped);
-        const before = [...dropped.docked];
-        await act(async () => {
-          reads[0].read.resolve([]);
-          await new Promise((resolve) => setImmediate(resolve));
-        });
-        assert.deepEqual(dropped.docked, before, 'a request the user moved on from never opens');
-      } finally {
-        await dropped.unmount();
-      }
+      await dropped.unmount();
     }
   }
 });

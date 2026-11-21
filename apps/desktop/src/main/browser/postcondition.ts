@@ -60,10 +60,6 @@ export function normalizeBrowserSettleMs(raw: unknown): number {
   return boundedInteger(raw, 0, 0, MAX_EXPLICIT_SETTLE_MS);
 }
 
-/** Page text keeps the document's own spacing: an indent, a run of spaces, or
- *  a non-breaking space where the caller wrote one plain space. Runs of
- *  horizontal whitespace collapse on both sides, while line breaks stay —
- *  two blocks the reader sees on separate lines are not one phrase. */
 function comparableText(value: string): string {
   return value
     .split(/\r?\n/)

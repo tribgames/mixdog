@@ -1,15 +1,5 @@
 import { resolve, sep } from 'node:path';
 
-// Process-local ownership for project-files' cooperating mutations, not an OS
-// lock. Claim every path up front (including a WorkspaceEdit's whole set), so
-// opposite-order batches cannot deadlock and rollback stays inside the claim.
-// Ancestor claims cover directory renames; disjoint files still run in parallel.
-//
-// Paths are not file identity: two hard links are two paths for one file, which
-// the path claims cannot see. In-place writers therefore also claim the file's
-// identity (device + file index of the open handle) before touching its bytes.
-// Identity claims are only ever taken inside a path claim, all at once, and
-// their holders wait for nothing else, so the two queues cannot deadlock.
 interface Claim {
   keys: string[];
   done: Promise<void>;

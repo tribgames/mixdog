@@ -1,10 +1,3 @@
-// Settings → Notifications → On this device: the registration that lets THIS
-// device hear about a notification while the app is closed (the web app's push
-// switch, the phone app's OS permission status). The Electron window has the
-// taskbar flash instead and never renders this — the shim is what supplies the
-// push API, so its absence hides the switch with no surface check. The
-// "Connect to another PC" window is Electron too, running the shim: it has no
-// push service at all, so it never offers the switch either.
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 import type { DesktopApi } from '../../shared/contract';
@@ -116,14 +109,8 @@ export function pushSupported(api: PushApi): boolean {
   );
 }
 
-/** Why a web app that should offer the switch cannot, when the user can do
- *  something about it. Null where the switch is simply not this surface's
- *  (the desktop window, the "Connect to another PC" window, the phone app,
- *  whose shell owns its notifications) or where nothing can be done.
- *  'install': iOS Safari only exposes Web Push to a Home Screen install.
- *  `navigator.standalone` is defined on iOS Safari alone (false in a tab, true
- *  when installed), which is why this is not a user-agent test; no other
- *  property tells an iPhone tab from a browser that lacks push.
+/** Why the switch cannot be offered when the user can fix it; null when this surface has no switch or nothing helps.
+ *  'install': iOS Safari exposes Web Push only to a Home Screen install (`navigator.standalone` is false in a tab).
  *  'secure': Web Push needs https. */
 export function pushUnavailableReason(api: PushApi): 'install' | 'secure' | null {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return null;
@@ -168,21 +155,11 @@ export function DevicePushRegistration({ api }: { api: PushApi }) {
   return nativeAppInfo()?.call ? <NativePushStatus /> : <WebPushToggle api={api} />;
 }
 
-function WebPushToggle({ api }: { api: PushApi }) {
-  const supported = pushSupported(api);
-  const unavailable = supported ? null : pushUnavailableReason(api);
+function useBrowserPushState(supported: boolean) {
   const [enabled, setEnabled] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
   // Which paired PCs deliver to this browser (relay-owned push only).
   const [pcs, setPcs] = useState<PcRegistrations | null>(null);
-
-  // The browser owns the truth: a subscription can survive a reinstall of the
-  // app or be cleared from browser settings without this UI ever hearing. A
-  // subscription is only ON while the OS still lets this app notify: blocking
-  // it in system settings keeps the subscription but shows nothing. Re-read on
-  // return, since that change happens outside the app. The relay owns the
-  // other half: which of this browser's PCs hold an association with it.
   useEffect(() => {
     if (!supported) return undefined;
     let live = true;
@@ -214,6 +191,14 @@ function WebPushToggle({ api }: { api: PushApi }) {
       document.removeEventListener('visibilitychange', refresh);
     };
   }, [supported]);
+  return { enabled, setEnabled, note, setNote, pcs, setPcs };
+}
+
+function WebPushToggle({ api }: { api: PushApi }) {
+  const supported = pushSupported(api);
+  const unavailable = supported ? null : pushUnavailableReason(api);
+  const [busy, setBusy] = useState(false);
+  const { enabled, setEnabled, note, setNote, pcs, setPcs } = useBrowserPushState(supported);
 
   // PCs that did not take the registration are asked again until they do.
   const [retries, setRetries] = useState(0);

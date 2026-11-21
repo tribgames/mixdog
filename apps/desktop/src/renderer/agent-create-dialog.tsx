@@ -1,10 +1,3 @@
-// The Agents pane's "+": a face (a mascot and colour, or an uploaded image)
-// and a name on top, then the
-// model and a one-line job, then 지침 설정 (PERSONA.md and AGENT.md, always
-// shown; AGENT.md keeps its default body while left empty). Saves through the same agent-editor path as the Workflows panel.
-// In 대표 에이전트 mode (no Mixy yet, mixy-first.tsx) it creates Mixy: the
-// name "Mixy" and Mixy's pup (with the star) come prefilled and stay editable;
-// it is saved to agents/lead/ and the Main route.
 import { Star, X } from 'lucide-react';
 import { type FormEvent, useId, useMemo, useState } from 'react';
 import type { DesktopModelOption, DesktopModelSelection } from '../shared/contract';
@@ -42,6 +35,50 @@ import { agentBodyFromBrief } from './workflow-dialogs';
 import type { RecordValue } from './desktop-types';
 
 const NO_IMAGES: AvatarImages = {};
+
+/** What a new bot is created from. Mixy keeps the runtime's own instructions
+ *  unless 일하는 방식 is written, and its own look unless images are given. */
+function createPayload({
+  representative,
+  custom,
+  draft,
+  avatar,
+  name,
+  description,
+  route,
+  persona,
+  body,
+}: {
+  representative: boolean;
+  custom: boolean;
+  draft: AvatarStatesDraft;
+  avatar: MascotAvatarValue;
+  name: string;
+  description: string;
+  route: DesktopModelSelection | null;
+  persona: string;
+  body: string;
+}): RecordValue {
+  if (representative) {
+    return {
+      name: name.trim(),
+      ...(custom ? { avatar: customAvatarPayload(draft) } : {}),
+      ...(!custom && !isSignatureDefault(avatar) ? { avatar } : {}),
+      description: description.trim(),
+      ...(route ? { route } : {}),
+      ...(persona.trim() ? { persona: persona.trim() } : {}),
+      ...(body.trim() ? { body: body.trim() } : {}),
+    };
+  }
+  return {
+    name: name.trim(),
+    description: description.trim(),
+    avatar: custom ? customAvatarPayload(draft) : avatar,
+    ...(route ? { route } : {}),
+    ...(persona.trim() ? { persona: persona.trim() } : {}),
+    body: body.trim() || agentBodyFromBrief(name, description),
+  };
+}
 
 export function AgentCreateForm({
   models,
@@ -88,28 +125,19 @@ export function AgentCreateForm({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!ready || busy) return;
-    if (representative) {
-      // Mixy keeps the runtime's own instructions unless 일하는 방식 is written,
-      // and its own look unless images are given.
-      onSave({
-        name: name.trim(),
-        ...(custom ? { avatar: customAvatarPayload(draft) } : {}),
-        ...(!custom && !isSignatureDefault(avatar) ? { avatar } : {}),
-        description: description.trim(),
-        ...(modelChosen ? { route } : {}),
-        ...(persona.trim() ? { persona: persona.trim() } : {}),
-        ...(body.trim() ? { body: body.trim() } : {}),
-      });
-      return;
-    }
-    onSave({
-      name: name.trim(),
-      description: description.trim(),
-      avatar: custom ? customAvatarPayload(draft) : avatar,
-      ...(modelChosen ? { route } : {}),
-      ...(persona.trim() ? { persona: persona.trim() } : {}),
-      body: body.trim() || agentBodyFromBrief(name, description),
-    });
+    onSave(
+      createPayload({
+        representative,
+        custom,
+        draft,
+        avatar,
+        name,
+        description,
+        route: modelChosen ? route : null,
+        persona,
+        body,
+      })
+    );
   };
   return (
     <SidebarDialogLayer onClose={onCancel}>

@@ -6,15 +6,12 @@ import { installTestDom } from '../test-support/test-dom.mjs';
 import { loadSettingsViewModule } from '../app-shell-components.tsx';
 import { AppSidebarDrawer } from './AppSidebarDrawer.tsx';
 
-test('AppSidebarDrawer renders sidebar drawer frame and activity rail with given state', async () => {
+async function mountDrawer() {
   const { dom } = installTestDom(null, {
     jsdom: { url: 'about:blank' },
     expose: ['navigator', 'HTMLElement', 'Event', 'CustomEvent'],
   });
-
-  let settingsOpened = false;
-  let navigationClosedMotion = null;
-
+  const state = { settingsOpened: false, navigationClosedMotion: null };
   const props = {
     sidebarOpen: true,
     sidebarMotion: 'animated',
@@ -30,10 +27,10 @@ test('AppSidebarDrawer renders sidebar drawer frame and activity rail with given
     openWebhooks: () => {},
     closeActiveRailPanel: () => {},
     closeSidebarForNavigation: (motion) => {
-      navigationClosedMotion = motion;
+      state.navigationClosedMotion = motion;
     },
     openSettings: () => {
-      settingsOpened = true;
+      state.settingsOpened = true;
     },
     setCommandSurface: () => {},
     workbenchSideLayout: {
@@ -52,98 +49,82 @@ test('AppSidebarDrawer renders sidebar drawer frame and activity rail with given
     closeSidebarDiff: () => {},
     openFileTab: () => {},
   };
-
   const root = createRoot(dom.window.document.getElementById('root'));
-  await act(async () => {
-    root.render(React.createElement(AppSidebarDrawer, props));
-  });
+  const render = (overrides = {}) =>
+    act(async () => {
+      root.render(React.createElement(AppSidebarDrawer, { ...props, ...overrides }));
+    });
+  await render();
+  const document = dom.window.document;
+  return {
+    state,
+    render,
+    frame: document.querySelector('.sidebar-drawer-frame'),
+    rail: document.querySelector('.activity-rail'),
+    settingsButton: document.querySelector('.sidebar-settings-button'),
+    unmount: () => act(async () => root.unmount()),
+  };
+}
 
-  const frame = dom.window.document.querySelector('.sidebar-drawer-frame');
+test('AppSidebarDrawer renders the drawer frame and activity rail with an unselected settings button', async () => {
+  const { frame, rail, settingsButton, unmount } = await mountDrawer();
   assert.notEqual(frame, null);
   assert.equal(frame.getAttribute('data-state'), 'open');
   assert.equal(frame.getAttribute('data-motion'), 'animated');
-
-  const rail = dom.window.document.querySelector('.activity-rail');
   assert.notEqual(rail, null);
-
-  const settingsButton = dom.window.document.querySelector('.sidebar-settings-button');
   assert.notEqual(settingsButton, null);
   assert.equal(settingsButton.getAttribute('aria-label'), 'Open settings');
   assert.equal(settingsButton.classList.contains('selected'), false);
   assert.equal(settingsButton.getAttribute('aria-current'), null);
+  await unmount();
+});
 
+test('AppSidebarDrawer opens settings once the settings module has loaded and closes the drawer instantly', async () => {
+  const { state, settingsButton, unmount } = await mountDrawer();
   await act(async () => {
     settingsButton.click();
   });
-  // The settings module loads on demand: a tap that beats it opens the dialog
-  // once it has resolved (at once when it already had).
   await act(async () => {
     await loadSettingsViewModule();
   });
-  assert.equal(settingsOpened, true);
-  assert.equal(navigationClosedMotion, 'instant');
+  assert.equal(state.settingsOpened, true);
+  assert.equal(state.navigationClosedMotion, 'instant');
+  await unmount();
+});
 
-  // Closed sidebar behavior: when closed, sidebarPanel does not activate the rail surface
-  await act(async () => {
-    root.render(
-      React.createElement(AppSidebarDrawer, {
-        ...props,
-        sidebarOpen: false,
-        sidebarPanel: 'projects',
-        settingsOpen: false,
-      })
-    );
-  });
+test('AppSidebarDrawer: a closed sidebar does not activate the rail surface for its panel', async () => {
+  const { frame, settingsButton, render, unmount } = await mountDrawer();
+  await render({ sidebarOpen: false, sidebarPanel: 'projects', settingsOpen: false });
   assert.equal(frame.getAttribute('data-state'), 'closed');
   assert.equal(settingsButton.classList.contains('selected'), false);
   assert.equal(settingsButton.getAttribute('aria-current'), null);
+  await unmount();
+});
 
-  // Settings precedence: settingsOpen overrides closed sidebar and panel selection
-  await act(async () => {
-    root.render(
-      React.createElement(AppSidebarDrawer, {
-        ...props,
-        sidebarOpen: false,
-        sidebarPanel: 'projects',
-        settingsOpen: true,
-      })
-    );
-  });
+test('AppSidebarDrawer: settingsOpen selects the settings button over a closed sidebar and its panel', async () => {
+  const { frame, settingsButton, render, unmount } = await mountDrawer();
+  await render({ sidebarOpen: false, sidebarPanel: 'projects', settingsOpen: true });
   assert.equal(frame.getAttribute('data-state'), 'closed');
   assert.equal(settingsButton.classList.contains('selected'), true);
   assert.equal(settingsButton.getAttribute('aria-current'), 'page');
+  await unmount();
+});
 
-  // Toggle behavior: re-opening sidebar preserves settings selection precedence
-  await act(async () => {
-    root.render(
-      React.createElement(AppSidebarDrawer, {
-        ...props,
-        sidebarOpen: true,
-        sidebarPanel: 'projects',
-        settingsOpen: true,
-      })
-    );
-  });
+test('AppSidebarDrawer: reopening the sidebar keeps the settings selection', async () => {
+  const { frame, settingsButton, render, unmount } = await mountDrawer();
+  await render({ sidebarOpen: false, sidebarPanel: 'projects', settingsOpen: true });
+  await render({ sidebarOpen: true, sidebarPanel: 'projects', settingsOpen: true });
   assert.equal(frame.getAttribute('data-state'), 'open');
   assert.equal(settingsButton.classList.contains('selected'), true);
   assert.equal(settingsButton.getAttribute('aria-current'), 'page');
+  await unmount();
+});
 
-  // Panel active when sidebar is open and settings is closed
-  await act(async () => {
-    root.render(
-      React.createElement(AppSidebarDrawer, {
-        ...props,
-        sidebarOpen: true,
-        sidebarPanel: 'projects',
-        settingsOpen: false,
-      })
-    );
-  });
+test('AppSidebarDrawer: an open sidebar with settings closed leaves the settings button unselected', async () => {
+  const { frame, settingsButton, render, unmount } = await mountDrawer();
+  await render({ sidebarOpen: true, sidebarPanel: 'projects', settingsOpen: false });
   assert.equal(frame.getAttribute('data-state'), 'open');
   assert.equal(settingsButton.classList.contains('selected'), false);
   assert.equal(settingsButton.getAttribute('aria-current'), null);
-
-  await act(async () => {
-    root.unmount();
-  });
+  await unmount();
 });

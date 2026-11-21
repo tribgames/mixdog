@@ -333,9 +333,7 @@ function requiredSummary(actions) {
 }
 
 /** One tool's input schema from the shared flat field list: the action enum is
- *  the tool's own subset and only the fields those actions accept ride along,
- *  so the default `browser` tool never carries a cookie attribute or a CPU
- *  throttle it cannot use. */
+ *  the tool's own subset and only the fields those actions accept ride along. */
 export function buildBrowserInputSchema(flatSchema, actions = BROWSER_ACTIONS) {
   const properties = flatSchema?.properties || {};
   const { action, ...inputProperties } = properties;

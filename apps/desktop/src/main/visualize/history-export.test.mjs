@@ -765,9 +765,11 @@ test('an export past the host deadline aborts the render and writes no file', as
   await readdir(cwd); // a real I/O round trip: a late write would have started by now
   assert.equal(existsSync(join(cwd, 'design', 'late.png')), false);
   assert.deepEqual(existsSync(join(cwd, 'design')) ? readdirSync(join(cwd, 'design')) : [], []);
+});
 
-  // Within the deadline the file is written.
-  t.mock.timers.reset();
+test('an export within the host deadline writes its file', async () => {
+  const cwd = project();
+  writeFileSync(join(cwd, 'page.html'), '<h1>x</h1>');
   const quick = exportSetup(cwd, { exportDeadlineMs: 5000 });
   await quick.open({ targets: ['page.html'] });
   await quick.run({ tab: 'v1', format: 'png', output: 'design/ok.png' });

@@ -1,9 +1,4 @@
-/**
- * Bounded input sequences: one observed window, one input step followed by
- * typing, keys, or short waits, then a single capture of the outcome. Step
- * commands are marked so the router neither captures after each one nor
- * demands a fresh observation for the continuation steps.
- */
+import { errorMessage } from '../../error-message';
 import { elapsedMs } from '../shared/common';
 import type { ComputerCommand, ComputerCommandResult, ObservedWindowScope } from '../shared/types';
 import { windowTransitionRetargets } from '../shared/window-transition';
@@ -169,10 +164,6 @@ function assertSequenceStep(step: SequenceStep, index: number): string {
 
 /** A sequence whose preflight refused its delivery: no step ran, and the reply
  *  says so step by step so the caller can pick another delivery. */
-function errorMessage(error: unknown): string {
-  return (error as Error)?.message || String(error);
-}
-
 function preflightRefusedReply(
   windowId: string,
   stepCommands: ComputerCommand[],
@@ -245,10 +236,6 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
         window_id: windowId,
         delivery,
         session_id: sessionIdFor(command),
-        // Swapping the system cursors costs far more than the keystroke it
-        // decorates, so one lease covers the whole sequence and only its last
-        // step pays the wait that protects a finished gesture. In the background
-        // the same flag keeps one no-activate hold on the target across steps.
         ...(index < steps.length - 1 ? { input_continues: true } : {}),
       };
       assertSafeComputerInput(stepCommand);
@@ -320,9 +307,6 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
     } catch (error) {
       stepsError = error;
     } finally {
-      // A sequence that stopped early (failed step, target transition, abort)
-      // never sends the last step that would end its hold, so every background
-      // sequence ends the session's sequence holds itself, before the capture.
       if ((command.delivery || 'background') !== 'foreground' && host.releaseSequenceHolds) {
         try {
           await host.releaseSequenceHolds(sessionIdFor(command));

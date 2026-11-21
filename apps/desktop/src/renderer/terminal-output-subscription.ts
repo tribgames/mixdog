@@ -15,10 +15,9 @@ export interface TerminalOutputOwner {
 /** `reset` marks a replay of the whole screen after a server reattach. */
 type SubscribeTermData = (listener: (event: { id: string; data: string; reset?: true }) => void) => () => void;
 
-/** Attach the view's PTY output feed once. It outlives pane mounts: a hidden
- *  or re-parented terminal keeps parsing and acknowledging output, so main's
- *  flow control never counts IPC chunks nobody consumed and the shell is never
- *  paused behind a closed pane. */
+/** Attach the view's PTY output feed once. It outlives pane mounts, so a hidden
+ *  terminal keeps acknowledging output and main's flow control never pauses
+ *  the shell behind a closed pane. */
 export function attachTerminalOutput(
   view: TerminalOutputOwner,
   subscribe: SubscribeTermData | undefined,
@@ -28,10 +27,8 @@ export function attachTerminalOutput(
   view.unsubscribeOutput = subscribe((event) => {
     if (event.id !== view.id) return;
     if (event.reset === true) {
-      // The host redraws from a clean screen: clear the view, then write the
-      // replay as a replay write (ordered before later output). Main counts the
-      // replay in flight (TerminalDataBufferer.reset), so it is acknowledged
-      // once written; unacknowledged it would hold main's window shut.
+      // Main counts the replay in flight (TerminalDataBufferer.reset): it must be
+      // acknowledged once written or main's window stays shut.
       view.localEcho?.reset?.();
       const reset = () => {
         try {

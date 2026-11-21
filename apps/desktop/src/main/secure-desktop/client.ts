@@ -199,10 +199,6 @@ export class SecureDesktopClient {
 
     return new Promise<ServerHello>((resolve, reject) => {
       this.pendingConnect = { resolve, reject };
-      // A socket's events count only while it is the client's connection: a socket given up by `close()` or
-      // replaced by a later `connect()` may still deliver data, an error or its close, and none of them may reach
-      // the shared parser, fail the current connect or end the current session. Its own close still counts while
-      // no other socket has taken its place (after `close()` or an abort).
       connection.on('data', (chunk: Buffer) => {
         if (this.connection === connection) this.onData(chunk);
       });

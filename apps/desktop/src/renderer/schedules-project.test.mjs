@@ -1,7 +1,3 @@
-// The project picker of the Schedules editor classifies "No project" from the
-// host's task workspace, which can arrive after the editor opened: the picker
-// follows it, the user's own pick survives it, and an untouched save writes
-// the stored cwd back unchanged.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';

@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// Runs the mobile tests of one lane. `unit` is every src/**/*.test.ts that is not a slow test; `e2e` is every
-// src/**/*.slow.test.ts, which starts the Rust relay (native/core/target/{release,debug}/mixdog-relay, built by
-// `cargo build -p mixdog-relay`) and so runs only where that binary exists (release-gate's relay-rust job).
-//   node scripts/run-tests.mjs unit|e2e
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -12,7 +8,9 @@ import { beginReceipt, childrenOf, finishReceipt, receiptPath } from '../../../s
 import { DEFAULT_TEST_TIMEOUT_MS, LONG_TEST_TIMEOUT_MS, testTimeoutArg } from '../../../scripts/lib/run-node-tests.mjs';
 
 const reporterUrl = (receipt) => {
-  const url = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'scripts', 'ci', 'skip-reporter.mjs'));
+  const url = pathToFileURL(
+    join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'scripts', 'ci', 'skip-reporter.mjs')
+  );
   url.searchParams.set('out', receipt);
   return url.href;
 };
@@ -40,16 +38,31 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const receipt = receiptPath(env);
   delete env.MIXDOG_RECEIPT;
   delete env.MIXDOG_CHILD_RECEIPTS;
-  const reporting = receipt ? ['--test-reporter=spec', '--test-reporter-destination=stdout', `--test-reporter=${reporterUrl(receipt)}`, '--test-reporter-destination=stdout'] : [];
+  const reporting = receipt
+    ? [
+        '--test-reporter=spec',
+        '--test-reporter-destination=stdout',
+        `--test-reporter=${reporterUrl(receipt)}`,
+        '--test-reporter-destination=stdout',
+      ]
+    : [];
   if (receipt) {
     beginReceipt(receipt, 'node');
     env.MIXDOG_CHILD_RECEIPTS = childrenOf(receipt);
   }
   // As scripts/test.mjs: a handle left open no longer keeps a finished file alive, and a file that never finishes fails.
   const nodeArgs = ['--test-force-exit'];
-  const timeout = testTimeoutArg(nodeArgs, env, process.argv[2] === 'unit' ? DEFAULT_TEST_TIMEOUT_MS : LONG_TEST_TIMEOUT_MS);
+  const timeout = testTimeoutArg(
+    nodeArgs,
+    env,
+    process.argv[2] === 'unit' ? DEFAULT_TEST_TIMEOUT_MS : LONG_TEST_TIMEOUT_MS
+  );
   if (timeout) nodeArgs.push(timeout);
-  const run = spawnSync(process.execPath, ['--import', 'tsx', ...reporting, '--test', ...nodeArgs, ...files], { cwd: ROOT, stdio: 'inherit', env });
+  const run = spawnSync(process.execPath, ['--import', 'tsx', ...reporting, '--test', ...nodeArgs, ...files], {
+    cwd: ROOT,
+    stdio: 'inherit',
+    env,
+  });
   const status = run.status ?? 1;
   if (receipt) finishReceipt(receipt, status);
   process.exit(status);

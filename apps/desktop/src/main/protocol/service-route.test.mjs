@@ -1,7 +1,4 @@
-// The DesktopService methods as core requests (service-route.ts): the exact op and params each converted method
-// sends, the methods with no op (refused before anything is sent), and the client's wiring. Expected values are
-// written from the Rust params (`client_methods.json`), not from the router; every param sent must be a property of
-// the op's schema.
+// Expected values are written from the Rust params (`client_methods.json`), not from the router.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -410,16 +407,6 @@ const failure = (reason) =>
       ? Object.assign(new Error('lost'), { detail: { kind: 'connectionLost' } })
       : Object.assign(new Error('bad'), { detail: { kind: 'rpc', code: -32603 } });
 
-/**
- * A core modeled as the thread subscriptions each of its connections holds, under a client shaped as the library's: it
- * follows a thread once a resume is answered, stops following before an unsubscribe goes out, and after its own reconnect
- * announces `ready` first and then restores what it follows, each restore a request of its own that the core applies when it
- * answers it (so an unsubscribe answered before a queued restore cannot remove what that restore attaches). It says what it
- * follows and what it is restoring (`threadSubscription`). `answer(method, threadId, client)` decides each request
- * ('thread/resume', 'thread/unsubscribe', or 'restore'): 'ok', 'fail', 'unavailable' (`threadNotFound`), or 'hold' (settled
- * later through `held`). With `defer`, the connection reaches the client a microtask after the lane's call, as the renderer's
- * does. The retry timers are the test's: `timers` holds the pending ones and `fire()` runs them.
- */
 function modeled(answer = () => 'ok', { defer = false, report } = {}) {
   const held = [];
   const sent = [];

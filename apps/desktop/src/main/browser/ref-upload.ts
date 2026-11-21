@@ -1,9 +1,3 @@
-/**
- * Putting files on the page. A file-input ref takes them directly; any other
- * ref is clicked to open its picker, and a zone that never shows a picker
- * takes them as a drop; no ref answers a picker the page already opened.
- * Every route verifies the page accepted the files instead of assuming it.
- */
 import { stat } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 
@@ -78,10 +72,6 @@ function loaderOfFrame(node: FrameTreeNode | undefined, frameId: string): string
   return undefined;
 }
 
-/** The frame document an element belongs to, read from the element itself so a
- *  same-process iframe and a cross-origin one are told apart alike. The key is
- *  the CDP session, the frame id, the document's loader id (a reload, even to
- *  the same URL, is a new document) and its URL. */
 async function receiverOfObject(
   host: RefUploadHost,
   guest: WebContents,
@@ -161,19 +151,12 @@ const CONTAINS_HIT = `function(hit) {
   return false;
 }`;
 
-/** Refuses unless the topmost node at the drop point, hit-tested by the
- *  browser itself (no page script takes part), is the approved target or a
- *  descendant of it, in the approved frame and document. Chromium hands a
- *  drop to the frame of that node, so a frame laid or swapped over the point
- *  never receives the files. Hit testing descends into each cross-origin
- *  frame whose owner element is hit. */
-async function assertDropLandsOn(
+async function hitTestDropPoint(
   host: RefUploadHost,
   guest: WebContents,
   point: { x: number; y: number },
-  target: DropTarget,
   signal?: AbortSignal
-): Promise<void> {
+): Promise<{ hit: { backendNodeId?: number; frameId?: string } | undefined; sessionId: string | undefined }> {
   const changed = () => new Error(UPLOAD_TARGET_CHANGED);
   const frames = host.frames?.(guest) ?? new Map<string, { frameId?: string }>();
   let sessionId: string | undefined;
@@ -210,6 +193,18 @@ async function assertDropLandsOn(
     sessionId = child;
     local = { x: point.x - offset.x, y: point.y - offset.y };
   }
+  return { hit, sessionId };
+}
+
+async function assertDropLandsOn(
+  host: RefUploadHost,
+  guest: WebContents,
+  point: { x: number; y: number },
+  target: DropTarget,
+  signal?: AbortSignal
+): Promise<void> {
+  const changed = () => new Error(UPLOAD_TARGET_CHANGED);
+  const { hit, sessionId } = await hitTestDropPoint(host, guest, point, signal);
   if (!hit?.backendNodeId || (sessionId || '') !== (target.sessionId || '') || hit.frameId !== target.frameId) {
     throw changed();
   }
@@ -244,8 +239,6 @@ async function assertDropLandsOn(
 
 const UNIDENTIFIED_RECEIVER = 'the frame receiving the upload could not be identified';
 
-/** The ref element as the approved frame's observation world sees it, so its
- *  drop guard can be aimed there. */
 async function backendNodeOf(
   host: RefUploadHost,
   guest: WebContents,
@@ -267,13 +260,48 @@ async function backendNodeOf(
   return backendNodeId;
 }
 
-/** A drop of approved files. The approved frame is re-identified now, and the
- *  browser hit-tests the drop point before the payload is announced and again
- *  right before the drop (`assertDropLandsOn`): anything but the approved
- *  target there and nothing is dropped. The in-page guards (every frame
- *  refuses, the approved frame admits only the ref) stay as defence in depth
- *  for what changes after that last check; being page-world listeners, they
- *  are not the boundary. */
+async function aimDropGuardAtRef(
+  host: RefUploadHost,
+  guest: WebContents,
+  ref: string,
+  object: RefObject,
+  approvedReceiver: string,
+  frames: Array<[string, unknown, number]>,
+  signal?: AbortSignal
+): Promise<DropTarget> {
+  const receiver = await frameOfObject(host, guest, object, signal);
+  if (receiver.key !== approvedReceiver) throw new Error(UPLOAD_TARGET_CHANGED);
+  const context = frames.find(([frameId]) => frameId === receiver.frameId)?.[2];
+  if (context === undefined) throw new Error(UNIDENTIFIED_RECEIVER);
+  const dropTarget: DropTarget = {
+    sessionId: object.sessionId,
+    frameId: receiver.frameId,
+    loaderId: receiver.loaderId,
+    backendNodeId: await backendNodeOf(host, guest, ref, object, signal),
+    executionContextId: context,
+  };
+  const target = await host.cdp.call<{ object?: { objectId?: string } }>(
+    guest,
+    'DOM.resolveNode',
+    { backendNodeId: dropTarget.backendNodeId, executionContextId: context },
+    signal,
+    { sessionId: object.sessionId }
+  );
+  const aimed = target.object?.objectId
+    ? await host.cdp.call<{ result?: { value?: boolean } }>(
+        guest,
+        'Runtime.callFunctionOn',
+        { objectId: target.object.objectId, functionDeclaration: BROWSER_DROP_GUARD_AIM, returnByValue: true },
+        signal,
+        { sessionId: object.sessionId }
+      )
+    : null;
+  if (target.object?.objectId)
+    releaseObject(host, guest, { objectId: target.object.objectId, sessionId: object.sessionId });
+  if (aimed?.result?.value !== true) throw new Error(UNIDENTIFIED_RECEIVER);
+  return dropTarget;
+}
+
 async function dropApprovedFilesOnRef(
   host: RefUploadHost,
   guest: WebContents,
@@ -289,36 +317,7 @@ async function dropApprovedFilesOnRef(
     const object = await resolveRefObject(host, guest, ref, signal);
     let dropTarget: DropTarget;
     try {
-      const receiver = await frameOfObject(host, guest, object, signal);
-      if (receiver.key !== approvedReceiver) throw new Error(UPLOAD_TARGET_CHANGED);
-      const context = frames.find(([frameId]) => frameId === receiver.frameId)?.[2];
-      if (context === undefined) throw new Error(UNIDENTIFIED_RECEIVER);
-      dropTarget = {
-        sessionId: object.sessionId,
-        frameId: receiver.frameId,
-        loaderId: receiver.loaderId,
-        backendNodeId: await backendNodeOf(host, guest, ref, object, signal),
-        executionContextId: context,
-      };
-      const target = await host.cdp.call<{ object?: { objectId?: string } }>(
-        guest,
-        'DOM.resolveNode',
-        { backendNodeId: dropTarget.backendNodeId, executionContextId: context },
-        signal,
-        { sessionId: object.sessionId }
-      );
-      const aimed = target.object?.objectId
-        ? await host.cdp.call<{ result?: { value?: boolean } }>(
-            guest,
-            'Runtime.callFunctionOn',
-            { objectId: target.object.objectId, functionDeclaration: BROWSER_DROP_GUARD_AIM, returnByValue: true },
-            signal,
-            { sessionId: object.sessionId }
-          )
-        : null;
-      if (target.object?.objectId)
-        releaseObject(host, guest, { objectId: target.object.objectId, sessionId: object.sessionId });
-      if (aimed?.result?.value !== true) throw new Error(UNIDENTIFIED_RECEIVER);
+      dropTarget = await aimDropGuardAtRef(host, guest, ref, object, approvedReceiver, frames, signal);
     } finally {
       releaseObject(host, guest, object);
     }

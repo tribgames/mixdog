@@ -1,9 +1,3 @@
-// The page-world sources the Rust browser engine includes with include_str!
-// (native/core/crates/mixdog-browser-engine/assets/page/) are copies of the
-// strings the TypeScript modules export. This test keeps the two from drifting:
-// each asset, with its placeholders filled in, is the exact text of the
-// TypeScript export. stable-rect.ts stays in TypeScript for the host
-// snapshot-scripts, so its asset stays guarded after the TypeScript runner goes.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';

@@ -1,10 +1,3 @@
-/**
- * One persisted line per page fault report (a crash, an unresponsive page, a
- * main-frame load that failed), so a fault screen can be told apart later:
- * which signal fired, whether it was the page itself or a child target, and
- * on which host. The main process installs the sink that writes it to the
- * desktop diagnostics file.
- */
 import type { WebContents } from 'electron';
 
 export interface PageFaultDiagnostic {

@@ -90,10 +90,6 @@ export const WorkflowSelect = memo(function WorkflowSelect({
     if (!optionsSettled) return;
     reportBootSurfaceStage('workflow-controls', 'catalog', 'data');
   }, [optionsSettled]);
-  // A fresh desktop draft intentionally has no workflow override: the engine
-  // will use its configured active workflow. Preserve listWorkflows.active so
-  // the picker names that real inherited value instead of presenting the old
-  // non-existent "Workflow" placeholder as though it were selected.
   const inherited = options.find((option) => option.active) || options[0];
   const selectedId = String(workflow?.id || inherited?.value || '');
   const selected = options.find((option) => option.value === selectedId);
@@ -176,13 +172,6 @@ function useWorkflowOptions() {
       cancelled = true;
     };
   }, [reloadNonce]);
-  // On a phone the first read can land before the relay leg is up, and an
-  // empty result was final: the picker settled to nothing and REMOVED itself
-  // until a remount. An empty catalog is never cached, so re-running the read
-  // on a recovered connection is the whole repair. The guard keeps a healthy
-  // session from re-reading on every resync. A pack edit reloads
-  // unconditionally — the new pack may be the second one, which is what brings
-  // this control into the row.
   useEffect(() => {
     const reload = () => setReloadNonce((nonce) => nonce + 1);
     const retry = () => {
@@ -366,6 +355,71 @@ export function contextTokensForPercent(
   return percent === contextWindow.defaultPercent
     ? contextWindow.defaultTokens
     : Math.floor((contextWindow.maxTokens * percent) / 100);
+}
+
+function modelChoiceSelection(
+  option: DesktopModelOption,
+  current: {
+    provider: string;
+    model: string;
+    effort: string;
+    fast: boolean;
+    autoEffort: boolean | undefined;
+    modelParameters: Record<string, string>;
+    contextPercent: number;
+    exactContextField: { contextTokens?: number };
+  }
+): DesktopModelSelection {
+  const { effort, autoEffort, exactContextField } = current;
+  const values = option.effortOptions.map((entry) => entry.value);
+  const sameModel = option.provider === current.provider && option.model === current.model;
+  const remembered = routePreferenceStore.get(option.provider, option.model);
+  const nextEffort = effortForModelChoice({
+    values,
+    sameModel,
+    current: effort,
+    saved: option.savedEffort,
+    remembered: remembered?.effort,
+  });
+  let requestedFast: boolean | undefined;
+  if (option.fastCapable) {
+    if (sameModel) requestedFast = current.fast;
+    else if (typeof remembered?.fast === 'boolean') requestedFast = remembered.fast;
+    else if (typeof option.savedFast === 'boolean') requestedFast = option.savedFast;
+    else requestedFast = option.fastPreferred;
+  }
+  let nextAutoEffort: boolean | undefined;
+  if (routeAutoEffortCapable(option)) {
+    if (sameModel) nextAutoEffort = autoEffort !== false;
+    else if (typeof remembered?.autoEffort === 'boolean') nextAutoEffort = remembered.autoEffort;
+    else nextAutoEffort = option.savedAutoEffort ?? true;
+  }
+  const nextModelParameters = preferredModelParameters(
+    option,
+    sameModel ? current.modelParameters : remembered?.modelParameters || {}
+  );
+  const optionMaxWindow = modelMaxContextWindow(option);
+  const nextContextPercent = sameModel
+    ? current.contextPercent
+    : Number(remembered?.contextPercent) ||
+      Number(option.savedContextPercent) ||
+      defaultContextPercent(modelContextWindow(option), optionMaxWindow);
+  const nextFast =
+    requestedFast === undefined
+      ? undefined
+      : modelFastAvailable(option, nextEffort, nextModelParameters) && requestedFast;
+  return {
+    provider: option.provider,
+    model: option.model,
+    ...(nextEffort ? { effort: nextEffort } : {}),
+    ...(nextFast === undefined ? {} : { fast: nextFast }),
+    ...(nextAutoEffort === undefined ? {} : { autoEffort: nextAutoEffort }),
+    ...(option.modelParameterOptions?.length
+      ? { modelParameters: routeModelParameters(nextModelParameters, optionMaxWindow) }
+      : {}),
+    ...(optionMaxWindow > 0 ? { contextPercent: nextContextPercent } : {}),
+    ...(optionMaxWindow > 0 && sameModel ? exactContextField : {}),
+  };
 }
 
 export const ModelSelector = memo(function ModelSelector({
@@ -567,59 +621,20 @@ export const ModelSelector = memo(function ModelSelector({
     }
     return applied;
   };
-  const chooseModel = (option: DesktopModelOption) => {
-    const values = option.effortOptions.map((entry) => entry.value);
-    const sameModel = option.provider === provider && option.model === model;
-    const remembered = routePreferenceStore.get(option.provider, option.model);
-    const nextEffort = effortForModelChoice({
-      values,
-      sameModel,
-      current: effort,
-      saved: option.savedEffort,
-      remembered: remembered?.effort,
-    });
-    let requestedFast: boolean | undefined;
-    if (option.fastCapable) {
-      if (sameModel) requestedFast = displayedFast;
-      else if (typeof remembered?.fast === 'boolean') requestedFast = remembered.fast;
-      else if (typeof option.savedFast === 'boolean') requestedFast = option.savedFast;
-      else requestedFast = option.fastPreferred;
-    }
-    let nextAutoEffort: boolean | undefined;
-    if (routeAutoEffortCapable(option)) {
-      if (sameModel) nextAutoEffort = autoEffort !== false;
-      else if (typeof remembered?.autoEffort === 'boolean') nextAutoEffort = remembered.autoEffort;
-      else nextAutoEffort = option.savedAutoEffort ?? true;
-    }
-    const nextModelParameters = preferredModelParameters(
-      option,
-      sameModel ? selectedModelParameters : remembered?.modelParameters || {}
-    );
-    const optionMaxWindow = modelMaxContextWindow(option);
-    const nextContextPercent = sameModel
-      ? normalizedContextPercent
-      : Number(remembered?.contextPercent) ||
-        Number(option.savedContextPercent) ||
-        defaultContextPercent(modelContextWindow(option), optionMaxWindow);
-    const nextFast =
-      requestedFast === undefined
-        ? undefined
-        : modelFastAvailable(option, nextEffort, nextModelParameters) && requestedFast;
-    const selection: DesktopModelSelection = {
-      provider: option.provider,
-      model: option.model,
-      ...(nextEffort ? { effort: nextEffort } : {}),
-      ...(nextFast === undefined ? {} : { fast: nextFast }),
-      ...(nextAutoEffort === undefined ? {} : { autoEffort: nextAutoEffort }),
-      ...(option.modelParameterOptions?.length
-        ? { modelParameters: routeModelParameters(nextModelParameters, optionMaxWindow) }
-        : {}),
-      ...(optionMaxWindow > 0 ? { contextPercent: nextContextPercent } : {}),
-      ...(optionMaxWindow > 0 && sameModel ? exactContextField : {}),
-    };
-    return route(selection, !sameModel);
-  };
-  // The /model row menu saves through Model management's own capability; the
+  const chooseModel = (option: DesktopModelOption) =>
+    route(
+      modelChoiceSelection(option, {
+        provider,
+        model,
+        effort,
+        fast: displayedFast,
+        autoEffort,
+        modelParameters: selectedModelParameters,
+        contextPercent: normalizedContextPercent,
+        exactContextField,
+      }),
+      !(option.provider === provider && option.model === model)
+    ); // The /model row menu saves through Model management's own capability; the
   // list updates at once and the re-read that follows confirms it.
   const setModelPreference = async (option: DesktopModelOption, change: Omit<ModelPreferenceChange, 'model'>) => {
     const api = window.mixdogDesktop;

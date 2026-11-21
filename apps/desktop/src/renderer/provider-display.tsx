@@ -220,10 +220,6 @@ export function modelFastAvailable(
 export function modelContextWindow(model: DesktopModelOption): number {
   const value = Number(model.contextWindow);
   const explicit = Number.isFinite(value) && value > 0 ? value : 0;
-  // Provider metadata is authoritative when it is present.  The Claude
-  // fallback below only exists for older catalog entries that did not expose
-  // a context window at all; inflating an explicit 200k entry to 1M makes the
-  // desktop picker disagree with the TUI and with the provider response.
   if (explicit > 0) return explicit;
   const provider = model.provider.toLowerCase();
   const id = model.model.toLowerCase();

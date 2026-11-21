@@ -3,12 +3,7 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 
-// Issue #205: Settings → Model management lists every connected provider's
-// models, but an agent's model picker said "No connected provider models.".
-// The Workflows panel's list comes from a day-long sidebar cache that can hold
-// a boot-time partial (or empty) catalog. Opening an editor now reads the
-// catalog the way Settings does, and keeps asking while the answer is partial
-// or the provider setup is still provisional.
+// Issue #205: an agent's model picker listed no models from a partial boot-time catalog.
 
 const storage = new Map();
 const { dom } = installTestDom(null, {

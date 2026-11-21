@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { t } from './i18n';
 import { GitDiffBody } from './ReviewPane';
 import { analyzePatchFiles } from './renderer-logic.mjs';
-import type { TurnReviewFileEntry, TurnReviewRowRef } from './turn-review-model';
+import { reviewKey, type TurnReviewFileEntry, type TurnReviewRowRef } from './turn-review-model';
 
 type Part = ReturnType<typeof analyzePatchFiles>[number]['part'];
 
@@ -31,17 +31,6 @@ export function resetTurnReviewDigestDiffs(): void {
   rowDiffs.clear();
 }
 
-/** The review's own key for a diff part's file, exactly as
- *  `summarizeSessionTranscriptReview` forms it: the path made project-relative
- *  when it sits under the session folder (the folder compared case-insensitively,
- *  the name kept as written), else the name as the diff gives it. Names are
- *  compared exactly, so `src/A.ts` and `src/a.ts` stay two files. */
-function reviewKey(rawName: string, cwd: string): string {
-  const root = cwd.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-  const normalized = rawName.replace(/\\/g, '/');
-  return root && normalized.toLowerCase().startsWith(`${root}/`) ? normalized.slice(root.length + 1) : rawName;
-}
-
 async function loadRowParts(sessionId: string, row: TurnReviewRowRef, name: string, cwd: string): Promise<Part[]> {
   const text = await readRowDiff(sessionId, row);
   return analyzePatchFiles(text)
@@ -57,10 +46,6 @@ export function orderedParts(entry: TurnReviewFileEntry, loaded: ReadonlyMap<str
   );
 }
 
-/** An opened review file whose diff text the phone does not hold. Each row
- *  that gave it loads through `readTranscriptItem` — the call the transcript row
- *  makes for the same diff — and its parts draw where the desktop draws them:
- *  in the order the diffs happened, held and loaded ones interleaved. */
 export function TurnReviewDigestDiff({
   sessionId,
   entry,

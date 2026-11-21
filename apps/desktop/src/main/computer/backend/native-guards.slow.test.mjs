@@ -12,6 +12,11 @@ import { PS_INPUT } from './ps-input.ts';
 import { PS_RUNTIME } from './ps-runtime.ts';
 
 const exec = promisify(execFile);
+const windows = { skip: process.platform !== 'win32' && 'Windows only' };
+const NATIVE_COMPILE = `Add-Type -AssemblyName Accessibility
+Add-Type -AssemblyName System.Drawing
+Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
+  [IO.File]::ReadAllText((Join-Path $env:AUDIT_DIRECTORY 'native.cs')))`;
 async function isolatedProgram(script, files = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-native-guards-'));
   try {
@@ -43,10 +48,7 @@ $tokens = $null; $errors = $null
 [void][System.Management.Automation.Language.Parser]::ParseFile(
   (Join-Path $env:AUDIT_DIRECTORY 'host.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
-Add-Type -AssemblyName Accessibility
-Add-Type -AssemblyName System.Drawing
-Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
-  [IO.File]::ReadAllText((Join-Path $env:AUDIT_DIRECTORY 'native.cs')))
+${NATIVE_COMPILE}
 [Console]::WriteLine('compiled')
 `,
     { 'host.ps1': powershellHostProgram(), 'native.cs': MIXDOG_HOST_CSHARP }
@@ -54,11 +56,7 @@ Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.
   assert.equal(output, 'compiled');
 });
 
-test('close requests do not time out on slow shutdown or force a cancelled close', {
-  skip: process.platform !== 'win32' && 'Windows only',
-}, async () => {
-  const output = await isolatedProgram(
-    `
+const CLOSE_FIXTURE = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Drawing
@@ -122,60 +120,70 @@ public sealed class CloseFixture : NativeWindow, IDisposable {
     }
 }
 '@
+`;
+
+const closeRequest = async (body) =>
+  JSON.parse(await isolatedProgram(`${CLOSE_FIXTURE}\n${body}`, { 'native.cs': MIXDOG_HOST_CSHARP }));
+
+test('a close request returns before a slow close handler finishes and the window then closes', windows, async () => {
+  const result = await closeRequest(`
 $slow = [CloseFixture]::new($false)
-$cancelled = [CloseFixture]::new($true)
 try {
     $accepted = [MixWin32]::CloseWindow($slow.Target)
-    # The handler is held at its gate, so it cannot have finished unless dispatch waited for it.
     $returnedBeforeHandled = -not $slow.finished.WaitOne(0)
     [void]$slow.Gate.Set()
     if (-not $slow.finished.WaitOne(5000)) { throw 'slow close did not finish' }
-    $cancelAccepted = [MixWin32]::CloseWindow($cancelled.Target)
-    if (-not $cancelled.finished.WaitOne(5000)) { throw 'cancelled close was not handled' }
     @{
         accepted = $accepted
         returnedBeforeHandled = $returnedBeforeHandled
         closed = -not [MixWin32]::IsWindowHandle($slow.Target)
-        cancelAccepted = $cancelAccepted
-        cancelledStillOpen = [MixWin32]::IsWindowHandle($cancelled.Target)
-        invalidAccepted = [MixWin32]::CloseWindow([IntPtr]::Zero)
     } | ConvertTo-Json -Compress
 } finally {
     $slow.Dispose()
-    $cancelled.Dispose()
 }
-`,
-    { 'native.cs': MIXDOG_HOST_CSHARP }
-  );
-  const result = JSON.parse(output);
+`);
   assert.equal(result.accepted, true);
   assert.equal(result.returnedBeforeHandled, true, 'dispatch must not wait for the slow close handler');
   assert.equal(result.closed, true);
+});
+
+test('a close request the window cancels is accepted and does not force the window shut', windows, async () => {
+  const result = await closeRequest(`
+$cancelled = [CloseFixture]::new($true)
+try {
+    $cancelAccepted = [MixWin32]::CloseWindow($cancelled.Target)
+    if (-not $cancelled.finished.WaitOne(5000)) { throw 'cancelled close was not handled' }
+    @{
+        cancelAccepted = $cancelAccepted
+        cancelledStillOpen = [MixWin32]::IsWindowHandle($cancelled.Target)
+    } | ConvertTo-Json -Compress
+} finally {
+    $cancelled.Dispose()
+}
+`);
   assert.equal(result.cancelAccepted, true);
   assert.equal(result.cancelledStillOpen, true);
+});
+
+test('a close request for an invalid window handle is not accepted', windows, async () => {
+  const result = await closeRequest(`
+@{ invalidAccepted = [MixWin32]::CloseWindow([IntPtr]::Zero) } | ConvertTo-Json -Compress
+`);
   assert.equal(result.invalidAccepted, false);
 });
 
-test('MSAA roles map to the control types their oleacc constants name, and editing keys carry their character', {
-  skip: process.platform !== 'win32' && 'Windows only',
-}, async () => {
+test('MSAA roles map to the control types their oleacc constants name', windows, async () => {
   const output = await isolatedProgram(
     `
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName Accessibility
-Add-Type -AssemblyName System.Drawing
-Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
-  [IO.File]::ReadAllText((Join-Path $env:AUDIT_DIRECTORY 'native.cs')))
+${NATIVE_COMPILE}
 $roles = [ordered]@{}
 foreach ($role in 0x14, 0x1E, 0x25, 0x26, 0x2B, 0x2F, 0x39, 0x3C, 0x7F) { $roles[[string]$role] = [MixMsaa]::ControlTypeForRole([uint32]$role) }
-$keys = [ordered]@{}
-foreach ($vk in 0x08, 0x09, 0x0D, 0x1B, 0x20, 0x41, 0x25) { $keys[[string]$vk] = [int][MixWin32]::TranslatedKeyCharacter([uint16]$vk) }
-[Console]::WriteLine((@{ roles = $roles; keys = $keys; tk = [MixWin32]::ReceivesTranslatedCharacter('TkChild'); edit = [MixWin32]::ReceivesTranslatedCharacter('Edit') } | ConvertTo-Json -Compress))
+[Console]::WriteLine(($roles | ConvertTo-Json -Compress))
 `,
     { 'native.cs': MIXDOG_HOST_CSHARP }
   );
-  const result = JSON.parse(output);
-  assert.deepEqual(result.roles, {
+  assert.deepEqual(JSON.parse(output), {
     20: 'Group',
     30: 'Hyperlink',
     37: 'TabItem',
@@ -186,7 +194,20 @@ foreach ($vk in 0x08, 0x09, 0x0D, 0x1B, 0x20, 0x41, 0x25) { $keys[[string]$vk] =
     60: 'Tab',
     127: 'Custom',
   });
-  // Backspace, Tab, Enter, Escape and Space make a character; letters and arrows do not.
+});
+
+test('editing keys carry their character and only an Edit window receives translated characters', windows, async () => {
+  const output = await isolatedProgram(
+    `
+$ErrorActionPreference = 'Stop'
+${NATIVE_COMPILE}
+$keys = [ordered]@{}
+foreach ($vk in 0x08, 0x09, 0x0D, 0x1B, 0x20, 0x41, 0x25) { $keys[[string]$vk] = [int][MixWin32]::TranslatedKeyCharacter([uint16]$vk) }
+[Console]::WriteLine((@{ keys = $keys; tk = [MixWin32]::ReceivesTranslatedCharacter('TkChild'); edit = [MixWin32]::ReceivesTranslatedCharacter('Edit') } | ConvertTo-Json -Compress))
+`,
+    { 'native.cs': MIXDOG_HOST_CSHARP }
+  );
+  const result = JSON.parse(output);
   assert.deepEqual(result.keys, { 8: 8, 9: 9, 13: 13, 27: 27, 32: 32, 65: 0, 37: 0 });
   assert.equal(result.tk, false);
   assert.equal(result.edit, true);
@@ -205,10 +226,7 @@ test('the composed host refuses every dispatch while its input hooks cannot be i
   const output = await isolatedProgram(
     `
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName Accessibility
-Add-Type -AssemblyName System.Drawing
-Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
-  [IO.File]::ReadAllText((Join-Path $env:AUDIT_DIRECTORY 'native.cs')))
+${NATIVE_COMPILE}
 $state = [MixInputObservation]::Read()
 $refusals = @()
 try { [MixInputObservation]::Begin(); $refusals += 'begun' } catch { $refusals += $_.Exception.InnerException.Message }
@@ -438,11 +456,7 @@ if ([MixInputObservation]::Depth -ne 0 -or [MixInputObservation]::Starts -ne 1 -
   assert.equal(output, 'scoped');
 });
 
-test('foreground feedback reports completed theme restoration and restores on body failure', {
-  skip: process.platform !== 'win32' && 'Windows only',
-}, async () => {
-  const output = await isolatedProgram(
-    `
+const FEEDBACK_PRELUDE = `
 $ErrorActionPreference='Stop'
 Add-Type @'
 using System;
@@ -485,8 +499,17 @@ $script:state=@{LastFocus=[IntPtr]1}
 $script:CurrentRequest=@{}
 function Get-CurrentSession { return $script:state }
 function Assert-ExecutionAuthorization($req,$target) {}
+`;
+
+const feedbackProgram = (body) =>
+  isolatedProgram(`${FEEDBACK_PRELUDE}\n${body}\n[Console]::WriteLine('FEEDBACK_OK')`, { 'input.ps1': PS_INPUT });
+
+test(
+  'foreground pointer feedback reports completed theme restoration and restores on body failure',
+  windows,
+  async () => {
+    const output = await feedbackProgram(`
 $result=Invoke-ForegroundInput ([IntPtr]1) 'click' { [MixWin32]::X=30 }
-# A pointer action blanks the system cursor so the overlay arrow is the only one.
 if (-not [MixCursorTheme]::LastDecorate -or -not $result.cursor_feedback.system_theme_applied -or
     -not $result.cursor_feedback.system_theme_restored -or
     -not $result.cursor_feedback.pointer_moved) { throw 'feedback did not reflect completed action lifecycle' }
@@ -494,11 +517,25 @@ try { Invoke-ForegroundInput ([IntPtr]1) 'click' { throw 'fixture failure' }; th
   if ($_.Exception.Message -ne 'fixture failure') { throw }
 }
 if ([MixCursorTheme]::Restores -ne 2 -or [MixInputObservation]::Depth -ne 0) { throw 'theme or intervention scope leaked' }
-# Key/type never replace the user's cursor artwork, while the watchdog still
-# guards the input this session owns.
+`);
+    assert.equal(output, 'FEEDBACK_OK');
+  }
+);
+
+test('foreground key input never replaces the user cursor artwork', windows, async () => {
+  const output = await feedbackProgram(`
 $keyFeedback=(Invoke-ForegroundInput ([IntPtr]1) 'key' { }).cursor_feedback
 if ([MixCursorTheme]::LastDecorate -or $keyFeedback.system_theme_applied -or
     $keyFeedback.system_theme_restored) { throw 'input must not replace the user cursor artwork' }
+`);
+  assert.equal(output, 'FEEDBACK_OK');
+});
+
+test(
+  'authority that expires during feedback preparation sends no input and releases every scope',
+  windows,
+  async () => {
+    const output = await feedbackProgram(`
 $script:expired=$false
 $script:sent=$false
 function Assert-ExecutionAuthorization($req,$target) {
@@ -509,16 +546,14 @@ try { Invoke-ForegroundInput ([IntPtr]1) 'key' { $script:sent=$true }; throw 'mi
   if ($_.Exception.ToString() -notmatch 'computer_policy_expired') { throw }
 }
 if ($script:sent -or [MixInputObservation]::Depth -ne 0 -or
-    $null -ne [MixInputObservation]::DispatchAuthorization -or [MixCursorTheme]::Restores -ne 4) {
+    $null -ne [MixInputObservation]::DispatchAuthorization -or [MixCursorTheme]::Restores -ne 1) {
   throw 'expired authority dispatched input or leaked its cleanup scope'
 }
 if ([MixCursorThemeReservation]::Dropped -ne 0) { throw 'a consumed watchdog reservation was dropped as unused' }
-[Console]::WriteLine('FEEDBACK_RESTORED')
-`,
-    { 'input.ps1': PS_INPUT }
-  );
-  assert.equal(output, 'FEEDBACK_RESTORED');
-});
+`);
+    assert.equal(output, 'FEEDBACK_OK');
+  }
+);
 
 test('a foreground refusal before any input hands the blanked cursor straight back', {
   skip: process.platform !== 'win32' && 'Windows only',
@@ -849,49 +884,64 @@ function Attempt($request) {
 }
 `;
 
-test('a foreground action with a stale observation token is refused at once, without waiting', {
-  skip: process.platform !== 'win32' && 'Windows only',
-}, async () => {
-  const output = await isolatedProgram(
-    `${OBSERVATION_FIXTURE}
-$rows = [ordered]@{}
+const observationRows = async (body) =>
+  JSON.parse(
+    await isolatedProgram(
+      `${OBSERVATION_FIXTURE}\n$rows = [ordered]@{}\n${body}\n$rows | ConvertTo-Json -Compress -Depth 4`,
+      {
+        'input.ps1': PS_INPUT,
+        'runtime.ps1': PS_RUNTIME,
+      }
+    )
+  );
+
+test('a foreground action with a stale observation token is refused at once, without waiting', windows, async () => {
+  const rows = await observationRows(`
 $rows.stale = Attempt @{ action='click'; delivery='foreground'; session_id='s'; ref='e1'; observed_input_monitor_id='m'; observed_input_user_sequence=1 }
 $rows.staleSleeps = $script:Sleeps
-# Activation is fact-guarded whatever the delivery field says.
-$rows.staleFocus = Attempt @{ action='focus_window'; delivery='background'; session_id='s'; window_id='hwnd:0x1'; observed_input_monitor_id='m'; observed_input_user_sequence=1 }
-$rows.freshFocus = Attempt @{ action='focus_window'; delivery='background'; session_id='s'; window_id='hwnd:0x1'; observed_input_monitor_id='m'; observed_input_user_sequence=2 }
 $rows.fresh = Attempt @{ action='click'; delivery='foreground'; session_id='s'; ref='e1'; observed_input_monitor_id='m'; observed_input_user_sequence=2 }
-# The token is judged against the target window's process; only foreground
-# input, which drives the shared pointer, widens the scope to every pointer event.
-$scopes = [ordered]@{}
-foreach ($case in @(@{ action='key'; delivery='foreground' }, @{ action='focus_window'; delivery='background' })) {
-  $null = Attempt (@{ session_id='s'; window_id='hwnd:0x2a'; observed_input_monitor_id='m'; observed_input_user_sequence=2 } + $case)
-  $scopes[$case.action] = @{ target = [MixInputObservation]::Target; pointer = [MixInputObservation]::Pointer }
-}
-$rows.scopes = $scopes
-# Admission names an elevated holder only; recent user input does not hold the lane.
-$sleepsBefore = $script:Sleeps
-$admitted = Get-ForegroundRefusal 'click' ([IntPtr]1) @{}
-$rows.admitted = ($null -eq $admitted)
-$rows.admitSleeps = $script:Sleeps - $sleepsBefore
-$rows.probed = [MixWin32]::Probed
-$rows | ConvertTo-Json -Compress -Depth 4
-`,
-    { 'input.ps1': PS_INPUT, 'runtime.ps1': PS_RUNTIME }
-  );
-  const rows = JSON.parse(output);
+`);
   assert.match(rows.stale.error, /^user_input_active:/);
   assert.equal(rows.stale.dispatched, 0, 'a stale observation must send nothing');
   assert.equal(rows.staleSleeps, 0, 'a stale observation must be refused without waiting');
+  assert.equal(rows.fresh.error, '');
+  assert.equal(rows.fresh.dispatched, 1);
+});
+
+test('focus_window is guarded by the observation token whatever its delivery field says', windows, async () => {
+  const rows = await observationRows(`
+$rows.staleFocus = Attempt @{ action='focus_window'; delivery='background'; session_id='s'; window_id='hwnd:0x1'; observed_input_monitor_id='m'; observed_input_user_sequence=1 }
+$rows.freshFocus = Attempt @{ action='focus_window'; delivery='background'; session_id='s'; window_id='hwnd:0x1'; observed_input_monitor_id='m'; observed_input_user_sequence=2 }
+`);
   assert.match(rows.staleFocus.error, /^user_input_active:/);
   assert.equal(rows.staleFocus.dispatched, 0, 'a stale token must not activate a window');
   assert.equal(rows.freshFocus.dispatched, 1);
-  assert.equal(rows.fresh.error, '');
-  assert.equal(rows.fresh.dispatched, 1);
-  assert.deepEqual(rows.scopes, {
-    key: { target: 0x2a, pointer: true },
-    focus_window: { target: 0x2a, pointer: false },
-  });
+});
+
+test(
+  'the observation token is judged against the target process, and only foreground input widens it to the pointer',
+  windows,
+  async () => {
+    const rows = await observationRows(`
+foreach ($case in @(@{ action='key'; delivery='foreground' }, @{ action='focus_window'; delivery='background' })) {
+  $null = Attempt (@{ session_id='s'; window_id='hwnd:0x2a'; observed_input_monitor_id='m'; observed_input_user_sequence=2 } + $case)
+  $rows[$case.action] = @{ target = [MixInputObservation]::Target; pointer = [MixInputObservation]::Pointer }
+}
+`);
+    assert.deepEqual(rows, {
+      key: { target: 0x2a, pointer: true },
+      focus_window: { target: 0x2a, pointer: false },
+    });
+  }
+);
+
+test('foreground admission neither waits nor reads recent user input', windows, async () => {
+  const rows = await observationRows(`
+$admitted = Get-ForegroundRefusal 'click' ([IntPtr]1) @{}
+$rows.admitted = ($null -eq $admitted)
+$rows.admitSleeps = $script:Sleeps
+$rows.probed = [MixWin32]::Probed
+`);
   assert.equal(rows.admitted, true);
   assert.equal(rows.admitSleeps, 0, 'admission must not wait');
   assert.equal(rows.probed, 0, 'foreground admission must not look at recent user input');
@@ -994,10 +1044,7 @@ test('detached watchdog launcher runs with a hidden console and no desktop input
   const output = await isolatedProgram(
     `
 $ErrorActionPreference='Stop'
-Add-Type -AssemblyName Accessibility
-Add-Type -AssemblyName System.Drawing
-Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
-  [IO.File]::ReadAllText((Join-Path $env:AUDIT_DIRECTORY 'native.cs')))
+${NATIVE_COMPILE}
 $receipt=Join-Path $env:AUDIT_DIRECTORY 'launched'
 $program="[IO.File]::WriteAllText('" + $receipt.Replace("'","''") + "','ready')"
 [MixCursorTheme]::LaunchDetachedWatchdog($program)
@@ -1011,20 +1058,27 @@ if (-not [IO.File]::Exists($receipt)) { throw 'detached watchdog did not start' 
   assert.equal(output, 'ready');
 });
 
-test('background key grammar is completely validated before any target input', {
-  skip: process.platform !== 'win32' && 'Windows only',
-}, async () => {
+test('background key grammar parses characters, repeated keys and escaped braces', windows, async () => {
   const output = await isolatedProgram(
     `
 $ErrorActionPreference='Stop'
-Add-Type -AssemblyName Accessibility
-Add-Type -AssemblyName System.Drawing
-Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
-  [IO.File]::ReadAllText((Join-Path $env:AUDIT_DIRECTORY 'native.cs')))
+${NATIVE_COMPILE}
 $strokes=@([MixWin32]::ParseBackgroundKeys('a{ENTER 2}{{}{}}') | ForEach-Object {
   if ($_.IsCharacter) { 'C' + [int]$_.Character } else { 'K' + $_.Key }
 })
 if (($strokes -join ',') -ne 'C97,K13,K13,C123,C125') { throw 'wrong parsed key sequence' }
+[Console]::WriteLine('BACKGROUND_GRAMMAR_OK')
+`,
+    { 'native.cs': MIXDOG_HOST_CSHARP }
+  );
+  assert.equal(output, 'BACKGROUND_GRAMMAR_OK');
+});
+
+test('background key grammar errors are rejected before any target input', windows, async () => {
+  const output = await isolatedProgram(
+    `
+$ErrorActionPreference='Stop'
+${NATIVE_COMPILE}
 foreach($keys in @('a^c','a{BROKEN}','a{ENTER','a{ENTER 101}')) {
   try {
     [void][MixWin32]::BackgroundKeys([IntPtr]::Zero,[IntPtr]::Zero,$keys)
@@ -1071,10 +1125,7 @@ test('background press lifetimes release once after uncertain delivery and prese
   const output = await isolatedProgram(
     `
 $ErrorActionPreference='Stop'
-Add-Type -AssemblyName Accessibility
-Add-Type -AssemblyName System.Drawing
-Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
-  [IO.File]::ReadAllText((Join-Path $env:AUDIT_DIRECTORY 'native.cs')))
+${NATIVE_COMPILE}
 [Console]::WriteLine([ReleaseFixture]::Run())
 `,
     {

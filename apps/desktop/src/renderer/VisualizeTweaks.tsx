@@ -1,8 +1,3 @@
-// The visualize panel's Tweaks drawer: one compact control per parameter the
-// active tab's page declared in its `mx-tweaks` block. A change is applied to
-// the page live (the bridge in VisualizeFeedback.tsx sends it) and kept per
-// tab, pane and version; "Use these values" queues the changed ones as a
-// composer chip so the agent bakes them into the file.
 import { ChevronUp, RotateCcw } from 'lucide-react';
 
 import type { VisualizeTabView } from '../shared/visualize';

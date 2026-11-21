@@ -34,7 +34,16 @@ import type { RelaySocket } from './relay-connector.ts';
 const conformance = new URL('../../../packages/protocol-client/conformance/', import.meta.url);
 const options = JSON.parse(readFileSync(new URL('options.json', conformance), 'utf8'));
 
-const thread = { id: 't1', preview: '', title: 'T', updatedAt: 1, messageCount: 0, cwd: '/w', classification: {}, projectPath: null };
+const thread = {
+  id: 't1',
+  preview: '',
+  title: 'T',
+  updatedAt: 1,
+  messageCount: 0,
+  cwd: '/w',
+  classification: {},
+  projectPath: null,
+};
 const feed = (seq: number) => ({ id: 't1', epoch: 'e1', seq });
 const message = (seq: number, id: string, type: string, extra: object) => ({
   method: 'item/completed',
@@ -50,7 +59,10 @@ async function serve(next: () => Promise<any>, send: (frame: unknown) => Promise
   assert.equal((await next()).method, 'initialized');
   const resume = await next();
   assert.equal(resume.method, 'thread/resume');
-  await send({ id: resume.id, result: { thread, subscription: { id: 'sub', mode: 'snapshot', epoch: 'e1', startSeq: 11 } } });
+  await send({
+    id: resume.id,
+    result: { thread, subscription: { id: 'sub', mode: 'snapshot', epoch: 'e1', startSeq: 11 } },
+  });
   await send({ method: 'thread/snapshot', params: { thread, items: [], state: { title: 'T' } }, feed: feed(10) });
   await send(message(11, 'u1', 'userMessage', { content: [{ type: 'text', text: 'hello' }] }));
   await send(message(12, 'a1', 'agentMessage', { text: 'hi there' }));
@@ -68,7 +80,10 @@ function relayPair(identity: Identity, transport: boolean) {
   const inbox: any[] = [];
   let waiter: ((v: any) => void) | undefined;
   let server: RelayE2EEChannel | undefined;
-  const challenge = { ...createRelayE2EEChallenge(), ...(transport ? { binaryFrames: 1 as const, transportWebrtc: 1 as const } : {}) };
+  const challenge = {
+    ...createRelayE2EEChallenge(),
+    ...(transport ? { binaryFrames: 1 as const, transportWebrtc: 1 as const } : {}),
+  };
   const sender = new RemoteTransportSender();
   const receiver = new RemoteTransportReceiver();
   const assembler = new RemoteTransportMessageAssembler(new RemoteTransportAssemblyPool());
@@ -152,7 +167,10 @@ async function referenceState(): Promise<{ client: ProtocolClient<SessionFold>; 
     newOpId: () => 'op',
   });
   const conn = await net.accept();
-  const served = serve(async () => JSON.parse(await conn.nextSent()), (f) => conn.serverSend(f));
+  const served = serve(
+    async () => JSON.parse(await conn.nextSent()),
+    (f) => conn.serverSend(f)
+  );
   const client = await pending;
   const resumed = client.resumeThread('t1', { lastItems: 50 });
   await served;
@@ -194,7 +212,10 @@ for (const transport of [false, true]) {
     const state = sessionStateOf(phone.client, 't1') as { items: unknown[] };
     assert.deepEqual(state, reference.state);
     assert.equal(state.items.length, 2);
-    assert.deepEqual(states.map((s) => s.state), ['connecting', 'connected']);
+    assert.deepEqual(
+      states.map((s) => s.state),
+      ['connecting', 'connected']
+    );
     await phone.client.close();
     await reference.client.close();
   });
@@ -215,7 +236,10 @@ test('a revoked pairing is terminal: reported, closed, no retry', async () => {
   });
   queueMicrotask(() => far.ws.onclose!({ code: 4003, reason: 'revoked' }));
   await assert.rejects(result);
-  assert.deepEqual(states.map((s) => s.state), ['connecting', 'pairing-lost']);
+  assert.deepEqual(
+    states.map((s) => s.state),
+    ['connecting', 'pairing-lost']
+  );
 });
 
 test('initialize refusal preserves which side is out of date without retrying', async () => {
@@ -237,7 +261,11 @@ test('initialize refusal preserves which side is out of date without retrying', 
     assert.equal(init.method, 'initialize');
     await far.send({
       id: init.id,
-      error: { code: -32600, message: 'Version refused', data: { reason, clientVersion: '2.0.0', serverVersion: reason === 'clientOutdated' ? '3.0.0' : '1.0.0' } },
+      error: {
+        code: -32600,
+        message: 'Version refused',
+        data: { reason, clientVersion: '2.0.0', serverVersion: reason === 'clientOutdated' ? '3.0.0' : '1.0.0' },
+      },
     });
     await rejected;
     assert.deepEqual(states, [{ state: 'connecting' }, { state: 'update-required', reason }]);
@@ -264,12 +292,15 @@ test('a close 4002 is the relay saying the PC is offline: reconnecting, never a 
   await resumed;
   far.ws.onclose!({ code: 4002, reason: 'version' });
   await settle();
-  assert.deepEqual(states.map((s) => s.state), ['connecting', 'connected', 'reconnecting']);
+  assert.deepEqual(
+    states.map((s) => s.state),
+    ['connecting', 'connected', 'reconnecting']
+  );
   assert.equal(phone.client.status.state, 'reconnecting');
   await phone.client.close();
 });
 
-test('a frame still sealing when its socket ends rejects its claim; the next connection\'s frame settles its own', async () => {
+test("a frame still sealing when its socket ends rejects its claim; the next connection's frame settles its own", async () => {
   const identity = await generateRelayE2EEServerIdentity();
   const legs = [relayPair(identity, false), relayPair(identity, false)];
   let made = 0;
@@ -306,13 +337,17 @@ test('a frame still sealing when its socket ends rejects its claim; the next con
       if (!holdNext) return original(...args);
       holdNext = false;
       sealing();
-      return (sealed = gate.then(() => original(...args)));
+      sealed = gate.then(() => original(...args));
+      return sealed;
     },
   });
   try {
     const states = new Promise<void>((resolve) => {
       const off = phone.client.on((event) => {
-        if (event.type === 'status' && event.status.state === 'reconnecting') (off(), resolve());
+        if (event.type === 'status' && event.status.state === 'reconnecting') {
+          off();
+          resolve();
+        }
       });
     });
     // The claim receives a promise; wrapped, so resolving the test's own promise does not wait for it.
@@ -333,7 +368,11 @@ test('a frame still sealing when its socket ends rejects its claim; the next con
     await sealed;
     // One macrotask: everything the sealing's continuation queued has run, so a settle that was going to happen has happened.
     await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.equal(deadSettled, 'rejected', 'the dead leg\'s frame never leaves, so its claim is rejected, never left pending or resolved');
+    assert.equal(
+      deadSettled,
+      'rejected',
+      "the dead leg's frame never leaves, so its claim is rejected, never left pending or resolved"
+    );
 
     await served[1];
     const live = new Promise<{ sent: Promise<void> }>((resolve) => {
@@ -348,7 +387,14 @@ test('a frame still sealing when its socket ends rejects its claim; the next con
 /** A socket the relay refuses at once (the PC is offline): its dial ends before ready. */
 const refusedSocket = (): RelaySocket => {
   const ws: RelaySocket = {
-    binaryType: '', bufferedAmount: 0, onopen: null, onmessage: null, onclose: null, onerror: null, send: () => {}, close: () => {},
+    binaryType: '',
+    bufferedAmount: 0,
+    onopen: null,
+    onmessage: null,
+    onclose: null,
+    onerror: null,
+    send: () => {},
+    close: () => {},
   };
   queueMicrotask(() => ws.onclose!({ code: 4002, reason: 'offline' }));
   return ws;
@@ -364,11 +410,16 @@ test('a wake before the first connection cuts the redial wait short', async () =
     version: options.clientInfo.version,
     pairing: () => relayE2EEPairingMaterial(identity),
     socketUrl: () => 'wss://relay.invalid/d/dev',
-    createSocket: () => (made++, refusedSocket()),
+    createSocket: () => {
+      made++;
+      return refusedSocket();
+    },
     signal: controller.signal,
     random: () => 0.5,
     onConnection: () => undefined,
-    linked: (l) => void (link = l),
+    linked: (l) => {
+      link = l;
+    },
   });
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(made, 2, 'the next dial is waiting out a backoff of hundreds of ms');
@@ -390,12 +441,17 @@ test('a hidden page does not redial; the wake that brings it back does', async (
     version: options.clientInfo.version,
     pairing: () => relayE2EEPairingMaterial(identity),
     socketUrl: () => 'wss://relay.invalid/d/dev',
-    createSocket: () => (made++, refusedSocket()),
+    createSocket: () => {
+      made++;
+      return refusedSocket();
+    },
     visible: () => visible,
     random: () => 0,
     signal: controller.signal,
     onConnection: () => undefined,
-    linked: (l) => void (link = l),
+    linked: (l) => {
+      link = l;
+    },
   });
   pending.catch(() => undefined);
   await settle();
@@ -466,7 +522,9 @@ test('a relay frame-too-large notice reaches the page with its size and ceiling'
     resyncHint: (word) => void hints.push({ ...word }),
   });
   await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
-  far.ws.onmessage!({ data: JSON.stringify({ resync: 1, error: 'frame-too-large', bytes: 2_000_000, limit: 1_000_000 }) });
+  far.ws.onmessage!({
+    data: JSON.stringify({ resync: 1, error: 'frame-too-large', bytes: 2_000_000, limit: 1_000_000 }),
+  });
   await settle();
   assert.deepEqual(hints, [{ resync: 1, error: 'frame-too-large', bytes: 2_000_000, limit: 1_000_000 }]);
   await phone.client.close();
@@ -483,12 +541,17 @@ test('a redial timer that fires after the page was hidden waits for the wake', a
     version: options.clientInfo.version,
     pairing: () => relayE2EEPairingMaterial(identity),
     socketUrl: () => 'wss://relay.invalid/d/dev',
-    createSocket: () => (made++, refusedSocket()),
+    createSocket: () => {
+      made++;
+      return refusedSocket();
+    },
     visible: () => visible,
     random: () => 0,
     signal: controller.signal,
     onConnection: () => undefined,
-    linked: (l) => void (link = l),
+    linked: (l) => {
+      link = l;
+    },
   });
   pending.catch(() => undefined);
   await new Promise((r) => setTimeout(r, 30));
@@ -529,7 +592,12 @@ test('a wake does not probe a socket that is still opening', async () => {
   const sent: unknown[] = [];
   const closed: unknown[] = [];
   const ws: RelaySocket = {
-    binaryType: '', bufferedAmount: 0, onopen: null, onmessage: null, onclose: null, onerror: null,
+    binaryType: '',
+    bufferedAmount: 0,
+    onopen: null,
+    onmessage: null,
+    onclose: null,
+    onerror: null,
     send: (d) => void sent.push(d),
     close: (...a: unknown[]) => void closed.push(a),
   };
@@ -543,7 +611,9 @@ test('a wake does not probe a socket that is still opening', async () => {
     createSocket: () => ws,
     signal: controller.signal,
     onConnection: () => undefined,
-    linked: (l) => void (link = l),
+    linked: (l) => {
+      link = l;
+    },
   });
   pending.catch(() => undefined);
   await settle();

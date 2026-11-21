@@ -1,13 +1,7 @@
-// The bot page's Leads: ordinary coding sessions whose Lead (or a sub-agent)
-// works right now, one messenger row each in the bot rows' layout — provider
-// icon in the avatar slot, session title, "model · latest line", and on the
-// right the time over the state mark. A divider sets the block apart; a
-// finished Lead stays listed (resting, no state mark) for the Agents pane
-// window after it settled, as in 1.2, then leaves.
 import { Bot } from 'lucide-react';
 import { RailPinIcon } from './RailPinIcon';
 import type React from 'react';
-import { Fragment, useEffect } from 'react';
+import { useEffect } from 'react';
 import { AGENT_PANE_VISIBLE_MS } from '../shared/core-src/runtime/shared/agent-reap-state.mjs';
 import type { RetainChoice } from './bot-order-store';
 import { desktopAgentActivityState, hasPendingDesktopAgentWork } from '../shared/agent-activity';
@@ -99,6 +93,73 @@ function ordinaryLeadSession(session: DesktopSessionSummary): boolean {
   );
 }
 
+type LeadRowWindow = Required<Pick<AgentLeadRowOptions, 'now' | 'retainMs' | 'pinned'>>;
+
+function pooledLeadRow(
+  group: LeadGroup,
+  needsUser: ReadonlySet<string>,
+  { now, retainMs, pinned }: LeadRowWindow
+): AgentLeadRow | null {
+  const flat = flattenAgentActivityNodes(group.nodes);
+  const attention =
+    needsUser.has(group.ownerId) || agentGroupIndicator(group.ownerId, group.nodes)?.kind === 'attention';
+  const running = flat.some(
+    (node) => hasPendingDesktopAgentWork(node.agent) || desktopAgentActivityState(node.agent) === 'running'
+  );
+  const isPinned = pinned.has(group.ownerId);
+  const settled = settledAt(flat);
+  const resting = !attention && !running && !isPinned;
+  if (resting && !withinWindow(settled, now, retainMs)) return null;
+  const { session } = group;
+  const lead: DesktopAgentPoolRow | undefined = flat.find((node) => node.sessionId === group.ownerId)?.agent;
+  const provider = lead?.provider || session.provider || null;
+  const model = modelDisplayName(lead?.model || session.model, provider || '');
+  let kind: AgentLeadRow['kind'] = 'idle';
+  let status = lead ? agentElapsedText(desktopAgentActivityState(lead), lead, now) : t('Idle');
+  if (running) {
+    kind = 'running';
+    status = t('Working');
+  }
+  if (attention) {
+    kind = 'attention';
+    status = t('Waiting for approval');
+  }
+  return {
+    sessionId: group.ownerId,
+    title: sessionDisplayTitle(session, t('Untitled session')),
+    provider,
+    preview: model || status,
+    at: Number(session.activityAt) || session.updatedAt || 0,
+    kind,
+    pinned: isPinned,
+    hasSubAgents: subAgentNodes(group.ownerId, group.nodes).length > 0,
+    expiresAt: resting && settled > 0 ? settled + retainMs : Number.POSITIVE_INFINITY,
+  };
+}
+
+function sessionLeadRow(
+  session: DesktopSessionSummary,
+  attention: boolean,
+  { now, retainMs, pinned }: LeadRowWindow
+): AgentLeadRow | null {
+  const at = Number(session.activityAt) || session.updatedAt || 0;
+  const isPinned = pinned.has(session.id);
+  if (!attention && !isPinned && !(at > 0 && withinWindow(at, now, retainMs))) return null;
+  const provider = session.provider || null;
+  const model = modelDisplayName(session.model, provider || '');
+  return {
+    sessionId: session.id,
+    title: sessionDisplayTitle(session, t('Untitled session')),
+    provider,
+    preview: model || (attention ? t('Waiting for approval') : t('Idle')),
+    at,
+    kind: attention ? 'attention' : 'idle',
+    pinned: isPinned,
+    hasSubAgents: false,
+    expiresAt: isPinned || attention ? Number.POSITIVE_INFINITY : at + retainMs,
+  };
+}
+
 /** The Leads still working (or blocked on the user), the ones that finished
  *  inside the retention window and the pinned ones; pinned first, then newest
  *  activity first. */
@@ -107,68 +168,115 @@ export function agentLeadRows(
   needsUser: ReadonlySet<string>,
   { now = Date.now(), retainMs = HOUR_MS, pinned = NO_PINS, sessions = [] }: AgentLeadRowOptions = {}
 ): AgentLeadRow[] {
-  const rows: AgentLeadRow[] = [];
-  for (const group of groups) {
-    const flat = flattenAgentActivityNodes(group.nodes);
-    const attention =
-      needsUser.has(group.ownerId) || agentGroupIndicator(group.ownerId, group.nodes)?.kind === 'attention';
-    const running = flat.some(
-      (node) => hasPendingDesktopAgentWork(node.agent) || desktopAgentActivityState(node.agent) === 'running'
-    );
-    const isPinned = pinned.has(group.ownerId);
-    const settled = settledAt(flat);
-    const resting = !attention && !running && !isPinned;
-    if (resting && !withinWindow(settled, now, retainMs)) continue;
-    const { session } = group;
-    const lead: DesktopAgentPoolRow | undefined = flat.find((node) => node.sessionId === group.ownerId)?.agent;
-    const provider = lead?.provider || session.provider || null;
-    const model = modelDisplayName(lead?.model || session.model, provider || '');
-    let kind: AgentLeadRow['kind'] = 'idle';
-    let status = lead ? agentElapsedText(desktopAgentActivityState(lead), lead, now) : t('Idle');
-    if (running) {
-      kind = 'running';
-      status = t('Working');
-    }
-    if (attention) {
-      kind = 'attention';
-      status = t('Waiting for approval');
-    }
-    rows.push({
-      sessionId: group.ownerId,
-      title: sessionDisplayTitle(session, t('Untitled session')),
-      provider,
-      // The row shows the model only; the face's spinner / "!" carries the state.
-      preview: model || status,
-      at: Number(session.activityAt) || session.updatedAt || 0,
-      kind,
-      pinned: isPinned,
-      hasSubAgents: subAgentNodes(group.ownerId, group.nodes).length > 0,
-      expiresAt: resting && settled > 0 ? settled + retainMs : Number.POSITIVE_INFINITY,
-    });
-  }
+  const window = { now, retainMs, pinned };
   const pooled = new Set(groups.map((group) => group.ownerId));
-  for (const session of sessions) {
-    // A session waiting on the user is always listed with its "!", working or not.
-    const attention = needsUser.has(session.id);
-    if (pooled.has(session.id) || (session.working && !attention) || !ordinaryLeadSession(session)) continue;
-    const at = Number(session.activityAt) || session.updatedAt || 0;
-    const isPinned = pinned.has(session.id);
-    if (!attention && !isPinned && !(at > 0 && withinWindow(at, now, retainMs))) continue;
-    const provider = session.provider || null;
-    const model = modelDisplayName(session.model, provider || '');
-    rows.push({
-      sessionId: session.id,
-      title: sessionDisplayTitle(session, t('Untitled session')),
-      provider,
-      preview: model || (attention ? t('Waiting for approval') : t('Idle')),
-      at,
-      kind: attention ? 'attention' : 'idle',
-      pinned: isPinned,
-      hasSubAgents: false,
-      expiresAt: isPinned || attention ? Number.POSITIVE_INFINITY : at + retainMs,
-    });
-  }
+  const rows = [
+    ...groups.map((group) => pooledLeadRow(group, needsUser, window)),
+    ...sessions.map((session) => {
+      const attention = needsUser.has(session.id);
+      if (pooled.has(session.id) || (session.working && !attention) || !ordinaryLeadSession(session)) return null;
+      return sessionLeadRow(session, attention, window);
+    }),
+  ].filter((row): row is AgentLeadRow => row !== null);
   return rows.sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.at - left.at);
+}
+
+function useLeadExpiry(rows: readonly AgentLeadRow[], onExpire: (() => void) | undefined) {
+  const nextExpiry = Math.min(Number.POSITIVE_INFINITY, ...rows.map((row) => row.expiresAt));
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on rows so a timer that fired early re-arms for what is left
+  useEffect(() => {
+    if (!onExpire || !Number.isFinite(nextExpiry)) return undefined;
+    // setTimeout fires at once past 2^31-1 ms.
+    const timer = setTimeout(onExpire, Math.min(MAX_TIMEOUT_MS, Math.max(0, nextExpiry - Date.now())));
+    return () => clearTimeout(timer);
+  }, [rows, nextExpiry, onExpire]);
+}
+
+function AgentLeadRowItem({
+  row,
+  selected,
+  open,
+  asking,
+  onOpen,
+  onOpenMenu,
+  onToggleExpanded,
+  renderSubtree,
+}: {
+  row: AgentLeadRow;
+  selected: boolean;
+  open: boolean;
+  asking?: ReadonlySet<string>;
+  onOpen(sessionId: string): void;
+  onOpenMenu?(row: AgentLeadRow, point: { x: number; y: number }): void;
+  onToggleExpanded?(sessionId: string, expanded: boolean): void;
+  renderSubtree?(sessionId: string): React.ReactNode;
+}) {
+  return (
+    <>
+      <li
+        className={`agent-chat-row${selected ? ' selected' : ''}`}
+        data-kind="contact"
+        data-agent-lead={row.sessionId}
+        {...subtreeRowAttr(row.hasSubAgents && Boolean(onToggleExpanded))}
+        {...contextMenuRowProps((point) => onOpenMenu?.(row, point))}
+      >
+        {row.hasSubAgents && onToggleExpanded && (
+          <SubtreeToggle expanded={open} name={row.title} onToggle={(next) => onToggleExpanded(row.sessionId, next)} />
+        )}
+        <button
+          type="button"
+          className="agent-chat-row-main"
+          aria-current={selected ? 'page' : undefined}
+          aria-haspopup="menu"
+          aria-label={row.title}
+          onClick={(event) => {
+            if ((event.target as Element).closest('.agent-chat-avatar')) return;
+            onOpen(row.sessionId);
+          }}
+        >
+          <span className="agent-chat-avatar">
+            <span className="agent-lead-plate">
+              {row.provider ? <ProviderIcon provider={row.provider} /> : <Bot aria-hidden="true" />}
+            </span>
+          </span>
+          <span className="agent-chat-body agent-contact-body">
+            <b className="agent-chat-title">{row.title}</b>
+            <span className="agent-chat-preview">{row.preview}</span>
+            <span className="agent-contact-aside" data-has-status={row.kind === 'idle' ? undefined : 'true'}>
+              {row.at > 0 && <time className="agent-chat-time">{agentChatTimeLabel(row.at)}</time>}
+              {row.kind === 'running' && (
+                <span className="agent-chat-status" data-kind="running">
+                  <ProgressSpinner size={14} aria-hidden="true" />
+                  <span className="sr-only">{t('Working')}</span>
+                </span>
+              )}
+              {row.kind === 'attention' && (
+                <span className="agent-chat-status" data-kind="attention-mark">
+                  <SessionAttentionGlyph
+                    status={asking?.has(row.sessionId) ? 'asking' : 'needs-you'}
+                    name={row.title}
+                    size={14}
+                    className="agent-chat-attention"
+                  />
+                </span>
+              )}
+              {row.pinned && (
+                <span className="agent-lead-pin" data-lead-pin="true">
+                  <RailPinIcon pinned size={10} />
+                  <span className="sr-only">{t('Pinned')}</span>
+                </span>
+              )}
+            </span>
+          </span>
+        </button>
+      </li>
+      {open && row.hasSubAgents && renderSubtree && (
+        <li className="agent-subtree" data-agent-subtree={row.sessionId}>
+          {renderSubtree(row.sessionId)}
+        </li>
+      )}
+    </>
+  );
 }
 
 export function AgentLeadRows({
@@ -203,98 +311,25 @@ export function AgentLeadRows({
   // The rows do not wear the Lead face, but mounting the page still loads it
   // (and moves a face this device kept locally to the host) for the approvals.
   useLeadAvatar();
-  const nextExpiry = Math.min(Number.POSITIVE_INFINITY, ...rows.map((row) => row.expiresAt));
-  // Keyed on `rows` (rebuilt on every owner render): a timer that fired a hair
-  // early re-arms for what is left instead of leaving the row stuck.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on rows on purpose, see above
-  useEffect(() => {
-    if (!onExpire || !Number.isFinite(nextExpiry)) return undefined;
-    // setTimeout fires at once past 2^31-1 ms (a future-dated stamp): cap the
-    // wait so the re-arm on the next render reaches the real expiry instead.
-    const timer = setTimeout(onExpire, Math.min(MAX_TIMEOUT_MS, Math.max(0, nextExpiry - Date.now())));
-    return () => clearTimeout(timer);
-  }, [rows, nextExpiry, onExpire]);
+  useLeadExpiry(rows, onExpire);
   if (rows.length === 0) return null;
   return (
     <>
       {divider && <hr className="agent-chat-divider" aria-label={t('Leads')} />}
       <ul className="agent-contact-list" data-agent-section="leads" aria-label={t('Leads')}>
-        {rows.map((row) => {
-          const open = expandedIds?.has(row.sessionId) === true;
-          return (
-            <Fragment key={row.sessionId}>
-              <li
-                className={`agent-chat-row${row.sessionId === selectedSessionId ? ' selected' : ''}`}
-                data-kind="contact"
-                data-agent-lead={row.sessionId}
-                {...subtreeRowAttr(row.hasSubAgents && Boolean(onToggleExpanded))}
-                {...contextMenuRowProps((point) => onOpenMenu?.(row, point))}
-              >
-                {row.hasSubAgents && onToggleExpanded && (
-                  <SubtreeToggle
-                    expanded={open}
-                    name={row.title}
-                    onToggle={(next) => onToggleExpanded(row.sessionId, next)}
-                  />
-                )}
-                <button
-                  type="button"
-                  className="agent-chat-row-main"
-                  aria-current={row.sessionId === selectedSessionId ? 'page' : undefined}
-                  aria-haspopup="menu"
-                  aria-label={row.title}
-                  onClick={(event) => {
-                    // The plate is only the sub-agent toggle's place (CSS also lets
-                    // pointers through it); the rest of the row opens the session.
-                    if ((event.target as Element).closest('.agent-chat-avatar')) return;
-                    onOpen(row.sessionId);
-                  }}
-                >
-                  <span className="agent-chat-avatar">
-                    {/* The provider's mark is the Lead's face: a tinted plate in the avatar box. */}
-                    <span className="agent-lead-plate">
-                      {row.provider ? <ProviderIcon provider={row.provider} /> : <Bot aria-hidden="true" />}
-                    </span>
-                  </span>
-                  <span className="agent-chat-body agent-contact-body">
-                    <b className="agent-chat-title">{row.title}</b>
-                    <span className="agent-chat-preview">{row.preview}</span>
-                    <span className="agent-contact-aside" data-has-status={row.kind === 'idle' ? undefined : 'true'}>
-                      {row.at > 0 && <time className="agent-chat-time">{agentChatTimeLabel(row.at)}</time>}
-                      {row.kind === 'running' && (
-                        <span className="agent-chat-status" data-kind="running">
-                          <ProgressSpinner size={14} aria-hidden="true" />
-                          <span className="sr-only">{t('Working')}</span>
-                        </span>
-                      )}
-                      {row.kind === 'attention' && (
-                        <span className="agent-chat-status" data-kind="attention-mark">
-                          <SessionAttentionGlyph
-                            status={asking?.has(row.sessionId) ? 'asking' : 'needs-you'}
-                            name={row.title}
-                            size={14}
-                            className="agent-chat-attention"
-                          />
-                        </span>
-                      )}
-                      {row.pinned && (
-                        <span className="agent-lead-pin" data-lead-pin="true">
-                          <RailPinIcon pinned size={10} />
-                          <span className="sr-only">{t('Pinned')}</span>
-                        </span>
-                      )}
-                    </span>
-                  </span>
-                </button>
-              </li>
-              {open && row.hasSubAgents && renderSubtree && (
-                <li className="agent-subtree" data-agent-subtree={row.sessionId}>
-                  {renderSubtree(row.sessionId)}
-                </li>
-              )}
-            </Fragment>
-          );
-        })}
+        {rows.map((row) => (
+          <AgentLeadRowItem
+            key={row.sessionId}
+            row={row}
+            selected={row.sessionId === selectedSessionId}
+            open={expandedIds?.has(row.sessionId) === true}
+            asking={asking}
+            onOpen={onOpen}
+            onOpenMenu={onOpenMenu}
+            onToggleExpanded={onToggleExpanded}
+            renderSubtree={renderSubtree}
+          />
+        ))}
       </ul>
     </>
   );

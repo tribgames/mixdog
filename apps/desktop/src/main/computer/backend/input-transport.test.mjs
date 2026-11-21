@@ -4,13 +4,11 @@ import test from 'node:test';
 import { MIXDOG_INPUT_TRANSPORT_CSHARP } from './native-source.ts';
 import { ABORT_CLEANUP_PROGRAM } from './program.ts';
 
-test('checked input releases only partial held input and acknowledges every cleanup failure', {
-  skip: process.platform !== 'win32' && 'Windows only',
-  timeout: 30000,
-}, async () => {
-  const fixture =
-    MIXDOG_INPUT_TRANSPORT_CSHARP +
-    `
+const windows = { skip: process.platform !== 'win32' && 'Windows only', timeout: 30000 };
+
+const fixture =
+  MIXDOG_INPUT_TRANSPORT_CSHARP +
+  `
 public static class TransportFixture {
   static int calls, downs, ups;
   static bool held, rejectRelease;
@@ -26,13 +24,13 @@ public static class TransportFixture {
     return count;
   }
   static void Require(bool ok, string message) { if (!ok) throw new System.Exception(message); }
-  public static void Run() {
-    var marker = new System.IntPtr(123);
-    var batches = new MixNativeInput.INPUT[][] {
-      new [] { MixNativeInput.Key(13,0,0,marker), MixNativeInput.Key(13,0,2,marker) },
-      new [] { MixNativeInput.Key(0,65,4,marker), MixNativeInput.Key(0,65,6,marker) },
-      new [] { MixNativeInput.Mouse(2,marker), MixNativeInput.Mouse(4,marker) }
-    };
+  static System.IntPtr marker = new System.IntPtr(123);
+  static MixNativeInput.INPUT[][] batches = new MixNativeInput.INPUT[][] {
+    new [] { MixNativeInput.Key(13,0,0,marker), MixNativeInput.Key(13,0,2,marker) },
+    new [] { MixNativeInput.Key(0,65,4,marker), MixNativeInput.Key(0,65,6,marker) },
+    new [] { MixNativeInput.Mouse(2,marker), MixNativeInput.Mouse(4,marker) }
+  };
+  public static void PartialDelivery() {
     foreach (var batch in batches) {
       for (uint count = 0; count <= 2; count++) {
         calls = downs = ups = 0; held = false; accepted = count; rejectRelease = false;
@@ -45,10 +43,14 @@ public static class TransportFixture {
         Require(count == 2 ? code == "" : code.StartsWith("input_delivery_failed:"), "lost delivery outcome");
       }
     }
+  }
+  public static void FailedRelease() {
     calls = downs = ups = 0; accepted = 1; rejectRelease = true;
     try { MixNativeInput.Deliver(batches[0], Send); throw new System.Exception("missing cleanup failure"); }
     catch (System.Exception error) { Require(error.Message.StartsWith("input_cleanup_unconfirmed:"), error.Message); }
     Require(calls == 2 && downs == 1, "failed release retried or action replayed");
+  }
+  public static void OwnedKeys() {
     int attempts = 0; bool enter = false, rightControlExtended = false;
     var ownedMarker = new System.IntPtr(System.Diagnostics.Process.GetCurrentProcess().Id + 1000000);
     var heldBatch = new [] { MixNativeInput.Key(13,0,0,ownedMarker),
@@ -61,11 +63,6 @@ public static class TransportFixture {
     uint conflicting = MixNativeInput.DeliverTracked(new [] { MixNativeInput.Key(0xA3,0,3,ownedMarker) },
       ownedMarker, delegate(MixNativeInput.INPUT[] inputs) { conflictingReleases++; return 1; });
     Require(conflicting == 0 && conflictingReleases == 0, "released a key now held by the user");
-    // Everything this session holds reads as physically down when the next
-    // command starts observing, and the user holds Shift. The key state is
-    // injected: the real one (a click in progress, a key another process holds)
-    // changes which releases are refused. Each held input is ours, so its own
-    // release must still be accepted.
     MixNativeInput.RecordForeignKey(0x41, true);
     MixNativeInput.BeginOwnershipObservation(delegate(int key) {
       return key == 13 || key == 0xA3 || key == 0x41 || key == 1 || key == 0x10;
@@ -103,8 +100,9 @@ public static class TransportFixture {
     MixNativeInput.ReleaseOwned(ownedMarker, delegate(MixNativeInput.INPUT[] inputs) { attempts++; return 1; },
       delegate() { return true; });
     Require(attempts == 3, "receipt was not reset to empty");
-    // A mouse button this session holds reads as physically down on the next
-    // observation, like a held key, while the user's other button stays theirs.
+  }
+  public static void OwnedMouse() {
+    var ownedMarker = new System.IntPtr(System.Diagnostics.Process.GetCurrentProcess().Id + 1000000);
     MixNativeInput.DeliverTracked(new [] { MixNativeInput.Mouse(2,ownedMarker) }, ownedMarker,
       delegate(MixNativeInput.INPUT[] inputs) { return (uint)inputs.Length; });
     MixNativeInput.BeginOwnershipObservation(delegate(int key) { return key == 1 || key == 2; });
@@ -121,14 +119,12 @@ public static class TransportFixture {
     Require(pointerReleases == 1, "refused the release of a mouse button this session holds");
   }
 }`;
-  const encoded = Buffer.from(fixture).toString('base64');
-  // Compile the actual abort program in a separate type namespace without invoking it.
-  const abortSource = ABORT_CLEANUP_PROGRAM.split('Add-Type @"')[1].split('"@')[0];
-  const encodedAbort = Buffer.from(`namespace AbortFixture { ${abortSource} }`).toString('base64');
+const addType = (source) =>
+  `Add-Type -TypeDefinition ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(source).toString('base64')}')))`;
+
+async function runPowerShell(body) {
   const script = `$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'
-Add-Type -TypeDefinition ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}')))
-[TransportFixture]::Run()
-Add-Type -TypeDefinition ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedAbort}')))
+${body}
 [Console]::WriteLine('CHECKED_TRANSPORT_OK')`;
   const child = execFile(
     'powershell.exe',
@@ -154,4 +150,29 @@ Add-Type -TypeDefinition ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64S
   });
   child.stdin.end(script);
   assert.match(await completed, /CHECKED_TRANSPORT_OK/);
+}
+
+const runFixture = (method) => runPowerShell(`${addType(fixture)}\n[TransportFixture]::${method}()`);
+
+test('a partly accepted input batch releases what it pressed and is never replayed', windows, () =>
+  runFixture('PartialDelivery')
+);
+
+test('a failed release is reported as unconfirmed cleanup without retrying the action', windows, () =>
+  runFixture('FailedRelease')
+);
+
+test(
+  'owned keys release exactly what this session holds, refuse keys the user holds, and acknowledge cleanup failures',
+  windows,
+  () => runFixture('OwnedKeys')
+);
+
+test("an owned mouse button is released while the user's other button is left alone", windows, () =>
+  runFixture('OwnedMouse')
+);
+
+test('the abort cleanup program compiles in its own namespace', windows, () => {
+  const abortSource = ABORT_CLEANUP_PROGRAM.split('Add-Type @"')[1].split('"@')[0];
+  return runPowerShell(addType(`namespace AbortFixture { ${abortSource} }`));
 });

@@ -23,11 +23,6 @@ interface ElementPageGeometry {
 }
 
 export function createElementCapture(capture: ScreenshotCapture) {
-  /** The element the caller named, as an image of its own. It is cropped out
-   *  of one viewport capture, and the page measurement and the image come
-   *  from the same settled viewport, so the crop holds on a zoomed or
-   *  high-DPI display. An element that does not fit the window is painted
-   *  past it instead of being cut short. */
   return async function captureElement(
     guest: WebContents,
     background: boolean,
@@ -59,10 +54,6 @@ export function createElementCapture(capture: ScreenshotCapture) {
   };
 }
 
-/** An element taller or wider than the window is cut out of the document
- *  capture instead, which is the only capture that holds all of it. A page
- *  too large to capture at its own resolution leaves the viewport crop as the
- *  honest partial answer (a scaled-down page would blur the element). */
 async function captureWithinDocument(
   capture: ScreenshotCapture,
   guest: WebContents,

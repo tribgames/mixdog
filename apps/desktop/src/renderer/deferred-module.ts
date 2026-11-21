@@ -1,8 +1,3 @@
-// A surface module kept off the first-screen bundle: a phone's cold open
-// downloads, parses and evaluates only what that screen renders, and these
-// chunks follow from the idle lane (or the first open). Once loaded, a module
-// renders synchronously, so a surface opened after the warm-up never passes
-// through a placeholder frame.
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { holdBootSurface, reportBootSurfaceReady } from './boot-metrics';
 

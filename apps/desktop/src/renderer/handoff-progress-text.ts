@@ -4,10 +4,6 @@ export const HANDOFF_PROGRESS_MAX = 80;
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
-// A delimiter acts as emphasis only at a word edge: opened after a start,
-// space or bracket, closed before an end, space or closing punctuation.
-// Inside a word or a path (`__init__.py`, `snake_case`, `a*b`, `C:\x\__y__\`)
-// it is text.
 const OPENS = String.raw`(^|[\s(\[])`;
 const CLOSES = String.raw`(?=[).,;:!?\]]*(?:$|\s))`;
 const emphasis = (delimiter: string, inner: string) =>

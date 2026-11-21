@@ -66,13 +66,13 @@ which calls `openHostPicker` to return to the pairing screen.
 
 ## Layout
 
-| Path | What |
-| --- | --- |
-| `src/` | Bundled pairing screen (`main.ts`, `hosts.ts`) + tests |
-| `android/` | Gradle project; `io.mixdog.app` Java sources (`MixdogNativeHost`, `MixdogMessagingService`, `MixdogKeys`, `NativePushCrypto`, …) |
-| `ios/App/` | Xcode project (CocoaPods); `App` target, `NotificationService` extension, `Shared/` (compiled into both) |
-| `test-vectors/native-push-v1.json` | Cross-check vector for the native decryptors (mirrors `NATIVE_PUSH_TEST_VECTOR`) |
-| `scripts/` | `build-web.mjs`, `verify-native-config.mjs` (static native-config checks) |
+| Path                               | What                                                                                                                             |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `src/`                             | Bundled pairing screen (`main.ts`, `hosts.ts`) + tests                                                                           |
+| `android/`                         | Gradle project; `io.mixdog.app` Java sources (`MixdogNativeHost`, `MixdogMessagingService`, `MixdogKeys`, `NativePushCrypto`, …) |
+| `ios/App/`                         | Xcode project (CocoaPods); `App` target, `NotificationService` extension, `Shared/` (compiled into both)                         |
+| `test-vectors/native-push-v1.json` | Cross-check vector for the native decryptors (mirrors `NATIVE_PUSH_TEST_VECTOR`)                                                 |
+| `scripts/`                         | `build-web.mjs`, `verify-native-config.mjs` (static native-config checks)                                                        |
 
 ## Commands
 
@@ -111,7 +111,7 @@ npm run sync:ios       # build web, cap sync ios (+ pod install, macOS)
   creates the App Store profiles bound to it through the App Store Connect API
   key (`scripts/ios-ci-signing.py`), archives and uploads to TestFlight. Runs
   never create or revoke certificates; they warn 30 days before the certificate
-  expires and fail once it has (see *Renewing the iOS distribution certificate*).
+  expires and fail once it has (see _Renewing the iOS distribution certificate_).
   It runs only `verify:native` before the build: the typecheck and tests run once,
   on Linux, in the Android workflow and the gate, not again on a macOS runner.
   Build number = UTC `YYYYMMDDHHMM` of the run (rises
@@ -128,17 +128,17 @@ npm run sync:ios       # build web, cap sync ios (+ pod install, macOS)
 
 ## Repository secrets
 
-| Secret | Used by | Content |
-| --- | --- | --- |
-| `APPLE_API_KEY_P8` | iOS | App Store Connect API key (`.p8` file text) |
-| `APPLE_API_KEY_ID` | iOS | its key id |
-| `APPLE_API_ISSUER` | iOS | issuer id |
-| `IOS_DIST_P12_BASE64` | iOS | base64 `.p12` of the Apple Distribution certificate + private key |
-| `IOS_DIST_P12_PASSWORD` | iOS | password of that `.p12` |
-| `ANDROID_KEYSTORE_B64` | Android | base64 of the release keystore |
-| `ANDROID_KEYSTORE_PASSWORD` | Android | keystore password |
-| `ANDROID_KEY_ALIAS` | Android | key alias (`mixdog`) |
-| `ANDROID_KEY_PASSWORD` | Android | key password |
+| Secret                              | Used by | Content                                                                                                     |
+| ----------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| `APPLE_API_KEY_P8`                  | iOS     | App Store Connect API key (`.p8` file text)                                                                 |
+| `APPLE_API_KEY_ID`                  | iOS     | its key id                                                                                                  |
+| `APPLE_API_ISSUER`                  | iOS     | issuer id                                                                                                   |
+| `IOS_DIST_P12_BASE64`               | iOS     | base64 `.p12` of the Apple Distribution certificate + private key                                           |
+| `IOS_DIST_P12_PASSWORD`             | iOS     | password of that `.p12`                                                                                     |
+| `ANDROID_KEYSTORE_B64`              | Android | base64 of the release keystore                                                                              |
+| `ANDROID_KEYSTORE_PASSWORD`         | Android | keystore password                                                                                           |
+| `ANDROID_KEY_ALIAS`                 | Android | key alias (`mixdog`)                                                                                        |
+| `ANDROID_KEY_PASSWORD`              | Android | key password                                                                                                |
 | `FIREBASE_GOOGLE_SERVICES_JSON_B64` | Android | base64 of `google-services.json` (project `mixdog-app`, app `1:72037110974:android:fe585242b693ba891a7aef`) |
 
 Apple identifiers: team `Q6C35DQU78`, App Store Connect app `6821430566`, bundle
@@ -165,9 +165,9 @@ with it (a revoked signature fails processing with ITMS-90035).
 ## One-time manual steps
 
 1. **Apple**: the App ID `io.mixdog.app` already has Push Notifications. Issue the
-   distribution certificate (*Renewing the iOS distribution certificate*); the
+   distribution certificate (_Renewing the iOS distribution certificate_); the
    first CI run then creates the `io.mixdog.app.NotificationService` App ID and
-   the profiles (the API key needs the *App Manager*/*Admin* role). If it cannot, create the
+   the profiles (the API key needs the _App Manager_/_Admin_ role). If it cannot, create the
    extension App ID in the developer portal by hand (no capabilities needed).
 2. **APNs key**: the host sender needs an APNs auth key (`.p8`) enabled for the
    team (sandbox and production); configure it on the host side — the phone app

@@ -1,13 +1,3 @@
-// The chat card of a turn's `visualize` opens: ONE card per Lead turn, stamped
-// under the reply once the turn ended (like the changed-files card) on each
-// tab's final version. A tile per distinct panel tab: the picture of its
-// version, its title, version and where it is (shown in the panel, updated
-// behind another tab, an earlier version, closed); a tile shows its tab in
-// the session's side panel (or opens it again once closed), "Show all" brings
-// every tab of the turn up. Coding mode draws it under the reply, agent mode
-// in the bubble column. Remote clients draw it from their mirrored state.
-// Beside the agent's opens, the turn's previews (turn-preview-model.ts): the
-// files it changed that the panel can show, filled in at its end.
 import {
   AlertTriangle,
   BarChart3,
@@ -445,12 +435,6 @@ const NO_CHANGED_FILES: readonly TurnChangesFile[] = [];
 const NO_SURFACED: readonly string[] = [];
 const NO_PREVIEW_CALLS: readonly VisualizeCardCall[] = [];
 
-/** The turn's preview tiles once it ended (turn-preview-model.ts): its
- *  changed files the panel can show that the agent did not open, read from
- *  the turn's change record; `marked` badges every tile by that record, and
- *  `visualized` is every file the card shows (its changed-files card lists
- *  none of them). The turn's end, when this renderer saw it run, opens the
- *  confident ones once. */
 function useTurnPreviews({
   sessionId,
   items,
@@ -530,11 +514,6 @@ function useTurnPreviews({
   useEffect(() => {
     noteTurnPreviewTargets(changesSession, checkpointId, targets);
   }, [changesSession, checkpointId, targets]);
-  // The live turn end: the trailing card drawn once its turn stopped claims
-  // the running mark of that very turn (other turns, history, reconnects and
-  // re-renders find none),
-  // then opens its confident previews once its changes are known and the
-  // panel's turn hold has released (the agent's own opens shown first).
   const trailingEnd = Boolean(turnChanges?.trailing && changesSession) && !running;
   useEffect(() => {
     if (trailingEnd) claimTurnPreviewEnd(changesSession, endTurnKey, checkpointId);

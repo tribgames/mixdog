@@ -1,7 +1,3 @@
-// Snapshot-scoped view slices: each subscribes to the shared desktop snapshot
-// store through its OWN equality comparator, so a header-only change never
-// re-renders the conversation (and vice versa). App.tsx keeps composition and
-// session flow.
 import React, {
   memo,
   useCallback,
@@ -160,6 +156,52 @@ type PaneConversationProps = Omit<
   heldSnapshot?: ReturnType<typeof useSessionLane> | null;
 };
 
+/** The transcript list mounts one frame after the shell on a phone entering a
+ *  session it holds no lane for; true while it is held back. */
+function useTranscriptListGate(sessionId: string, holdsList: boolean): boolean {
+  const [listGate, setListGate] = useState({ sessionId, mounted: !holdsList });
+  let currentListGate = listGate;
+  if (listGate.sessionId !== sessionId) {
+    currentListGate = { sessionId, mounted: !holdsList };
+    setListGate(currentListGate);
+  }
+  const listHeld = !currentListGate.mounted;
+  useEffect(() => {
+    if (!listHeld) return undefined;
+    const frame = window.requestAnimationFrame(() =>
+      setListGate((state) => (state.sessionId === sessionId ? { ...state, mounted: true } : state))
+    );
+    return () => window.cancelAnimationFrame(frame);
+  }, [listHeld, sessionId]);
+  return listHeld;
+}
+
+/** Chromium may discard the raster of a layout-retained Markdown subtree while
+ *  New Task is visible: the New Task watermark stays over a warm session for one
+ *  rAF while its rows paint underneath. */
+function useWarmDraftHandoff(bootKey: string, surfaceReady: boolean): boolean {
+  const [presentedPaintKey, setPresentedPaintKey] = useState(bootKey);
+  const paintKeyChanged = presentedPaintKey !== bootKey;
+  const warmDraftHandoff =
+    surfaceReady && paintKeyChanged && presentedPaintKey === 'new-task' && bootKey !== 'new-task';
+  useLayoutEffect(() => {
+    if (!paintKeyChanged) return undefined;
+    if (!warmDraftHandoff) {
+      setPresentedPaintKey(bootKey);
+      return undefined;
+    }
+    const frame = window.requestAnimationFrame(() => setPresentedPaintKey(bootKey));
+    return () => window.cancelAnimationFrame(frame);
+  }, [bootKey, paintKeyChanged, warmDraftHandoff]);
+  beginBootSurface('conversation', bootKey);
+  useEffect(() => {
+    if (!surfaceReady) return;
+    reportBootSurfaceStage('conversation', bootKey, 'data');
+    reportBootSurfaceReady('conversation', bootKey);
+  }, [bootKey, surfaceReady]);
+  return warmDraftHandoff;
+}
+
 export const PaneConversation = memo(function PaneConversation({
   focused,
   sessionId,
@@ -185,27 +227,9 @@ export const PaneConversation = memo(function PaneConversation({
     reconcileOnMount,
     read: requestSessionRead,
   });
-  // A phone entering a session whose lane it does not hold mounts the shell
-  // and the real composer in the entry commit and the transcript list one
-  // frame later, behind the viewport cover, so the tap answers at once. The
-  // decision belongs to the INCOMING session id and is taken once, in the
-  // commit that selects it: the lane arriving later does not reopen it.
   const mobileSurface = useMobileRemoteSurface();
   const holdsList = mobileSurface && !hidden && sessionId !== '' && lane === null;
-  const [listGate, setListGate] = useState({ sessionId, mounted: !holdsList });
-  let currentListGate = listGate;
-  if (listGate.sessionId !== sessionId) {
-    currentListGate = { sessionId, mounted: !holdsList };
-    setListGate(currentListGate);
-  }
-  const listHeld = !currentListGate.mounted;
-  useEffect(() => {
-    if (!listHeld) return undefined;
-    const frame = window.requestAnimationFrame(() =>
-      setListGate((state) => (state.sessionId === sessionId ? { ...state, mounted: true } : state))
-    );
-    return () => window.cancelAnimationFrame(frame);
-  }, [listHeld, sessionId]);
+  const listHeld = useTranscriptListGate(sessionId, holdsList);
   const coverIdRef = useRef(sessionId || 'draft');
   const originSessionRef = useRef(sessionId || '');
   // Armed by this draft's own submit; only that submit promotes the draft.
@@ -286,12 +310,6 @@ export const PaneConversation = memo(function PaneConversation({
     const frame = window.requestAnimationFrame(() => setHeldPaintId(incomingPaintId));
     return () => window.cancelAnimationFrame(frame);
   }, [contentReady, heldPaintId, incomingPaintId, paintGate.adoptNow]);
-  // A session's FIRST entry in this pane loads behind the spinner cover until
-  // its rows are laid out and its dock chrome has decided, then shows at once
-  // (user: 로딩 중엔 스피너 돌고 다 정리된 뒤 보여야 한다). Uncovered, the
-  // pane showed the composer over an empty transcript, then the rows, then a
-  // review bar that came and went. A revisit settles in a frame and swaps in
-  // place.
   const [enteredSessions, setEnteredSessions] = useState<ReadonlySet<string>>(() => new Set());
   const onEntryRevealed = useCallback((sessionKey: string) => {
     setEnteredSessions((current) => (current.has(sessionKey) ? current : new Set(current).add(sessionKey)));
@@ -303,49 +321,13 @@ export const PaneConversation = memo(function PaneConversation({
   useLayoutEffect(() => {
     if (laneEmpty) onEntryRevealed(sessionId);
   }, [laneEmpty, onEntryRevealed, sessionId]);
-  // The transcript is hidden while its reveal settles. A revisit latches the
-  // cover as already revealed, so the hidden transcript must hold it up. Only
-  // the cover reads it: this pane does not re-render for each hide/reveal.
   const [transcriptHidden] = useState(createSurfaceHoldSignal);
-  // Only the conversation can declare its dock and row geometry ready.
-  // A parallel timer would uncover a slow diff/Goal before its height lands.
-  // Sidebar session registration remounts the virtualizer. Keep the sheet
-  // cover up until the incoming lane exists and one frame has committed it.
   const surfaceReady = paintGate.reveal && !entryPending && !listHeld;
   const showingIncoming = presentedSessionId === sessionId;
   const timelinePending =
     showingIncoming && !promotingFromDraft && (markdownPending || Boolean(sessionId && !hidden && lane === null));
   const bootKey = sessionId || 'new-task';
-  // Chromium may discard the raster for a layout-retained Markdown subtree
-  // while New Task is visible. Keep the New Task watermark over a warm session
-  // for exactly one rAF while the CURRENT route/rows paint underneath. Route
-  // identity must still switch in the click commit — a previous session may
-  // never remain the draft's DOM, even for one observer delivery.
-  const [presentedPaintKey, setPresentedPaintKey] = useState(bootKey);
-  const paintKeyChanged = presentedPaintKey !== bootKey;
-  const warmDraftHandoff =
-    surfaceReady && paintKeyChanged && presentedPaintKey === 'new-task' && bootKey !== 'new-task';
-  useLayoutEffect(() => {
-    if (!paintKeyChanged) return undefined;
-    if (!warmDraftHandoff) {
-      setPresentedPaintKey(bootKey);
-      return undefined;
-    }
-    const frame = window.requestAnimationFrame(() => setPresentedPaintKey(bootKey));
-    return () => window.cancelAnimationFrame(frame);
-  }, [bootKey, paintKeyChanged, warmDraftHandoff]);
-  beginBootSurface('conversation', bootKey);
-  useEffect(() => {
-    if (!surfaceReady) return;
-    reportBootSurfaceStage('conversation', bootKey, 'data');
-    reportBootSurfaceReady('conversation', bootKey);
-  }, [bootKey, surfaceReady]);
-  // Keep Conversation mounted at its final geometry, but do not expose its
-  // empty shell followed by a bulk Markdown/virtualizer insertion. The opaque
-  // cover leaves only after the authoritative lane and composed frames settle.
-  // The context gauge sits beside the composer's model trigger on every
-  // surface (user: 컨텍스트는 모델 선택기 옆; 모바일도 PC에 맞춰) — the
-  // phone's floating status capsule is retired with it.
+  const warmDraftHandoff = useWarmDraftHandoff(bootKey, surfaceReady);
   const contextIndicator = useMemo(
     () => (
       <PaneContextIndicator
@@ -430,11 +412,9 @@ export const PaneConversation = memo(function PaneConversation({
   );
 });
 
-// Relay hops drop per-session lane pushes for a congested or backgrounded
-// leg, and stateResync recovery only restores the bound-session state lane.
-// When the remote shim signals such a gap, re-read every mounted lane and
-// drop unmounted cached lanes so their next open re-reads from the host.
-// Inside Electron the shim never installs and this event never fires.
+// Relay hops drop per-session lane pushes on a congested or backgrounded leg,
+// and stateResync restores only the bound session's lane. Only the remote shim
+// fires this event.
 const recoverSessionLanesFromRemoteGap = (): void => {
   defaultSessionLaneStore.evictInactive();
   for (const sessionId of defaultSessionLaneStore.subscribedSessionIds()) {
@@ -445,11 +425,6 @@ if (typeof window !== 'undefined') {
   window.addEventListener('mixdog:remote-state-gap', recoverSessionLanesFromRemoteGap);
 }
 
-/** Session status island: the context gauge and the live Agent/Shell chips as
- *  ONE capsule at the transcript's top-right corner. Every pane status slot
- *  reads its own lane through a single subscription — the gauge and the chips
- *  share the same header-scoped comparator, so one lane read now feeds both.
- *  Focus never changes data ownership. */
 function usePaneIslandSnapshot(sessionId: string, hidden: boolean): Snapshot {
   const lane = useSessionLane(
     sessionId,
@@ -460,15 +435,6 @@ function usePaneIslandSnapshot(sessionId: string, hidden: boolean): Snapshot {
   return hidden || !sessionId || !lane ? EMPTY_SNAPSHOT : paneHeaderView(lane);
 }
 
-// Most sessions have no Goal, so the capsule module stays out of the first
-// screen: the idle boot lane warms it, or the first lane frame that carries a
-// Goal fetches it. Once loaded, every pane mounts the (empty) island right
-// away, so its lazy boundary has resolved before a Goal session is entered. A
-// boundary that first suspends with a Goal on screen holds the capsule back
-// for React's reveal throttle (~300ms): the transcript painted without it and
-// lifted 40px when it landed (user: 컴포저 위에 골이 있을 때 튄다). Mounted,
-// the island stays mounted, keeping its presence diagnostics and submission
-// mask.
 let sessionGoalModuleLoaded = false;
 let sessionGoalModulePromise: Promise<typeof import('./SessionGoalIsland')> | null = null;
 const sessionGoalModuleListeners = new Set<() => void>();
@@ -578,13 +544,6 @@ type SnapshotUtilityDockProps = Omit<
   hidden: boolean;
 };
 
-// ONE dock element for every tab. The old per-tab alternation between a
-// snapshot-backed dock (Search) and a bare one (Agents/Source Control) swapped
-// the component TYPE on a tab change, which unmounted the whole dock — every
-// retained pane, tree expansion and scroll went with it. The dock-scoped
-// comparator (desktopDockSnapshotsEqual) already limits re-renders to the
-// fields the dock reads, and UtilityDock is memoised, so a single subscription
-// keeps live agent/tool work flowing without rebuilding the surface.
 export const SnapshotUtilityDock = memo(function SnapshotUtilityDock({
   snapshotStore,
   hidden,

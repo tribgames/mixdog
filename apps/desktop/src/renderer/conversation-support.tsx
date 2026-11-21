@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useMemo,
   type Dispatch,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -84,6 +85,28 @@ export function JumpToLatestButton({ visible, onJump }: { visible: boolean; onJu
   );
 }
 
+function optimisticPromptFor(
+  content: DesktopPromptContent,
+  options: DesktopSubmitOptions | undefined,
+  { id, queuedBehindTurn, settledUserBaseline }: { id: string; queuedBehindTurn: boolean; settledUserBaseline: number }
+): PendingPromptItem {
+  const submittedAt = Number(options?.submittedAt);
+  const trackedSubmittedAt = Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : Date.now();
+  const images = pendingPromptImages(options);
+  return {
+    id,
+    kind: 'user',
+    text: desktopPromptDisplayText(content, options),
+    pending: true,
+    accepted: false,
+    submittedAt: trackedSubmittedAt,
+    at: trackedSubmittedAt,
+    queuedBehindTurn,
+    settledUserBaseline,
+    ...(images.length ? { images } : {}),
+  };
+}
+
 export function useConversationComposerActions({
   armFollowOnSubmitRef,
   composerActions,
@@ -111,25 +134,13 @@ export function useConversationComposerActions({
   // stable refs passed in, so none of them lists a ref's `.current` as a dependency.
   // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs and state setters, read at call time.
   const composerSubmit = useCallback(async (content: DesktopPromptContent, options?: DesktopSubmitOptions) => {
-    const submittedAt = Number(options?.submittedAt);
-    const trackedSubmittedAt = Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : Date.now();
     const submissionId = String(options?.id || '').trim() || nextComposerSubmissionId();
-    const images = pendingPromptImages(options);
-    const optimistic: PendingPromptItem = {
+    const optimistic = optimisticPromptFor(content, options, {
       id: submissionId,
-      kind: 'user',
-      text: desktopPromptDisplayText(content, options),
-      pending: true,
-      accepted: false,
-      submittedAt: trackedSubmittedAt,
-      // The time the durable row is stamped with: a chat lays the bubble out
-      // with its time line and day divider (agent-chat-place.ts), so the
-      // durable row replaces it at the same height instead of growing it.
-      at: trackedSubmittedAt,
       queuedBehindTurn: queuedBehindTurnAtSubmit.current,
       settledUserBaseline: settledUsersRef.current,
-      ...(images.length ? { images } : {}),
-    };
+    });
+    const trackedSubmittedAt = optimistic.submittedAt;
     const materializingDraft = draftModeRef.current;
     if (materializingDraft) suppressDraftSubmitPaintHandoff.current = true;
     // Every idle submit closes completed goal chrome, even without a diff.
@@ -142,12 +153,6 @@ export function useConversationComposerActions({
       setOptimisticPrompts((current) => [...current.filter((item) => item.id !== submissionId), optimistic]);
       armFollowOnSubmitRef.current();
     };
-    // The composer's draft clear is queued on the same turn as this row, so
-    // both must commit together. Deferring the row as a transition (a phone
-    // optimisation) let the tap's own commit paint first: the composer shrank,
-    // the followed transcript slid down into the freed room, and only a frame
-    // or more later did the bubble land and shove the history back up — the
-    // sent prompt appeared to pop out of the composer.
     showPendingRow();
     window.mixdogDesktop?.perfLog?.(`prompt-submit phase=renderer-queued id=${submissionId}`);
     const acceptedStartedAt = performance.now();
@@ -205,77 +210,41 @@ export function useConversationComposerActions({
     );
     return accepted;
   }, []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
-  const composerAbort = useCallback(
-    (options: DesktopAbortOptions = {}) =>
-      composerActions.current.invokeResult(() => {
-        const host = window.mixdogDesktop;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs and state setter, read at call time.
+  const forwarded = useMemo(
+    () => ({
+      composerAbort: (options: DesktopAbortOptions = {}) =>
+        composerActions.current.invokeResult(() => {
+          const host = window.mixdogDesktop;
+          const sessionId = routeSessionIdRef.current;
+          return sessionId ? host.abortSession(sessionId, options) : { aborted: false };
+        }),
+      composerInvokeResult: <T,>(action: () => T | Promise<T>) => composerActions.current.invokeResult(action),
+      composerQueuedRestored: (ids: string[]) => {
+        if (ids.length === 0) return;
+        const restored = new Set(ids);
+        setOptimisticPrompts((current) => {
+          const next = current.filter((item) => !restored.has(String(item.id)));
+          return next.length === current.length ? current : next;
+        });
+      },
+      composerApplySnapshot: (next: SessionSnapshot | null) => composerActions.current.applySnapshot(next),
+      composerOnNewTask: () => composerActions.current.onNewTask(),
+      composerOnClearToNewTask: () => {
         const sessionId = routeSessionIdRef.current;
-        return sessionId ? host.abortSession(sessionId, options) : { aborted: false };
-      }),
+        if (sessionId) composerActions.current.onClearToNewTask?.(sessionId);
+      },
+      composerOnResumeSession: (id: string) => composerActions.current.onResumeSession(id),
+      composerOnOpenSessions: () => composerActions.current.onOpenSessions(),
+      composerOnOpenProjects: () => composerActions.current.onOpenProjects(),
+      composerOnOpenSettings: (section?: SettingsSection | null) => composerActions.current.onOpenSettings(section),
+      composerOnOpenCommandSurface: (surface: CommandSurfaceName) =>
+        composerActions.current.onOpenCommandSurface(surface),
+      composerOnInherit: () => composerActions.current.onInherit(),
+    }),
     []
   );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
-  const composerInvokeResult = useCallback(
-    <T,>(action: () => T | Promise<T>) => composerActions.current.invokeResult(action),
-    []
-  );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stable state setter.
-  const composerQueuedRestored = useCallback((ids: string[]) => {
-    if (ids.length === 0) return;
-    const restored = new Set(ids);
-    setOptimisticPrompts((current) => {
-      const next = current.filter((item) => !restored.has(String(item.id)));
-      return next.length === current.length ? current : next;
-    });
-  }, []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
-  const composerApplySnapshot = useCallback(
-    (next: SessionSnapshot | null) => composerActions.current.applySnapshot(next),
-    []
-  );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
-  const composerOnNewTask = useCallback(() => composerActions.current.onNewTask(), []);
-  // A session pane's /clear · /new addresses ITS OWN session (pane-local
-  // route), never the globally focused one.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
-  const composerOnClearToNewTask = useCallback(() => {
-    const sessionId = routeSessionIdRef.current;
-    if (sessionId) composerActions.current.onClearToNewTask?.(sessionId);
-  }, []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
-  const composerOnResumeSession = useCallback((id: string) => composerActions.current.onResumeSession(id), []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
-  const composerOnOpenSessions = useCallback(() => composerActions.current.onOpenSessions(), []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
-  const composerOnOpenProjects = useCallback(() => composerActions.current.onOpenProjects(), []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
-  const composerOnOpenSettings = useCallback(
-    (section?: SettingsSection | null) => composerActions.current.onOpenSettings(section),
-    []
-  );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
-  const composerOnOpenCommandSurface = useCallback(
-    (surface: CommandSurfaceName) => composerActions.current.onOpenCommandSurface(surface),
-    []
-  );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stable refs, read at call time.
-  const composerOnInherit = useCallback(() => composerActions.current.onInherit(), []);
-  return {
-    composerAbort,
-    composerApplySnapshot,
-    composerInvokeResult,
-    composerOnClearToNewTask,
-    composerOnNewTask,
-    composerOnInherit,
-    composerOnOpenCommandSurface,
-    composerOnOpenProjects,
-    composerOnOpenSessions,
-    composerOnOpenSettings,
-    composerOnResumeSession,
-    composerQueuedRestored,
-    composerSubmit,
-  };
+  return { ...forwarded, composerSubmit };
 }
 
 /** Which surface a key belongs to: the transcript takes the paging keys, and
@@ -293,51 +262,48 @@ export function conversationKeyDownCapture(
   }
 ): void {
   if (readOnly) return;
-  const transcriptKey =
-    event.key === 'PageUp' || event.key === 'PageDown' || event.key === 'Home' || event.key === 'End';
   const target = event.target as HTMLElement | null;
-  const editingHomeOrEnd =
-    (event.key === 'Home' || event.key === 'End') &&
-    Boolean(target?.closest('textarea, input, select, [contenteditable="true"]'));
-  const paletteOpen = Boolean(
-    event.currentTarget.querySelector('[data-composer-palette-open="true"], [role="listbox"]')
-  );
-  const nestedScroller = target?.closest<HTMLElement>('[data-scrollable]');
-  if (
-    transcriptKey &&
-    !event.ctrlKey &&
-    !event.metaKey &&
-    !event.altKey &&
-    !event.shiftKey &&
-    !editingHomeOrEnd &&
-    !paletteOpen &&
-    !nestedScroller
-  ) {
+  if (ownsTranscriptKey(event, target)) {
     const element = viewport.current;
     if (element) {
       event.preventDefault();
       onTranscriptKey({ key: event.key });
-      if (event.key === 'PageUp' || event.key === 'PageDown') {
-        const direction = event.key === 'PageDown' ? 1 : -1;
-        element.scrollBy({ top: Math.round(element.clientHeight * 0.9) * direction, behavior: 'auto' });
-      } else {
-        // An absolute target is logical: a row offset the timeline still
-        // holds from a touch scroll ends with this write.
-        dropTranscriptScrollDeviation(element);
-        element.scrollTo({ top: event.key === 'Home' ? 0 : element.scrollHeight, behavior: 'auto' });
-      }
+      scrollTranscriptForKey(element, event.key);
     }
     return;
   }
-  // Typing must always land in the composer: a printable key (or the
-  // IME "Process" key starting a Korean composition) pressed while
-  // focus sits on the transcript or tool chrome refocuses the input
-  // BEFORE the character/composition commits, so keystrokes are never
-  // silently dropped.
+  focusComposerForTyping(event, target);
+}
+
+const EDITABLE_SELECTOR = 'textarea, input, select, [contenteditable="true"]';
+
+function ownsTranscriptKey(event: ReactKeyboardEvent<HTMLElement>, target: HTMLElement | null): boolean {
+  const homeOrEnd = event.key === 'Home' || event.key === 'End';
+  if (!homeOrEnd && event.key !== 'PageUp' && event.key !== 'PageDown') return false;
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
+  if (homeOrEnd && target?.closest(EDITABLE_SELECTOR)) return false;
+  if (event.currentTarget.querySelector('[data-composer-palette-open="true"], [role="listbox"]')) return false;
+  return !target?.closest('[data-scrollable]');
+}
+
+function scrollTranscriptForKey(element: HTMLDivElement, key: string): void {
+  if (key === 'PageUp' || key === 'PageDown') {
+    const direction = key === 'PageDown' ? 1 : -1;
+    element.scrollBy({ top: Math.round(element.clientHeight * 0.9) * direction, behavior: 'auto' });
+    return;
+  }
+  // An absolute target is logical: a row offset the timeline still
+  // holds from a touch scroll ends with this write.
+  dropTranscriptScrollDeviation(element);
+  element.scrollTo({ top: key === 'Home' ? 0 : element.scrollHeight, behavior: 'auto' });
+}
+
+/** A printable key, or the IME "Process" key that starts a composition, pressed outside a field refocuses the composer before the character commits. */
+function focusComposerForTyping(event: ReactKeyboardEvent<HTMLElement>, target: HTMLElement | null): void {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.key.length !== 1 && event.key !== 'Process') return;
   if (!target || typeof target.closest !== 'function') return;
-  if (target.closest('textarea, input, select, [contenteditable="true"]')) return;
+  if (target.closest(EDITABLE_SELECTOR)) return;
   // Structural hook, not the accessible name: the aria-label is
   // localized, so matching its English copy never found the
   // textarea outside the English UI.

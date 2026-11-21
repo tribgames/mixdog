@@ -1,7 +1,3 @@
-// Per-session snapshot cache: switching back to a recently viewed session shows
-// its last transcript immediately instead of an empty frame while the session
-// re-attaches. Bounded by BOTH count and estimated retained JS bytes so six
-// unusually large transcripts cannot pin the renderer heap indefinitely.
 import type { SessionSnapshot } from '../shared/contract';
 import type { Snapshot } from './desktop-types';
 import { RendererLruCache } from './renderer-lru-cache';

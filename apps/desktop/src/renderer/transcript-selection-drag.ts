@@ -1,48 +1,3 @@
-/**
- * Transcript text-selection drag — Chromium owns the range, this module
- * owns what the virtual list needs to know about it.
- *
- * The browser is the ONE writer of the Selection for a mouse drag. Every
- * attempt to co-author it from script fought Chromium's own per-move
- * handling: canceling `mousemove` no longer suppresses native extension
- * (Chromium 122+), so a script write plus the native write made two authors
- * per pixel (the flicker); and a script write landing before Chromium's own
- * drag resolution put the press point inside a live range, which starts a
- * drag-and-drop of the selected text and swallows the gesture (no drag at
- * all). The same boundary VS Code's chat list keeps: never touch the range,
- * only observe it.
- *
- * What script still has to do:
- *  - pin the rows the range spans so virtualization keeps both boundary nodes
- *    mounted while native autoscroll moves the viewport (an unmounted
- *    boundary makes Chromium reconnect the range to an unrelated node);
- *  - mark the gesture on <html> and the pressed viewport so CSS can make the
- *    transcript the only selectable surface for its duration: Chromium then
- *    clamps a pointer that leaves the viewport to the first/last row instead
- *    of jumping to whatever selectable text follows in DOM order. Only a real
- *    mouse drag (a press on a row, then a move with the button held) starts
- *    the gesture: a click never selects through here, and a touch or pen
- *    press is almost always a scroll — marking <html> restyles the whole
- *    document, so doing it per touch made phone scrolling pay a style recalc
- *    and a Selection read per swipe. Their long-press selections still reach
- *    the pin through selectionchange;
- *  - report native autoscroll to the follow hook so an upward scroll during
- *    a drag releases tail following like any other reader scroll;
- *  - while the pointer is OUTSIDE the viewport, re-aim the range's moving end
- *    at the caret under the pointer clamped to the viewport edge. Chromium
- *    cannot resolve such a point itself: the rows are out-of-flow (absolute)
- *    children, which its position-for-point walk skips, so it falls back to
- *    the FIRST/LAST mounted row — with the live row always mounted at the
- *    end, a drag past the composer jumped to the end of the session, and a
- *    sideways exit flipped the range to the first overscan row (user:
- *    드래그가 뒤집히거나 엉뚱하게 처리). The write lands in rAF, which runs
- *    after Chromium's per-move write and before paint: one painted author
- *    per frame, so the flicker of the old per-move co-authoring never
- *    returns, and native autoscroll keeps advancing the edge the caret sits
- *    on. Release keeps the fence and pins until one final frame corrects
- *    Chromium's last write, then hands the settled range to virtualization.
- */
-
 import {
   caretFromPoint,
   clampTranscriptSelectionPoint,
@@ -128,11 +83,8 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
       delete root.dataset.transcriptSelectionRoot;
     }
   };
-  /** The scroller's content box. Its bounding rect includes the reserved
-   *  scrollbar gutter (.transcript keeps `scrollbar-gutter: stable`), and a
-   *  caret read inside the gutter resolves to the scroller itself — no row —
-   *  so a drag out of the window's RIGHT edge got no correction at all and
-   *  Chromium's first-row fallback showed as the range flipping. */
+  /** The scroller's content box: its bounding rect includes the scrollbar
+   *  gutter, where a caret read resolves to the scroller itself, not a row. */
   const contentBox = (): DOMRect => {
     const rect = root.getBoundingClientRect();
     return new DOMRect(rect.left + root.clientLeft, rect.top + root.clientTop, root.clientWidth, root.clientHeight);

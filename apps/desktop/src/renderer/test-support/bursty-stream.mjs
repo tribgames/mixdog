@@ -1,10 +1,3 @@
-// Deterministic "bursty" mock of a streamed assistant reply, for smoothness
-// checks. Provider text does not arrive evenly: steady token trickles, lumps
-// of a few hundred characters that land together after a short gap, and
-// multi-second pauses that end in a lump. The reply is fixed markdown (prose,
-// lists, a table, code fences) cut into chunks by a seeded generator, so one
-// seed always yields the same chunk sizes and gaps.
-
 export const BURSTY_MARKDOWN = [
   '## Rollout notes',
   '',

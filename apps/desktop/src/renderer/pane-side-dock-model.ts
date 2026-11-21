@@ -245,6 +245,82 @@ function isDockFolder(value: unknown): value is PaneSideDockFolder {
   );
 }
 
+type DockNormalizeContext = {
+  members: ReadonlySet<WorkbenchSideViewId>;
+  sessionSurfaces: ReadonlySet<string>;
+  firstRoot: WorkbenchSideViewId | null;
+  defaultOpen: boolean;
+  live: boolean;
+};
+
+function storedDockDiff(entry: Record<string, unknown> | null, storedSurface: string): PaneSideDockDiff | null {
+  if (entry && isDockDiff(entry.diff)) return entry.diff;
+  const legacy = entry && Array.isArray(entry.diffs) ? entry.diffs.filter(isDockDiff) : [];
+  return legacy.find((item) => navigationKey(item) === storedSurface) ?? legacy.at(-1) ?? null;
+}
+
+function storedDockParked(
+  entry: Record<string, unknown> | null,
+  owner: string,
+  sessionSurfaces: ReadonlySet<string>,
+  held: { diff: PaneSideDockDiff | null; files: readonly PaneSideDockFile[]; folder: PaneSideDockFolder | null }
+): PaneSideDockEntry['parked'] {
+  const stored = entry?.parked && typeof entry.parked === 'object' ? (entry.parked as Record<string, unknown>) : null;
+  const surface = typeof stored?.surface === 'string' ? stored.surface : null;
+  const valid =
+    owner !== '' &&
+    surface !== null &&
+    (surface === '' ||
+      sessionSurfaces.has(surface) ||
+      (surface === PANE_DOCK_DIFF_SURFACE && held.diff !== null) ||
+      (surface === PANE_DOCK_FILE_SURFACE && held.files.length > 0) ||
+      (surface === PANE_DOCK_FILES_SURFACE && held.folder !== null));
+  return valid ? { open: stored?.open === true, surface: surface ?? '' } : undefined;
+}
+
+function normalizePaneSideDockEntry(raw: unknown, context: DockNormalizeContext): PaneSideDockEntry {
+  const { members, sessionSurfaces, firstRoot, defaultOpen, live } = context;
+  const entry = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+  const storedSurface = entry && typeof entry.surface === 'string' ? entry.surface : '';
+  const diff = storedDockDiff(entry, storedSurface);
+  const storedView =
+    entry && typeof entry.view === 'string' && members.has(entry.view as WorkbenchSideViewId)
+      ? (entry.view as WorkbenchSideViewId)
+      : null;
+  const view = storedView ?? firstRoot;
+  let surface = '';
+  const files = storedDockFiles(entry, live);
+  const folder = entry && isDockFolder(entry.folder) ? entry.folder : null;
+  if (storedSurface === PANE_DOCK_BROWSER_SURFACE || storedSurface === PANE_DOCK_TERMINAL_SURFACE) {
+    if (sessionSurfaces.has(storedSurface)) surface = storedSurface;
+  } else if (diff && (storedSurface === PANE_DOCK_DIFF_SURFACE || storedSurface === navigationKey(diff))) {
+    surface = PANE_DOCK_DIFF_SURFACE;
+  } else if (files.length > 0 && storedSurface === PANE_DOCK_FILE_SURFACE) {
+    surface = PANE_DOCK_FILE_SURFACE;
+  } else if (folder && storedSurface === PANE_DOCK_FILES_SURFACE) {
+    surface = PANE_DOCK_FILES_SURFACE;
+  }
+  const open = (entry ? entry.open === true : defaultOpen) && (view !== null || surface !== '');
+  let activeFile: string | undefined;
+  if (entry && typeof entry.activeFile === 'string' && files.some((file) => sideFileKey(file) === entry.activeFile)) {
+    activeFile = entry.activeFile;
+  } else if (files.length > 0) {
+    activeFile = sideFileKey(files[files.length - 1]);
+  }
+  const owner = entry && typeof entry.owner === 'string' ? entry.owner : '';
+  const parked = storedDockParked(entry, owner, sessionSurfaces, { diff, files, folder });
+  return {
+    open,
+    view,
+    surface,
+    diff,
+    ...(files.length > 0 && activeFile ? { files: entryFiles(entry, files), activeFile } : {}),
+    ...(folder ? { folder } : {}),
+    ...(owner ? { owner } : {}),
+    ...(parked ? { parked } : {}),
+  };
+}
+
 /**
  * Reconcile stored/live dock entries against the current pane list and the
  * right-side view groups. Dead panes drop out, a view that left the right
@@ -261,76 +337,17 @@ export function normalizePaneSideDocks(
   live = false
 ): Record<string, PaneSideDockEntry> {
   const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-  const members = new Set<WorkbenchSideViewId>(groups.flat().filter(isPanelView));
-  const sessionSurfaces = new Set<string>(
-    groups.flat().filter((id) => id === PANE_DOCK_BROWSER_SURFACE || id === PANE_DOCK_TERMINAL_SURFACE)
-  );
-  const firstRoot = firstPanelRoot(groups);
+  const context: DockNormalizeContext = {
+    members: new Set<WorkbenchSideViewId>(groups.flat().filter(isPanelView)),
+    sessionSurfaces: new Set<string>(
+      groups.flat().filter((id) => id === PANE_DOCK_BROWSER_SURFACE || id === PANE_DOCK_TERMINAL_SURFACE)
+    ),
+    firstRoot: firstPanelRoot(groups),
+    defaultOpen,
+    live,
+  };
   const next: Record<string, PaneSideDockEntry> = {};
-  for (const leafId of leafIds) {
-    const raw = record[leafId];
-    const entry = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
-    const storedSurface = entry && typeof entry.surface === 'string' ? entry.surface : '';
-    // Single diff; a legacy store may still carry a diffs ARRAY — keep the
-    // one its surface pointed at, else the most recent.
-    const legacy = entry && Array.isArray(entry.diffs) ? entry.diffs.filter(isDockDiff) : [];
-    const diff =
-      entry && isDockDiff(entry.diff)
-        ? entry.diff
-        : (legacy.find((item) => navigationKey(item) === storedSurface) ?? legacy.at(-1) ?? null);
-    const storedView =
-      entry && typeof entry.view === 'string' && members.has(entry.view as WorkbenchSideViewId)
-        ? (entry.view as WorkbenchSideViewId)
-        : null;
-    const view = storedView ?? firstRoot;
-    let surface:
-      | typeof PANE_DOCK_BROWSER_SURFACE
-      | typeof PANE_DOCK_TERMINAL_SURFACE
-      | typeof PANE_DOCK_DIFF_SURFACE
-      | typeof PANE_DOCK_FILE_SURFACE
-      | typeof PANE_DOCK_FILES_SURFACE
-      | '' = '';
-    const files = storedDockFiles(entry, live);
-    const folder = entry && isDockFolder(entry.folder) ? entry.folder : null;
-    if (storedSurface === PANE_DOCK_BROWSER_SURFACE || storedSurface === PANE_DOCK_TERMINAL_SURFACE) {
-      if (sessionSurfaces.has(storedSurface)) surface = storedSurface;
-    } else if (diff && (storedSurface === PANE_DOCK_DIFF_SURFACE || storedSurface === navigationKey(diff))) {
-      surface = PANE_DOCK_DIFF_SURFACE;
-    } else if (files.length > 0 && storedSurface === PANE_DOCK_FILE_SURFACE) {
-      surface = PANE_DOCK_FILE_SURFACE;
-    } else if (folder && storedSurface === PANE_DOCK_FILES_SURFACE) {
-      surface = PANE_DOCK_FILES_SURFACE;
-    }
-    const open = (entry ? entry.open === true : defaultOpen) && (view !== null || surface !== '');
-    let activeFile: string | undefined;
-    if (entry && typeof entry.activeFile === 'string' && files.some((file) => sideFileKey(file) === entry.activeFile)) {
-      activeFile = entry.activeFile;
-    } else if (files.length > 0) {
-      activeFile = sideFileKey(files[files.length - 1]);
-    }
-    const owner = entry && typeof entry.owner === 'string' ? entry.owner : '';
-    const storedParked =
-      entry?.parked && typeof entry.parked === 'object' ? (entry.parked as Record<string, unknown>) : null;
-    const parkedSurface = typeof storedParked?.surface === 'string' ? storedParked.surface : null;
-    const parkedValid =
-      owner !== '' &&
-      parkedSurface !== null &&
-      (parkedSurface === '' ||
-        sessionSurfaces.has(parkedSurface) ||
-        (parkedSurface === PANE_DOCK_DIFF_SURFACE && diff !== null) ||
-        (parkedSurface === PANE_DOCK_FILE_SURFACE && files.length > 0) ||
-        (parkedSurface === PANE_DOCK_FILES_SURFACE && folder !== null));
-    next[leafId] = {
-      open,
-      view,
-      surface,
-      diff,
-      ...(files.length > 0 && activeFile ? { files: entryFiles(entry, files), activeFile } : {}),
-      ...(folder ? { folder } : {}),
-      ...(owner ? { owner } : {}),
-      ...(parkedValid ? { parked: { open: storedParked?.open === true, surface: parkedSurface ?? '' } } : {}),
-    };
-  }
+  for (const leafId of leafIds) next[leafId] = normalizePaneSideDockEntry(record[leafId], context);
   return next;
 }
 

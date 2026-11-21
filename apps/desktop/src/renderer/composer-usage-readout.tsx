@@ -1,11 +1,3 @@
-// The composer line's muted usage readout: the session's total tokens,
-// generation speed and cache hit as plain text. The figures are the session
-// runtime's own totals (snapshot.stats.usageReadout, persisted on the session
-// record and summed over every model call of this session — all turns,
-// tool-loop calls included, delegated sub-agents excluded). While a call is
-// streaming, the speed is that call's live rate (snapshot.spinner.liveCall)
-// instead, marked "~" because its token count is the runtime's estimate until
-// the provider reports the exact one.
 import { Coins, DatabaseZap, Gauge, type LucideIcon } from 'lucide-react';
 import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react';
 import type { Snapshot } from './desktop-types';
@@ -25,30 +17,8 @@ export interface SessionUsageTotals {
   speedMs: number;
 }
 
-// The figures follow the common convention of local model servers, desktop
-// model runners and coding agents' usage footers:
-// - speed is the usage dialog's throughput: output tokens (reasoning included,
-//   as every provider counts it in output) over the request's wall time, from
-//   the request start to the end of the response, the wait for the first
-//   token included (the usage ledger's duration_ms). The runtime sums the
-//   tokens and the times of every call with positive output and positive
-//   duration (the usage ledger's eligibility) before dividing here (summed
-//   tokens over summed durations: a duration-weighted rate, not a mean of
-//   per-call rates); an untimed call never enters the sums. A record saved before this
-//   definition (first token → end, speedOutputTokens/speedMs) is read only
-//   until a request-timed call lands.
-// - cache hit is the cache-read share of the whole prompt,
-//   read / (fresh input + cache read + cache write), summed over the session;
-//   it stays hidden until the session has read from the cache at all.
-// - the live speed waits until the call has streamed this long and this much:
-//   a call's first burst is not a rate, and providers that deliver the reply
-//   in one burst would read several times their real speed. Until then the
-//   session figure stays.
 const MIN_LIVE_MS = 1500;
 const MIN_LIVE_TOKENS = 50;
-// - on a narrow line the readout gives up its parts rather than ellipsizing:
-//   cache hit first, then the token total; tok/s goes last, and the whole
-//   readout hides when not even that fits.
 
 function count(value: unknown): number {
   const n = Number(value);
@@ -276,12 +246,7 @@ function measureTextWidth(font: string, text: string): number {
   return measureContext.measureText(text).width;
 }
 
-/** A text width measurer that remembers what it measured. A fit pass
- *  measures each variant's every item, and every resize of the line runs one
- *  with the same texts: they were measured again each time (15-38 ms over a
- *  resumed phone's first seconds). One measurer serves one set of variant
- *  texts (a readout's fit effect, which reruns when they change), so it holds
- *  only those texts, in one font: a new font starts it over. */
+/** A text width measurer that remembers each text's width; a new font starts it over. */
 export function textWidths(): (font: string, text: string) => number {
   const widths = new Map<string, number>();
   let widthsFont = '';

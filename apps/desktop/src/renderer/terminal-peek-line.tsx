@@ -1,7 +1,3 @@
-// "터미널 · <명령> · 보기": the one way a turn's `terminal` run reaches the
-// screen. The command runs in a terminal main started, whether or not the
-// session is on screen, so the transcript carries a line per run; a press
-// selects that terminal's tab and opens the session's terminal dock.
 import { SquareTerminal } from 'lucide-react';
 import { useSyncExternalStore } from 'react';
 import type { TranscriptItem } from './desktop-types';

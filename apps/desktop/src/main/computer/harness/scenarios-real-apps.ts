@@ -95,8 +95,7 @@ async function fillNativeTextFields(ctx: ScenarioContext, native: NativeTextApp)
   assert.equal(freshEditor?.value, 'SETVALUE42', JSON.stringify(setValueCapture));
   // An Edit control inserts a line break from the character its own loop
   // translates from Enter, so a background Enter must pass that loop the
-  // way a keyboard press does. A point click keeps this on the key-message
-  // route instead of the value writer.
+  // way a keyboard press does.
   const [editorX, editorY, editorWidth, editorHeight] = freshEditor.bounds as number[];
   const typed = actionPayload(
     await command(

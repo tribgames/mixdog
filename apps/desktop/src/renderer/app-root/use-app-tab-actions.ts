@@ -113,10 +113,6 @@ export function useAppTabActions({
     return existing.key;
   });
 
-  // The side browser's "Open in main tab": the page's URL opens as a new main
-  // browser tab in the pane that owned the side browser, and the side panel
-  // folds. The tab gets its own browser page (user-only, same sign-in
-  // partition), loaded at the URL.
   const openBrowserTab = (url: string, title: string | undefined, leafId = paneWorkspace.focusedLeafId) => {
     // A server window has no browser pane (it drives this PC's browser).
     if (isSshConnectionWindow()) {
@@ -163,93 +159,14 @@ export function useAppTabActions({
   });
   useEffect(() => onBrowserMainRequested(openBrowserInMain), [openBrowserInMain]);
 
-  /** `sessionId`'s terminal where its owner chain is on screen (a child's
-   *  terminal opens in the owner conversation's dock); false when none of
-   *  the chain is, the reveal then waiting for the user to return. */
-  const routeSessionTerminal = (sessionId: string, park: boolean): boolean => {
-    const chain = surfaceOwnerChain(sessionId, ownerSources());
-    const target = surfaceRevealTarget(sessionOwners, chain, paneWorkspace.focusedLeafId);
-    if (!target.leafId) {
-      if (park) setSessionSideSurface(sessionId, 'terminal');
-      return false;
-    }
-    sessionPaneSurfaces.showSessionSurface(target.sessionId, sessionId, 'terminal');
-    // The child's line goes where its terminal went (a deferred reveal moves it).
-    moveChildSurfacePeek(sessionId, 'terminal', target.sessionId);
-    paneSideDocks.select(target.leafId, 'terminal');
-    return true;
-  };
-  // A chat code block's Run, a terminal peek line, or the agent's `terminal`
-  // run: the session's terminal opens beside the pane showing it, or the
-  // conversation of its owner chain on screen (the focused one when several
-  // do). A child's terminal leaves its line where it opens: that
-  // conversation, else (none on screen) the authoritative owner.
-  const revealSessionTerminal = useStableEvent((sessionId: string) => {
-    void prefetchTerminalPane().catch(() => {});
-    const sources = ownerSources();
-    const chain = surfaceOwnerChain(sessionId, sources);
-    const target = surfaceRevealTarget(sessionOwners, chain, paneWorkspace.focusedLeafId);
-    const peekOwner = target.leafId ? target.sessionId : (chain.at(-1) ?? sessionId);
-    if (chain.length > 1 && peekOwner !== sessionId) {
-      recordChildSurfacePeek(peekOwner, {
-        childSessionId: sessionId,
-        childName: surfaceSessionName(sessionId, sources),
-        surface: 'terminal',
-        title: '',
-        tabId: activeSessionTerminalId(sessionId),
-        failed: '',
-        at: Date.now(),
-      });
-    }
-    sessionPaneSurfaces.queueDockReveal(sessionId, routeSessionTerminal(sessionId, true) ? null : 'terminal');
+  useSessionSurfaceReveals({
+    paneWorkspace,
+    paneSideDocks,
+    sessionPaneSurfaces,
+    setSessionSideSurface,
+    sessionOwners,
+    ownerSources,
   });
-  useEffect(() => onTerminalRevealRequested(revealSessionTerminal), [revealSessionTerminal]);
-  // The agent's `terminal` run: main reveals the dock (and opens a tab when the
-  // session has none) through the same path as the Run button.
-  useEffect(() => window.mixdogDesktop?.onTerminalRunRequested?.(handleTerminalRunRequest), []);
-
-  // The agent's `visualize` open or update: the session's visualize view
-  // becomes its panel view. The session's browser/terminal stays: an
-  // explicit open of either is the later one and keeps the front, the
-  // visualize view waiting under it. A pane showing the session reveals it
-  // now; otherwise it waits on the session and appears when the user returns
-  // to it, in front of its own file tabs — no other pane or session is
-  // touched. The store's open policy decides which opens get here
-  // (visualize-store). The Routines tile preference is the user's alone.
-  const revealSessionVisualize = useStableEvent((sessionId: string) => {
-    sessionPaneSurfaces.setSessionPanelView(sessionId, 'visualize', { agent: true, front: true });
-    const { leafId } = browserSurfaceRevealPlan(sessionOwners, sessionId, paneWorkspace.focusedLeafId);
-    if (leafId) paneSideDocks.select(leafId, 'visualize');
-    sessionPaneSurfaces.queueDockReveal(sessionId, leafId ? null : 'visualize');
-  });
-  useEffect(() => onVisualizeRevealRequested(revealSessionVisualize), [revealSessionVisualize]);
-  // The session's last visualize tab closed: its visualize view goes, on
-  // screen or not, so no empty frame comes back (a waiting reveal too).
-  const clearEmptiedVisualize = useStableEvent((sessionId: string) => {
-    if (sessionPaneSurfaces.pendingDockReveals.current.get(sessionId) === 'visualize') {
-      sessionPaneSurfaces.queueDockReveal(sessionId, null);
-    }
-    if (sessionPaneSurfaces.sessionPanelViews.get(sessionId) !== 'visualize') return;
-    sessionPaneSurfaces.setSessionPanelView(sessionId, null, { agent: true });
-  });
-  useEffect(() => onVisualizeEmptied(clearEmptiedVisualize), [clearEmptiedVisualize]);
-
-  // A reveal left for a session no pane showed takes effect once one does,
-  // in front of that session's own file tabs or diff.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-runs on every render's owners and each queued reveal; the map is read at run time
-  useEffect(() => {
-    const pending = sessionPaneSurfaces.pendingDockReveals.current;
-    for (const [sessionId, view] of [...pending]) {
-      if (view === 'terminal') {
-        if (routeSessionTerminal(sessionId, false)) pending.delete(sessionId);
-        continue;
-      }
-      const { leafId } = browserSurfaceRevealPlan(sessionOwners, sessionId, paneWorkspace.focusedLeafId);
-      if (!leafId) continue;
-      pending.delete(sessionId);
-      paneSideDocks.select(leafId, view);
-    }
-  }, [sessionOwners, paneWorkspace.focusedLeafId, sessionPaneSurfaces.dockRevealTick]);
 
   const openDiffTab = (project: string, rel: string, request: SourceControlDiffRequest) => {
     const target = cleanDiffTarget(project, rel);
@@ -329,11 +246,6 @@ export function useAppTabActions({
       void openSession(childSessionId, false, String(title || '').trim(), replaceKey ?? '');
     }
   );
-  // An Agents-window sub-agent row: its conversation opens in the right side
-  // panel of the chat it belongs to (its owner on screen, else the focused
-  // chat), the chat staying where it is. A session already open as a tab is
-  // never mounted a second time: the open reveals the pane that owns it
-  // (openInFocusedState), as a click did before.
   const dockPeekAgentSession = useStableEvent((sessionId: string, title: string, ownerSessionId: string) => {
     const childSessionId = String(sessionId || '').trim();
     if (!childSessionId) return;
@@ -409,15 +321,106 @@ export function useAppTabActions({
   };
 }
 
+interface SessionSurfaceRevealOptions {
+  paneWorkspace: ReturnType<typeof usePaneWorkspace>;
+  paneSideDocks: ReturnType<typeof useAppSideDocks>['paneSideDocks'];
+  sessionPaneSurfaces: ReturnType<typeof useSessionPaneSurfaces>;
+  setSessionSideSurface: (sessionId: string, surface: 'terminal' | 'browser') => void;
+  sessionOwners: readonly { leafId: string; sessionId: string | null }[];
+  ownerSources: () => SurfaceOwnerSources;
+}
+
+/** Terminal and visualize reveals the agent or a chat asks for: shown beside
+ *  the pane that owns the session, or parked until one does. */
+function useSessionSurfaceReveals({
+  paneWorkspace,
+  paneSideDocks,
+  sessionPaneSurfaces,
+  setSessionSideSurface,
+  sessionOwners,
+  ownerSources,
+}: SessionSurfaceRevealOptions) {
+  /** `sessionId`'s terminal where its owner chain is on screen (a child's
+   *  terminal opens in the owner conversation's dock); false when none of
+   *  the chain is, the reveal then waiting for the user to return. */
+  const routeSessionTerminal = (sessionId: string, park: boolean): boolean => {
+    const chain = surfaceOwnerChain(sessionId, ownerSources());
+    const target = surfaceRevealTarget(sessionOwners, chain, paneWorkspace.focusedLeafId);
+    if (!target.leafId) {
+      if (park) setSessionSideSurface(sessionId, 'terminal');
+      return false;
+    }
+    sessionPaneSurfaces.showSessionSurface(target.sessionId, sessionId, 'terminal');
+    // The child's line goes where its terminal went (a deferred reveal moves it).
+    moveChildSurfacePeek(sessionId, 'terminal', target.sessionId);
+    paneSideDocks.select(target.leafId, 'terminal');
+    return true;
+  };
+  const revealSessionTerminal = useStableEvent((sessionId: string) => {
+    void prefetchTerminalPane().catch(() => {});
+    const sources = ownerSources();
+    const chain = surfaceOwnerChain(sessionId, sources);
+    const target = surfaceRevealTarget(sessionOwners, chain, paneWorkspace.focusedLeafId);
+    const peekOwner = target.leafId ? target.sessionId : (chain.at(-1) ?? sessionId);
+    if (chain.length > 1 && peekOwner !== sessionId) {
+      recordChildSurfacePeek(peekOwner, {
+        childSessionId: sessionId,
+        childName: surfaceSessionName(sessionId, sources),
+        surface: 'terminal',
+        title: '',
+        tabId: activeSessionTerminalId(sessionId),
+        failed: '',
+        at: Date.now(),
+      });
+    }
+    sessionPaneSurfaces.queueDockReveal(sessionId, routeSessionTerminal(sessionId, true) ? null : 'terminal');
+  });
+  useEffect(() => onTerminalRevealRequested(revealSessionTerminal), [revealSessionTerminal]);
+  // The agent's `terminal` run: main reveals the dock (and opens a tab when the
+  // session has none) through the same path as the Run button.
+  useEffect(() => window.mixdogDesktop?.onTerminalRunRequested?.(handleTerminalRunRequest), []);
+
+  const revealSessionVisualize = useStableEvent((sessionId: string) => {
+    sessionPaneSurfaces.setSessionPanelView(sessionId, 'visualize', { agent: true, front: true });
+    const { leafId } = browserSurfaceRevealPlan(sessionOwners, sessionId, paneWorkspace.focusedLeafId);
+    if (leafId) paneSideDocks.select(leafId, 'visualize');
+    sessionPaneSurfaces.queueDockReveal(sessionId, leafId ? null : 'visualize');
+  });
+  useEffect(() => onVisualizeRevealRequested(revealSessionVisualize), [revealSessionVisualize]);
+  // The session's last visualize tab closed: its visualize view goes, on
+  // screen or not, so no empty frame comes back (a waiting reveal too).
+  const clearEmptiedVisualize = useStableEvent((sessionId: string) => {
+    if (sessionPaneSurfaces.pendingDockReveals.current.get(sessionId) === 'visualize') {
+      sessionPaneSurfaces.queueDockReveal(sessionId, null);
+    }
+    if (sessionPaneSurfaces.sessionPanelViews.get(sessionId) !== 'visualize') return;
+    sessionPaneSurfaces.setSessionPanelView(sessionId, null, { agent: true });
+  });
+  useEffect(() => onVisualizeEmptied(clearEmptiedVisualize), [clearEmptiedVisualize]);
+
+  // A reveal left for a session no pane showed takes effect once one does,
+  // in front of that session's own file tabs or diff.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-runs on every render's owners and each queued reveal; the map is read at run time
+  useEffect(() => {
+    const pending = sessionPaneSurfaces.pendingDockReveals.current;
+    for (const [sessionId, view] of [...pending]) {
+      if (view === 'terminal') {
+        if (routeSessionTerminal(sessionId, false)) pending.delete(sessionId);
+        continue;
+      }
+      const { leafId } = browserSurfaceRevealPlan(sessionOwners, sessionId, paneWorkspace.focusedLeafId);
+      if (!leafId) continue;
+      pending.delete(sessionId);
+      paneSideDocks.select(leafId, view);
+    }
+  }, [sessionOwners, paneWorkspace.focusedLeafId, sessionPaneSurfaces.dockRevealTick]);
+}
+
 /** A session tab in any pane, shown or not. */
 function sessionTabOpen(leaves: readonly PaneLeaf[], sessionId: string): boolean {
   return leaves.some((leaf) => leaf.tabs.some((tab) => tab.kind === 'session' && tab.id === sessionId));
 }
 
-/** Where an Agents row opens sub-agent `childSessionId` beside a chat: the
- *  pane showing its owner (the focused one first), else the focused pane's
- *  chat. Null when it must open as a tab instead: it already is one (the
- *  open reveals that pane), or no chat is on screen to hold it. */
 export function agentSessionPanelHost(
   leaves: readonly PaneLeaf[],
   owners: readonly { leafId: string; sessionId: string | null }[],

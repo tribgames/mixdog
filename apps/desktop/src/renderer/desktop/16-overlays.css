@@ -144,7 +144,7 @@
   cursor: pointer;
 }
 .remote-claim-notice button:hover {
-  background: var(--mx-hover-strong, var(--mx-hover));
+  background: var(--mx-hover);
 }
 /* Phones: hang from the tab strip like the app-update banner. */
 html[data-mixdog-mobile-tabs] .remote-claim-notice {

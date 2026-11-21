@@ -1,7 +1,3 @@
-// The name and face a deleted (archived) bot left: its archived chat in
-// Sessions → 보관됨, its tab and its read-only thread show them. Read once per
-// bot from the runtime (`archivedAgentIdentities`) when the session catalog
-// first marks its home as deleted (agent-chat-mode.ts).
 import { useSyncExternalStore } from 'react';
 import { type AgentAvatarValue, agentAvatar } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 

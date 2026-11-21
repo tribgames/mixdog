@@ -1,7 +1,3 @@
-// A bot's chat (agent mode) and a room follow the bottom the way a session
-// does: the real follow hook drives the real TranscriptList. At the bottom, a
-// typing bubble arriving, a reply replacing it and the next typing bubble all
-// stay pinned; a reader who scrolled up is never moved by any of them.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';

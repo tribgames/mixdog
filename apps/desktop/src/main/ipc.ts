@@ -1,7 +1,3 @@
-// Explicit handler/preload registration:
-// arbitrary renderer-selected method execution is intentionally absent.
-// Each handler family lives in its own ipc-*.ts module; this file owns the
-// sender guard, the service-operation table, and the disposer.
 import type {
   App,
   BrowserWindow,
@@ -136,45 +132,17 @@ interface DesktopIpcDependencies {
   corePort?: Pick<CorePortRelay, 'open' | 'retryLaunch'>;
 }
 
-export function registerDesktopIpc(
+function createSenderGuardedHandle(
   window: BrowserWindow,
-  host: DesktopService,
-  {
-    app,
-    translateUi,
-    ipcMain,
-    dialog,
-    shell,
-    powerMonitor: powerMonitorRef,
-    settingsStore,
-    previewNotificationSound,
-    browserHost,
-    browserLogin,
-    updater,
-    computer,
-    remoteHosts,
-    visualize,
-    connectionKind = 'local',
-    serverId,
-    pcHost,
-    paneLayoutFile,
-    rendererCaches,
-    localStorageRescue,
-    protocol,
-    pcCore,
-    prepareConfirmedAllowAllActions,
-    corePort,
-  }: DesktopIpcDependencies
-): () => void {
-  const nativeT = translateUi || ((key: string) => translateNativeUi(app.getLocale?.() || 'en', key));
-  // This PC's core: what reads or writes this computer (a saved file, an attachment, a chat link, the input-access rule) is answered by it.
-  const localCore = pcCore ?? protocol ?? null;
+  ipcMain: DesktopIpcMain,
+  connectionKind: ConnectionKind
+): IpcHandle {
   const assertSender = (event: IpcMainInvokeEvent): void => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) {
       throw new Error('IPC call rejected.');
     }
   };
-  const handle: IpcHandle = (channel, listener) => {
+  return (channel, listener) => {
     ipcMain.handle(channel, (event, ...args) => {
       assertSender(event);
       const refused = connectionFeatureGate(connectionKind, channel);
@@ -196,8 +164,29 @@ export function registerDesktopIpc(
       }
     });
   };
-  const invokeDesktopOperation = <T>(method: string, args: unknown[]): Promise<T> =>
-    host.invokeDesktopOperation(method, args) as Promise<T>;
+}
+
+interface WindowFileAccessOptions {
+  window: BrowserWindow;
+  host: DesktopService;
+  app: DesktopIpcDependencies['app'];
+  connectionKind: ConnectionKind;
+  serverId: string | undefined;
+  core: ProtocolConnection | null | undefined;
+  protocol: ProtocolConnection | null | undefined;
+  invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
+}
+
+function createWindowFileAccess({
+  window,
+  host,
+  app,
+  connectionKind,
+  serverId,
+  core,
+  protocol,
+  invokeDesktopOperation,
+}: WindowFileAccessOptions) {
   // This PC's one-file grants (picked, dropped, linked files) are kept and redeemed by the core.
   const selectedFiles = createCoreFileGrants(invokeDesktopOperation);
   // A server window's files live on the server: its one-file grants name
@@ -208,7 +197,7 @@ export function registerDesktopIpc(
     connectionKind === 'ssh'
       ? createServerFiles({
           invoke: invokeDesktopOperation,
-          core: serverCoreInvoke(pcCore ?? protocol),
+          core: serverCoreInvoke(core),
           serverId: serverId ?? '',
           listProjects: () => host.listProjects(),
           session: () => window.webContents.session,
@@ -243,6 +232,63 @@ export function registerDesktopIpc(
         return server.grants.entry(uploaded.absolutePath, uploaded);
       }
     : undefined;
+  return {
+    server,
+    serverUploads,
+    grantedFile,
+    describeLocalPaths,
+    stageAttachment,
+    releaseStagingOwner: () => serverUploads?.releaseOwner(stagingOwner),
+  };
+}
+
+export function registerDesktopIpc(
+  window: BrowserWindow,
+  host: DesktopService,
+  {
+    app,
+    translateUi,
+    ipcMain,
+    dialog,
+    shell,
+    powerMonitor: powerMonitorRef,
+    settingsStore,
+    previewNotificationSound,
+    browserHost,
+    browserLogin,
+    updater,
+    computer,
+    remoteHosts,
+    visualize,
+    connectionKind = 'local',
+    serverId,
+    pcHost,
+    paneLayoutFile,
+    rendererCaches,
+    localStorageRescue,
+    protocol,
+    pcCore,
+    prepareConfirmedAllowAllActions,
+    corePort,
+  }: DesktopIpcDependencies
+): () => void {
+  const nativeT = translateUi || ((key: string) => translateNativeUi(app.getLocale?.() || 'en', key));
+  // This PC's core: what reads or writes this computer (a saved file, an attachment, a chat link, the input-access rule) is answered by it.
+  const localCore = pcCore ?? protocol ?? null;
+  const handle = createSenderGuardedHandle(window, ipcMain, connectionKind);
+  const invokeDesktopOperation = <T>(method: string, args: unknown[]): Promise<T> =>
+    host.invokeDesktopOperation(method, args) as Promise<T>;
+  const files = createWindowFileAccess({
+    window,
+    host,
+    app,
+    connectionKind,
+    serverId,
+    core: pcCore ?? protocol,
+    protocol,
+    invokeDesktopOperation,
+  });
+  const { server, serverUploads, grantedFile, describeLocalPaths, stageAttachment } = files;
 
   registerFileDialogIpc({
     window,
@@ -369,7 +415,7 @@ export function registerDesktopIpc(
     stateBridge.dispose();
     void server?.dispose();
     disposeProjectFileIpc();
-    serverUploads?.releaseOwner(stagingOwner);
+    files.releaseStagingOwner();
     disposeHostExtrasIpc();
     ipcMain.removeListener(DESKTOP_IPC.perfLog, onPerfLog);
     disposeRendererProbe();

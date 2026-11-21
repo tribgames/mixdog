@@ -35,10 +35,6 @@ export function createBrowserTaskLifecycle<Page extends { isDestroyed(): boolean
     // Dialogs requiring a human response are a handoff, never disposable.
     for (const [page] of pages) if (!page.isDestroyed() && !host.canClose(page)) retain(page);
     let closed = 0;
-    // A finished turn is not a finished conversation. The next message usually
-    // continues the same work, and closing its pages would throw away the
-    // sign-ins, half-filled forms and tab names already reported. Only a run
-    // that ended badly reclaims them here; releasing the session still does.
     if (options.aborted) {
       for (const [page, owner] of pages) {
         if (owned.get(page) !== owner) continue;

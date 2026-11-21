@@ -1,11 +1,3 @@
-// The composer line's muted routine readout in a bot's room (agent mode),
-// where the coding sessions' usage readout would say nothing. It says ONE
-// thing about THIS bot's routines, by priority: a failure, else the next
-// active schedule in natural time wording, else the webhook it waits on, else
-// that everything rests, else that nothing is scheduled. It fits the line
-// through the usage readout's own machinery (readoutVariants/FittedReadout):
-// worded, then without the routine's name, then icon + short time, and for a
-// failure finally the red dot alone; never ellipsized.
 import { CalendarClock, Clock, Pause, Webhook } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
@@ -58,10 +50,9 @@ export function routineFocus(setup: RecordValue, agentId: string): RoutineFocus 
 
 const FOCUS_RANK: Record<RoutineFocus['kind'], number> = { failed: 0, next: 1, webhook: 2, paused: 3, none: 4 };
 
-/** A group room's one thing: its members' foci by the same priority (the
- *  earliest next run among them), the routine named with its bot. A room has
- *  no routines of its own; they run in each bot's room. `agentId` is the
- *  owner, for opening its 루틴 tab. */
+/** A group room's focus: its members' foci by the same priority (earliest next
+ *  run wins), each routine named with its bot. `agentId` is the owning member,
+ *  for opening its 루틴 tab. */
 export function roomRoutineFocus(
   setup: RecordValue,
   members: readonly { id: string; name: string }[]

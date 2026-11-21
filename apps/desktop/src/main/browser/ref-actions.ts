@@ -1,10 +1,3 @@
-/**
- * Every gesture that addresses one element by ref: filling and typing, both
- * kinds of dropdown, checkbox state, and file upload. Each one runs the same
- * two-step contract — reach the element through the accessibility snapshot,
- * fall back to the page-side ref table, and report what the element actually
- * holds afterwards. The host keeps the tab graph; this keeps the gestures.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';

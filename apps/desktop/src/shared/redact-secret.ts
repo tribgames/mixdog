@@ -1,7 +1,3 @@
-// One redaction for every route that carries a credential to a server: the
-// SSH logins and the phone/relay capability frames. A failure can echo the
-// secret back plainly or inside JSON (quotes, backslashes and control
-// characters escaped), so both spellings are removed.
 const REDACTED_SECRET = '[redacted]';
 
 /** `message` with each of `secrets` (plain and JSON-escaped) replaced by `[redacted]`. */

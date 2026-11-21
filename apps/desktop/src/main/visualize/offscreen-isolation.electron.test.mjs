@@ -1,7 +1,3 @@
-// Off-screen renders and file snapshots share one session each (Electron never
-// frees a session), yet no render finds another's origin-scoped storage,
-// whether it runs later or alongside, and repeated renders reuse their
-// connections to the page server instead of leaving new ones behind.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';

@@ -2,14 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { installTestDom } from './test-support/test-dom.mjs';
 
-// iOS WebKit (up to iOS 26) cancels a touch fling when scrollTop is written,
-// so a touch scroll there holds measured-size corrections and page landings
-// as a row offset. The hold lands as one native write once the touch scroll
-// has been quiet for 150 ms, or at once when the logical offset reaches the
-// real top. Native 0 with a page held above it is reached by the momentum
-// itself, so it waits there too. A Chromium touch scroll holds nothing: its
-// fling carries on through the write (transcript-follow.test.mjs).
-
 const IPHONE = {
   userAgent:
     'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
@@ -192,12 +184,6 @@ test('on iOS WebKit a touch scroll holds corrections through its fling and lands
   }
 });
 
-// iPhone, long session: a page lands above a fling toward older history and is
-// held as a row offset; the fling then runs into native 0, the old first row.
-// Landing the hold there wrote scrollTop under the momentum (and the bounce
-// it starts): WebKit cancels or drops that write, so the fling stopped and the
-// rows jumped by the page. The hold waits out the momentum at the edge too and
-// lands once the touch scroll has gone quiet.
 test('on iOS WebKit a held page is not landed under the momentum that reaches the top edge', async () => {
   const { restore } = dom({ navigator: IPHONE });
   const [

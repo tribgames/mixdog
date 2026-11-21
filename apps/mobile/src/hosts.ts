@@ -1,8 +1,3 @@
-// Pairing links and the hosts this phone remembers. Pure (no Capacitor), so
-// the rules are unit-tested. The link rules mirror
-// apps/desktop/src/main/remote-hosts.ts `parseRemoteHostLink`: a link carries a
-// ROUTE (`/d/<deviceId>/`), never a credential; plain http is loopback-only.
-
 const DEVICE_ROUTE = /^\/d\/((?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})|[0-9a-f]{32,64})\/?$/iu;
 export const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 export const MAX_SAVED_HOSTS = 16;
@@ -111,10 +106,7 @@ export async function fetchHostPresence(
  *  PC opens unless its relay says it is offline — then the list is the first
  *  screen, so an offline PC never holds the app on an endless load while
  *  another one is up. A relay that cannot answer keeps the last PC. */
-export async function launchTarget(
-  book: HostBook,
-  presence: () => Promise<Map<string, boolean>>
-): Promise<string> {
+export async function launchTarget(book: HostBook, presence: () => Promise<Map<string, boolean>>): Promise<string> {
   if (!book.last) return '';
   if (book.hosts.length < 2) return book.last;
   return (await presence()).get(book.last) === false ? '' : book.last;

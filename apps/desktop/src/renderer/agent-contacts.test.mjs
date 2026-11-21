@@ -286,7 +286,7 @@ test('the catalog cache and the session summary keep the incoming tail', async (
   assert.equal(Object.hasOwn(plain, 'incomingTail'), false);
 });
 
-test('a routine result preview reads in the user language, like its transcript notice', async (t) => {
+async function koreanRoutinePreviews(t) {
   const { default: i18n } = await import('./i18n.ts');
   const { readFileSync } = await import('node:fs');
   const { routineNoticeText } = await import('./transcript-row.tsx');
@@ -304,7 +304,11 @@ test('a routine result preview reads in the user language, like its transcript n
       [home('github-watcher', { preview: 'first', lastMessagePreview, lastMessageRoutine })],
       new Map()
     )[1].preview;
-  // The catalog marker decides; the row shows the notice row's words.
+  return { preview, routineNoticeText };
+}
+
+test('a routine result preview reads in the user language, like its transcript notice', async (t) => {
+  const { preview, routineNoticeText } = await koreanRoutinePreviews(t);
   const hook = { kind: 'webhook', name: 'deploy-hook', status: 'ok', summary: 'Deployed v2' };
   assert.equal(
     preview('🔗 Webhook · deploy-hook — Deployed v2', hook),
@@ -325,7 +329,10 @@ test('a routine result preview reads in the user language, like its transcript n
     preview('x', { kind: 'schedule', name: 'daily', status: 'failed' }),
     '⏱ 스케줄 · daily — 실행 중 문제가 발생했습니다.'
   );
-  // Each failure class reads as its short localized reason, never the raw text.
+});
+
+test('each routine failure class reads as its short localized reason, never the raw text', async (t) => {
+  const { routineNoticeText } = await koreanRoutinePreviews(t);
   const failure = (reason, paused) =>
     routineNoticeText({ kind: 'schedule', name: 'daily', status: 'failed', summary: 'raw English', reason, paused });
   assert.equal(
@@ -340,13 +347,18 @@ test('a routine result preview reads in the user language, like its transcript n
   assert.match(failure('unheard-of'), /실행 중 문제가 발생했습니다\./);
   assert.match(failure('network', true), /연속 실패로 이 루틴이 꺼졌습니다/);
   assert.doesNotMatch(failure('network'), /raw English/);
-  // An expired sign-in reads as the localized sign-in line, never the raw summary.
+});
+
+test('an expired sign-in reads as the localized sign-in line, never the raw summary', async (t) => {
+  const { preview } = await koreanRoutinePreviews(t);
   assert.equal(
     preview('x', { kind: 'schedule', name: 'shop', status: 'failed', error: 'Sign-in required: shop.example.com' }),
     '⏱ 스케줄 · shop — shop.example.com 로그인이 필요합니다'
   );
-  // Without a marker the line is verbatim, even one shaped like a routine result:
-  // a user's own message, or a row stored before the marker existed.
+});
+
+test('without a routine marker the preview is verbatim, even one shaped like a routine result', async (t) => {
+  const { preview } = await koreanRoutinePreviews(t);
   assert.equal(preview('⏱ Schedule · daily — Failed: lol'), '⏱ Schedule · daily — Failed: lol');
   assert.equal(preview('🔗 Webhook · deploy-hook — Deployed v2'), '🔗 Webhook · deploy-hook — Deployed v2');
   assert.equal(preview('Schedule · daily is next'), 'Schedule · daily is next');

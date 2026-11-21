@@ -2,36 +2,13 @@ import { type MutableRefObject, type RefObject, useEffect, useMemo } from 'react
 import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
 
 /** Measured-size corrections held while a wheel ramp or a touch scroll owns
- *  the viewport.
- *
- *  A scrollTop write while Chromium animates a wheel scroll cancels the
- *  animation. Under a touch fling it cancels the fling on iOS WebKit, the one
- *  engine a touch hold exists on; Chromium's touch fling carries on through
- *  the write (use-follow-touch). While the scroll lasts, a
- *  correction moves the row space instead (a translateY of the spacer): the
- *  reader's rows stay put and the native offset is never written. The
- *  logical offset is the native one plus the held amount. Once the scroll is
- *  over, the held amount lands as one scroll write in the same task that
- *  drops the row offset.
- *
- *  A positive hold leaves the native offset short of the logical one: history
- *  landed above the reader is unreachable while it stands, so a fling toward
- *  it stops at native 0, the old first row. It still waits there for the
- *  scroll to settle: native 0 is reached by the momentum itself (and starts
- *  its bounce), and a write landed under it was cancelled or dropped by
- *  WebKit — the fling stopped and the rows jumped by the held page (iPhone:
- *  위로 스크롤하면 여전히 멈췄다가 튄다).
- *  While `clampAtEdge` (a touch scroll owns the hold) only a LOGICAL offset at
- *  the top lands early, and a landing there is never held: that reader is at
- *  the real top, where the momentum ends anyway, and a negative hold would
- *  otherwise show blank space above the first row. A new finger landing at
- *  native 0 with history held above lands it too: the momentum already ran
- *  into the edge, the finger stops what is left, and the drag it starts has
- *  to reach that history. A wheel ramp's hold has no edge: it ends within a
- *  gesture window anyway.
- *
- *  A rubber-band overscroll (iOS) puts the native offset outside [0, max];
- *  a landing then waits for the bounce to settle. */
+ *  the viewport. A scrollTop write cancels Chromium's animated wheel scroll and
+ *  iOS WebKit's touch fling, so a correction translates the spacer instead and
+ *  lands as one scroll write once the scroll is over. The logical offset is the
+ *  native one plus the held amount. A write landed under native 0 mid-fling is
+ *  cancelled by WebKit, so a positive hold waits there for the scroll to settle;
+ *  an iOS rubber-band overscroll puts native outside [0, max] and a landing
+ *  waits for the bounce. */
 export type TouchScrollDeviation = {
   /** Logical offset minus the native scrollTop. */
   amount(): number;
@@ -83,11 +60,8 @@ export function createTouchScrollDeviation({
     const space = getSpacer();
     if (!space) return;
     space.style.transform = amount ? `translateY(${-amount}px)` : '';
-    // A transform never shrinks the in-flow extent: rows lifted by a positive
-    // hold left the native end where it was, so a hard downward wheel scrolled
-    // the logical offset past the last row into blank space (스크롤을 세게
-    // 내리면 바닥을 뚫고 내려간다). The same amount off the flow keeps the
-    // native end on the lifted rows' end.
+    // A transform leaves the in-flow extent unchanged; the negative margin
+    // keeps the native end on the lifted rows' end.
     space.style.marginBottom = amount > 0 ? `${-amount}px` : '';
   };
   /** False (nothing written) while the viewport is overscrolled. */
@@ -136,10 +110,6 @@ export function createTouchScrollDeviation({
       if (atTopEdge(element.scrollTop + amount)) land();
     },
     landForTouch() {
-      // Only native 0 with history held above it: anywhere else the drag
-      // reaches its rows, and the hold keeps waiting for the scroll to settle.
-      // A fling that ran into native 0 is over, and the finger stops whatever
-      // bounce is left; a rubber band still out of range is not written.
       if (amount <= 0) return;
       const element = getViewport();
       if (element && element.scrollTop <= TOP_EDGE_PX) land();

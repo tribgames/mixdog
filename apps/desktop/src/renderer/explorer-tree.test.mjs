@@ -1,8 +1,3 @@
-// Files pane cover at the seams the directory-state module and the inline edit
-// row now sit behind: the first root listing, lazy expansion, the batched
-// toolbar refresh, a partially failed delete, and the rename caret. Each case
-// drives the rendered pane, so the extracted modules are pinned by behaviour
-// rather than by shape.
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import React, { act } from 'react';

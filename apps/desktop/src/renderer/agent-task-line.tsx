@@ -1,10 +1,3 @@
-// Work an agent handed to a session (session create, or a send to an ordinary
-// session or another bot's chat), in a chat or a coding transcript: one faint
-// line per piece while that session owes its report (AgentHandoffLine, under
-// the handing turn's reply), its state read live from the session — working,
-// or waiting for the user's approval there — and one card once its turn ends
-// (AgentTaskLine, at the report row). Its details (reply, files) stay in the
-// session, which the line and the card open.
 import { ArrowUpRight, SquareTerminal } from 'lucide-react';
 import { type MutableRefObject, type ReactNode, createContext, useContext, useId, useState } from 'react';
 import type { ToolApprovalDecision } from '../shared/contract';
@@ -31,11 +24,6 @@ function openTaskSession(sessionId: string) {
 
 type HandoffQuestionEntry = Approval & { record?: string };
 
-/** The chat a conversation renders and its snapshot's `handoffQuestions`:
- *  the ask_user questions of the sessions it handed work to, pending or
- *  settled (`record`) (tui/session/tool-approval.mjs). `relay`: the pending
- *  one this chat's composer answers (use-conversation-approvals.tsx), whose
- *  card keeps its picks in `draftsRef` for that answer. Null in a read-only view. */
 export const HandoffQuestionsContext = createContext<{
   chatSessionId: string;
   questions: readonly HandoffQuestionEntry[];
@@ -49,12 +37,6 @@ function handoffQuestionOf(questions: readonly HandoffQuestionEntry[], sessionId
   return asked.find((question) => typeof question.record !== 'string') ?? asked[0];
 }
 
-/** A handed-off session's question, as the same card that session shows:
- *  answered through this chat's copy, which hands the answer straight to the
- *  asking session (one request, settled once wherever it is answered; no
- *  turn or message of this chat's agent). Once settled it shows as the
- *  answered card the asking session keeps; aborted unanswered, it leaves.
- *  For the user alone: nothing of it enters this chat's transcript. */
 function HandoffQuestion({ sessionId }: { sessionId: string }) {
   const context = useContext(HandoffQuestionsContext);
   const asked = context ? handoffQuestionOf(context.questions, sessionId) : undefined;
@@ -99,11 +81,6 @@ function HandoffQuestionCard({ pending, line }: { pending: HandoffQuestionEntry;
   );
 }
 
-/** A group room has no hand-off lines (its log holds the members' words):
- *  the questions of sessions member `speaker` handed work to show under its
- *  words, each under the line of the session that asks, as a bot chat shows
- *  them. Answered through the room, which hands the answer to that member's
- *  copy (agent-rooms.ts approve). */
 export function RoomHandoffQuestions({ speaker }: { speaker: string }) {
   const context = useContext(HandoffQuestionsContext);
   const mine = context?.questions.filter((question) => String(question.roomMember || '') === speaker) ?? [];
@@ -173,10 +150,6 @@ function HandoffLineView({
   let state: 'working' | 'approval' | 'question' = 'working';
   if (waiting) state = asking ? 'question' : 'approval';
   const label = { working: t('Working'), approval: t('Approval needed'), question: t('Answer needed') }[state];
-  // The session's latest progress update stays off the line (it would stretch
-  // it across the pane); hovering or focusing the state shows it in the
-  // tooltip layer's bubble. Screen readers get the same text: Open describes
-  // itself with it, and the line's status region announces it as it changes.
   const update = state === 'working' ? handoffProgressText(progress) : '';
   const updateId = useId();
   return (
@@ -203,10 +176,6 @@ function HandoffLineView({
   );
 }
 
-/** A piece of work handed to a session that still owes its report
- *  (agent-chat-place.ts handoffLinesAt): "{name}에 보냄" for a send, the
- *  created task session's name alone. The state flips with the session's
- *  live approval wait, without a row of its own. */
 export function AgentHandoffLine({ handoff, count = 1 }: { handoff: Omit<Handoff, 'id' | 'sendId'>; count?: number }) {
   const { member, name, waiting, asking } = useHandoffTarget(handoff.sessionId, handoff.agentId, handoff.name);
   let what = name;
@@ -248,11 +217,6 @@ export function AgentHandoffBlock({ handoffs, time }: { handoffs: readonly Hando
   );
 }
 
-/** A session's wait for the user with no hand-off line in this transcript
- *  (older history, work handed elsewhere): its name and the wait, only while
- *  that session still waits — the attention index's `needsUser`, the same
- *  decision the row renderer and the height estimates take
- *  (agent-chat-place.ts taskReportHidden). */
 function AgentTaskWait({ routine }: { routine: Record<string, unknown> }) {
   const sessionId = String(routine.sessionId || '');
   const agentId = typeof routine.agentId === 'string' ? routine.agentId : '';
@@ -266,10 +230,6 @@ function AgentTaskWait({ routine }: { routine: Record<string, unknown> }) {
   );
 }
 
-/** A session's ended turn: one card in the changed-files card's frame, head
- *  and ghost button — the session's icon tile and title, or for another
- *  bot's chat that bot's face and name, with "View message" opening its
- *  answer in place (the answer stays readable without leaving the chat). */
 function AgentTaskCard({ routine, status }: { routine: Record<string, unknown>; status: string }) {
   const [open, setOpen] = useState(false);
   const sessionId = String(routine.sessionId || '');

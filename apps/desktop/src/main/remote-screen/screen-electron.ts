@@ -1,13 +1,3 @@
-/**
- * Electron and OS pieces of the whole-PC screen source (Windows only): the
- * display list with each display's desktop-capture source id, the input
- * host process, and the on-PC indicator.
- *
- * The indicator is the on-PC remote-control pill (screen-indicator.ts): one
- * pill for every phone, on the viewed display, whose Stop ends each session.
- * It names the phone in its tooltip; it does not distinguish viewing from
- * controlling.
- */
 import { spawn } from 'node:child_process';
 
 import { desktopCapturer, screen } from 'electron';

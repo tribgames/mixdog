@@ -1,10 +1,3 @@
-/**
- * The saved-login registry of the window process (secret-input.ts): the
- * runtime owners and their admitted fills, and what each fill set up (its
- * password spellings, redacted for every session, and its pixel guards), kept
- * until the filling turn settles or its owner is proven gone.
- */
-
 import { redactSecrets, SAVED_LOGIN_MARKER } from './secret-markers';
 
 /** One saved-login fill's scope: the runtime process that sent it (its owner
@@ -64,37 +57,20 @@ const sameFill = (a: SavedLoginTurn, b: SavedLoginTurn): boolean =>
   a.sessionId === b.sessionId && a.turnId === b.turnId && a.ownerId === b.ownerId;
 
 export function createSavedLoginRegistry() {
-  // Saved-login password spellings (redacted for every session) and pixel
-  // guards, each kept until its own turn settles or its owner is gone;
-  // neither is ever evicted. Neither needs a count limit: they hold only the
-  // fills still live, which the turn's settlement or the owner's proven end
-  // retires.
   const savedLoginValues: Array<SavedLoginTurn & { value: string }> = [];
   const pixelGuards: SavedLoginPixelGuard[] = [];
-  // Each owner's process (id and OS creation time) and its attached
-  // connections, owners whose process was proven ended (never admitted
-  // again), and per owner and session the newest settled turn (no fill of it
-  // or an older turn is admitted again).
   const owners = new Map<string, SavedLoginOwnerProcess & { connections: number }>();
   const goneOwners = new Set<string>();
   const settledThrough = new Map<string, number>();
-  // Fills admitted and not yet finished: a retirement first waits for the
-  // ones it covers, since a running fill may still arm a guard.
   const runningFills = new Set<SavedLoginTurn & { done: Promise<void> }>();
 
-  // Retire every entry `covered` selects, once the running fills it selects
-  // have finished. Callers first make sure no new fill it covers can be
-  // admitted (a settled turn, a gone owner), so the drain is complete.
   const drainThenRetire = async (covered: (entry: SavedLoginTurn) => boolean): Promise<void> => {
-    // With none to wait for, the entries are gone before this returns.
     const running = [...runningFills].filter(covered);
     if (running.length) await Promise.all(running.map((fill) => fill.done));
     for (const list of [pixelGuards, savedLoginValues] as SavedLoginTurn[][]) {
       for (let index = list.length - 1; index >= 0; index--) if (covered(list[index])) list.splice(index, 1);
     }
   };
-  // Mark `turnId` (and every older turn) of the owner's session settled, at
-  // once, so a fill of it arriving after this point is refused.
   const markSettled = (ownerId: string, sessionId: string, turnId: number): number => {
     const key = ownerSession(ownerId, sessionId);
     const through = Math.max(settledThrough.get(key) ?? 0, turnId);

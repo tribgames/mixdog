@@ -1,10 +1,3 @@
-/**
- * What the overlay draws while an agent drives the desktop: the pill, the activities and each session's arrow. With the
- * Rust helper running Computer Use the core owns the state, so this mirror builds the overlay's snapshot from the core's
- * `computer` section (who is working, in which mode, on which windows, the user's hold) and from the helper's pointer
- * progress (`host/computer/pointerFeedback`, the arrow). While the section names the desktop's own host as the backend,
- * the in-process coordinator is the source and the mirror only passes it through.
- */
 import { recordCursorDiagnostic } from '../overlay/cursor-diagnostics';
 import type {
   ComputerUseActivity,

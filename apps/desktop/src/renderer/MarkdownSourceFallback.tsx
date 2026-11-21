@@ -57,10 +57,6 @@ const SOURCE_HEADING = /^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/;
 const SOURCE_BULLET = /^ {0,3}[-*+]\s+(.*)$/;
 const SOURCE_ORDERED = /^ {0,3}\d+[.)]\s+(.*)$/;
 
-// The fallback stands in for the parsed block until the worker answers. Headings
-// and list items adopt their final element grammar here too, so a streaming
-// answer no longer shows "## " and "- " markers for the first frames and then
-// snaps into shape.
 function sourceBlockNodes(block: string, key: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   let prose: string[] = [];
@@ -221,11 +217,7 @@ function sourceInlineNodes(text: string, key: string): ReactNode[] {
   return nodes;
 }
 
-/**
- * Source-shaped Markdown fallback used while the rich parser settles.
- * Fenced scripts adopt their final code-block grammar immediately, so the
- * visible text never swaps from Pretendard prose metrics to JetBrains Mono.
- */
+/** Source-shaped Markdown shown while the rich parser settles; fenced code already uses its code-block grammar. */
 export function MarkdownSourceFallback({
   text,
   copyControl: CopyControl,

@@ -1,9 +1,3 @@
-// Curated selection triggers for catalog connectors (MCP servers). A catalog
-// entry carries its line as `trigger`; the deferred-tool manifest lists each
-// connected server once as `- mcp__<server id>: <trigger>`, so one line must
-// say WHEN to call the server (the user requests it covers, plus a close
-// negative where useful), not list its capabilities; plain ASCII English, at
-// most CONNECTOR_TRIGGER_MAX_CHARS characters.
 export const CONNECTOR_TRIGGER_MAX_CHARS = 100;
 
 export const CONNECTOR_TRIGGERS = Object.freeze({

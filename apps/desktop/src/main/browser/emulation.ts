@@ -1,8 +1,3 @@
-/**
- * Device emulation: viewport, touch, user agent, locale, timezone, media
- * preferences, CPU, and network conditions. Every switch is one CDP override,
- * so this only needs a way to talk CDP and a way to report the page afterwards.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';
@@ -132,10 +127,6 @@ export function createBrowserEmulation(host: BrowserEmulationHost) {
     }
   }
 
-  /** A phone's fit: only the device metrics change — size and scale factor,
-   *  keeping the guest's mobile flag — and no other emulation domain (user
-   *  agent, touch, locale, geolocation, headers, media, CPU, network) is reset
-   *  or touched. `unfitMetrics` gives back exactly the metrics before it. */
   async function fitMetrics(
     guest: WebContents,
     viewport: { width: number; height: number; deviceScaleFactor: number }

@@ -1,8 +1,3 @@
-// A new agent greets you: right after the "새 에이전트" dialog creates it, its
-// home thread opens and the agent takes the first turn. The kickoff is a
-// hidden runtime turn (`kickoff` submit option + the `[mixdog-runtime]`
-// marker), so it never shows as the user speaking and never titles or
-// previews the thread; the agent's greeting becomes the contact preview.
 import { agentGreetingKickoff } from '../shared/agent-greeting';
 import type { DesktopPromptContent, DesktopSubmitOptions } from '../shared/contract';
 import { resolveUiLanguage } from './i18n';

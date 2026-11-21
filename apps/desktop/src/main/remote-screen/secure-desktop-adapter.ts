@@ -120,7 +120,7 @@ function secureDesktopInputEvent(command: ScreenHostCommand, lastPointer: { x: n
 }
 
 /** Adds `listener` to `set`; the returned function removes it. */
-const listen = <T>(set: Set<T>, listener: T): (() => void) => {
+export const listen = <T>(set: Set<T>, listener: T): (() => void) => {
   set.add(listener);
   return () => set.delete(listener);
 };

@@ -1,8 +1,3 @@
-// "Update your PC": answered instead of the legacy renderer to the Mixdog phone
-// app (user agent `MixdogApp/`). The legacy renderer predates the app, so it
-// would show a dead install guide and never ask the PC for approval. Static
-// and self-contained like /connect and /app; it grants nothing. Browsers and
-// home-screen web apps never get it: very old PCs only work through legacy.
 import { LOGO_SRC, PAGE_BASE_CSS, PAIRING_CSS } from './connect-page.mjs';
 
 // Keep in sync with NATIVE_APP_USER_AGENT_TOKEN (apps/desktop/src/shared/native-app.ts).

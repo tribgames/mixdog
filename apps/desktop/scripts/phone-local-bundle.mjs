@@ -1,17 +1,7 @@
-// Local-only phone preview: serve the CURRENT renderer into an Android
-// emulator/device WebView WITHOUT deploying or touching the relay.
-//
-//   1. Build the renderer to a temp folder (does not touch out/):
-//        $env:MIXDOG_ELECTRON_BUILD_TARGETS='renderer'
-//        node node_modules/electron-vite/dist/cli.js build --outDir <tmp>/bundle
-//   2. Run (keep it running; Ctrl+C stops it and the app goes back to the relay bundle on next reload):
-//        node scripts/phone-local-bundle.mjs --bundle=<tmp>/bundle/renderer [--serial=emulator-5554] [--no-reload]
-//
-// It adb-forwards the Mixdog WebView devtools socket, then uses CDP
-// Fetch.enable/fulfillRequest to answer the relay origin's GET requests
-// (`/d/<id>/...`) from the local bundle. Nothing is uploaded; reloading the app
-// without this script running shows the relay's bundle again. Re-attaches
-// automatically when the app restarts (new devtools socket / page).
+//   1. $env:MIXDOG_ELECTRON_BUILD_TARGETS='renderer'
+//      node node_modules/electron-vite/dist/cli.js build --outDir <tmp>/bundle
+//   2. node scripts/phone-local-bundle.mjs --bundle=<tmp>/bundle/renderer [--serial=emulator-5554] [--no-reload]
+//      (Ctrl+C stops it)
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';

@@ -1,8 +1,3 @@
-/**
- * displayed-result.mjs — which text of the tool result the collapsed card
- * actually shows: the background-task body over its envelope, never an
- * error-only body, with the leading status marker stripped.
- */
 import { summarizeToolResult } from '../tool-surface.mjs';
 import { isBackgroundErrorOnlyBody } from '../err-text.mjs';
 import { isUserControlCancellation } from '../tool-status.mjs';

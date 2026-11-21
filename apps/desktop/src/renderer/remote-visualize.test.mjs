@@ -5,12 +5,6 @@ import { JSDOM } from 'jsdom';
 import { createRemotePageCache } from './remote-file-preview.ts';
 import { withPhoneApi } from './test-support/phone-api-rig.mjs';
 
-// Node's version (b6f10295a) drove these over a fake relay socket with the challenge's `visualize` flag. The table is the same
-// (remote-shim-api.ts); the flag is the context's `peerVisualize` (set per connection from the core's capabilities,
-// apps/mobile/src/phone-capabilities.ts), and what Node read off the socket is what reaches the adapter that owns the name.
-// Not kept: the normalization of a pushed `visualizeChanged` frame (session id forced to the frame's, malformed pushes dropped) -- nothing in
-// the phone delivers that push until PH-2's visualize adapter does, so its test belongs there.
-
 test('a host without the visualize flag reads as having no tabs and gets no calls', async () => {
   await withPhoneApi({}, async ({ ctx, api, calls }) => {
     ctx.peerVisualize = false;
@@ -70,12 +64,14 @@ test('a media pane is read in bounded ranges into a blob URL', async () => {
   );
 });
 
-test('a page is read once per host content identity, on its own pairing only', async (t) => {
+const page = (body) => `<!doctype html><html><head></head><body>${body}</body></html>`;
+const pageId = (scope, html) => `${scope}:${createHash('sha256').update(html).digest('hex')}`;
+
+async function withPageHost(t, body) {
   globalThis.DOMParser = new JSDOM('').window.DOMParser;
   t.after(() => {
     delete globalThis.DOMParser;
   });
-  // What the host answers: the metadata the test sets for the next load, and the bytes it holds for the range read.
   let meta = null;
   let bytes = '';
   await withPhoneApi(
@@ -93,8 +89,6 @@ test('a page is read once per host content identity, on its own pairing only', a
       ctx.peerVisualize = true;
       let pairing = 'pairing-a';
       ctx.visualizePages = createRemotePageCache(() => pairing);
-      const page = (body) => `<!doctype html><html><head></head><body>${body}</body></html>`;
-      const id = (scope, html) => `${scope}:${createHash('sha256').update(html).digest('hex')}`;
       // Size and mtime never change here: only the content identity tells pages apart.
       const serve = async (contentId, read) => {
         const before = calls.length;
@@ -110,37 +104,58 @@ test('a page is read once per host content identity, on its own pairing only', a
         const source = await api.visualizePaneSource('s1', 'v5', 0);
         return { ...source, calls: calls.length - before };
       };
-
-      const one = await serve(id('live', page('one')), page('one'));
-      assert.match(one.srcdoc, /one/);
-      assert.equal(one.calls, 2);
-      const again = await serve(id('live', page('one')), null);
-      assert.deepEqual([again.srcdoc, again.calls], [one.srcdoc, 1], 'same content: only the metadata call');
-      assert.notEqual(again.fetch, one.fetch, 'a cached page gets this load’s fetch');
-      // Same size and mtime, different bytes.
-      assert.match((await serve(id('live', page('two')), page('two'))).srcdoc, /two/);
-
-      // Kept versions under the same path: each version's own snapshot.
-      assert.match((await serve(id('v1', page('old')), page('old'))).srcdoc, /old/);
-      assert.match((await serve(id('v2', page('new')), page('new'))).srcdoc, /new/);
-      assert.equal((await serve(id('v1', page('old')), null)).calls, 1);
-
-      // No identity from the host, or bytes that are not the hashed ones: never kept.
-      assert.equal((await serve(undefined, page('one'))).calls, 2);
-      assert.equal((await serve(undefined, page('one'))).calls, 2);
-      assert.match((await serve(id('live', page('xyz')), page('abc'))).srcdoc, /abc/);
-      assert.match((await serve(id('live', page('xyz')), page('xyz'))).srcdoc, /xyz/);
-
-      // Another pairing (server switch, re-pair) or none reuses nothing.
-      pairing = 'pairing-b';
-      assert.equal((await serve(id('v1', page('old')), page('old'))).calls, 2);
-      ctx.visualizePages.clear();
-      assert.equal((await serve(id('v1', page('old')), page('old'))).calls, 2);
-      pairing = null;
-      assert.equal((await serve(id('v1', page('old')), page('old'))).calls, 2);
-      assert.equal((await serve(id('v1', page('old')), page('old'))).calls, 2);
+      await body({ ctx, serve, setPairing: (next) => (pairing = next) });
     }
   );
+}
+
+test('a page with the same host content identity is read once and served from the cache after', async (t) => {
+  await withPageHost(t, async ({ serve }) => {
+    const one = await serve(pageId('live', page('one')), page('one'));
+    assert.match(one.srcdoc, /one/);
+    assert.equal(one.calls, 2);
+    const again = await serve(pageId('live', page('one')), null);
+    assert.deepEqual([again.srcdoc, again.calls], [one.srcdoc, 1], 'same content: only the metadata call');
+    assert.notEqual(again.fetch, one.fetch, 'a cached page gets this load’s fetch');
+  });
+});
+
+test('a page with a new content identity is read again though its size and mtime are unchanged', async (t) => {
+  await withPageHost(t, async ({ serve }) => {
+    await serve(pageId('live', page('one')), page('one'));
+    assert.match((await serve(pageId('live', page('two')), page('two'))).srcdoc, /two/);
+  });
+});
+
+test('kept versions of a page under the same path each keep their own snapshot', async (t) => {
+  await withPageHost(t, async ({ serve }) => {
+    assert.match((await serve(pageId('v1', page('old')), page('old'))).srcdoc, /old/);
+    assert.match((await serve(pageId('v2', page('new')), page('new'))).srcdoc, /new/);
+    assert.equal((await serve(pageId('v1', page('old')), null)).calls, 1);
+  });
+});
+
+test('a page without a host identity, or whose bytes are not the hashed ones, is never kept', async (t) => {
+  await withPageHost(t, async ({ serve }) => {
+    assert.equal((await serve(undefined, page('one'))).calls, 2);
+    assert.equal((await serve(undefined, page('one'))).calls, 2);
+    assert.match((await serve(pageId('live', page('xyz')), page('abc'))).srcdoc, /abc/);
+    assert.match((await serve(pageId('live', page('xyz')), page('xyz'))).srcdoc, /xyz/);
+  });
+});
+
+test('another pairing, or none, reuses no cached page', async (t) => {
+  await withPageHost(t, async ({ ctx, serve, setPairing }) => {
+    const old = () => serve(pageId('v1', page('old')), page('old'));
+    await old();
+    setPairing('pairing-b');
+    assert.equal((await old()).calls, 2);
+    ctx.visualizePages.clear();
+    assert.equal((await old()).calls, 2);
+    setPairing(null);
+    assert.equal((await old()).calls, 2);
+    assert.equal((await old()).calls, 2);
+  });
 });
 
 test('a pane over the remote size cap is refused before any byte moves', async () => {

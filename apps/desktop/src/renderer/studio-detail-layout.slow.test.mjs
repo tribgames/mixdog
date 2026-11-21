@@ -4,11 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// The Studio detail lays itself out from the size of its own pane, so one
-// harness renders it on every surface that pane reaches: desktop windows and
-// split cells, phones in both orientations, and tablets. `top` stands in for
-// the phone toolbar above the pane. Tablets take the phone layout only below
-// 640px (shared/surface-class.ts); wider ones get the desktop layout.
+// Tablets take the phone layout only below 640px (shared/surface-class.ts).
 const SURFACES = [
   { name: 'desktop window', width: 1280, height: 800, layout: 'rail' },
   { name: 'short desktop window', width: 1024, height: 600, layout: 'compact-rail' },

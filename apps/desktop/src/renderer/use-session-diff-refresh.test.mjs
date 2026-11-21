@@ -32,7 +32,7 @@ function harness(t, invokeCapability, desktop = {}) {
     await act(async () => root.unmount());
     restore();
   });
-  const base = { sessionId: 'session', active: true, busy: true, revision: 'first' };
+  const base = { sessionId: 'session', active: true, revision: 'first' };
   return {
     clock,
     win: dom.window,

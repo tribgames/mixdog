@@ -51,13 +51,14 @@ function remotePage(beforeBridge) {
   return { dom, inner, frame, posted, received, deliver, flush, done };
 }
 
-test('Ctrl+wheel and zoom keys inside a remote frame zoom the panel that holds the frame', () => {
-  // A page that handles Ctrl+wheel itself (a chart) registered before the bridge ran.
-  const { inner, posted, received, flush, done } = remotePage((page) =>
-    page.eval(
-      "window.addEventListener('wheel', function (event) { if (event.deltaY === 41) event.preventDefault(); }, { passive: false })"
-    )
+function pageWithOwnWheel(page) {
+  page.eval(
+    "window.addEventListener('wheel', function (event) { if (event.deltaY === 41) event.preventDefault(); }, { passive: false })"
   );
+}
+
+test('Ctrl+wheel inside a remote frame zooms the panel that holds the frame, at the wheel’s place', () => {
+  const { inner, posted, received, flush, done } = remotePage(pageWithOwnWheel);
   try {
     const wheel = new inner.WheelEvent('wheel', {
       ctrlKey: true,
@@ -68,15 +69,18 @@ test('Ctrl+wheel and zoom keys inside a remote frame zoom the panel that holds t
       bubbles: true,
     });
     inner.dispatchEvent(wheel);
-    // The page's own wheel never zooms the frame itself.
-    assert.equal(wheel.defaultPrevented, true);
+    assert.equal(wheel.defaultPrevented, true, 'the page’s own wheel never zooms the frame itself');
     assert.equal(posted[0].type, FRAME_ZOOM_REQUEST);
     flush();
-    // (10, 20) in the frame is (20, 40) drawn at 2x, from the frame's corner.
     assert.deepEqual(received, [['in', { x: 120, y: 80 }, { deltaY: -40, deltaMode: 0 }]]);
+  } finally {
+    done();
+  }
+});
 
-    // A key carries no place: it goes to the focused/hovered panel.
-    received.length = 0;
+test('zoom keys inside a remote frame go to the focused or hovered panel without a place', () => {
+  const { inner, received, flush, done } = remotePage(pageWithOwnWheel);
+  try {
     for (const [key, extra, input] of [
       ['=', {}, 'in'],
       ['+', {}, 'in'],
@@ -95,8 +99,14 @@ test('Ctrl+wheel and zoom keys inside a remote frame zoom the panel that holds t
       flush();
       assert.deepEqual(received.pop(), [input], key);
     }
+  } finally {
+    done();
+  }
+});
 
-    // Plain wheel, other keys, Alt chords and gestures the page took stay the page's.
+test('a plain wheel, other keys, Alt chords and gestures the page took stay the page’s', () => {
+  const { inner, posted, done } = remotePage(pageWithOwnWheel);
+  try {
     inner.dispatchEvent(new inner.WheelEvent('wheel', { deltaY: 40, cancelable: true }));
     inner.dispatchEvent(new inner.KeyboardEvent('keydown', { key: 'a', ctrlKey: true }));
     inner.dispatchEvent(new inner.KeyboardEvent('keydown', { key: '=', ctrlKey: true, altKey: true }));

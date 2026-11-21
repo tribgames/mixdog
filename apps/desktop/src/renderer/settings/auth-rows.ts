@@ -1,8 +1,3 @@
-// 설정 › 인증 관리's list: one row per site, merging the saved logins (vault)
-// with the cookie sign-ins the profile keeps, plus one row per remembered
-// "Continue with Google/GitHub" sign-in. No secret ever reaches here — the
-// vault summary carries only whether a password or an authenticator key is
-// stored, never their values, and a linked sign-in only its identity.
 import type {
   DesktopBrowserSignedInSite,
   DesktopLinkedSignIn,

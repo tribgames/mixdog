@@ -1,8 +1,3 @@
-// The primary agent's (Mixy's) status as this renderer knows it: whether it
-// was created (getLeadStatus, decided by the host: main/mixy-first.ts) and the
-// name and face the user gave it (agents/lead/agent.json `name`/`avatar`).
-// Every surface that names or draws Mixy reads it here: '' / null fall back to
-// "Mixy" and Mixy's pup.
 import { useEffect, useSyncExternalStore } from 'react';
 import { type AgentAvatarValue, normalizeAgentAvatar } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import type { DesktopApi } from '../shared/contract';

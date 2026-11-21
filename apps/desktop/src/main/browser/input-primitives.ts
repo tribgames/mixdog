@@ -1,8 +1,3 @@
-/**
- * The units every input driver speaks in: the port that delivers one CDP
- * input event and reports whether a dialog swallowed it, CSS points, mouse
- * buttons, and the modifier mask CDP expects.
- */
 import type { WebContents } from 'electron';
 
 export type BrowserInputOutcome = 'completed' | 'dialog';

@@ -1431,7 +1431,7 @@
 .dock-scm-context-heading {
   padding: 4px 10px 2px;
   color: var(--mx-text-muted);
-  font-size: var(--mx-font-caption, 11px);
+  font-size: 11px;
   user-select: none;
   pointer-events: none;
 }

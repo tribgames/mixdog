@@ -1173,7 +1173,7 @@ test('a pin card request turns Comment mode on when it is off, and a stale one i
   assert.equal(takeVisualizePinOpen('s1', 'v1', 0), null, 'a stale request was dropped, not kept');
 });
 
-test('the bridge resends to pages only when what it sends changes, not when the tab object does', async (t) => {
+async function mountResendHarness(t) {
   resetVisualizeFeedback();
   let setShown = () => {};
   function Harness() {
@@ -1199,9 +1199,11 @@ test('the bridge resends to pages only when what it sends changes, not when the 
   const toPage = [];
   host.querySelector('iframe').contentWindow.postMessage = (message) => toPage.push(message);
   const markers = () => toPage.filter((message) => message.type === 'state');
+  return { setShown: (next) => setShown(next), markers };
+}
 
-  // A new tab object with an unrelated field (another thumbnail, problems)
-  // and new-but-equal pane objects: nothing is resent.
+test('the bridge resends nothing when the tab object changes only in fields it does not send', async (t) => {
+  const { setShown, markers } = await mountResendHarness(t);
   await act(async () =>
     setShown({ ...tab, panes: tab.panes.map((pane) => ({ ...pane })), thumbnail: 'data:image/png;base64,AAAA' })
   );
@@ -1209,8 +1211,10 @@ test('the bridge resends to pages only when what it sends changes, not when the 
     setShown({ ...tab, problems: [{ kind: 'exception', message: 'x', source: 'a', line: 1, count: 1, pane: 0 }] })
   );
   assert.equal(markers().length, 0, 'unrelated tab fields resend nothing');
+});
 
-  // A pin on another tab changes the feedback state but not this pane's markers.
+test("the bridge resends nothing for another tab's pin", async (t) => {
+  const { markers } = await mountResendHarness(t);
   await act(async () => {
     addVisualizePin('s1', {
       tabId: 'other',
@@ -1224,13 +1228,15 @@ test('the bridge resends to pages only when what it sends changes, not when the 
     });
   });
   assert.equal(markers().length, 0, "another tab's pins resend nothing");
+});
 
-  // A pin on this pane, and a reload (revision), do resend.
+test('the bridge resends for a pin on this pane and for a reload', async (t) => {
+  const { setShown, markers } = await mountResendHarness(t);
   await act(async () => {
     queuedPin({ type: 'element', selector: 'h1', html: '<h1>x</h1>', styles: {}, box: pick.box, path: [] }, 'mine');
   });
   assert.equal(markers().length, 1);
-  assert.deepEqual(markers()[0].markers, [{ n: 2, selector: 'h1' }]);
+  assert.deepEqual(markers()[0].markers, [{ n: 1, selector: 'h1' }]);
   await act(async () => setShown({ ...tab, revision: 1 }));
   assert.equal(markers().length, 2, 'a reload resends');
 });
@@ -1263,15 +1269,20 @@ test('Comment mode shows no hint strip; its hints are a one-time toast', async (
   assert.deepEqual(toasts, ['Drag area · Esc End comments'], 'one toast, once');
 });
 
-test('an HTML layer tags a hovered region, forwards other hovers and the wheel, and its keys close or save the card', async (t) => {
-  const { host, frame, toPage, marksShown } = await mount(t, true);
-  const layer = host.querySelector('.visualize-region-layer');
+async function mountLayerWithRegion(t) {
+  const mounted = await mount(t, true);
+  const layer = mounted.host.querySelector('.visualize-region-layer');
   sized(layer, 0, 0, 400, 300);
-  sized(frame, 10, 20, 400, 300);
+  sized(mounted.frame, 10, 20, 400, 300);
   let region = null;
   await act(async () => {
     region = queuedPin({ type: 'region', view: { x: 0.1, y: 0.1, width: 0.5, height: 0.3 } }, 'Tighter');
   });
+  return { ...mounted, layer, region };
+}
+
+test('an HTML layer tags a hovered region and forwards other hovers to the page', async (t) => {
+  const { host, toPage, layer } = await mountLayerWithRegion(t);
   const frames = () => act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
   const lastHover = () => {
     const { x, y } = toPage.findLast((message) => message.type === 'hover');
@@ -1293,14 +1304,19 @@ test('an HTML layer tags a hovered region, forwards other hovers and the wheel, 
   assert.deepEqual(lastHover(), [290, 230]);
   await act(async () => layer.dispatchEvent(mouse('pointerout', { relatedTarget: host })));
   assert.deepEqual(lastHover(), [-1, -1], 'leaving the layer clears the page hover');
+});
 
-  // The wheel scrolls the page, lines counted as 16 px.
+test('an HTML layer forwards the wheel to the page, lines counted as 16 px', async (t) => {
+  const { toPage, layer } = await mountLayerWithRegion(t);
   await act(async () =>
     layer.dispatchEvent(new window.WheelEvent('wheel', { deltaY: 3, deltaMode: 1, bubbles: true, cancelable: true }))
   );
   const scroll = toPage.findLast((message) => message.type === 'scroll');
   assert.deepEqual([scroll.dx, scroll.dy], [0, 48]);
+});
 
+test('on an HTML layer, Esc closes the card and Enter saves the note or adds a region', async (t) => {
+  const { host, toPage, marksShown, layer, region } = await mountLayerWithRegion(t);
   const key = (node, init) =>
     act(async () =>
       node.dispatchEvent(new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }))

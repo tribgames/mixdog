@@ -1,8 +1,3 @@
-// Periodic socket diagnostics: each relay socket's `bufferedAmount` (bytes the
-// socket accepted that the network has not taken yet) beside the relay's
-// event-loop delay. Bytes forwarded say how much moved; this says whether the
-// wire or the process kept up. Written to the relay's own log channel
-// (console.log, `[relay] …`) and only while at least one phone is connected.
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 
 export const SOCKET_REPORT_INTERVAL_MS = 30_000;
@@ -83,10 +78,8 @@ function anyConnection(liveDesktops) {
 
 /**
  * Writes one line every `intervalMs`, and only when a phone is connected. The
- * event-loop sampler runs only while some desktop or phone is connected: a
- * cheap watch tick starts it when the first connection appears and stops it
- * when the last one is gone, so an idle relay pays no sampling timer. Each report
- * covers the window since the previous one (or since sampling started).
+ * event-loop sampler runs only while some desktop or phone is connected; each
+ * report covers the window since the previous one.
  */
 export function startSocketDiagnostics({
   liveDesktops,

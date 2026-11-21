@@ -15,9 +15,15 @@ test('a fold past its window drops its oldest rows and says older rows exist', (
   let fold = empty();
   for (let i = 0; i < FOLD_MAX_ITEMS; i++) fold = apply(fold, 'item/completed', reply(`r${i}`));
   assert.equal(fold.items.length, FOLD_MAX_ITEMS);
-  assert.equal(desktopSessionState(fold, []).transcriptHasOlder, undefined, 'a full window that dropped nothing has nothing older');
+  assert.equal(
+    desktopSessionState(fold, []).transcriptHasOlder,
+    undefined,
+    'a full window that dropped nothing has nothing older'
+  );
   // A row replaced in place drops nothing.
-  fold = apply(fold, 'item/completed', { item: { type: 'agentMessage', id: 'r0', text: 'again', meta: { status: 'completed' } } });
+  fold = apply(fold, 'item/completed', {
+    item: { type: 'agentMessage', id: 'r0', text: 'again', meta: { status: 'completed' } },
+  });
   assert.equal(fold.items.length, FOLD_MAX_ITEMS);
   assert.equal(fold.items[0]!.text, 'again');
   assert.equal(fold.fields.transcriptHasOlder, undefined);
@@ -34,18 +40,42 @@ test('a fold past its window drops its oldest rows and says older rows exist', (
 });
 
 test('a merge keeps the identity of every card whose rows are unchanged', () => {
-  const frames = JSON.parse(readFileSync(new URL('live-turn-items.json', import.meta.url), 'utf8')) as { method: string; params: Obj }[];
+  const frames = JSON.parse(readFileSync(new URL('live-turn-items.json', import.meta.url), 'utf8')) as {
+    method: string;
+    params: Obj;
+  }[];
   for (const live of [true, false]) {
-    const feed = live ? frames : frames.map((f) => (f.params.item ? { ...f, params: { ...f.params, item: JSON.parse(JSON.stringify(f.params.item, (k, v) => (k === 'live' ? undefined : v))) } } : f));
+    const feed = live
+      ? frames
+      : frames.map((f) =>
+          f.params.item
+            ? {
+                ...f,
+                params: {
+                  ...f.params,
+                  item: JSON.parse(JSON.stringify(f.params.item, (k, v) => (k === 'live' ? undefined : v))),
+                },
+              }
+            : f
+        );
     let fold = empty();
     for (const n of feed) fold = apply(fold, n.method, n.params);
     const before = desktopSessionState(fold, []).items as Obj[];
     const after = desktopSessionState(apply(fold, 'item/completed', reply('later')), []).items as Obj[];
-    assert.ok(before.some((row) => row.kind === 'tool'), 'the turn has tool cards');
+    assert.ok(
+      before.some((row) => row.kind === 'tool'),
+      'the turn has tool cards'
+    );
     assert.equal(after.length, before.length + 1);
-    before.forEach((row, i) => assert.equal(after[i], row, `${live ? 'live' : 'restored'} row ${i} (${String(row.name ?? row.kind)}) is the same object`));
+    for (const [i, row] of before.entries()) {
+      assert.equal(
+        after[i],
+        row,
+        `${live ? 'live' : 'restored'} row ${i} (${String(row.name ?? row.kind)}) is the same object`
+      );
+    }
     // A fold that changed nothing of a run, merged again from scratch, gives the same cards.
     const again = desktopSessionState({ ...fold, items: [...fold.items] }, []).items as Obj[];
-    before.forEach((row, i) => assert.equal(again[i], row));
+    for (const [i, row] of before.entries()) assert.equal(again[i], row);
   }
 });

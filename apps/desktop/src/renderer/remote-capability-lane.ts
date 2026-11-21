@@ -1,9 +1,3 @@
-// The phone's `invokeCapability` for the capability groups it answers over the protocol: Node's relay method (remote-methods.ts
-// `invokeCapability` at b6f10295a) was the host's request check (shared/capability-request.ts), then the host's call, whose
-// failure carried its worktree code in the message (worktree-validation.ts worktreeErrorWithCode) and only its public params
-// (coded-error.ts). Here the host's call is the desktop's own capability lane (main/protocol/capability-route.ts
-// createCapabilityLane) over the phone's client: the same routing to core methods, the same control thread for a call that names
-// no session, the same error framing (main/protocol/core-error.ts).
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { createCapabilityLane } from '../main/protocol/capability-route';
 import type { DesktopCapability } from '../shared/contract';

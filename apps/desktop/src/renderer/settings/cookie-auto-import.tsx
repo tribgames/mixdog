@@ -1,14 +1,10 @@
-// 설정 › 인증 관리: re-import Chrome's cookies by itself whenever Chrome is
-// closed. It reuses the Chrome key a manual import saved, so it never asks for
-// administrator approval. Before the first manual import it stays silent; a
-// saved key that stops working makes it say one manual import is needed.
 import { useEffect, useRef, useState } from 'react';
 
 import type { DesktopApi, DesktopBrowserImportProfile, DesktopCookieAutoImportStatus } from '../../shared/contract';
 import { ErrorNotice } from '../ErrorNotice';
 import { t, uiFormatLocale } from '../i18n';
 import { ActionButton, Group, SelectRow, ToggleRow } from './capability-controls';
-import { followSettingsReadConnection, startSettingsReadRecovery } from './read-recovery';
+import { watchSettingsRead } from './read-recovery';
 
 type CookieAutoImportApi = Partial<
   Pick<
@@ -58,26 +54,21 @@ export function CookieAutoImportGroup({
     const read = api.browserCookieAutoImportStatus;
     if (!active || !read) return undefined;
     let live = true;
-    const recovery = startSettingsReadRecovery(
+    const watch = watchSettingsRead(
+      api,
       async (signal) => {
         if (writing.current) return;
         const stamp = version.current;
         const next = await read();
         if (live && !signal.aborted && stamp === version.current && !writing.current) setStatus(next);
       },
-      5_000,
-      true,
-      true
+      5_000
     );
-    refreshStatus.current = recovery.replace;
-    const stopLink = followSettingsReadConnection(api, recovery);
-    window.addEventListener('focus', recovery.replace);
+    refreshStatus.current = watch.replace;
     return () => {
       live = false;
       refreshStatus.current = null;
-      stopLink?.();
-      recovery.stop();
-      window.removeEventListener('focus', recovery.replace);
+      watch.stop();
     };
   }, [active, api]);
 
@@ -85,24 +76,19 @@ export function CookieAutoImportGroup({
     const sources = api.browserProfileImportSources;
     if (!active || !sources || !api.browserCookieAutoImportStatus) return undefined;
     let live = true;
-    const recovery = startSettingsReadRecovery(
+    const watch = watchSettingsRead(
+      api,
       async (signal) => {
         const next = await sources();
         if (live && !signal.aborted) setProfiles(next.find((source) => source.supports.cookies)?.profiles ?? []);
       },
-      30_000,
-      true,
-      true
+      30_000
     );
-    refreshProfiles.current = recovery.replace;
-    const stopLink = followSettingsReadConnection(api, recovery);
-    window.addEventListener('focus', recovery.replace);
+    refreshProfiles.current = watch.replace;
     return () => {
       live = false;
       refreshProfiles.current = null;
-      stopLink?.();
-      window.removeEventListener('focus', recovery.replace);
-      recovery.stop();
+      watch.stop();
     };
   }, [active, api]);
 

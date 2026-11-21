@@ -428,7 +428,7 @@ test('plugin detail keeps every unavailable fact visible with a placeholder', as
   }
 });
 
-test('empty Plugin, Skill, and MCP categories keep their own visible empty states', async () => {
+test('an empty Skill category keeps its visible empty state and hides built-in and plugin skills', async () => {
   const skills = await renderPanel('user-skills', {
     data: {
       // Built-in and plugin skills never count as the user's own.
@@ -449,7 +449,9 @@ test('empty Plugin, Skill, and MCP categories keep their own visible empty state
   } finally {
     await skills.cleanup();
   }
+});
 
+test('an empty MCP category keeps its visible empty state', async () => {
   const mcp = await renderPanel('skills', {
     data: {
       skills: { skills: [] },
@@ -464,7 +466,9 @@ test('empty Plugin, Skill, and MCP categories keep their own visible empty state
   } finally {
     await mcp.cleanup();
   }
+});
 
+test('an empty Plugin category keeps its visible empty state', async () => {
   const plugins = await renderPanel('plugins', {
     data: {
       toolModules: {
@@ -712,22 +716,20 @@ test('the Skill category lists only MCP; user skills live in their own category'
   }
 });
 
-test('the Skills pane lists user skills only, and creates, edits, toggles and deletes them', async () => {
+const userSkillsPaneSkills = [
+  { name: 'my-skill', description: 'Mine', owner: { kind: 'user' }, editable: true },
+  { name: 'office-guide', description: 'Built in', owner: { kind: 'builtin', feature: 'office' } },
+  { name: 'bundled-skill', description: 'From a plugin', owner: { kind: 'plugin', id: 'bundle' } },
+];
+
+test('the Skills pane lists user skills only and creates a new one through addSkill', async () => {
   let closed = 0;
   const calls = [];
-  const confirmations = [];
-  const skills = [
-    { name: 'my-skill', description: 'Mine', owner: { kind: 'user' }, editable: true },
-    { name: 'office-guide', description: 'Built in', owner: { kind: 'builtin', feature: 'office' } },
-    { name: 'bundled-skill', description: 'From a plugin', owner: { kind: 'plugin', id: 'bundle' } },
-  ];
+  const skills = userSkillsPaneSkills;
   const rendered = await renderPanel('user-skills', {
     createOpen: true,
     closeCreate() {
       closed += 1;
-    },
-    confirm(options) {
-      confirmations.push(options);
     },
     data: { skills: { skills }, disabledSkills: { disabled: ['my-skill'] }, __loadedSections: ['skills'] },
     async run(capability, args) {
@@ -760,12 +762,12 @@ test('the Skills pane lists user skills only, and creates, edits, toggles and de
   } finally {
     await rendered.cleanup();
   }
+});
 
+test('the Skills pane edits a user skill through saveSkill', async () => {
+  const calls = [];
   const edit = await renderPanel('user-skills', {
-    data: { skills: { skills }, disabledSkills: { disabled: [] }, __loadedSections: ['skills'] },
-    confirm(options) {
-      confirmations.push(options);
-    },
+    data: { skills: { skills: userSkillsPaneSkills }, disabledSkills: { disabled: [] }, __loadedSections: ['skills'] },
     async run(capability, args) {
       calls.push([capability, args]);
       if (capability === 'skillContent') return { content: '# Mine' };
@@ -848,13 +850,11 @@ test('the add dialog stays open and shows the host duplicate rejection from a st
   }
 });
 
-test('Skill and MCP rows acknowledge the card click before their detail payload resolves', async () => {
+test('a Skill row acknowledges the card click before its detail payload resolves', async () => {
   const skillContent = Promise.withResolvers();
-  const mcpConfig = Promise.withResolvers();
-  let rendered = await renderPanel('user-skills', {
+  const rendered = await renderPanel('user-skills', {
     async run(capability) {
       if (capability === 'skillContent') return skillContent.promise;
-      if (capability === 'getMcpServerConfig') return mcpConfig.promise;
     },
   });
   try {
@@ -868,15 +868,20 @@ test('Skill and MCP rows acknowledge the card click before their detail payload 
       await skillContent.promise;
     });
     assert.ok(document.querySelector('#extensions-skill-dialog-title'));
-    await act(async () => {
-      document.querySelector('.extensions-skill-dialog header button[aria-label="Close"]').click();
-    });
+  } finally {
+    skillContent.resolve({ content: '# Example' });
     await rendered.cleanup();
-    rendered = await renderPanel('mcp', {
-      async run(capability) {
-        if (capability === 'getMcpServerConfig') return mcpConfig.promise;
-      },
-    });
+  }
+});
+
+test('an MCP row acknowledges the card click before its detail payload resolves', async () => {
+  const mcpConfig = Promise.withResolvers();
+  const rendered = await renderPanel('mcp', {
+    async run(capability) {
+      if (capability === 'getMcpServerConfig') return mcpConfig.promise;
+    },
+  });
+  try {
     await act(async () => {
       document.querySelector('[data-extension-row="example-mcp"]').click();
     });
@@ -888,37 +893,37 @@ test('Skill and MCP rows acknowledge the card click before their detail payload 
     });
     assert.ok(document.querySelector('#extensions-mcp-dialog-title'));
   } finally {
-    skillContent.resolve({ content: '# Example' });
     mcpConfig.resolve({ name: 'example-mcp', config: { type: 'stdio', command: 'example' } });
     await rendered.cleanup();
   }
 });
 
-test('sidebar resource tags reflect disabled items and omit tags for connected MCP servers', async () => {
-  const sidebarData = {
-    toolModules: {},
-    voice: { enabled: false, installed: false },
-    plugins: {
-      plugins: [
-        { id: 'off-plugin', name: 'Off plugin', enabled: false },
-        { id: 'on-plugin', name: 'On plugin', enabled: true },
-      ],
-    },
-    skills: {
-      skills: [
-        { name: 'off-skill', description: 'Disabled skill' },
-        { name: 'on-skill', description: 'Active skill' },
-      ],
-    },
-    disabledSkills: { disabled: ['off-skill'] },
-    mcp: {
-      servers: [
-        { name: 'off-mcp', enabled: false, config: { type: 'stdio', command: 'x' } },
-        { name: 'connected-mcp', enabled: true, connected: true, config: { type: 'stdio', command: 'y' } },
-      ],
-    },
-  };
-  const renderedSkills = await renderPanel('user-skills', { data: sidebarData });
+const sidebarData = () => ({
+  toolModules: {},
+  voice: { enabled: false, installed: false },
+  plugins: {
+    plugins: [
+      { id: 'off-plugin', name: 'Off plugin', enabled: false },
+      { id: 'on-plugin', name: 'On plugin', enabled: true },
+    ],
+  },
+  skills: {
+    skills: [
+      { name: 'off-skill', description: 'Disabled skill' },
+      { name: 'on-skill', description: 'Active skill' },
+    ],
+  },
+  disabledSkills: { disabled: ['off-skill'] },
+  mcp: {
+    servers: [
+      { name: 'off-mcp', enabled: false, config: { type: 'stdio', command: 'x' } },
+      { name: 'connected-mcp', enabled: true, connected: true, config: { type: 'stdio', command: 'y' } },
+    ],
+  },
+});
+
+test('a disabled Skill row is tagged and an active one is not', async () => {
+  const renderedSkills = await renderPanel('user-skills', { data: sidebarData() });
   try {
     const offSkillTag = document.querySelector('[data-extension-row="off-skill"] .sidebar-resource-tag');
     assert.ok(offSkillTag);
@@ -930,8 +935,10 @@ test('sidebar resource tags reflect disabled items and omit tags for connected M
   } finally {
     await renderedSkills.cleanup();
   }
+});
 
-  const renderedMcp = await renderPanel('skills', { data: sidebarData });
+test('a disabled MCP row is tagged and a connected one is not', async () => {
+  const renderedMcp = await renderPanel('skills', { data: sidebarData() });
   try {
     const offMcpTag = document.querySelector('[data-extension-row="off-mcp"] .sidebar-resource-tag');
     assert.ok(offMcpTag);
@@ -943,7 +950,9 @@ test('sidebar resource tags reflect disabled items and omit tags for connected M
   } finally {
     await renderedMcp.cleanup();
   }
+});
 
+test('a disabled Plugin row is tagged and an enabled one is not', async () => {
   const renderedPlugins = await renderPanel('plugins', {
     data: {
       toolModules: {},

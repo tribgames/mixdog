@@ -1,38 +1,24 @@
 import assert from 'node:assert/strict';
-import { watch } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { createBridgeServer } from './bridge-server.ts';
+import { createCommandService } from './command-service.ts';
+import { assertPublicComputerRequest } from './request-policy.ts';
 import { createUserWaitService } from './user-wait-service.ts';
 import { computerUseCoordinator as coordinator } from '../session/coordinator.ts';
 import { computerUseOverlayPresentation } from '../overlay/model.ts';
 
+/** An endpoint that admits everything. */
+const endpoint = { signal: new AbortController().signal, commit() {}, track() {} };
+
 test('user wait bypasses execution queues, permits concurrent discovery and releases on resume', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-user-wait-bridge-'));
-  let enabled = true,
-    serial = 0,
+  let serial = 0,
     aborts = 0,
     announce;
   const waiting = new Promise((resolve) => {
     announce = resolve;
-  });
-  let watcher;
-  let deadline;
-  const discovery = new Promise((resolve, reject) => {
-    deadline = setTimeout(() => reject(new Error('discovery timeout')), 5000);
-    watcher = watch(directory, async () => {
-      try {
-        const value = JSON.parse(await readFile(join(directory, 'computer-bridge.json'), 'utf8'));
-        if (!value.port) return;
-        clearTimeout(deadline);
-        watcher.close();
-        resolve(value);
-      } catch {
-        /* discovery is atomically published */
-      }
-    });
   });
   const service = createUserWaitService({
     directory,
@@ -43,14 +29,9 @@ test('user wait bypasses execution queues, permits concurrent discovery and rele
     lifecycle: { resumeAfterTakeover: async () => {} },
   });
   service.configure(0);
-  const server = createBridgeServer({
-    dataDirectory: () => directory,
-    isBridgeWanted: () => enabled,
-    isDisposed: () => false,
-    diagnose() {},
+  const server = createCommandService({
     powerShellBySession: new Map(),
     elevatedSessionIds: () => [],
-    callPowerShell: async () => ({ ok: true }),
     reapIdleSessionWorkers() {},
     abortComputerSession: async () => {
       aborts++;
@@ -68,14 +49,14 @@ test('user wait bypasses execution queues, permits concurrent discovery and rele
   try {
     coordinator.beginCommand({ sessionId: 'a', action: 'type', mode: 'foreground' });
     coordinator.pauseForUser('user_pause');
-    server.startBridge();
-    const record = await discovery;
-    const send = (command) =>
-      fetch(`http://127.0.0.1:${record.port}/command`, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${record.token}`, 'content-type': 'application/json' },
-        body: JSON.stringify(command),
-      }).then((response) => response.json());
+    const send = (command) => {
+      try {
+        assertPublicComputerRequest(command);
+      } catch (error) {
+        return Promise.resolve({ ok: false, error: `invalid request: ${error.message}` });
+      }
+      return server.answerCommand(command, endpoint);
+    };
     const pending = send({ action: 'wait_for_user', session_id: 'a', timeout_ms: 3000 });
     await waiting;
     assert.equal(serial, 0);
@@ -90,11 +71,8 @@ test('user wait bypasses execution queues, permits concurrent discovery and rele
     const forged = await send({ action: 'input_idle_state', session_id: '__computer_user_wait__' });
     assert.equal(forged.ok, false);
   } finally {
-    clearTimeout(deadline);
-    watcher?.close();
     service.dispose();
-    enabled = false;
-    await server.stopBridge();
+    await server.stop();
     coordinator.reset();
     await rm(directory, { recursive: true, force: true });
   }
@@ -102,32 +80,10 @@ test('user wait bypasses execution queues, permits concurrent discovery and rele
 
 test('a cancelled turn that held a pause ends it, so nothing is left on screen', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-abort-pause-bridge-'));
-  let enabled = true,
-    aborts = 0;
-  let watcher;
-  let deadline;
-  const discovery = new Promise((resolve, reject) => {
-    deadline = setTimeout(() => reject(new Error('discovery timeout')), 5000);
-    watcher = watch(directory, async () => {
-      try {
-        const value = JSON.parse(await readFile(join(directory, 'computer-bridge.json'), 'utf8'));
-        if (!value.port) return;
-        clearTimeout(deadline);
-        watcher.close();
-        resolve(value);
-      } catch {
-        /* discovery is atomically published */
-      }
-    });
-  });
-  const server = createBridgeServer({
-    dataDirectory: () => directory,
-    isBridgeWanted: () => enabled,
-    isDisposed: () => false,
-    diagnose() {},
+  let aborts = 0;
+  const server = createCommandService({
     powerShellBySession: new Map(),
     elevatedSessionIds: () => [],
-    callPowerShell: async () => ({ ok: true }),
     reapIdleSessionWorkers() {},
     abortComputerSession: async () => {
       aborts++;
@@ -139,24 +95,15 @@ test('a cancelled turn that held a pause ends it, so nothing is left on screen',
     coordinator.beginCommand({ sessionId: 'cancelled', action: 'click', mode: 'foreground' });
     coordinator.finishCommand('cancelled');
     coordinator.pauseForUser('user_pause');
-    server.startBridge();
-    const record = await discovery;
     // A cancelled turn sends session_abort and never execution_end.
-    const reply = await fetch(`http://127.0.0.1:${record.port}/command`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${record.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ action: 'session_abort', session_id: 'cancelled' }),
-    }).then((response) => response.json());
+    const reply = await server.answerCommand({ action: 'session_abort', session_id: 'cancelled' }, endpoint);
     assert.equal(reply.ok, true);
     assert.equal(aborts, 1);
     const snapshot = coordinator.snapshot();
     assert.equal(snapshot.userControlActive, false);
     assert.equal(computerUseOverlayPresentation(snapshot, 'ko').visible, false);
   } finally {
-    clearTimeout(deadline);
-    watcher?.close();
-    enabled = false;
-    await server.stopBridge();
+    await server.stop();
     coordinator.reset();
     await rm(directory, { recursive: true, force: true });
   }

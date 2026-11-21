@@ -1,7 +1,3 @@
-// The composer's branch chip: the THIRD context chip (after project and
-// workflow) in a New Task, and the only context chip mid-session. Its menu is
-// always the same: search · "Worktree" · branches · "New branch" (the shared
-// branch-menu, also opened by the composer island's branch segment).
 import { ChevronDown, GitBranch, GitFork, TriangleAlert } from 'lucide-react';
 import { useId, useRef, useState } from 'react';
 
@@ -27,9 +23,6 @@ export function BranchChip({
   refreshKey?: string;
 }) {
   const draft = !sessionId;
-  // Only a draft keeps a client-side "Worktree" choice (lazy creation at its
-  // first send). A session's state is always its backend menu: a bound
-  // worktree, or a pending choice the runtime holds for the next send.
   const intentKey = draftId || 'default';
   const draftIntent = useWorktreeIntent(intentKey);
   const { menu, recovery, notice, setNotice, load } = useBranchMenuData({

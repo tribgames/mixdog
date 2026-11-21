@@ -3,10 +3,7 @@ import { isRemoteHostRenderer } from './remote-ui-projection';
 import { defaultSessionLaneStore } from './session-lane-store';
 import { useWorkspaceCovered } from './workspace-cover';
 
-/** Until startup settles, an EMPTY set is the boot's provisional New Task
- *  frame, not a view: the relay client already named the restored session
- *  when it connected, and clearing it first made the host drop that head
- *  start and re-synchronize the whole view moments later. */
+/** Until startup settles, an empty set is the boot's provisional New Task frame, not a view. */
 function provisionalBootFrame(sessionIds: readonly string[]): boolean {
   return (
     sessionIds.length === 0 &&
@@ -15,9 +12,6 @@ function provisionalBootFrame(sessionIds: readonly string[]): boolean {
   );
 }
 
-/** Register the current pane without waiting for an older pane's transcript.
- * Desktop transport versions fence out-of-order requests; the remote shim
- * owns its legacy encrypted-transport serialization. */
 let shownSessionIds: readonly string[] = [];
 
 /** The lane store learns the registration too: a shown session's lane is its
@@ -36,10 +30,8 @@ interface RegistrationHolder {
   ids: readonly string[];
 }
 
-/** One window-wide set that several hook instances may hold at once: a remounted owner's replacement registers in its layout
- *  effect before the removed instance's passive cleanup runs. The newest registration is the set; an instance that leaves
- *  withdraws only its own, handing the set to the newest instance still mounted (or to nothing), so a dying instance never
- *  overwrites its replacement's registration. */
+/** One window-wide set held by several hook instances: the newest registration
+ *  is the set, and a leaving instance withdraws only its own. */
 function createSharedRegistration(apply: (ids: readonly string[]) => void) {
   // Mounted holders in registration order, the newest last.
   const holders: RegistrationHolder[] = [];
@@ -151,8 +143,7 @@ export function useScreenSessionIds(): readonly string[] {
 }
 
 /** Tell main which sessions this window actually shows (pane-active sessions
- *  only, not the Agents dock's observed ones), so a completion elsewhere still
- *  notifies while this window is focused. Nothing is shown while a modal or an
+ *  only), so a completion elsewhere still notifies while this window is focused. Nothing is shown while a modal or an
  *  expanded sheet covers the workspace; the report follows those transitions. */
 export function useScreenSessions(sessionIds: readonly string[]): void {
   const covered = useWorkspaceCovered();

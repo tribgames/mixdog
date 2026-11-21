@@ -1,10 +1,3 @@
-// A skin's moving layer: a built-in's loop, or the custom video / animated
-// GIF. One fixed element behind the shell, exactly where the picture sits
-// (33-skin.css .skin-motion: same cover fit and focal point as body::before,
-// under the same plates). The picture stays painted underneath as the poster
-// and the layer fades in only on its first frame, so nothing flashes or moves.
-// Reduced motion shows the poster only; a hidden document (a minimised window
-// or a background tab) pauses the video.
 export type SkinMotion = {
   /** Identity of the media: an unchanged key keeps the playing element. */
   key: string;

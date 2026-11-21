@@ -170,6 +170,18 @@ export async function readUsageRequestPage(
   return record(value);
 }
 
+function usageSignature(stats: Record<string, unknown>): string {
+  return JSON.stringify([
+    stats.inputTokens,
+    stats.outputTokens,
+    stats.cachedTokens,
+    stats.cacheWriteTokens,
+    stats.promptTokens,
+    stats.costUsd,
+    stats.turns,
+  ]);
+}
+
 /** The desktop owns this subscription even while the statistics dialog is
  * closed. Streaming text and context estimates do not invalidate usage.
  * Without `background` (a remote client), usage changes are only recorded:
@@ -194,16 +206,7 @@ export function holdStatsDataCache(api: SurfaceApi, { background = true }: { bac
     };
     const update = (snapshot: SessionSnapshot, sessionId = String(snapshot?.sessionId || '')) => {
       if (!snapshot?.stats) return;
-      const stats = record(snapshot.stats);
-      const signature = JSON.stringify([
-        stats.inputTokens,
-        stats.outputTokens,
-        stats.cachedTokens,
-        stats.cacheWriteTokens,
-        stats.promptTokens,
-        stats.costUsd,
-        stats.turns,
-      ]);
+      const signature = usageSignature(record(snapshot.stats));
       if (signatures.get(sessionId) === signature) return;
       signatures.set(sessionId, signature);
       if (!background) {
@@ -221,10 +224,8 @@ export function holdStatsDataCache(api: SurfaceApi, { background = true }: { bac
       // marks the cache stale and opening reads fresh figures.
       if (!hidden() && cache.listeners.size > 0) warm();
     };
-    // The connection's lane, as the rest of the desktop chooses it (`SectionSource.core`, desktop-core-route-1): a
-    // client that holds no background cache is pushed the aggregate on a core connection (section `usage`, key
-    // `stats`, desktop-services.md §15 P7). Whether a sections source merely exists says nothing: the preload offers
-    // one on every connection.
+    // A core connection pushes the aggregate (section `usage`, key `stats`, desktop-services.md §15 P7); the
+    // preload offers a sections source on every connection, so only `SectionSource.core` names the lane.
     let lane: 'pending' | 'core' | 'node' = 'pending';
     let unsubscribeStats: (() => void) | undefined;
     let released = false;

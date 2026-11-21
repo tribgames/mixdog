@@ -133,10 +133,6 @@ export function sessionAllowScope(agent: string, action: string): string {
   return t("In this conversation, {{agent}}'s {{action}} won't ask again, on any site", { agent, action });
 }
 
-/** What the scope line says "Allow for this conversation" changes: this one
- *  tool, in this conversation. Closing, deleting or resetting the conversation,
- *  changing its agent and a restart of the background service end it (it is
- *  held in the service's memory). */
 function sessionAllowToolScope(tool: string): string {
   return t(
     "{{tool}} won't ask again in this conversation until you close, delete, or reset it, change its agent, or restart the app.",

@@ -1,7 +1,3 @@
-/**
- * Background tab limits and visible guest selection: pure rules shared by the
- * session registry, the tab actions, and the command queue.
- */
 /** Product limit: enough tabs for a research task to keep a few sources open,
  *  few enough that one session cannot starve the global cap below. */
 const MAX_BACKGROUND_TABS_PER_SESSION = 6;

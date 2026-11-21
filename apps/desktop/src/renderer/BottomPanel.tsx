@@ -1,9 +1,3 @@
-// Bottom panel shell: toggleable, drag-resizable via a top
-// edge handle, with a small tab row (shell jobs / background tasks / logs are
-// mapped by the integration layer). Controlled component + a persistence
-// hook, so App owns when it exists and what the active tab renders.
-// Styling lives in pane-layout.css, imported once at the renderer entry
-// (repo convention — components never import css, keeping node tests clean).
 import type React from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { t } from './i18n';
@@ -45,8 +39,6 @@ interface StoredBottomPanelState {
 }
 
 export function useBottomPanelState(activePaneId: string, defaultTab = 'problems') {
-  // Height and each PANE's open state carry across reloads; the ACTIVE TAB
-  // never does. The legacy global `open` flag migrates to the focused PANE.
   const [state, setState] = useState<StoredBottomPanelState>(() => {
     try {
       const record = JSON.parse(window.localStorage.getItem(BOTTOM_PANEL_KEY) || '') as Record<string, unknown>;
@@ -106,9 +98,6 @@ export function useBottomPanelState(activePaneId: string, defaultTab = 'problems
     },
     [activePaneId]
   );
-  // A pane's OWN close/open control targets that pane, focused or not — the
-  // panel is the file editor's sub-panel now (user: DIFF처럼 스크립트에
-  // 종속), so every pane renders its own instance from openPaneIds.
   const setOpenFor = useCallback((paneId: string, open: boolean) => {
     setState((prev) => ({
       ...prev,
@@ -143,40 +132,8 @@ export function useBottomPanelState(activePaneId: string, defaultTab = 'problems
   };
 }
 
-export function BottomPanel({
-  open,
-  height,
-  onHeightChange,
-  tabs,
-  activeTab,
-  onSelectTab,
-  onClose,
-  headerActions,
-  actions,
-  children,
-  motion = 'animated',
-}: {
-  open: boolean;
-  height: number;
-  onHeightChange: (height: number) => void;
-  tabs: ReadonlyArray<BottomPanelTab>;
-  activeTab: string;
-  onSelectTab: (id: string) => void;
-  onClose: () => void;
-  headerActions?: React.ReactNode;
-  actions?: React.ReactNode;
-  children?: React.ReactNode;
-  motion?: BottomPanelMotion;
-}): React.JSX.Element | null {
-  const [dragging, setDragging] = useState(false);
-  const cleanupRef = useRef<(() => void) | null>(null);
-  const resizeFrameKey = useRef({});
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  // Floor-overlap: the workspace column keeps its pane floor (pane-layout.css
-  // min-height on .main-panel pane children); a taller panel therefore
-  // overflows the column. Pull the panel UP by exactly that overflow so it
-  // overlays the pane bottom instead of scrolling the workbench (user
-  // decision). Reset-then-measure keeps the sync idempotent.
+/** Keeps the panel overlaying the pane bottom when its height outgrows the workspace column. */
+function useBottomPanelOverlay(panelRef: { current: HTMLDivElement | null }, open: boolean, height: number) {
   const syncOverlay = useCallback(() => {
     const panel = panelRef.current;
     const parent = panel?.parentElement;
@@ -190,15 +147,12 @@ export function BottomPanel({
     } else {
       panel.dataset.overlaying = 'false';
     }
-  }, []);
+  }, [panelRef]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: height is not read inside; a height change must re-measure the overlay
   useLayoutEffect(() => {
     if (open) syncOverlay();
   }, [open, height, syncOverlay]);
-  // The workspace column's pane floor keys on this flag instead of
-  // `.main-panel:has(.bottom-panel)`: that :has() made Chromium re-scan the
-  // whole column — every diff row, every transcript row — on each composer
-  // keystroke (measured 10–16ms of style recalc per key beside a big diff).
+  // A flag, not `.main-panel:has(.bottom-panel)`: that :has() cost Chromium 10–16ms of style recalc per composer keystroke (measured).
   useLayoutEffect(() => {
     const panel = panelRef.current;
     const column = panel?.closest<HTMLElement>('.main-panel') ?? panel?.parentElement;
@@ -212,20 +166,19 @@ export function BottomPanel({
     if (!open || typeof ResizeObserver === 'undefined') return undefined;
     const parent = panelRef.current?.parentElement;
     if (!parent) return undefined;
-    // The column's size comes from the desktop body, never from this panel's
-    // margin, so observing it cannot loop through our own writes.
     const observer = new ResizeObserver(() => syncOverlay());
     observer.observe(parent);
     return () => observer.disconnect();
-  }, [open, syncOverlay]);
+  }, [open, syncOverlay, panelRef]);
+  return syncOverlay;
+}
+
+/** Drag-to-resize from the top handle: the height previews on the panel and commits on release. */
+function useBottomPanelResize(syncOverlay: () => void, onHeightChange: (height: number) => void) {
+  const [dragging, setDragging] = useState(false);
+  const cleanupRef = useRef<(() => void) | null>(null);
+  const resizeFrameKey = useRef({});
   useEffect(() => () => cleanupRef.current?.(), []);
-  useEffect(() => {
-    if (!open) return;
-    beginBootSurface('bottom-panel', activeTab);
-    reportBootSurfaceStage('bottom-panel', activeTab, 'module');
-    reportBootSurfaceStage('bottom-panel', activeTab, 'data');
-    reportBootSurfaceReady('bottom-panel', activeTab);
-  }, [activeTab, open]);
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       event.preventDefault();
@@ -234,9 +187,6 @@ export function BottomPanel({
       setDragging(true);
       handle.setPointerCapture(event.pointerId);
       const panel = handle.parentElement;
-      // The panel grows UPWARD from its own bottom edge — the pane bottom now,
-      // the window bottom before. Measure that anchor once: it never moves
-      // during the drag, while window math broke for panes above a split.
       const anchorBottom = panel?.getBoundingClientRect().bottom ?? window.innerHeight;
       let pendingHeight: number | null = null;
       const applyPreview = (): void => {
@@ -262,7 +212,7 @@ export function BottomPanel({
             handle.releasePointerCapture(event.pointerId);
           }
         } catch {
-          // Unmount cleanup can run after Chromium already dropped the capture.
+          // Chromium may already have dropped the capture on unmount.
         }
         handle.removeEventListener('pointermove', onPointerMove);
         handle.removeEventListener('pointerup', stop);
@@ -281,9 +231,12 @@ export function BottomPanel({
     },
     [onHeightChange, syncOverlay]
   );
-  // Mount-once animation flag (mirrors the dock's data-entering): once the
-  // open animation has run, band crossings re-applying the sheet media
-  // rules must not replay it (user rule: 해상도 전환엔 애니 없음).
+  return { dragging, onPointerDown };
+}
+
+/** The open animation's one-shot settled flag, and the closing slide held
+ *  on screen for the sheet clock before the panel unmounts. */
+function useSheetPresence(open: boolean, motion: BottomPanelMotion) {
   const [settled, setSettled] = useState(false);
   useEffect(() => {
     if (!open) {
@@ -293,11 +246,6 @@ export function BottomPanel({
     const timer = window.setTimeout(() => setSettled(true), 400);
     return () => window.clearTimeout(timer);
   }, [open]);
-  // Closing slide (user: 열리고 닫힐 때 부드럽게). Unmounting on close left CSS
-  // with no element to animate, so the sheet vanished on its first frame while
-  // the entry glided in. Hold it for the shared sheet clock
-  // (--mx-side-panel-duration) as data-state="closed", then unmount. The
-  // in-flow wide layout and instant band corrections skip the hold entirely.
   const [closing, setClosing] = useState(false);
   const wasOpen = useRef(open);
   useEffect(() => {
@@ -316,6 +264,45 @@ export function BottomPanel({
     const timer = window.setTimeout(() => setClosing(false), SHEET_EXIT_MS);
     return () => window.clearTimeout(timer);
   }, [motion, open]);
+  return { settled, closing };
+}
+
+export function BottomPanel({
+  open,
+  height,
+  onHeightChange,
+  tabs,
+  activeTab,
+  onSelectTab,
+  onClose,
+  headerActions,
+  actions,
+  children,
+  motion = 'animated',
+}: {
+  open: boolean;
+  height: number;
+  onHeightChange: (height: number) => void;
+  tabs: ReadonlyArray<BottomPanelTab>;
+  activeTab: string;
+  onSelectTab: (id: string) => void;
+  onClose: () => void;
+  headerActions?: React.ReactNode;
+  actions?: React.ReactNode;
+  children?: React.ReactNode;
+  motion?: BottomPanelMotion;
+}): React.JSX.Element | null {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const syncOverlay = useBottomPanelOverlay(panelRef, open, height);
+  useEffect(() => {
+    if (!open) return;
+    beginBootSurface('bottom-panel', activeTab);
+    reportBootSurfaceStage('bottom-panel', activeTab, 'module');
+    reportBootSurfaceStage('bottom-panel', activeTab, 'data');
+    reportBootSurfaceReady('bottom-panel', activeTab);
+  }, [activeTab, open]);
+  const { dragging, onPointerDown } = useBottomPanelResize(syncOverlay, onHeightChange);
+  const { settled, closing } = useSheetPresence(open, motion);
   if (!open && !closing) return null;
   return (
     <div

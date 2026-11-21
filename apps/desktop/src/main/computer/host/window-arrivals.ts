@@ -1,19 +1,3 @@
-/**
- * Windows that appeared since the session's previous command. An action reads
- * the window list once, at its settle mark, so a window that opens later — a
- * page's sign-in popup, a slow dialog — is named by no reply. Each queued
- * command compares the desktop with what its session already knows and names
- * the newcomers as arrivals since the last action, never as its effects. A
- * restricted session hears only about windows it may capture.
- *
- * After an action's reply has gone out, a short watch keeps looking for about
- * a second and keeps what it sees for the session's next reply, so a popup
- * that opens and closes between commands is still named.
- *
- * Nothing here may cost the command it rides on: the reads run on a worker of
- * their own that no command queues on and that only starts with worker slots
- * to spare, one read at a time, each waited on for a short budget only.
- */
 import { CHROME_SETUP_SESSION_ID } from '../shared/common';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import type { ComputerWindowRecord } from '../shared/window-transition';
@@ -98,10 +82,6 @@ export function createWindowArrivals(host: WindowArrivalsHost) {
     actionsBySession.set(sessionId, actions);
     const { read: pending, windows } = await boundedRead(command);
     if (windows === undefined) {
-      // A late list (a worker still starting) may show the desktop after this
-      // command's input. An action without a baseline is unknown until its own
-      // before list seeds one; a read-only command's late list seeds it while
-      // no action of the session has begun since.
       if (acts && !baselineBySession.has(sessionId)) baselineBySession.set(sessionId, 'unknown');
       void pending?.then((late) => {
         if (!late || acts || baselineBySession.has(sessionId) || actionsBySession.get(sessionId) !== actions) return;

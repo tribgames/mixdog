@@ -4,12 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// The phone drawer's `inert` must follow the frame's transform transition, not
-// the React commit: flipping it restyles the whole sidebar. Real Chrome, real
-// touch events through installEdgeSwipe, and the drawer wiring of
-// use-app-shell-panels.ts (the tap's intent stamp, a transition commit, the
-// stamp settled in a layout effect); nothing is stubbed.
-
 const ENTRY = `
   import React, { startTransition, useLayoutEffect, useRef, useState } from 'react';
   import { createRoot } from 'react-dom/client';
@@ -238,11 +232,6 @@ async function finish(page) {
   return page.evaluate(() => [...log]);
 }
 
-// A release mid-travel (or a tap) starts a slide: `run` precedes the commit's
-// flip, and inert follows only the slide's own transitionend (~180 ms later).
-// The same transform transition runs again ~400 ms after the release, when the
-// gesture drops its inline end-state paint and the class takes over (a no-op
-// visually), so these assertions read the log up to the first `end`.
 const SLIDE_THEN = (flip) => ['run', 'end', flip];
 
 test('a drag released mid-travel opens the drawer and clears inert at the slide end', async (t) => {
@@ -292,11 +281,6 @@ function assertNoFlipWhileSliding(log, flips) {
 
 const record = (page) => page.evaluate(() => ({ log: [...window.log], flips: [...window.flips] }));
 
-// A finger that carries the sheet to its end (every real drag: the travel
-// clamps) leaves the sheet stationary at release. Its inline paint equals the
-// class target (07-mobile-chrome.css names the rest transforms), so the commit
-// hands it over with no transition at all, and inert flips right there, not
-// when the gesture's 400 ms hold ends.
 test('a clamped drag-open clears inert at the commit, with no slide, and its content takes taps at once', async (t) => {
   const page = await launch(t);
   await drag(page, 4, 380);
@@ -410,10 +394,6 @@ test('the phone marker removed mid-gesture leaves no stale end paint', async (t)
     'with the marker gone the token is undeclared, so the paint resolves to the fallback'
   );
 });
-// An instant close (Settings opening over the drawer) runs no slide, so the
-// panel never reads the frame's animations: that read flushes the style of
-// everything the same commit mounted. An animated close still keeps the panel
-// displayed (`data-closing`) until its slide ends.
 test('an instant close reads no animations; an animated close keeps data-closing until its slide ends', async (t) => {
   const page = await launch(t);
   await page.evaluate(() => {

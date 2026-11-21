@@ -214,12 +214,7 @@ test('a Goal segment carries the ring, n/m and a label from the step list', asyn
   }
 });
 
-test('a list without a Goal shows a To-do segment and panel with no time or controls', async () => {
-  const tasks = Array.from({ length: 7 }, (_, index) => ({ content: `Step ${index}`, status: 'pending' }));
-  tasks.push(
-    { content: 'Done step', status: 'completed', note: 'ok' },
-    { content: 'Dropped step', status: 'abandoned' }
-  );
+async function withTodoHost(run) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -228,10 +223,28 @@ test('a list without a Goal shows a To-do segment and panel with no time or cont
       root.render(React.createElement(SessionGoalIsland, { snapshot: { sessionId: 'todo-only', ...snapshot } }));
     });
   try {
+    await run({ host, render });
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+}
+
+test('no list and no Goal, or an empty list, draw no segment', () =>
+  withTodoHost(async ({ host, render }) => {
     await render({});
     assert.equal(host.querySelector('.session-goal-island'), null, 'no list and no Goal: no segment');
     await render({ todo: todoOf([]) });
     assert.equal(host.querySelector('.session-goal-island'), null, 'an empty list is no segment');
+  }));
+
+test('a list without a Goal shows a To-do segment and panel with no time or controls', async () => {
+  const tasks = Array.from({ length: 7 }, (_, index) => ({ content: `Step ${index}`, status: 'pending' }));
+  tasks.push(
+    { content: 'Done step', status: 'completed', note: 'ok' },
+    { content: 'Dropped step', status: 'abandoned' }
+  );
+  await withTodoHost(async ({ host, render }) => {
     await render({ todo: todoOf(tasks) });
     const trigger = host.querySelector('.session-goal-trigger');
     assert.equal(trigger.querySelector('.session-goal-progress').textContent, '1/8', 'dropped work leaves the total');
@@ -253,6 +266,11 @@ test('a list without a Goal shows a To-do segment and panel with no time or cont
     const done = host.querySelector('[data-fold="done"]');
     assert.equal(done.textContent, `${t('Done {{n}}', { n: 1 })} · ${t('{{n}} dropped', { n: 1 })}`);
     assert.equal(done.getAttribute('aria-expanded'), 'false');
+  });
+});
+
+test('a finished, fully dropped or noted list without a Goal keeps its segment', () =>
+  withTodoHost(async ({ host, render }) => {
     await render({ todo: todoOf([{ content: 'Only', status: 'completed' }]) });
     const finished = host.querySelector('.session-goal-island');
     assert.equal(finished.dataset.state, 'complete');
@@ -271,11 +289,7 @@ test('a list without a Goal shows a To-do segment and panel with no time or cont
       todo: todoOf([{ content: 'Ship it', status: 'pending', note: 'asked owner' }]),
     });
     assert.equal(host.querySelector('.session-goal-task-note').textContent, 'asked owner', 'a note shows on any step');
-  } finally {
-    await act(async () => root.unmount());
-    host.remove();
-  }
-});
+  }));
 
 test('step rows carry accessible status text', async () => {
   const host = document.createElement('div');
@@ -400,19 +414,16 @@ test('terminal Goal states do not become reply activity merely because the sessi
   }
 });
 
-test('to-do rows put the note under the title and group rows under phase headings', async () => {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
-  const render = (phases) =>
-    act(async () => {
-      root.render(
-        React.createElement(SessionGoalIsland, {
-          snapshot: { sessionId: 'phased', todo: { phases, completed: 0, total: 4 } },
-        })
-      );
-    });
-  try {
+const withPhasedHost = (run) =>
+  withTodoHost(({ host, render }) =>
+    run({
+      host,
+      render: (phases) => render({ todo: { phases, completed: 0, total: 4 } }),
+    })
+  );
+
+test('to-do rows put the note under the title and group rows under phase headings', () =>
+  withPhasedHost(async ({ host, render }) => {
     await render([
       { name: 'Build', tasks: [{ content: 'Compile', status: 'pending', note: 'long note' }] },
       {
@@ -429,7 +440,10 @@ test('to-do rows put the note under the title and group rows under phase heading
     assert.equal(note.getAttribute('title'), 'long note');
     const headings = [...host.querySelectorAll('.session-goal-phase')].map((el) => el.textContent);
     assert.deepEqual(headings, ['Build', 'Release', 'Release'], 'remaining and done groups each head their phases');
-    // The runtime's unnamed phase reads in the user's language; a named one as written.
+  }));
+
+test('the unnamed phase heading reads in the user’s language; a named one as written', () =>
+  withPhasedHost(async ({ host, render }) => {
     const previousLanguage = i18n.language;
     i18n.addResourceBundle(
       'ko',
@@ -449,10 +463,10 @@ test('to-do rows put the note under the title and group rows under phase heading
     } finally {
       await i18n.changeLanguage(previousLanguage);
     }
+  }));
+
+test('one phase shows no heading', () =>
+  withPhasedHost(async ({ host, render }) => {
     await render([{ name: 'Default', tasks: [{ content: 'Solo', status: 'pending' }] }]);
     assert.equal(host.querySelector('.session-goal-phase'), null, 'one phase shows no heading');
-  } finally {
-    await act(async () => root.unmount());
-    host.remove();
-  }
-});
+  }));

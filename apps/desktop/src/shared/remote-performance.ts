@@ -19,10 +19,6 @@ interface RemoteByteMeter {
   clear(): RemoteByteReport | null;
 }
 
-/** What a compact frame actually carried. Two frames both named `compact:T`
- *  can be a six-byte streamed suffix and a whole rebuilt state block; only the
- *  shape separates them, and only the field names say which block keeps
- *  moving while the screen does not. */
 function compactFrameShape(wire: unknown): string {
   if (!wire || typeof wire !== 'object') return '';
   const record = wire as Record<string, unknown>;
@@ -69,12 +65,8 @@ export function formatRemoteByteReport(report: RemoteByteReport): string {
   );
 }
 
-/** Measures application message bytes, including encryption and relay routing,
- *  but excluding WebSocket/TLS/TCP/IP headers. This is not a billing counter.
- *  The relay itself cannot break this down:
- *  every phone-leg payload is E2EE ciphertext by the time it arrives there, so
- *  the lane that owns a byte is knowable HERE or nowhere. The caller decides
- *  whether it runs; the meter itself is two integer adds per frame. */
+/** Measures application message bytes, including encryption and relay routing
+ *  but excluding WebSocket/TLS/TCP/IP headers; not a billing counter. */
 export function createRemoteByteMeter({
   enabled,
   windowMs = 60_000,

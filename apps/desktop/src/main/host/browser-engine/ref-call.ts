@@ -44,7 +44,7 @@ function staleRef(ref: string): HostRpcError {
   return new HostRpcError(ENGINE_ERROR.staleSnapshot, `ref ${ref} is stale or unknown; take a fresh snapshot first`);
 }
 
-function invalid(message: string): HostRpcError {
+export function invalid(message: string): HostRpcError {
   return new HostRpcError(HOST_INVALID_PARAMS, message);
 }
 

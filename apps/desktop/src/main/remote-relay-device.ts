@@ -116,10 +116,6 @@ export async function revocationQueueDamaged(userDataPath: string): Promise<bool
   }
 }
 
-/** What can still be known of a damaged queue: its text is kept aside and the
- *  previous version (`.bak`) is read for the identities it names. That copy is
- *  older and may lack the latest entry, so it only adds revocations to attempt;
- *  it never says the queue is complete. */
 async function salvageDamagedQueue(userDataPath: string, damaged: RevocationQueueDamaged): Promise<DeviceIdentity[]> {
   const path = join(userDataPath, DEVICE_REVOCATIONS_FILE);
   await writeSecretFile(quarantinePath(path), damaged.text);
@@ -155,11 +151,6 @@ function mutateDeviceFiles<T>(operation: () => Promise<T>): Promise<T> {
 // It authenticates this desktop's leg, so it lives in an owner-only file.
 export async function loadOrCreateDevice(userDataPath: string): Promise<DeviceIdentity> {
   const path = join(userDataPath, DEVICE_IDENTITY_FILE);
-  // Only a genuinely absent file (readSecretFile -> null) mints an identity;
-  // any read/permission/lock error propagates so the relay retries later
-  // instead of orphaning every paired phone's device id.
-  // A file that reads fine but holds no valid identity can never recover on
-  // retry: keep its text beside it, then mint a new identity.
   const existing = await readStoredDevice(path);
   if (existing && !('corrupt' in existing)) return existing;
   return withFileLock(

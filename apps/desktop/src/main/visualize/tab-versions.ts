@@ -1,8 +1,3 @@
-/**
- * A visualize file tab's kept versions in the version store: snapshotting
- * its files, the page assets a restore would overwrite, and dropping them.
- * Showing a version is `version-select.ts`; restoring one `version-restore.ts`.
- */
 import type { VisualizeServiceContext } from './context';
 import type { TabState } from './tab-state';
 import { VersionHistoryFullError, versionChanges } from './versions';

@@ -1,10 +1,3 @@
-// The agent chat's model chip writes where the agent profile pane does, so
-// the two never disagree: Mixy's model is its own route (setAgentRoute on
-// its id, stored in bots/mixy — never the Lead's Main route), another agent's
-// is its stored agent route (setAgentRoute,
-// which owns model, effort, fast, Auto, model parameters and the context
-// window). The chip's session write lands first; this mirrors it onto the
-// agent and tells an open profile pane to re-read.
 import {
   MIXY_AGENT_ID,
   agentIdOfHomeSession,

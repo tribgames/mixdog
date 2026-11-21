@@ -26,10 +26,6 @@ export function AgentProviderMark({
   );
 }
 
-/** A row with a session is a pane source, exactly like a sidebar session row:
- *  dropping it inside a pane opens the session as a tab and dropping it on a
- *  pane edge splits a new pane there. A settled drag must not also fire the
- *  row's open click, which `clickSuppressed` reports. */
 export function useSessionDragSource(sessionId: string, title: string, botId?: string) {
   const [dragging, setDragging] = useState(false);
   const suppressClick = useRef(false);

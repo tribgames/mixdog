@@ -17,10 +17,7 @@ function settledReplyText(row: TranscriptRowModel | undefined): string {
   return isPlainTextMarkdown(text) ? '' : text;
 }
 
-/** First-seen rows parsed their reply on the main thread in the commit that
- *  mounted them (~5-10 ms per code/table reply on a 4x-throttled phone).
- *  Replies just beyond the mounted range go to the existing parser worker
- *  instead, so by the time a fling reaches them they mount from the cache. */
+/** Parses settled replies just beyond the mounted range in the parser worker, so they mount from the cache. */
 export function useMarkdownPrefetch(rows: readonly TranscriptRowModel[], startIndex: number, endIndex: number): void {
   useEffect(() => {
     if (startIndex < 0 || endIndex < startIndex) return;

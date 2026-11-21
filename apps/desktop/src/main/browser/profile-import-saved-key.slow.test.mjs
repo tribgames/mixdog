@@ -1,7 +1,3 @@
-// The cookie import's use of the saved Chrome key, end to end through the real
-// child-process protocol: a stand-in importer (a node preload that answers
-// `import-cookies` / `capabilities`) records how it was called and speaks the
-// importer's sealed-envelope protocol. Fixture Local State and fake keys only.
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import {

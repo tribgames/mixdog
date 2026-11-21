@@ -1,13 +1,3 @@
-/**
- * The live-view sender window's own session. The window runs getUserMedia for
- * the whole-PC screen (`chromeMediaSource: 'desktop'`), which Electron asks
- * the session's permission handler to allow as `media`. The app's default
- * session grants `media` to routed app windows only, so the sender gets a
- * non-persistent partition of its own whose handlers allow exactly that one
- * request: video-only media from the sender's own page. Everything else —
- * audio, every other permission, every permission check, other contents and
- * other pages — is denied. The default session's policy is left as it is.
- */
 import { pathToFileURL } from 'node:url';
 
 import type { Session } from 'electron';
@@ -55,16 +45,8 @@ export interface RemoteWebrtcSenderPermissionRequest {
 
 /** Whether the sender window may be granted this permission request: `media`,
  *  from its own contents' main frame on its own page, for video only. A desktop
- *  capture (`chromeMediaSource: 'desktop'`) reports an empty `mediaTypes`
- *  (Electron lists only camera/microphone devices), so the list must be there
- *  and must not name `audio`; it need not name `video`.
- *
- *  Residual, accepted: for that same reason desktop audio capture cannot be
- *  told apart from desktop video at this layer. It is acceptable only because
- *  the requester is this app's own protected page: its own contents, main
- *  frame and document, under a closed CSP (no remote script, no inline or
- *  eval script, no connection out) that the page cannot be talked out of. The
- *  page itself never asks for audio. */
+ *  capture reports an empty `mediaTypes` (Electron lists only camera/microphone
+ *  devices), so the list must be there and must not name `audio`. */
 export function remoteWebrtcSenderPermissionAllowed(
   request: RemoteWebrtcSenderPermissionRequest,
   page: RemoteWebrtcSenderPage
@@ -82,11 +64,9 @@ export function remoteWebrtcSenderPermissionAllowed(
   );
 }
 
-/** The sender page's CSP while the Vite dev server serves it (http): its HMR
- *  client needs eval, inline scripts and the dev socket. The built page's
- *  policy is a meta tag stamped into the document at build time
- *  (scripts/remote-webrtc-sender-csp.mjs), so the header is sent for the dev
- *  page only. */
+/** CSP header for the Vite dev page only (its HMR client needs eval, inline
+ *  scripts and the dev socket); the built page carries its policy as a meta tag
+ *  (scripts/remote-webrtc-sender-csp.mjs). */
 export const REMOTE_WEBRTC_SENDER_DEVELOPMENT_CSP =
   "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; style-src 'self' 'unsafe-inline'";
 

@@ -1,20 +1,14 @@
-// Self-healing guard for stray CDP device-metrics overrides. A capture or
-// automation client that applies `Emulation.setDeviceMetricsOverride`
-// (clipped screenshots do this implicitly) and then dies leaves the renderer
-// FROZEN at the probe viewport — observed repeatedly as the app painting
-// 800x600 in the corner of a fullscreen window. The guard compares the renderer's inner viewport against the
-// native content bounds after every resize/load and, when they stay apart,
-// clears the override from the app's own debugger session and nudges a
+// A CDP client that applies `Emulation.setDeviceMetricsOverride` (clipped
+// screenshots do) and dies leaves the renderer frozen at the probe viewport.
+// After resize/load the guard compares the inner viewport with the native
+// content bounds and, when they stay apart, clears the override and nudges a
 // native resize so Chromium re-lays out.
 import type { BrowserWindow } from 'electron';
 
 const TOLERANCE_PX = 4;
 const CHECK_DELAY_MS = 1_200;
 const RECHECK_DELAY_MS = 400;
-// A stray override arrives WITHOUT any native window event (the rogue client
-// resizes only the renderer viewport), so event-driven checks alone never
-// fire — a slow heartbeat catches that case. One tiny executeJavaScript per
-// tick keeps the cost negligible.
+// A stray override raises no native window event, so a heartbeat re-checks.
 const HEARTBEAT_MS = 10_000;
 
 export function installViewportGuard(window: BrowserWindow): void {

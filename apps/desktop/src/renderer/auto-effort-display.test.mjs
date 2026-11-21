@@ -127,7 +127,9 @@ test('a change announced while the switch is being read is read again after it',
   assert.equal(host.textContent, 'Opus High');
 });
 
-test('Workflows sidebar rows (agents and default agents) show Auto for capable models only', async (t) => {
+const route = (provider, model, effort) => ({ provider, model, effort });
+
+async function mountWorkflowsSummaries(t) {
   const effortOptions = ['low', 'medium', 'high', 'max'].map((value) => ({ value, label: value }));
   const option = (provider, model, autoEffortCapable) => ({
     provider,
@@ -145,14 +147,9 @@ test('Workflows sidebar rows (agents and default agents) show Auto for capable m
       return [];
     },
   };
-  const route = (provider, model, effort) => ({ provider, model, effort });
   resetSidebarReferenceCache();
   adoptSidebarReferenceHost(api);
   updateSidebarReference('workflows', []);
-  // WorkflowsView `ownRoute`: a row shows its model only when the agent's own
-  // route is configured (routeConfigured: true); otherwise it reads "Default".
-  // `isContactAgentRow`: an unmarked custom id (heavy, maxed) is a bot listed on
-  // the Bots page, so the Workflows-page agents carry `kind: 'agent'`.
   updateSidebarReference('agents', [
     { id: 'worker', label: 'Worker', routeConfigured: true, route: route('alpha', 'capable', 'medium') },
     { id: 'heavy', label: 'Heavy', kind: 'agent', routeConfigured: true, route: route('alpha', 'plain', 'high') },
@@ -176,13 +173,17 @@ test('Workflows sidebar rows (agents and default agents) show Auto for capable m
   await act(async () => {
     root.render(React.createElement(WorkflowsPane, { api, active: true }));
   });
-  const summaries = () =>
+  return () =>
     Object.fromEntries(
       [...host.querySelectorAll('.workflows-agent-summary-row')].map((row) => [
         row.querySelector('b')?.textContent,
         row.querySelector('.agent-route-summary')?.textContent,
       ])
     );
+}
+
+test('Workflows sidebar rows (agents and default agents) show Auto for capable models only', async (t) => {
+  const summaries = await mountWorkflowsSummaries(t);
   const off = summaries();
   assert.equal(off.Worker, 'capable Medium');
   assert.equal(off.Maintainer, 'capable Low');
@@ -192,14 +193,16 @@ test('Workflows sidebar rows (agents and default agents) show Auto for capable m
   assert.equal(on.Heavy, 'plain High');
   assert.equal(on.Maxed, 'capable Auto');
   assert.equal(on.Maintainer, 'capable Auto');
-  // Web Search never runs per-call Auto reasoning: it shows its stored effort,
-  // even on an auto-capable model with the feature on and a stale autoEffort.
-  assert.equal(on['Web Search'], 'capable Low');
+});
+
+test('the Web Search row never shows Auto: its stored effort, or Follows Main on the default route', async (t) => {
+  const summaries = await mountWorkflowsSummaries(t);
+  await setSwitch(true);
+  assert.equal(summaries()['Web Search'], 'capable Low');
   await act(async () =>
     updateSidebarReference('webSearchRoute', { ...route('alpha', 'capable', 'low'), autoEffort: true })
   );
   assert.equal(summaries()['Web Search'], 'capable Low');
-  // The default route inherits Main's effort: it says so instead of showing Auto.
   await act(async () => updateSidebarReference('webSearchRoute', { provider: 'default', model: 'default' }));
   assert.equal(summaries()['Web Search'], 'Follows Main');
 });

@@ -1,7 +1,3 @@
-// GitHub device-flow code, shared by Settings → Git and onboarding. The code
-// sits where the card's description goes and the host card's own action slot
-// carries "Copy & open GitHub", so the browser never covers a code the user
-// has not seen yet.
 import { useState } from 'react';
 
 import type { DesktopApi, DesktopGithubCliLoginFlow } from '../../shared/contract';

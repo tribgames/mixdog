@@ -54,10 +54,6 @@ const selectedBuildTargets = new Set(
 const buildTargetEnabled = (target: 'main' | 'preload' | 'renderer'): boolean =>
   selectedBuildTargets.size === 0 || selectedBuildTargets.has(target);
 
-// scripts/dev-profile.mjs fixes each profile's renderer port: the dev origin
-// includes it, and localStorage (pane layout, caches) is per origin. strictPort
-// fails on a collision instead of silently moving to another origin. Only the
-// dev server reads this; production builds are unaffected.
 const devRendererPort = (() => {
   const raw = process.env.MIXDOG_DEV_RENDERER_PORT;
   if (!raw) return undefined;
@@ -68,19 +64,6 @@ const devRendererPort = (() => {
   return port;
 })();
 
-// Every bundled face (Inter/Geist/JetBrains Mono + Pretendard's 92 Hangul
-// subset slices) ships with font-display:swap, so text created AFTER first
-// paint — menu/tab navigation, new session rows — painted fallback glyphs and
-// then visibly swapped + reflowed when the woff2 landed (user: 메뉴 이동 시
-// 레이아웃 쉬프트/폰트 튐).
-//
-// `block` fixed the swap but paints NOTHING while a face loads. That is
-// invisible on local disk reads and brutal over the network: typing Korean
-// reaches a Hangul range whose slice was never fetched, and the glyph stayed
-// blank until it arrived (user: 타이핑하는 글자가 자꾸 투명해진다).
-// `fallback` keeps the anti-swap intent — a ~100ms invisible window, then
-// fallback text, and NO late swap after ~3s — while guaranteeing that typed
-// text is always painted.
 const localFontDisplayFallback: Plugin = {
   name: 'mixdog-local-font-display-fallback',
   enforce: 'pre',
@@ -93,10 +76,6 @@ const localFontDisplayFallback: Plugin = {
   },
 };
 
-// This tiny first-paint script must run before CSS or the renderer, but an
-// external classic script blocks HTML parsing for a full relay round trip.
-// Inline the public source into the no-cache document; the relay derives the
-// matching CSP hash from the copied boot.js beside index.html.
 const inlineBootScript: Plugin = {
   name: 'mixdog-inline-boot-script',
   transformIndexHtml: {
@@ -116,15 +95,8 @@ const inlineBootScript: Plugin = {
   },
 };
 
-// The dynamic imports the entry (main.tsx) starts before the first screen.
-// Every static dependency of the entry and of these roots is read from the
-// bundle graph, so a renamed or re-split chunk can never drop out of the
-// hints. Keep this order intentional: production serves HTTP/1.1 and a phone
-// opens six connections that serve equal-priority hints first come, first
-// served. The relay transport goes first: its whole graph is ~20 KB brotli
-// against ~450 KB for the rest of the fan-out, and the WebSocket handshake,
-// E2EE and desktop round trips it starts then overlap the shell download
-// instead of queueing behind bootstrap (phone trace: connecting@1109 ms).
+// Order matters: HTTP/1.1 gives a phone six connections served first come, first served.
+// The relay transport graph is ~20 KB brotli against ~450 KB for the rest (phone trace: connecting@1109 ms).
 const FIRST_SCREEN_TRANSPORT_CHUNK = 'remote-shim';
 const FIRST_SCREEN_ROOT_CHUNKS = [
   FIRST_SCREEN_TRANSPORT_CHUNK,
@@ -167,10 +139,6 @@ const firstScreenHints: Plugin = {
       // hints would name files that do not exist yet.
       if (!context.bundle) return html.replace(placeholder, '');
       const bundle = context.bundle;
-      // Desktop-only hints (the Seti file-icon font) must leave the parsed
-      // head: the preload scanner would otherwise fetch them on the phone too,
-      // ahead of the relay transport. They ride the template, and boot.js
-      // applies them only inside Electron.
       const desktopHints: string[] = [];
       html = html.replace(/[ \t]*<link\b[^>]*\bdata-mixdog-surface="desktop"[^>]*>\r?\n?/g, (tag) => {
         desktopHints.push(tag.trim().replace(/\s*\/>$/, '>'));
@@ -204,11 +172,6 @@ const firstScreenHints: Plugin = {
       // Everything walked so far is what must evaluate before the socket opens.
       const transportPath = new Set(modules);
       roots.forEach(visit);
-      // No hint for the Markdown parser Worker: a phone's six connections took
-      // its ~200 KB (brotli) as soon as one freed, splitting the link with
-      // bootstrap for the whole first-screen download. The Markdown client
-      // constructs the Worker as it evaluates, so its script starts right
-      // behind the first-screen chunks instead.
       const styleHints = [...styles].map(
         (fileName) => `<link rel="stylesheet" fetchpriority="high" href="./${fileName}">`,
       );
@@ -219,13 +182,6 @@ const firstScreenHints: Plugin = {
             : ''}`
           + ` href="./${chunk.fileName}">`,
       );
-      // The language is known synchronously in boot.js. Keep every catalog
-      // inert in the template, then move only the resolved locale into <head>
-      // so Korean does not pay a serial request after i18n evaluates.
-      // Chunk names are not unique: the translated changelogs
-      // (changelog/<lang>.md) produce chunks named after the same language
-      // codes, and a lookup by name alone hinted the Korean changelog at high
-      // priority while the catalog itself loaded serially after i18n.
       const localeChunkFor = (name: string): OutputChunk | undefined =>
         chunks.find((chunk) => chunk.name === name
           && /[\\/]src[\\/]renderer[\\/]locales[\\/][^\\/]+\.json$/.test(chunk.facadeModuleId ?? ''));
@@ -320,11 +276,8 @@ export default defineConfig({
     resolve: {
       alias: [
         {
-          // Vite's renderer-wide `browser` condition otherwise selects the
-          // package's document.createElement decoder inside Web Workers.
-          // The package's default/worker implementation is API-equivalent and
-          // uses the static entity table, so both live and settled Markdown
-          // remain usable without a DOM global.
+          // Vite's `browser` condition selects a document.createElement decoder inside Web Workers;
+          // the default/worker entry is API-equivalent without a DOM global.
           find: /^decode-named-character-reference$/,
           replacement: resolve(
             __dirname,
@@ -332,11 +285,8 @@ export default defineConfig({
           ),
         },
         {
-          // rehype-katex reaches this package from the Markdown Web Worker.
-          // Vite applies the renderer's `browser` condition to worker imports,
-          // selecting a DOMParser/document implementation that crashes before
-          // the worker can receive its first message. The package explicitly
-          // exports this default entry for `worker`; pin it for both contexts.
+          // Vite's `browser` condition selects a DOMParser implementation that crashes in the Markdown Web Worker;
+          // the package exports this default entry for `worker`.
           find: /^hast-util-from-html-isomorphic$/,
           replacement: resolve(
             __dirname,
@@ -352,11 +302,8 @@ export default defineConfig({
         },
       ],
     },
-    // Monaco lives behind a dynamic file-editor import. Without an explicit
-    // dependency hint, Vite discovers and optimizes it on the first file open,
-    // causing a multi-second dev-only Loading editor stall and page restyle.
-    // The live Markdown worker has the same constraint: first-response import
-    // must not discover unified/remark and reload the whole renderer.
+    // Vite otherwise discovers Monaco on the first file open and unified/remark on the first
+    // Markdown response, stalling the dev server or reloading the renderer.
     optimizeDeps: {
       // resolve.alias does not reach the optimizer's esbuild pass.
       esbuildOptions: { plugins: [monacoTypescriptExternalEsbuildPlugin()] },
@@ -376,10 +323,7 @@ export default defineConfig({
       // Electron 40 ships Chromium 144, so the controlled desktop runtime can
       // use native module preloads without Vite's compatibility polyfill.
       target: 'chrome144',
-      // electron-vite defaults the renderer to minify:false, which shipped the
-      // first-screen JS/CSS with every comment and indent intact (~35% more
-      // brotli bytes for the phone web app, plus parse time everywhere).
-      // Applies to CSS too, since build.cssMinify follows this value.
+      // electron-vite defaults the renderer to minify:false (~35% more brotli bytes); build.cssMinify follows this value.
       minify: 'esbuild',
       modulePreload: { polyfill: false },
       rollupOptions: {

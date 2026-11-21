@@ -1,7 +1,3 @@
-/** Real-Chromium geometry probe for the Source Control dock overlays.
- *  jsdom has no layout engine, so overlay clamping (branch panel, remote
- *  dropdown, commit split menu) and label degradation are measured HERE, in
- *  the same Chromium that ships in Electron, against the real stylesheets. */
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { OpenSelect } from '../../src/renderer/OpenSelect';
@@ -47,10 +43,6 @@ const status: DesktopGitStatus = {
   ],
 };
 
-/** The list a real repository hands the dock after a big refactor or a
- *  generated-tree change. `Show N more` is gone, so this fixture is what
- *  proves the whole set is SCROLLABLE: the scroll height has to describe all
- *  2000 rows while only a window of them is mounted. */
 const MANY_FILES = Array.from({ length: 2000 }, (_, index) =>
   changedFile(
     `apps/desktop/src/renderer/generated/section-${String(Math.floor(index / 50)).padStart(2, '0')}` +
@@ -91,11 +83,6 @@ const BASE_BRANCHES = [
   { name: 'release/2026.02', current: false, remote: false, upstream: '', lastCommitRelative: '3 weeks ago' },
   { name: 'origin/main', current: false, remote: true, upstream: '', lastCommitRelative: '2 days ago' },
 ];
-/** …and the one a real repository has: far more branches than the panel can
- *  show. Only an OVERFLOWING list can prove the list scrolls INSIDE the panel
- *  box (_branches.scss grammar, desktop.css `.dock-scm-branch-list`) instead of
- *  growing the panel past the window — which the four-row fixture never
- *  exercised. */
 const MANY_BRANCHES = [
   ...BASE_BRANCHES,
   ...Array.from({ length: 36 }, (_, index) => ({
@@ -228,11 +215,6 @@ const frames = () =>
   new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => resolve(), 20)));
   });
-/** The first LAID-OUT frame after a discrete click: React commits the click's
- *  state in its own task, so one short timeout is enough — and unlike
- *  requestAnimationFrame it is not throttled in this hidden probe window (which
- *  would skip past the 80ms branch IPC and measure the settled panel twice).
- *  getBoundingClientRect below forces the layout itself. */
 const nextFrame = async () => {
   await new Promise<void>((resolve) => setTimeout(() => resolve(), 16));
 };
@@ -244,10 +226,6 @@ const settleFrames = async () => {
 
 const round = (value: number) => Math.round(value * 100) / 100;
 
-/** The report's ONE rectangle shape. Every measured box is rounded to the same
- *  six fields, because `summarize.mjs` compares boxes taken from different
- *  surfaces against each other (`contains`, `sameEdges`, `withinX`): a field
- *  added to one measurement but not another would silently break those rules. */
 const rectFrom = (element: Element | null) => {
   if (!element) return null;
   const rect = element.getBoundingClientRect();
@@ -289,10 +267,6 @@ const labelReport = (selector: string) => {
 
 const rectIn = (row: Element, selector: string) => rectFrom(row.querySelector(selector));
 
-/** A search/filter box PLUS the insets that make it one component: the box
- *  rectangle (so the row-edge rules keep working), its painted height, its
- *  own padding/border and where the leading glyph and the text actually
- *  start. Two boxes rendered from the same rule agree on every field. */
 const searchBoxReport = (selector: string) => {
   const element = document.querySelector(selector);
   if (!element) return null;
@@ -318,10 +292,6 @@ const searchBoxReport = (selector: string) => {
   };
 };
 
-/** A text box that must render on ONE line: reports its measured height and
- *  whether the content overflows it (the wrap/clip defect this port fixes),
- *  plus its rectangle and whether it is actually PAINTED — text content alone
- *  cannot tell a rendered field from one hidden by CSS. */
 const lineReport = (element: Element | null, name: string) => {
   if (!element) return { name, rendered: false };
   const box = element as HTMLElement;
@@ -403,11 +373,6 @@ const measure = async (scenario: {
   await frames();
   const dock = document.getElementById('dock') as HTMLElement;
   const shell = document.getElementById('shell') as HTMLElement;
-  // The WINDOW is resized by the Electron shell (main.cjs sets the content
-  // size per scenario), so the shell simply fills whatever height the real
-  // viewport has: a short window is a short window, not a short div inside a
-  // 687px one — branch-panel containment was never tested against a genuinely
-  // short viewport before.
   shell.style.height = `${window.innerHeight}px`;
   // The dock carries its width as an inline custom property in the real app
   // (UtilityDock.tsx:1094-1095); the 300px floor is overridden so the probe
@@ -513,10 +478,6 @@ const measure = async (scenario: {
     await frames();
   }
 
-  // Branch panel, FRAME BY FRAME. It opens instantly with a loading row and
-  // the branches land one turn later; the panel must not resize when they do
-  // (user: 패널이 튄다). Both the first open and a CACHED reopen are measured
-  // on their first frame and again once settled.
   const openBranchPanel = () => {
     const trigger = document.querySelector<HTMLElement>('.dock-scm-branch-button');
     if (!trigger) throw new Error('probe: missing .dock-scm-branch-button');

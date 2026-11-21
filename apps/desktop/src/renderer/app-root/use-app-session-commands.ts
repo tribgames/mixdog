@@ -18,6 +18,18 @@ import type { AppWorkspaceShell } from './use-app-workspace-shell';
 import type { AppNavigationShell } from './use-app-navigation-shell';
 import type { AppSessionLifecycle } from './use-app-session-lifecycle';
 
+function useOpenSettingsOnEvent(
+  eventName: string,
+  section: Parameters<ReturnType<typeof useAppSettingsRouter>['openSettings']>[0],
+  openSettings: ReturnType<typeof useAppSettingsRouter>['openSettings']
+) {
+  useEffect(() => {
+    const open = () => openSettings(section);
+    window.addEventListener(eventName, open);
+    return () => window.removeEventListener(eventName, open);
+  }, [eventName, section, openSettings]);
+}
+
 /** Project and session commands, session opening and the Settings router. */
 export function useAppSessionCommands(
   shell: AppWorkspaceShell,
@@ -129,23 +141,11 @@ export function useAppSessionCommands(
 
   // The title-bar PC menu and the "a device is asking to connect" notice open
   // the page (with the dialog they asked for).
-  useEffect(() => {
-    const open = () => openSettings('connection');
-    window.addEventListener(OPEN_CONNECTION_SETTINGS_EVENT, open);
-    return () => window.removeEventListener(OPEN_CONNECTION_SETTINGS_EVENT, open);
-  }, [openSettings]);
+  useOpenSettingsOnEvent(OPEN_CONNECTION_SETTINGS_EVENT, 'connection', openSettings);
   // The Agents pane's 커넥터 pill and a chat connect card open Extensions → 커넥터.
-  useEffect(() => {
-    const open = () => openSettings('mcp');
-    window.addEventListener(OPEN_CONNECTORS_EVENT, open);
-    return () => window.removeEventListener(OPEN_CONNECTORS_EVENT, open);
-  }, [openSettings]);
+  useOpenSettingsOnEvent(OPEN_CONNECTORS_EVENT, 'mcp', openSettings);
   // The browser pane's ⋯ "로그인 유지 중인 사이트" opens Settings › 인증 관리.
-  useEffect(() => {
-    const open = () => openSettings('auth');
-    window.addEventListener(OPEN_AUTH_SETTINGS_EVENT, open);
-    return () => window.removeEventListener(OPEN_AUTH_SETTINGS_EVENT, open);
-  }, [openSettings]);
+  useOpenSettingsOnEvent(OPEN_AUTH_SETTINGS_EVENT, 'auth', openSettings);
 
   const { setSettingsOpen } = shellPanels;
   // Batch imports register their projects; refresh both catalogs, leaving the active chat alone.

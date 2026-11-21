@@ -1,26 +1,6 @@
 import { loadWindowModule } from '../../native-module';
 
-/**
- * The foreground-lock leases the process hosting the bridge gives a worker
- * Windows refuses the lock to (MixForegroundLock.cs). Windows gives
- * LockSetForegroundWindow only to a process that may set the foreground; a
- * pooled worker rarely may, since a right it inherited or was granted ends
- * with the next input that is not its own, such as the user typing into their
- * own window. The foreground process may, and while the user works in a
- * Mixdog window that is this process. The protection is best effort: Windows
- * lifts the lock on the user's Alt key or click, and nothing here can end a
- * lock this process held when it died.
- *
- * The lock is taken and ended by a lease owner on its own native thread
- * (native/mixdog-window, foreground_lease.rs, loaded as mixdog_window.node),
- * never by this event loop: a lease ends at its deadline however long this
- * loop is blocked. A worker asks with a
- * line on its stdout; the answer goes back on its stdin, a pipe only this
- * process can write, and names the request (action and sequence) and the
- * lease it answers, so the worker accepts nothing else. A line that is not a
- * well-formed request of the worker's own in-flight action is ignored, never
- * thrown into the worker's output handling.
- */
+/** Windows gives LockSetForegroundWindow only to a process that may set the foreground, and lifts the lock on the user's Alt key or click; this process, hosting the bridge, is the foreground process while the user works in a Mixdog window. */
 export const FOREGROUND_LOCK_LINE_PREFIX = '@@MIXDOG_FGLOCK@@';
 /** Lease answers on a worker's stdin (MixForegroundLockHost.ReplyPrefix). */
 export const FOREGROUND_LOCK_REPLY_PREFIX = '@@MIXDOG_FGLOCK_REPLY@@';

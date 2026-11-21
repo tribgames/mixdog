@@ -1,9 +1,5 @@
-// Launch/update record kept as a main-process file in the profile. The
-// renderer's What's new mark lives in localStorage, which Chromium can lose (it
-// recreates a missing or failing Local Storage database), and an empty mark
-// otherwise reads as a fresh install that announces nothing. The record keeps
-// the last launched version and, until the renderer acknowledges the notice
-// was on screen, the update still waiting to be announced.
+// The What's new mark lives in localStorage, which Chromium recreates when its database is missing or failing; an empty
+// mark then reads as a fresh install. This profile file keeps the last launched version and the unacknowledged update.
 import { readFile } from 'node:fs/promises';
 
 import { holdsNoData, writeFileAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';

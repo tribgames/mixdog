@@ -1,11 +1,3 @@
-/**
- * The sender's per-source tracks that come from a desktop capture (a screen
- * source), and the drawn track such a source switches to while the
- * secure-desktop helper serves (`draw`). Acquiring a capture is asynchronous
- * while other commands keep running, so every capture, draw and source close
- * takes the source over with a new owner id; a completion that no longer owns
- * its source stops every track it got instead of installing it.
- */
 import { remoteScreenCaptureConstraints, type RemoteScreenCapturePlan } from '../../shared/remote-webrtc';
 import type { RemoteWebrtcSenderEvent } from '../../shared/remote-webrtc-sender';
 
@@ -42,14 +34,17 @@ export function createRemoteWebrtcSourceCaptures(deps: RemoteWebrtcSourceCapture
   let serial = 0;
   /** The capture that owns each source; a close removes the owner. */
   const owners = new Map<string, number>();
+  const takeOver = (sourceKey: string): number => {
+    serial += 1;
+    owners.set(sourceKey, serial);
+    return serial;
+  };
 
   return {
     /** Opens the plan's capture as the source's track; a new plan (display
      *  changed) replaces the track on every connection of the source. */
     async capture(sourceKey: string, plan: RemoteScreenCapturePlan): Promise<void> {
-      serial += 1;
-      const owner = serial;
-      owners.set(sourceKey, owner);
+      const owner = takeOver(sourceKey);
       const owns = (): boolean => owners.get(sourceKey) === owner;
       let stream: MediaStream | null = null;
       let installed = false;
@@ -96,9 +91,7 @@ export function createRemoteWebrtcSourceCaptures(deps: RemoteWebrtcSourceCapture
      * sender carries it (taken over meanwhile: when the swap stopped).
      */
     draw(sourceKey: string): void {
-      serial += 1;
-      const owner = serial;
-      owners.set(sourceKey, owner);
+      const owner = takeOver(sourceKey);
       const previous = deps.sources.get(sourceKey);
       const entry = deps.createDrawn();
       const senders = deps.senders(sourceKey);

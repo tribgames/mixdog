@@ -70,10 +70,6 @@ export function sandboxedPageDocument(html: string): string {
   return withSandboxStorageShim(withHeadScript(html, PREVIEW_LINK_SCRIPT));
 }
 
-/** Opens a link the page handed over: an outside web address in a new tab
- *  of this browser, without an opener or referrer. Anything else (the app's
- *  own origin, which a relative link resolves to, or another scheme) stays
- *  unopened. */
 function openPageLink(href: unknown): void {
   if (typeof href !== 'string' || href.length > MAX_LINK_LENGTH) return;
   let url: URL;

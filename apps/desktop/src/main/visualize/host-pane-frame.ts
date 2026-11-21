@@ -1,17 +1,9 @@
-/**
- * What a pane page gets when it finishes loading in the panel: the app's thin
- * scrollbar look (the global rule of 02-base.css cannot reach into the lease
- * origin frame) and the tab's annotation marks back.
- */
 import type { WebFrameMain } from 'electron';
 
 import { visualizeOverlayScript } from './overlay-script';
 
-/** The app's scrollbar (8px pill thumb on a transparent track). It sits in a
- *  cascade layer: any unlayered rule of the page (its own `::-webkit-scrollbar`
- *  or `scrollbar-width` / `scrollbar-color`) beats a layered one whatever its
- *  specificity or source order. The thumb is a neutral translucent grey that
- *  reads on a dark mockup and on a white page alike. */
+/** A cascade layer: any unlayered rule of the page beats a layered one
+ *  whatever its specificity or order. */
 const PANE_SCROLLBAR_CSS = `@layer mixdog-scrollbar {
   *::-webkit-scrollbar { width: 8px; height: 8px; }
   *::-webkit-scrollbar-track { background: transparent; }

@@ -1,8 +1,3 @@
-/**
- * The box a ref occupies on screen, for a screenshot crop rather than a
- * gesture. A picture dispatches nothing, so the cross-origin frame offset is
- * taken without the hit test that guards input against a covered frame.
- */
 import type { WebContents } from 'electron';
 
 import { BrowserActionabilityError } from './actionability';

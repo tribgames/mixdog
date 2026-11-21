@@ -1,12 +1,5 @@
 import { join } from 'node:path';
 
-/**
- * Locations and names the main-process client needs, kept beside the codec so
- * the Rust and TypeScript sides agree. The executable resolves exactly like the
- * other product-native tools (`profile-import-native.ts`): from `native-tools`
- * in a packaged build, from the crate's `target/release` in development.
- */
-
 export const SERVICE_PIPE_NAME = '\\\\.\\pipe\\mixdog-secure-desktop';
 
 export interface SecureDesktopEnvironment {

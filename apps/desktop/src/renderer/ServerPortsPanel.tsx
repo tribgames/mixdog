@@ -1,7 +1,3 @@
-// The Ports panel of a server window: what listens on the server, the ports
-// forwarded to this PC (127.0.0.1 only), and new ports offered for forwarding.
-// The core samples the list while the panel is visible and pushes differences;
-// forwards are pushed by main as they start, fail or stop.
 import { ExternalLink, Plus, RefreshCw, Square } from 'lucide-react';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 

@@ -1,15 +1,5 @@
-// While a failure is confirmed, nothing launches the core: so a core that comes up some other way (another window's attempt, the user
-// running it, a repaired install) has to be noticed by something main owns, or the windows parked on the failure card never hear of it.
-// This watches the runtime directory (the core publishes its discovery file there) for as long as a failure stands, and tells the
-// reports the moment the launcher's own judgment of a serving core holds. It never interferes with reporting the failure: it starts after
-// the report is delivered, and nothing it does can throw into it.
-//
-// The app owns the runtime directory: this makes sure it exists (as the core does when it starts, and tolerates finding it there),
-// watches it itself, and reads the discovery once the watch is in place, so nothing between the two is missed. A watch that cannot be
-// installed is recorded in the diagnostics log; the failure card and Try again remain.
-//
 // Measured on Windows (node 22): a directory watch fires for the atomic replace (write a staging file, rename over daemon.json) made by
-// another process, with an event naming `daemon.json`; no interval of our own is needed.
+// another process, with an event naming `daemon.json`.
 import { processRuns } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
 import type { BootFailure } from './boot-progress';
 

@@ -1,10 +1,3 @@
-// Browser-mode DesktopApi: when the Relay serves this page to a phone/tablet, install the protocol-client-backed implementation
-// of window.mixdogDesktop before any module reads it.
-// Inside Electron the preload bridge already exists and this is a no-op.
-//
-// The page's one connection is the phone's protocol client (apps/mobile/src/phone-boot.ts). This file is the switch: pairing and
-// the context stay here, `createPhoneApi` builds the DesktopApi over the client, and every `remote-protocol-<group>.ts` adapter
-// answers its calls (remote-shim-adapters.ts). A Node call name no adapter claimed fails with its name.
 import type { DesktopApi } from '../shared/contract';
 import desktopPackage from '../../package.json';
 import type { PhoneEnv } from '../../../mobile/src/phone-boot';

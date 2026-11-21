@@ -1,9 +1,3 @@
-/**
- * Which inactive-window ledgers may be recovered. A ledger is recoverable only
- * once its worker is known to be gone; an elevated worker whose termination
- * was never confirmed keeps its ledger held, with the identity of the process
- * that proves it (PID plus start time, so a reused PID is not mistaken for it).
- */
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { computerNativeBinary } from './native-host';
@@ -64,11 +58,6 @@ export async function processIdentityGone(
 
 type Entry = { identity?: ProcessIdentity } | null;
 
-/**
- * Ledgers awaiting recovery. `exited` ones belong to workers confirmed gone
- * and any cleanup may recover them. Held ones belong to a worker that may still
- * be alive and become recoverable only through `promoteGone`.
- */
 export function createInactiveLedgerRegistry() {
   const entries = new Map<string, Entry>();
   return {

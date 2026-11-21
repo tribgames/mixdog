@@ -162,7 +162,6 @@ export function useAppWorkbenchViewWiring(
     renderSidebarPanel,
     mountedSidebarPanels: shellPanels.mountedSidebarPanels,
     snapshotStore,
-    observedAgentSessionIds: sessionTitle.observedAgentSessionIds,
     quickAccessProjectPath,
     workbenchWorkspace,
     selectToolProject,

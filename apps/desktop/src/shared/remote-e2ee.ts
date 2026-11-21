@@ -219,11 +219,8 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? 'null';
 }
 
-/** The handshake transcript: SHA-256 over the challenge exactly as offered
- *  and the hello exactly as sent (without its proof), canonical JSON. Every
- *  capability either side offered or selected — binary framing and the
- *  transport flag included — is in it, so a relay that adds, strips or
- *  alters one makes the two ends compute different transcripts. */
+/** SHA-256 over the challenge as offered and the hello as sent (without its
+ *  proof), canonical JSON: a relay that alters any capability breaks it. */
 async function handshakeTranscript(challenge: object, hello: object): Promise<string> {
   const unsigned: Record<string, unknown> = { ...(hello as Record<string, unknown>) };
   delete unsigned.proof;
@@ -323,10 +320,8 @@ interface SessionKeyMaterial {
   clientPublicKey: string;
 }
 
-/** `key` is the session's frame key. `media` is a second key from the same
- *  ECDH secret, separated by its HKDF info: it protects HTTP media bytes and
- *  never touches the relay. Non-extractable, so it can be handed to the
- *  service worker (structured clone) but not read. */
+/** `key` is the session's frame key; `media` a second key from the same ECDH
+ *  secret, separated by HKDF info, for HTTP media bytes. Non-extractable. */
 async function deriveSessionKey(label: 'key' | 'media', input: SessionKeyMaterial): Promise<CryptoKey> {
   return deriveAesGcmKey(
     input.privateKey,
@@ -351,14 +346,10 @@ function isBox(value: unknown): value is RelayE2EEBox {
   );
 }
 
-/** Transport sessions (shared/remote-transport.ts) split traffic into two
- *  ordering domains, each with its own key PER DIRECTION:
- *    app      the sequenced application stream; the stream core releases it
- *             in order, so the high-water rule below still holds,
- *    control  signaling, acks and liveness; one sequence space across
- *             carriers, replay-checked per FIFO lane (RelayE2EEControlLane).
- *  A record sealed in one domain or direction never opens in another: the key
- *  differs, and the AAD names domain, direction and sequence as well. */
+/** Transport sessions (shared/remote-transport.ts) have two domains, each
+ *  with its own key per direction: `app` (the sequenced application stream)
+ *  and `control` (signaling, acks, liveness; replay-checked per lane). The AAD
+ *  names domain, direction and sequence. */
 export type RelayE2EEDomain = 'app' | 'control';
 type Direction = 'client-to-server' | 'server-to-client';
 
@@ -369,15 +360,10 @@ export interface RelayE2EETransportKeys {
   controlReceive: CryptoKey;
 }
 
-/** A control lane: one FIFO carrier of control boxes — the relay, or one
- *  direct peer connection's ordered control channel, named by its
- *  `connectionId` and its EPOCH: the signaling `generation` of the offer that
- *  first created that connection (an ICE restart raises the generation but
- *  keeps the connection, and so its epoch). The lane is bound into the AAD
- *  at seal time, so a box opens only on the lane it was sealed for. Replay
- *  is checked per lane against its high-water mark: within a FIFO lane no
- *  genuine box can be overtaken, so the reorder window is 0, and across
- *  lanes no order is assumed (docs/remote-transport.md §10). */
+/** A FIFO carrier of control boxes: the relay, or one direct connection named
+ *  by `connectionId` and `epoch` (the signaling `generation` of the offer that
+ *  created it; an ICE restart keeps the epoch). Bound into the AAD; replay is
+ *  checked per lane against its high-water mark (docs/remote-transport.md §10). */
 export type RelayE2EEControlLane = { kind: 'relay' } | { kind: 'direct'; epoch: number; connectionId: string };
 
 export const RELAY_E2EE_RELAY_LANE: RelayE2EEControlLane = Object.freeze({ kind: 'relay' });
@@ -417,17 +403,11 @@ function sameDirectLane(state: DirectLaneState | null, lane: DirectLane): state 
   return state !== null && state.epoch === lane.epoch && state.connectionId === lane.connectionId;
 }
 const E2EE_CONTROL_MAGIC = new Uint8Array([0x4d, 0x58, 0x43, 0x01]);
-/** Largest application plaintext ONE transport record carries, before and
- *  after deflate: the sender refuses a larger body before a sequence is
- *  assigned, the receiver inflates no further. 1 MiB is the unit the phone
- *  already takes in one piece on the media lane (public/sw-media.js
- *  WINDOW_BYTES, main/remote-relay-media.ts MEDIA_WINDOW_MAX_BYTES). Larger
- *  payloads are split above the record layer (remote-transport.ts
- *  `splitRemoteTransportPayload`). Legacy sessions keep
- *  MAX_E2EE_PLAINTEXT_BYTES. */
+/** Largest plaintext of one transport record, before and after deflate; 1 MiB
+ *  matches public/sw-media.js WINDOW_BYTES and main/remote-relay-media.ts
+ *  MEDIA_WINDOW_MAX_BYTES. Larger payloads are split by
+ *  `splitRemoteTransportPayload`. */
 export const RELAY_E2EE_TRANSPORT_MAX_PLAINTEXT_BYTES = 1024 * 1024;
-/** One transport box: header, the plaintext (deflate keeps a body only when
- *  smaller), tag. */
 export const RELAY_E2EE_TRANSPORT_MAX_BOX_BYTES =
   E2EE_BINARY_HEADER_BYTES + RELAY_E2EE_TRANSPORT_MAX_PLAINTEXT_BYTES + 16;
 
@@ -473,17 +453,16 @@ export type RelayE2EEControlOpen =
   | { stale: false; sequence: number; value: unknown }
   | { stale: true; sequence: number };
 
-/** Handshake confirmation state of one channel.
- *  `send`    (server) the transcript to put in `e2ee-ready`; present exactly
- *            when the server offered `transportWebrtc`.
- *  `expect`  (client that opted into transport) the transcript it computed
- *            and whether its challenge carried the offer. Until
- *            `confirmHandshake` accepts the server's `e2ee-ready`, the
- *            channel seals nothing. */
 interface RelayE2EEHandshakeState {
   send?: string;
   expect?: { transcript: string; offered: boolean };
 }
+
+function runInTurn<T>(queue: Promise<void>, task: () => Promise<T>): { result: Promise<T>; next: Promise<void> } {
+  const result = queue.then(task);
+  return { result, next: result.then(noop, noop) };
+}
+function noop(): void {}
 
 export class RelayE2EEChannel {
   private sendSequence = 0;
@@ -491,16 +470,10 @@ export class RelayE2EEChannel {
   private sendQueue: Promise<void> = Promise.resolve();
   private receiveQueue: Promise<void> = Promise.resolve();
   private controlSendSequence = 0;
-  /** Authorized control lanes, bounded: the relay, the current direct
-   *  connection and at most one pending one. `laneEpochFloor` is the highest
-   *  direct epoch ever registered; nothing at or below it can be registered
-   *  again, so a retired connection never comes back at high-water 0. */
   private readonly relayLane: ControlLaneState = { highWater: 0 };
   private currentLane: DirectLaneState | null = null;
   private pendingLane: DirectLaneState | null = null;
   private laneEpochFloor = 0;
-  /** Seals resolve, and opens run, one at a time in call order, so boxes
-   *  reach a lane in sequence order and a lane's high-water never races. */
   private controlSealQueue: Promise<unknown> = Promise.resolve();
   private controlOpenQueue: Promise<unknown> = Promise.resolve();
   /** A transport seal failed after its sequence was assigned: that sequence
@@ -536,11 +509,9 @@ export class RelayE2EEChannel {
   }
 
   /** Client: checks the server's decrypted `e2ee-ready` against the transcript
-   *  this client saw; must run before anything is sent. A ready with a
-   *  transcript must match it. A ready without one is the authenticated word
-   *  of a host that offered nothing (an older or gated host): accepted only
-   *  when this client saw no offer either. Throws on any mismatch: the relay
-   *  altered the handshake, and the session must not be used. */
+   *  this client saw; must run before anything is sent. A ready without a
+   *  transcript is accepted only when this client saw no offer. Throws on any
+   *  mismatch. */
   confirmHandshake(ready: unknown): void {
     const expect = this.handshake.expect;
     if (!expect || this.confirmed) return;
@@ -567,58 +538,49 @@ export class RelayE2EEChannel {
   }
 
   private encrypt(value: unknown, binary: boolean): Promise<string | Uint8Array<ArrayBuffer>> {
-    let resolveResult!: (value: string | Uint8Array<ArrayBuffer>) => void;
-    let rejectResult!: (reason: unknown) => void;
-    const result = new Promise<string | Uint8Array<ArrayBuffer>>((resolve, reject) => {
-      resolveResult = resolve;
-      rejectResult = reject;
-    });
-    this.sendQueue = this.sendQueue
-      .then(async () => {
-        this.assertSendable();
-        // Transport: everything that can refuse runs BEFORE the sequence is
-        // assigned, so a refusal never leaves a hole in the stream. Legacy
-        // keeps its original order (holes are accepted there).
-        let packed: Uint8Array | null = null;
-        if (this.transport) {
-          const body = encoder.encode(JSON.stringify(value));
-          if (body.byteLength > RELAY_E2EE_TRANSPORT_MAX_PLAINTEXT_BYTES) {
-            throw new RangeError(`Relay transport record exceeds ${RELAY_E2EE_TRANSPORT_MAX_PLAINTEXT_BYTES} bytes.`);
-          }
-          packed = await packPlaintext(body, this.compression);
+    const turn = runInTurn(this.sendQueue, async (): Promise<string | Uint8Array<ArrayBuffer>> => {
+      this.assertSendable();
+      // Transport: everything that can refuse runs BEFORE the sequence is
+      // assigned, so a refusal never leaves a hole in the stream. Legacy
+      // keeps its original order (holes are accepted there).
+      let packed: Uint8Array | null = null;
+      if (this.transport) {
+        const body = encoder.encode(JSON.stringify(value));
+        if (body.byteLength > RELAY_E2EE_TRANSPORT_MAX_PLAINTEXT_BYTES) {
+          throw new RangeError(`Relay transport record exceeds ${RELAY_E2EE_TRANSPORT_MAX_PLAINTEXT_BYTES} bytes.`);
         }
-        const sequence = ++this.sendSequence;
-        let ciphertext: ArrayBuffer;
-        const nonce = randomBytes(12);
-        try {
-          ciphertext = await cryptoApi().subtle.encrypt(
-            {
-              name: 'AES-GCM',
-              iv: arrayBuffer(nonce),
-              additionalData: arrayBuffer(this.appAad(this.direction(true), sequence)),
-            },
-            this.transport ? this.transport.appSend : this.key,
-            arrayBuffer(packed ?? (await packPlaintext(encoder.encode(JSON.stringify(value)), this.compression)))
-          );
-        } catch (error) {
-          if (this.transport) this.sendBroken = true;
-          throw error;
-        }
-        const encrypted = new Uint8Array(ciphertext);
-        resolveResult(
-          binary
-            ? encodeBinaryBox(sequence, nonce, encrypted)
-            : JSON.stringify({
-                type: 'e2ee-box',
-                version: E2EE_VERSION,
-                sequence,
-                nonce: base64UrlEncode(nonce),
-                ciphertext: base64UrlEncode(encrypted),
-              } satisfies RelayE2EEBox)
+        packed = await packPlaintext(body, this.compression);
+      }
+      const sequence = ++this.sendSequence;
+      let ciphertext: ArrayBuffer;
+      const nonce = randomBytes(12);
+      try {
+        ciphertext = await cryptoApi().subtle.encrypt(
+          {
+            name: 'AES-GCM',
+            iv: arrayBuffer(nonce),
+            additionalData: arrayBuffer(this.appAad(this.direction(true), sequence)),
+          },
+          this.transport ? this.transport.appSend : this.key,
+          arrayBuffer(packed ?? (await packPlaintext(encoder.encode(JSON.stringify(value)), this.compression)))
         );
-      })
-      .catch(rejectResult);
-    return result;
+      } catch (error) {
+        if (this.transport) this.sendBroken = true;
+        throw error;
+      }
+      const encrypted = new Uint8Array(ciphertext);
+      return binary
+        ? encodeBinaryBox(sequence, nonce, encrypted)
+        : JSON.stringify({
+            type: 'e2ee-box',
+            version: E2EE_VERSION,
+            sequence,
+            nonce: base64UrlEncode(nonce),
+            ciphertext: base64UrlEncode(encrypted),
+          } satisfies RelayE2EEBox);
+    });
+    this.sendQueue = turn.next;
+    return turn.result;
   }
 
   encryptJson(value: unknown): Promise<string> {
@@ -630,57 +592,50 @@ export class RelayE2EEChannel {
   }
 
   decryptJson(raw: unknown): Promise<unknown> {
-    let resolveResult!: (value: unknown) => void;
-    let rejectResult!: (reason: unknown) => void;
-    const result = new Promise<unknown>((resolve, reject) => {
-      resolveResult = resolve;
-      rejectResult = reject;
+    const turn = runInTurn(this.receiveQueue, async (): Promise<unknown> => {
+      const binary = decodeBinaryBox(raw);
+      let sequence: number;
+      let nonce: Uint8Array;
+      let ciphertext: Uint8Array;
+      if (binary) {
+        sequence = binary.sequence;
+        nonce = binary.nonce;
+        ciphertext = binary.ciphertext;
+      } else {
+        const parsed = typeof raw === 'string' ? (JSON.parse(raw) as unknown) : raw;
+        if (!isBox(parsed)) throw new Error('Expected an encrypted relay frame.');
+        sequence = parsed.sequence;
+        nonce = base64UrlDecode(parsed.nonce);
+        ciphertext = base64UrlDecode(parsed.ciphertext);
+      }
+      if (sequence <= this.receiveSequence) throw new Error('Rejected replayed relay frame.');
+      if (nonce.byteLength !== 12) throw new Error('Invalid relay frame nonce.');
+      if (this.transport && ciphertext.byteLength > RELAY_E2EE_TRANSPORT_MAX_BOX_BYTES - E2EE_BINARY_HEADER_BYTES) {
+        throw new Error('Relay transport record exceeds its bound.');
+      }
+      const plaintext = await cryptoApi().subtle.decrypt(
+        {
+          name: 'AES-GCM',
+          iv: arrayBuffer(nonce),
+          additionalData: arrayBuffer(this.appAad(this.direction(false), sequence)),
+        },
+        this.transport ? this.transport.appReceive : this.key,
+        arrayBuffer(ciphertext)
+      );
+      // Compression is decided per frame by the sender, so the encoding is
+      // read off the plaintext rather than assumed from the handshake.
+      const value = JSON.parse(
+        decoder.decode(
+          this.transport
+            ? await unpackPlaintext(new Uint8Array(plaintext), RELAY_E2EE_TRANSPORT_MAX_PLAINTEXT_BYTES)
+            : await unpackPlaintext(new Uint8Array(plaintext))
+        )
+      ) as unknown;
+      this.receiveSequence = sequence;
+      return value;
     });
-    this.receiveQueue = this.receiveQueue
-      .then(async () => {
-        const binary = decodeBinaryBox(raw);
-        let sequence: number;
-        let nonce: Uint8Array;
-        let ciphertext: Uint8Array;
-        if (binary) {
-          sequence = binary.sequence;
-          nonce = binary.nonce;
-          ciphertext = binary.ciphertext;
-        } else {
-          const parsed = typeof raw === 'string' ? (JSON.parse(raw) as unknown) : raw;
-          if (!isBox(parsed)) throw new Error('Expected an encrypted relay frame.');
-          sequence = parsed.sequence;
-          nonce = base64UrlDecode(parsed.nonce);
-          ciphertext = base64UrlDecode(parsed.ciphertext);
-        }
-        if (sequence <= this.receiveSequence) throw new Error('Rejected replayed relay frame.');
-        if (nonce.byteLength !== 12) throw new Error('Invalid relay frame nonce.');
-        if (this.transport && ciphertext.byteLength > RELAY_E2EE_TRANSPORT_MAX_BOX_BYTES - E2EE_BINARY_HEADER_BYTES) {
-          throw new Error('Relay transport record exceeds its bound.');
-        }
-        const plaintext = await cryptoApi().subtle.decrypt(
-          {
-            name: 'AES-GCM',
-            iv: arrayBuffer(nonce),
-            additionalData: arrayBuffer(this.appAad(this.direction(false), sequence)),
-          },
-          this.transport ? this.transport.appReceive : this.key,
-          arrayBuffer(ciphertext)
-        );
-        // Compression is decided per frame by the sender, so the encoding is
-        // read off the plaintext rather than assumed from the handshake.
-        const value = JSON.parse(
-          decoder.decode(
-            this.transport
-              ? await unpackPlaintext(new Uint8Array(plaintext), RELAY_E2EE_TRANSPORT_MAX_PLAINTEXT_BYTES)
-              : await unpackPlaintext(new Uint8Array(plaintext))
-          )
-        ) as unknown;
-        this.receiveSequence = sequence;
-        resolveResult(value);
-      })
-      .catch(rejectResult);
-    return result;
+    this.receiveQueue = turn.next;
+    return turn.result;
   }
 
   private transportKeys(): RelayE2EETransportKeys {
@@ -705,12 +660,9 @@ export class RelayE2EEChannel {
     throw new Error('Control lane is not registered.');
   }
 
-  /** Authorizes a new direct connection's lane as PENDING (from signaling:
-   *  its `connectionId` and the `generation` of the offer that created it).
-   *  Its epoch must exceed every epoch ever registered, so a superseded or
-   *  retired connection can never be registered again; a previous pending
-   *  lane is retired by it. Registering the current or pending lane again is
-   *  a no-op. */
+  /** Authorizes a direct lane as pending. Its epoch must exceed every epoch
+   *  ever registered; a previous pending lane is retired. Re-registering the
+   *  current or pending lane is a no-op. */
   registerControlLane(value: RelayE2EEControlLane): void {
     const lane = controlLane(value);
     if (lane.kind !== 'direct') throw new Error('Only a direct control lane is registered.');
@@ -747,12 +699,9 @@ export class RelayE2EEChannel {
     };
   }
 
-  /** Seals one control message (signaling, ack, liveness) in its own domain
-   *  for `lane`: `MXC\x01 | u64 sequence | nonce(12) | ciphertext`, the lane
-   *  bound into the AAD. Never compressed. The lane must be the relay or a
-   *  registered (current or pending) direct lane. Results resolve in
-   *  sequence order; hand each box to its lane as soon as it resolves, so
-   *  every lane carries ascending sequences. */
+  /** Seals one control message for `lane`: `MXC\x01 | u64 sequence | nonce(12)
+   *  | ciphertext`, never compressed. The lane must be the relay or a
+   *  registered direct lane. Results resolve in sequence order. */
   async sealControl(value: unknown, laneValue: RelayE2EEControlLane): Promise<Uint8Array<ArrayBuffer>> {
     const keys = this.transportKeys();
     // A broken app stream may still say `close` on the control domain.
@@ -782,11 +731,9 @@ export class RelayE2EEChannel {
   }
 
   /** Opens a control box that arrived on `lane`. Throws on a malformed or
-   *  unauthentic box — including one sealed for another lane or epoch (the
-   *  AAD differs) — and for a lane never registered. A sequence at or below
-   *  the lane's high-water mark, or any box on a retired lane, is `stale`
-   *  (a replay, or a late copy from a replaced connection), never an error.
-   *  Opens run one at a time in call order. */
+   *  unauthentic box (including one sealed for another lane) and on an
+   *  unregistered lane. A sequence at or below the lane's high-water mark, or
+   *  any box on a retired lane, is `stale`. */
   async openControl(raw: unknown, lane: RelayE2EEControlLane): Promise<RelayE2EEControlOpen> {
     const result = this.controlOpenQueue.then(() => this.openControlNow(raw, lane));
     this.controlOpenQueue = result.catch(() => undefined);
@@ -881,11 +828,6 @@ export function relayE2EEPairingMaterial(identity: RelayE2EEServerIdentity): Rel
   };
 }
 
-/** Approval handoff. An installed web app starts with an empty storage
- *  container: it has no pairing to present and no way to be handed one over a
- *  relay that must never learn the secret. It generates a throwaway key pair
- *  instead, and the desktop seals the pairing material to that public key once
- *  the user approves on the PC. The relay only ever forwards this box. */
 interface SealedRelayE2EEPairing {
   version: typeof E2EE_VERSION;
   ephemeralPublicKey: string;
@@ -926,10 +868,6 @@ export async function generateRelayClaimKeyPair(): Promise<RelayClaimKeyPair> {
   };
 }
 
-/** A pending approval has to survive the asking app being reloaded: a phone
- *  OS discards a backgrounded web app freely, and losing the key would mean
- *  asking the user to approve all over again. The private key is exported for
- *  that container's own storage and never leaves it. */
 interface StoredRelayClaimKeyPair {
   publicKey: string;
   privateKeyJwk: JsonWebKey;
@@ -1033,12 +971,9 @@ export async function openSealedRelayE2EEPairingMaterial(
   }
 }
 
-/** A browser's Web Push key material (PushSubscription.toJSON().keys), sealed
- *  to ONE paired desktop. The relay holds the subscription endpoint and
- *  forwards this box to that desktop; it cannot open it, and only a browser
- *  holding the desktop's pairing secret can make one the desktop accepts. The
- *  endpoint is authenticated as associated data, so a box cannot be replayed
- *  under another subscription. */
+/** A browser's Web Push keys (PushSubscription.toJSON().keys) sealed to one
+ *  paired desktop; the endpoint is the AAD, so a box cannot be replayed under
+ *  another subscription. */
 export interface SealedRelayWebPushKeys {
   version: typeof E2EE_VERSION;
   ephemeralPublicKey: string;
@@ -1139,12 +1074,10 @@ export async function openRelayWebPushKeys(
 export async function createRelayE2EEClientHandshake(
   pairing: RelayE2EEPairingMaterial,
   challenge: RelayE2EEChallenge,
-  /** `transportWebrtc`: this browser runs the transport stream core. It
-   *  selects transport only on a challenge offering it with binary frames,
-   *  and in every case requires `channel.confirmHandshake(e2ee-ready)` before
-   *  it sends. `helloFields`: further hello members (viewSync, ...), added
-   *  here so the transcript covers the hello exactly as it is sent. Without
-   *  either, the hello and its proof are the legacy ones, byte for byte. */
+  /** `transportWebrtc`: this browser runs the transport stream core; it is
+   *  selected only on a challenge offering it with binary frames, and
+   *  `channel.confirmHandshake(e2ee-ready)` must run before sending.
+   *  `helloFields`: further hello members, covered by the transcript. */
   options: { transportWebrtc?: boolean; helloFields?: Record<string, unknown> } = {}
 ): Promise<{ hello: RelayE2EEHello; channel: RelayE2EEChannel }> {
   if (pairing.version !== E2EE_VERSION || !isRelayE2EEChallenge(challenge)) {
@@ -1205,11 +1138,6 @@ export async function acceptRelayE2EEClientHello(
   if (!isRelayE2EEHello(hello) || hello.challenge !== expectedChallenge.challenge) {
     throw new Error('Relay encryption authentication failed.');
   }
-  // A hello that selects transport must answer an offer of it, with binary
-  // frames on both sides, and prove the whole transcript; one that does not
-  // is the legacy (older browser) path, proven the legacy way. A relay that
-  // strips or adds the selection breaks the proof; one that strips the OFFER
-  // is caught by the client against `handshakeConfirmation()`.
   const offered = expectedChallenge.transportWebrtc === 1;
   const selected = hello.transportWebrtc !== undefined;
   if (selected && !relayE2EETransportNegotiated(expectedChallenge, hello)) {

@@ -1,34 +1,12 @@
-/**
- * Computer-use host — main-process owner of local desktop control and of the
- * loopback bridge that lets the session runtime's `computer` tool drive it.
- *
- * Engine: one resident worker per agent session holds accessibility state (an
- * element map that survives between snapshot and invoke, which spawning per
- * command could not) and dispatches native input. On Windows the worker is a
- * PowerShell host over .NET UI Automation and Win32; on macOS and Linux it is
- * the native `mixdog-computer` backend speaking the same protocol. Screenshots are captured
- * on demand from window-owned Electron or native render surfaces. The runtime half discovers
- * this bridge through a heartbeated data-dir file, so the tool surface exists
- * only while the desktop app runs with Computer Use enabled — no daemon
- * protocol change.
- *
- * The PowerShell recipes (UIA tree walk, InvokePattern/ValuePattern, Win32
- * input) follow the public Microsoft UI Automation and user32 APIs.
- *
- * This file only composes the host: the worker pool and session state come
- * from their own modules, and the lifecycle, input resolution, sequence runner,
- * command router, and bridge server are wired together here.
- */
 import { screen, powerMonitor } from 'electron';
 import { bindComputerEnvironmentGuard } from './environment-guard';
 import { join } from 'node:path';
 import type { ComputerAuthorizationStatus, ComputerAuthorizationWindow } from '../../../shared/computer-settings';
 import { createComputerAuthorizationSettings } from './authorization-settings';
 import { createComputerFailureDiagnostics } from '../session/failure-diagnostics';
-import { bridgeDiscoveryDirectory } from '../../bridge/discovery-file';
 import { mixdogDataDirectory, errorMessage } from '../shared/common';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
-import { createProcessFateReader } from './process-fate';
+import { createProcessFateReader, type ReadProcessFate } from './process-fate';
 import { createCaptureAuthorizer, listAuthorizationWindows } from './host-authorization';
 import { createSequenceHoldRelease, killSessionWorkers, retireBridgeWorkers } from './worker-control';
 import { nativeDisplayGeometry } from '../shared/native-coordinates';
@@ -62,9 +40,8 @@ import { createInputResolution } from './input-resolution';
 import { createSequenceRunner, suppressCaptureAfter } from './sequence-runner';
 import { createInputPreflight } from './input-preflight';
 import { createCommandRouter } from './command-router';
-import { createBridgeServer } from './bridge-server';
+import { type BridgeAnswer, createCommandService } from './command-service';
 import type { BridgeServerHost } from './bridge-server-contract';
-import type { BridgeAnswer } from './bridge-server-request';
 import { type CommandEndpoint, switchEndpoint } from './command-fence';
 import { type ComputerExecutionPolicy, loadComputerExecutionPolicy } from './execution-policy';
 import { createUserWaitService } from './user-wait-service';
@@ -100,6 +77,8 @@ export interface PowerShellComputerHost {
   /** The same, for a command relayed under an automation scope (`host/computer/command`): every worker request it makes is
    *  admitted through `endpoint` (the scope's `commit` and signal) and counted by its `track` (`command-fence.ts`). */
   answerScopedCommand(command: ComputerCommand, endpoint: CommandEndpoint): Promise<BridgeAnswer>;
+  /** The OS's answer about one process, as this host's worker reads it (`host/computer/processFate`, saved-login owners). */
+  readProcessFate: ReadProcessFate;
   /** Live native worker PIDs, retained until each child actually exits. */
   residentWorkerPids(): number[];
   inspectChromeRemoteDebuggingTarget(): Promise<ChromeRemoteDebuggingTarget>;
@@ -373,17 +352,10 @@ export function createPowerShellComputerHost(
       userWait.cancel(sessionIdFor(command));
       return lifecycle.abortComputerSession(command);
     },
-    // Discovery only: the worker script/cache stay in the data dir while the
-    // published endpoint follows the isolation namespace, like Browser Use.
-    dataDirectory: bridgeDiscoveryDirectory,
-    isBridgeWanted: () => bridgeWanted,
-    isDisposed: () => disposed,
-    diagnose,
-    processFate,
   };
-  const bridge = createBridgeServer(bridgeHost);
+  const bridge = createCommandService(bridgeHost);
 
-  if (bridgeWanted) bridge.startBridge();
+  if (bridgeWanted) bridge.start();
   const unbindEnvironment = bindComputerEnvironmentGuard(powerMonitor, screen, (reason) => {
     if (bridgeWanted && !disposed) lifecycle.takeOverComputer(reason);
   });
@@ -396,20 +368,21 @@ export function createPowerShellComputerHost(
         switchEndpoint(signal, () => bridgeWanted && !disposed)
       ),
     answerScopedCommand: bridge.answerCommand,
+    readProcessFate: processFate,
     updateAuthorization: authorization.update,
     authorizationWindows: authorization.windows,
     readFailureDiagnostics: failureDiagnostics.read,
     setBridgeEnabled(enabled: boolean): void {
       if (disposed || bridgeWanted === enabled) return;
       bridgeWanted = enabled;
-      if (enabled) bridge.startBridge();
+      if (enabled) bridge.start();
       else {
         userWait.cancel();
         // Retired now instead of holding the processes until dispose.
         retireBridgeWorkers(powerShellBySession, retirePowerShell);
         // A bridge that refuses to stop would keep answering agent commands
         // after the user switched Computer Use off, so the failure is recorded.
-        void bridge.stopBridge().catch((error) => {
+        void bridge.stop().catch((error) => {
           diagnose('computer_bridge_stop_failed', {
             message: errorMessage(error),
           });
@@ -447,7 +420,7 @@ export function createPowerShellComputerHost(
       userWait.dispose();
       disposed = true;
       bridgeWanted = false;
-      await bridge.stopBridge();
+      await bridge.stop();
       killSessionWorkers(powerShellBySession);
       if (options.foregroundLease) await foregroundLock?.dispose();
       else if (foregroundLock) await disposeProcessForegroundLock();

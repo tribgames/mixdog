@@ -15,7 +15,7 @@
  */
 import type { BrowserBlobRef, PageFacts, Precondition } from '../../../../../../packages/protocol/src/index.ts';
 import { redactBrowserText } from '../../browser/redaction';
-import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError, objectParams } from '../connection';
+import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError, isPlainObject, objectParams } from '../connection';
 import { MAX_INLINE_RESULT_BYTES, uploadBlob } from './blob-upload';
 import type { EngineContext, EnginePage } from './context';
 import { ENGINE_ERROR, pageGone } from './errors';
@@ -32,10 +32,6 @@ export interface EnginePageCall extends EnginePage {
 export type EngineParams = Record<string, unknown>;
 export type EngineHandler = (params: EngineParams, signal: AbortSignal, page: EnginePageCall) => Promise<unknown>;
 export type EngineSessionHandler = (params: EngineParams, signal: AbortSignal) => Promise<unknown>;
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
 
 /** A copy of `value` with `redact` applied to every string in it. */
 function redactLeaves(value: unknown, redact: (text: string) => string): unknown {

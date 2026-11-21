@@ -11,13 +11,8 @@ import { transcriptScrollExtent, transcriptScrollGeometryRegistered } from './us
 /** The floor of the scroll lead (an unmeasured or tiny pane). */
 export const TRANSCRIPT_HISTORY_TOP_PX = 320;
 
-/** Viewport heights above the reader at which a scroll asks for older history.
- *  Asked for only 320px from the top, a fast fling crossed that band in a few
- *  frames and ended against the top edge before the page arrived: the
- *  momentum died, then the page landed (#104, Android). Repeated flings are boosted past 15k px/s, so the lead has to
- *  cover a page's round trip at that speed. The landing's anchor restore keeps
- *  the reader in place wherever the page lands, so asking early costs nothing
- *  but the (bounded) pages themselves. */
+/** Viewport heights above the reader at which a scroll asks for older history:
+ *  covers a page's round trip at the 15k px/s a repeated fling is boosted to (#104, Android). */
 const TRANSCRIPT_HISTORY_LEAD_VIEWPORTS = 10;
 
 /** Pages one entry may ask for to extend a scrollable first window toward the
@@ -29,18 +24,11 @@ export function transcriptHistoryLead(viewportHeight: number): number {
   return Math.max(TRANSCRIPT_HISTORY_TOP_PX, viewportHeight * TRANSCRIPT_HISTORY_LEAD_VIEWPORTS);
 }
 
-/** A first window may hold only a few rows (the daemon's byte budget cuts a
- *  window of huge rows to 8), and collapsed rows may not fill the pane: with
- *  nothing to scroll, no scroll ever reaches the top. A window shorter than
- *  the scroll lead puts the reader inside it from the first fling, so a page
- *  lands under nearly every early fling, and a fling can cross the whole
- *  window before the page's round trip. While the whole transcript sits
- *  within the lead, ask for older history — again after each page lands or
- *  the rows' measured height changes. A pane that already scrolls extends
- *  toward the lead by at most TRANSCRIPT_HISTORY_FILL_LEAD_PAGES pages per
- *  entry (pages of tiny rows would otherwise page in the whole history);
- *  past that the scroll lead asks. The request itself dedupes, waits for the
- *  previous page, and stops when the host says nothing older exists. */
+/** While the whole transcript sits within the scroll lead, asks for older
+ *  history, again after each page lands or the rows' measured height changes.
+ *  A pane that already scrolls extends toward the lead by at most
+ *  TRANSCRIPT_HISTORY_FILL_LEAD_PAGES pages per entry; past that the scroll
+ *  lead asks. */
 export function useTranscriptHistoryFill(
   viewport: RefObject<HTMLElement | null>,
   requestEarlier: () => void,
@@ -52,9 +40,6 @@ export function useTranscriptHistoryFill(
   const countRef = useRef(itemCount);
   countRef.current = itemCount;
   const checkRef = useRef<(() => void) | null>(null);
-  // A landed page re-checks through the long-lived observer below. Recreating
-  // that observer per item count re-delivered (and re-measured) the whole
-  // transcript on every page: 1.3 s on a phone growing to 500 items.
   // biome-ignore lint/correctness/useExhaustiveDependencies: itemCount is the trigger that re-checks after a page lands
   useEffect(() => {
     checkRef.current?.();
@@ -106,14 +91,6 @@ export function useTranscriptHistoryFill(
   }, [viewport, ready]);
 }
 
-/** Read completion and transcript publication are separate transport events.
- * Track the requested window, not the count one animation frame after an ACK.
- * A cold mount with no rows must also remain eligible once its page arrives.
- *
- * `hasOlder` is the snapshot's `transcriptHasOlder`: a host that serves tail
- * windows says whether older history exists, and each page asks for the
- * current count plus one page. Without it (an older host) the count-based
- * 512-item paging applies. */
 interface HistoryPaging {
   sessionId: string;
   limit: number;
@@ -220,10 +197,8 @@ export function useTranscriptHistory(
   hasOlderRef.current = hasOlder;
   const pagingRef = useRef(newPaging(sessionId));
   if (pagingRef.current.sessionId !== sessionId) pagingRef.current = newPaging(sessionId);
-  // The ACK of a page read comes apart from the page itself (its transcript
-  // frame may land before or after it): background reads resume once the
-  // published window holds more rows than the page was asked at, or says
-  // nothing older exists — after the rows are applied, not on the ACK.
+  // The page's transcript frame may land before or after its read ACK, so the
+  // hold ends on the published rows, not on the ACK.
   useEffect(() => {
     const paging = pagingRef.current;
     const page = paging.page;

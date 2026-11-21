@@ -7,7 +7,6 @@ import { record } from '../record-utils';
 import { StudioRouteMenu, type StudioModelEntry, type StudioOptionRow } from '../StudioRouteMenu';
 import {
   callCapability,
-  errorText,
   laneCatalogStatus,
   listMediaLanes,
   MEDIA_CATALOG_POLL_MS,
@@ -16,6 +15,7 @@ import {
   type MediaLane,
   type StudioApi,
 } from '../studio-support';
+import { errorMessage } from '../editor-pane-session-errors';
 import {
   ExtensionAction,
   ExtensionItemList,
@@ -109,7 +109,7 @@ export function useMediaGeneration(api: StudioApi | undefined, active: boolean):
       try {
         rows = await listMediaLanes(api);
       } catch (reason) {
-        if (live) setLaneError(errorText(reason));
+        if (live) setLaneError(errorMessage(reason));
         return;
       }
       if (!live) return;
@@ -163,7 +163,7 @@ export function useMediaGeneration(api: StudioApi | undefined, active: boolean):
         setPinsReady(true);
         setPinError('');
       } catch (reason) {
-        if (live) setPinError(errorText(reason));
+        if (live) setPinError(errorMessage(reason));
       }
     })();
     return () => {
@@ -196,7 +196,7 @@ export function useMediaGeneration(api: StudioApi | undefined, active: boolean):
           confirmed.current = { ...confirmed.current, [kind]: saved };
         }
       } catch (reason) {
-        if (saveSeq.current[kind] === seq) setError(errorText(reason));
+        if (saveSeq.current[kind] === seq) setError(errorMessage(reason));
       } finally {
         if (saveSeq.current[kind] === seq) optimistic.current[kind] = false;
         if (!optimistic.current[kind]) {

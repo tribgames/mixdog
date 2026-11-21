@@ -1,11 +1,3 @@
-/**
- * Who may be closed, and when, among the agents' background pages. A session's
- * pages are reclaimed FINISHED_TURN_PAGE_IDLE_MS after its turn ends (the idle
- * fallback covers a live turn), and a full browser evicts another finished
- * session's least-recently-used page. Pages a person opened or kept, the
- * session's shown page, busy pages, and pages holding sign-in or form input
- * are never taken.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserSessionRegistry } from './session-registry';

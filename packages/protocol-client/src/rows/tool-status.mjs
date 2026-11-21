@@ -1,10 +1,3 @@
-/**
- * Shared terminal-status parsing for tool result surfaces.
- *
- * A terminal result status describes the tool's reported outcome; it is not
- * evidence that the tool invocation itself failed. Call-failure accounting is
- * owned by the TUI engine's isError/toolKind envelope fields.
- */
 export function normalizeToolTerminalStatus(value) {
   const raw = String(value || '')
     .trim()
@@ -13,20 +6,13 @@ export function normalizeToolTerminalStatus(value) {
   if (/^(running|pending|queued|in_progress|in-progress)$/.test(raw)) return 'running';
   if (/^(completed|complete|done|success|succeeded|ok)$/.test(raw)) return 'completed';
   if (/^(failed|fail|error|errored|timeout|timed_out|killed)$/.test(raw)) return 'failed';
-  // `cancel-unconfirmed` is task control's honest answer when a cancel was
-  // delivered but the process exit could not be confirmed. It is terminal for
-  // the tool call (the detail lives in the body), so it renders as cancelled
-  // rather than falling through to '' and leaving the surface with no status.
+  // Task control answers `cancel-unconfirmed` when a delivered cancel's process exit is unconfirmed.
   if (/^(cancelled|canceled|cancel|cancel[-_ ]unconfirmed|cancel[-_ ]pending|cancelling|canceling)$/.test(raw))
     return 'cancelled';
   if (/^(denied|deny|refused|rejected)$/.test(raw)) return 'denied';
   return '';
 }
 
-// Status markers live in the result's leading block: the cancel marker, the
-// shell exit header, a background-task header, a task/agent status line.
-// Command output and fetched documents follow a blank line and can carry
-// `status:` text of their own, which says nothing about the tool call.
 export function leadingResultBlock(text) {
   const lines = String(text || '').split('\n');
   let index = 0;

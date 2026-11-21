@@ -1,10 +1,4 @@
-// The phone's transport against both relays, over real sockets. The phone WebView and the browser client run the same transport
-// (relay-connector.ts over packages/protocol-client), so one end-to-end test covers both. For each relay runtime that is present
-// (the Node relay while it is in the tree, the Rust relay always) a scripted desktop leg speaks the desktop side: relay-capabilities,
-// client-open, the E2EE challenge and ready frames through the renderer's remote-e2ee helpers; the phone registers, opens /ws?token=,
-// handshakes, exchanges a JSON-RPC message, is told the desktop is gone, is re-challenged when it returns, sees 4002 after the offline
-// window, treats 4005 as a lost pairing; the pairing shell's calls get their 200/404/429 shapes and /app/latest.json the shape the
-// Android updater reads. Both runtimes run the same steps and must give the same outcomes. Slow: the relay's 45 s offline window runs.
+// Slow: the relay's 45 s offline window runs.
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
@@ -62,12 +56,25 @@ interface Reply {
   json(): any;
 }
 
-function http(relay: RelayProcess, method: string, path: string, options: { body?: unknown; headers?: Record<string, string> } = {}): Promise<Reply> {
+function http(
+  relay: RelayProcess,
+  method: string,
+  path: string,
+  options: { body?: unknown; headers?: Record<string, string> } = {}
+): Promise<Reply> {
   return new Promise((resolve, reject) => {
     const payload = options.body === undefined ? undefined : JSON.stringify(options.body);
     const req = httpRequest(
       relay.origin + path,
-      { method, headers: { ...(payload === undefined ? {} : { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }), ...options.headers } },
+      {
+        method,
+        headers: {
+          ...(payload === undefined
+            ? {}
+            : { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }),
+          ...options.headers,
+        },
+      },
       (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -124,7 +131,11 @@ class DesktopLeg {
     const payload = JSON.parse(frame.data);
     if (!session.channel) {
       session.channel = await acceptRelayE2EEClientHello(this.identity, session.challenge, payload);
-      await this.toPhone(frame.clientId, { type: 'e2ee-ready', version: 1, ...session.channel.handshakeConfirmation() });
+      await this.toPhone(frame.clientId, {
+        type: 'e2ee-ready',
+        version: 1,
+        ...session.channel.handshakeConfirmation(),
+      });
       return;
     }
     const message = await session.channel.decryptJson(payload);
@@ -193,7 +204,12 @@ class RawPhone {
 }
 
 /** The phone's connector over `ws`, with every socket end recorded as the phone's own `closed` hook sees it. */
-function phoneConnector(relay: RelayProcess, identity: RelayE2EEServerIdentity, token: () => string, sockets: WsSocket[]) {
+function phoneConnector(
+  relay: RelayProcess,
+  identity: RelayE2EEServerIdentity,
+  token: () => string,
+  sockets: WsSocket[]
+) {
   const ends: Array<{ code: number; reason: string; info: CloseInfo }> = [];
   const readies: Array<Readonly<Record<string, unknown>>> = [];
   const stages = { reused: 0 };
@@ -215,7 +231,11 @@ function phoneConnector(relay: RelayProcess, identity: RelayE2EEServerIdentity, 
     ws.on('open', () => socket.onopen?.());
     ws.on('message', (data, isBinary) => {
       const bytes = new Uint8Array(data);
-      socket.onmessage?.({ data: isBinary ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) : data.toString('utf8') });
+      socket.onmessage?.({
+        data: isBinary
+          ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+          : data.toString('utf8'),
+      });
     });
     ws.on('close', (code, reason) => socket.onclose?.({ code, reason: reason.toString('utf8') }));
     ws.on('error', () => socket.onerror?.());
@@ -253,229 +273,265 @@ const runtimes: Array<{ runtime: RelayRuntime; present: boolean }> = [
 ];
 
 for (const { runtime, present } of runtimes) {
-  test(
-    `the phone transport against the ${runtime} relay`,
-    { timeout: 240_000, skip: present ? false : `the ${runtime} relay is not in this tree` },
-    async (t) => {
-      const relay = await startRelay(runtime);
-      const identity = await generateRelayE2EEServerIdentity();
-      const deviceId = randomUUID();
-      const secret = randomBytes(32).toString('hex');
-      const sharedToken = randomBytes(32).toString('hex');
-      const clientId = randomUUID();
-      const sockets: WsSocket[] = [];
-      const desktops: DesktopLeg[] = [];
-      const raws: RawPhone[] = [];
-      const connectDesktop = (): DesktopLeg => {
-        const leg = new DesktopLeg(relay, identity, deviceId, secret);
-        desktops.push(leg);
-        return leg;
-      };
-      t.after(async () => {
-        for (const leg of desktops) leg.terminate();
-        for (const raw of raws) raw.terminate();
-        for (const socket of sockets) socket.terminate();
-        await relay.stop();
+  test(`the phone transport against the ${runtime} relay`, {
+    timeout: 240_000,
+    skip: present ? false : `the ${runtime} relay is not in this tree`,
+  }, async (t) => {
+    const relay = await startRelay(runtime);
+    const identity = await generateRelayE2EEServerIdentity();
+    const deviceId = randomUUID();
+    const secret = randomBytes(32).toString('hex');
+    const sharedToken = randomBytes(32).toString('hex');
+    const clientId = randomUUID();
+    const sockets: WsSocket[] = [];
+    const desktops: DesktopLeg[] = [];
+    const raws: RawPhone[] = [];
+    const connectDesktop = (): DesktopLeg => {
+      const leg = new DesktopLeg(relay, identity, deviceId, secret);
+      desktops.push(leg);
+      return leg;
+    };
+    t.after(async () => {
+      for (const leg of desktops) leg.terminate();
+      for (const raw of raws) raw.terminate();
+      for (const socket of sockets) socket.terminate();
+      await relay.stop();
+    });
+    const origin = { Origin: relay.origin };
+
+    let desktop = connectDesktop();
+    let pairingToken = '';
+    const phone = phoneConnector(relay, identity, () => pairingToken, sockets);
+    const first = recordingSink();
+    const second = recordingSink();
+    let writer!: TransportWriter;
+    let observer!: RawPhone;
+
+    await t.test('the desktop leg is told what the relay offers', async () => {
+      const capabilities = await desktop.frame('relay-capabilities');
+      assert.equal(capabilities.type, 'relay-capabilities');
+    });
+
+    await t.test('the phone registers with POST /client/register', async () => {
+      desktop.send({ type: 'set-client-token', token: sharedToken });
+      // The relay takes the token from the leg's frame: the first registrations may precede it.
+      const body = { clientId, name: 'Test phone', platform: 'android', browser: 'webview' };
+      let reply = await http(relay, 'POST', '/client/register', {
+        body,
+        headers: { ...origin, Authorization: `Bearer ${sharedToken}` },
       });
-      const origin = { Origin: relay.origin };
-
-      let desktop = connectDesktop();
-      let pairingToken = '';
-      const phone = phoneConnector(relay, identity, () => pairingToken, sockets);
-      const first = recordingSink();
-      const second = recordingSink();
-      let writer!: TransportWriter;
-      let observer!: RawPhone;
-
-      await t.test('the desktop leg is told what the relay offers', async () => {
-        const capabilities = await desktop.frame('relay-capabilities');
-        assert.equal(capabilities.type, 'relay-capabilities');
-      });
-
-      await t.test('the phone registers with POST /client/register', async () => {
-        desktop.send({ type: 'set-client-token', token: sharedToken });
-        // The relay takes the token from the leg's frame: the first registrations may precede it.
-        const body = { clientId, name: 'Test phone', platform: 'android', browser: 'webview' };
-        let reply = await http(relay, 'POST', '/client/register', { body, headers: { ...origin, Authorization: `Bearer ${sharedToken}` } });
-        for (let attempt = 0; reply.status !== 200 && attempt < 100; attempt++) {
-          await sleep(50);
-          reply = await http(relay, 'POST', '/client/register', { body, headers: { ...origin, Authorization: `Bearer ${sharedToken}` } });
-        }
-        assert.equal(reply.status, 200);
-        const answer = reply.json() as { clientId: string; token: string };
-        assert.equal(answer.clientId, clientId);
-        assert.match(answer.token, /^[0-9a-f]{32,128}$/);
-        pairingToken = answer.token;
-        // The browser now holds its own credential: registering again with it is a refresh (no new token), another id is refused.
-        const again = await http(relay, 'POST', '/client/register', { body, headers: { ...origin, Authorization: `Bearer ${pairingToken}` } });
-        assert.equal(again.status, 200);
-        assert.deepEqual(again.json(), { clientId });
-        const other = await http(relay, 'POST', '/client/register', {
-          body: { ...body, clientId: randomUUID() },
-          headers: { ...origin, Authorization: `Bearer ${pairingToken}` },
+      for (let attempt = 0; reply.status !== 200 && attempt < 100; attempt++) {
+        await sleep(50);
+        reply = await http(relay, 'POST', '/client/register', {
+          body,
+          headers: { ...origin, Authorization: `Bearer ${sharedToken}` },
         });
-        assert.equal(other.status, 401);
-        const stranger = await http(relay, 'POST', '/client/register', { body, headers: { ...origin, Authorization: `Bearer ${'0'.repeat(64)}` } });
-        assert.equal(stranger.status, 401);
+      }
+      assert.equal(reply.status, 200);
+      const answer = reply.json() as { clientId: string; token: string };
+      assert.equal(answer.clientId, clientId);
+      assert.match(answer.token, /^[0-9a-f]{32,128}$/);
+      pairingToken = answer.token;
+      // The browser now holds its own credential: registering again with it is a refresh (no new token), another id is refused.
+      const again = await http(relay, 'POST', '/client/register', {
+        body,
+        headers: { ...origin, Authorization: `Bearer ${pairingToken}` },
       });
-
-      await t.test('the handshake completes and a JSON-RPC message goes both ways', async () => {
-        const target = { id: deviceId };
-        writer = await phone.connector.open(target, first.sink);
-        assert.equal(phone.readies.length, 1);
-        assert.equal(phone.readies[0]!.type, 'e2ee-ready');
-        const opened = desktop.opened.at(-1)!;
-        assert.equal(opened.browserClientId, clientId);
-        writer.send(rpc(1, 'thread/list'));
-        const answered = await until(() => first.frames.find((text) => JSON.parse(text).id === 1), 'the answer to the request');
-        assert.deepEqual(JSON.parse(answered), { jsonrpc: '2.0', id: 1, result: { echo: 'thread/list' } });
-        assert.equal((desktop.requests.at(-1)!.message as { method: string }).method, 'thread/list');
-        assert.deepEqual(first.closes, []);
+      assert.equal(again.status, 200);
+      assert.deepEqual(again.json(), { clientId });
+      const other = await http(relay, 'POST', '/client/register', {
+        body: { ...body, clientId: randomUUID() },
+        headers: { ...origin, Authorization: `Bearer ${pairingToken}` },
       });
-
-      await t.test('the pairing shell calls get the 200, 404 and 429 shapes', async () => {
-        desktop.send({ type: 'desktop-lanes', pairV2: 1 });
-        const lease = 'lease-' + randomBytes(6).toString('hex');
-        desktop.send({ type: 'pair-code-request', lease, name: 'Test PC' });
-        const issued = await desktop.frame('pair-code-issued');
-        assert.equal(issued.ok, true);
-        assert.equal(issued.lease, lease);
-        assert.match(issued.code, /^\d{6}$/);
-
-        const resolved = await http(relay, 'POST', '/pair-code/resolve', { body: { code: issued.code } });
-        assert.equal(resolved.status, 200);
-        assert.equal(resolved.headers['cache-control'], 'no-store');
-        const answer = resolved.json() as { deviceId: string; name: string; ticket: string };
-        assert.equal(answer.deviceId, deviceId);
-        assert.equal(answer.name, 'Test PC');
-        assert.match(answer.ticket, /^[0-9a-f]{32}$/);
-        const used = await desktop.frame('pair-code-used');
-        assert.equal(used.lease, lease);
-
-        // A spent code is unknown, whatever the shape of the next one.
-        const spent = await http(relay, 'POST', '/pair-code/resolve', { body: { code: issued.code } });
-        assert.equal(spent.status, 404);
-        assert.deepEqual(spent.json(), { status: 'invalid-code' });
-        const malformed = await http(relay, 'POST', '/pair-code/resolve', { body: { code: 'abc' } });
-        assert.equal(malformed.status, 404);
-
-        const support = await http(relay, 'GET', `/pair-code/support?deviceId=${deviceId}`);
-        assert.equal(support.status, 200);
-        assert.deepEqual(support.json(), { online: true, pairV2: true });
-        const unknown = await http(relay, 'GET', `/pair-code/support?deviceId=${randomUUID()}`);
-        assert.equal(unknown.status, 404);
-        assert.deepEqual(unknown.json(), { status: 'unknown' });
-
-        const presence = await http(relay, 'POST', '/pair-code/presence', { body: { ids: [deviceId, randomUUID()] } });
-        assert.equal(presence.status, 200);
-        assert.deepEqual(presence.json(), { online: { [deviceId]: true } });
-        const unrouted = await http(relay, 'POST', '/pair-code/nothing', { body: {} });
-        assert.equal(unrouted.status, 404);
-        const foreign = await http(relay, 'POST', '/pair-code/resolve', { body: { code: '123456' }, headers: { Origin: 'https://example.invalid' } });
-        assert.equal(foreign.status, 403);
-
-        // Failed redemptions cost the caller: after a few the source is told to wait.
-        let limited: Reply | null = null;
-        for (let attempt = 0; attempt < 12 && limited === null; attempt++) {
-          const reply = await http(relay, 'POST', '/pair-code/resolve', { body: { code: '000000' } });
-          if (reply.status === 429) limited = reply;
-          else assert.equal(reply.status, 404);
-        }
-        assert.ok(limited, 'repeated wrong codes reach the rate limit');
-        const wait = (limited.json() as { status: string; retryAfter: number }).retryAfter;
-        assert.equal((limited.json() as { status: string }).status, 'rate-limited');
-        assert.ok(wait >= 59 && wait <= 60, `retryAfter ${wait}`);
-        assert.equal(limited.headers['retry-after'], String(wait));
-
-        // Presence probes are budgeted per source too.
-        let throttled: Reply | null = null;
-        for (let attempt = 0; attempt < 100 && throttled === null; attempt++) {
-          const reply = await http(relay, 'POST', '/pair-code/presence', { body: { ids: [deviceId] } });
-          if (reply.status === 429) throttled = reply;
-          else assert.equal(reply.status, 200);
-        }
-        assert.ok(throttled, 'repeated presence probes reach the rate limit');
-        assert.deepEqual(throttled.json(), { status: 'rate-limited' });
-        assert.equal(throttled.headers['retry-after'], '60');
+      assert.equal(other.status, 401);
+      const stranger = await http(relay, 'POST', '/client/register', {
+        body,
+        headers: { ...origin, Authorization: `Bearer ${'0'.repeat(64)}` },
       });
+      assert.equal(stranger.status, 401);
+    });
 
-      await t.test('the relay answers a cleartext ping while the desktop leg is up', async () => {
-        observer = new RawPhone(relay, pairingToken);
-        raws.push(observer);
-        await until(() => desktop.opened.find((open) => open.clientId && open.clientId !== desktop.opened[0]!.clientId), 'the second phone to be announced');
-        observer.send('{"ping":1}');
-        await observer.text('{"pong":1}');
+    await t.test('the handshake completes and a JSON-RPC message goes both ways', async () => {
+      const target = { id: deviceId };
+      writer = await phone.connector.open(target, first.sink);
+      assert.equal(phone.readies.length, 1);
+      assert.equal(phone.readies[0]!.type, 'e2ee-ready');
+      const opened = desktop.opened.at(-1)!;
+      assert.equal(opened.browserClientId, clientId);
+      writer.send(rpc(1, 'thread/list'));
+      const answered = await until(
+        () => first.frames.find((text) => JSON.parse(text).id === 1),
+        'the answer to the request'
+      );
+      assert.deepEqual(JSON.parse(answered), { jsonrpc: '2.0', id: 1, result: { echo: 'thread/list' } });
+      assert.equal((desktop.requests.at(-1)!.message as { method: string }).method, 'thread/list');
+      assert.deepEqual(first.closes, []);
+    });
+
+    await t.test('the pairing shell calls get the 200, 404 and 429 shapes', async () => {
+      desktop.send({ type: 'desktop-lanes', pairV2: 1 });
+      const lease = `lease-${randomBytes(6).toString('hex')}`;
+      desktop.send({ type: 'pair-code-request', lease, name: 'Test PC' });
+      const issued = await desktop.frame('pair-code-issued');
+      assert.equal(issued.ok, true);
+      assert.equal(issued.lease, lease);
+      assert.match(issued.code, /^\d{6}$/);
+
+      const resolved = await http(relay, 'POST', '/pair-code/resolve', { body: { code: issued.code } });
+      assert.equal(resolved.status, 200);
+      assert.equal(resolved.headers['cache-control'], 'no-store');
+      const answer = resolved.json() as { deviceId: string; name: string; ticket: string };
+      assert.equal(answer.deviceId, deviceId);
+      assert.equal(answer.name, 'Test PC');
+      assert.match(answer.ticket, /^[0-9a-f]{32}$/);
+      const used = await desktop.frame('pair-code-used');
+      assert.equal(used.lease, lease);
+
+      // A spent code is unknown, whatever the shape of the next one.
+      const spent = await http(relay, 'POST', '/pair-code/resolve', { body: { code: issued.code } });
+      assert.equal(spent.status, 404);
+      assert.deepEqual(spent.json(), { status: 'invalid-code' });
+      const malformed = await http(relay, 'POST', '/pair-code/resolve', { body: { code: 'abc' } });
+      assert.equal(malformed.status, 404);
+
+      const support = await http(relay, 'GET', `/pair-code/support?deviceId=${deviceId}`);
+      assert.equal(support.status, 200);
+      assert.deepEqual(support.json(), { online: true, pairV2: true });
+      const unknown = await http(relay, 'GET', `/pair-code/support?deviceId=${randomUUID()}`);
+      assert.equal(unknown.status, 404);
+      assert.deepEqual(unknown.json(), { status: 'unknown' });
+
+      const presence = await http(relay, 'POST', '/pair-code/presence', { body: { ids: [deviceId, randomUUID()] } });
+      assert.equal(presence.status, 200);
+      assert.deepEqual(presence.json(), { online: { [deviceId]: true } });
+      const unrouted = await http(relay, 'POST', '/pair-code/nothing', { body: {} });
+      assert.equal(unrouted.status, 404);
+      const foreign = await http(relay, 'POST', '/pair-code/resolve', {
+        body: { code: '123456' },
+        headers: { Origin: 'https://example.invalid' },
       });
+      assert.equal(foreign.status, 403);
+    });
 
-      await t.test('the desktop leg leaves: pong still answers, resync desktop-gone arrives, the session ends', async () => {
+    await t.test('repeated wrong pair codes reach the rate limit', async () => {
+      let limited: Reply | null = null;
+      for (let attempt = 0; attempt < 12 && limited === null; attempt++) {
+        const reply = await http(relay, 'POST', '/pair-code/resolve', { body: { code: '000000' } });
+        if (reply.status === 429) limited = reply;
+        else assert.equal(reply.status, 404);
+      }
+      assert.ok(limited, 'repeated wrong codes reach the rate limit');
+      const wait = (limited.json() as { status: string; retryAfter: number }).retryAfter;
+      assert.equal((limited.json() as { status: string }).status, 'rate-limited');
+      assert.ok(wait >= 59 && wait <= 60, `retryAfter ${wait}`);
+      assert.equal(limited.headers['retry-after'], String(wait));
+    });
+
+    await t.test('repeated presence probes reach the rate limit', async () => {
+      let throttled: Reply | null = null;
+      for (let attempt = 0; attempt < 100 && throttled === null; attempt++) {
+        const reply = await http(relay, 'POST', '/pair-code/presence', { body: { ids: [deviceId] } });
+        if (reply.status === 429) throttled = reply;
+        else assert.equal(reply.status, 200);
+      }
+      assert.ok(throttled, 'repeated presence probes reach the rate limit');
+      assert.deepEqual(throttled.json(), { status: 'rate-limited' });
+      assert.equal(throttled.headers['retry-after'], '60');
+    });
+
+    await t.test('the relay answers a cleartext ping while the desktop leg is up', async () => {
+      observer = new RawPhone(relay, pairingToken);
+      raws.push(observer);
+      await until(
+        () => desktop.opened.find((open) => open.clientId && open.clientId !== desktop.opened[0]!.clientId),
+        'the second phone to be announced'
+      );
+      observer.send('{"ping":1}');
+      await observer.text('{"pong":1}');
+    });
+
+    await t.test(
+      'the desktop leg leaves: pong still answers, resync desktop-gone arrives, the session ends',
+      async () => {
         desktop.close();
         await observer.text('{"resync":"desktop-gone"}');
         const end = await until(() => first.closes[0], 'the session to end');
         assert.deepEqual(end, { code: 1012, reason: 'desktop leg gone' });
-        assert.deepEqual(phone.ends.at(-1), { code: 1012, reason: 'desktop leg gone', info: { ready: true, remote: false, quiet: false } });
+        assert.deepEqual(phone.ends.at(-1), {
+          code: 1012,
+          reason: 'desktop leg gone',
+          info: { ready: true, remote: false, quiet: false },
+        });
         // The relay itself answers, with no desktop behind it.
         observer.texts.length = 0;
         observer.send('{"ping":1}');
         await observer.text('{"pong":1}');
         assert.equal(observer.closed, null);
-      });
+      }
+    );
 
-      await t.test('the desktop leg returns: the kept socket is re-challenged and takes over', async () => {
-        desktop = connectDesktop();
-        await desktop.frame('relay-capabilities');
-        await until(() => desktop.opened.length >= 2, 'both phones to be announced to the new leg');
-        assert.ok(desktop.opened.some((open) => open.browserClientId === clientId));
-        const reusedBefore = phone.stages.reused;
-        writer = await phone.connector.open({ id: deviceId }, second.sink);
-        assert.equal(phone.stages.reused, reusedBefore + 1);
-        assert.equal(phone.readies.length, 2);
-        writer.send(rpc(2, 'thread/read'));
-        const answered = await until(() => second.frames.find((text) => JSON.parse(text).id === 2), 'the answer on the new leg');
-        assert.deepEqual(JSON.parse(answered), { jsonrpc: '2.0', id: 2, result: { echo: 'thread/read' } });
-        assert.deepEqual(second.closes, []);
-      });
+    await t.test('the desktop leg returns: the kept socket is re-challenged and takes over', async () => {
+      desktop = connectDesktop();
+      await desktop.frame('relay-capabilities');
+      await until(() => desktop.opened.length >= 2, 'both phones to be announced to the new leg');
+      assert.ok(desktop.opened.some((open) => open.browserClientId === clientId));
+      const reusedBefore = phone.stages.reused;
+      writer = await phone.connector.open({ id: deviceId }, second.sink);
+      assert.equal(phone.stages.reused, reusedBefore + 1);
+      assert.equal(phone.readies.length, 2);
+      writer.send(rpc(2, 'thread/read'));
+      const answered = await until(
+        () => second.frames.find((text) => JSON.parse(text).id === 2),
+        'the answer on the new leg'
+      );
+      assert.deepEqual(JSON.parse(answered), { jsonrpc: '2.0', id: 2, result: { echo: 'thread/read' } });
+      assert.deepEqual(second.closes, []);
+    });
 
-      await t.test('the offline window ends: 4002 reaches the phone, and a new phone is refused with it', async () => {
-        const endsBefore = phone.ends.length;
-        desktop.close();
-        await until(() => second.closes[0], 'the second session to end');
-        assert.equal(second.closes[0]!.code, 1012);
-        const offline = await until(() => phone.ends.slice(endsBefore).find((end) => end.code === 4002), 'the parked socket to be closed 4002', OFFLINE_WINDOW_LIMIT_MS);
-        assert.equal(offline.reason, 'desktop offline');
-        assert.equal(offline.info.remote, true);
-        assert.equal(terminalOfClose(offline.code, offline.reason), undefined);
-        const raw = await observer.end(OFFLINE_WINDOW_LIMIT_MS);
-        assert.deepEqual(raw, { code: 4002, reason: 'desktop offline' });
-        const late = new RawPhone(relay, pairingToken);
-        raws.push(late);
-        assert.deepEqual(await late.end(), { code: 4002, reason: 'desktop offline' });
-      });
+    await t.test('the offline window ends: 4002 reaches the phone, and a new phone is refused with it', async () => {
+      const endsBefore = phone.ends.length;
+      desktop.close();
+      await until(() => second.closes[0], 'the second session to end');
+      assert.equal(second.closes[0]!.code, 1012);
+      const offline = await until(
+        () => phone.ends.slice(endsBefore).find((end) => end.code === 4002),
+        'the parked socket to be closed 4002',
+        OFFLINE_WINDOW_LIMIT_MS
+      );
+      assert.equal(offline.reason, 'desktop offline');
+      assert.equal(offline.info.remote, true);
+      assert.equal(terminalOfClose(offline.code, offline.reason), undefined);
+      const raw = await observer.end(OFFLINE_WINDOW_LIMIT_MS);
+      assert.deepEqual(raw, { code: 4002, reason: 'desktop offline' });
+      const late = new RawPhone(relay, pairingToken);
+      raws.push(late);
+      assert.deepEqual(await late.end(), { code: 4002, reason: 'desktop offline' });
+    });
 
-      await t.test('a credential the relay does not know is a lost pairing (4005)', async () => {
-        const stale = new RawPhone(relay, randomBytes(32).toString('hex'));
-        raws.push(stale);
-        const closed = await stale.end();
-        assert.equal(closed.code, 4005);
-        assert.equal(closed.reason, 'pairing rescan required');
-        assert.equal(terminalOfClose(closed.code, closed.reason), 'pairing-lost');
+    await t.test('a credential the relay does not know is a lost pairing (4005)', async () => {
+      const stale = new RawPhone(relay, randomBytes(32).toString('hex'));
+      raws.push(stale);
+      const closed = await stale.end();
+      assert.equal(closed.code, 4005);
+      assert.equal(closed.reason, 'pairing rescan required');
+      assert.equal(terminalOfClose(closed.code, closed.reason), 'pairing-lost');
 
-        const lost = phoneConnector(relay, identity, () => randomBytes(32).toString('hex'), sockets);
-        await assert.rejects(lost.connector.open({ id: deviceId }, recordingSink().sink), /closed before ready \(4005/);
-        assert.equal(lost.ends.at(-1)!.code, 4005);
-        assert.equal(terminalOfClose(lost.ends.at(-1)!.code, lost.ends.at(-1)!.reason), 'pairing-lost');
-        assert.equal(lost.ends.at(-1)!.info.ready, false);
-      });
+      const lost = phoneConnector(relay, identity, () => randomBytes(32).toString('hex'), sockets);
+      await assert.rejects(lost.connector.open({ id: deviceId }, recordingSink().sink), /closed before ready \(4005/);
+      assert.equal(lost.ends.at(-1)!.code, 4005);
+      assert.equal(terminalOfClose(lost.ends.at(-1)!.code, lost.ends.at(-1)!.reason), 'pairing-lost');
+      assert.equal(lost.ends.at(-1)!.info.ready, false);
+    });
 
-      await t.test('/app/latest.json answers 404 with no body when no release is known', async () => {
-        const reply = await http(relay, 'GET', '/app/latest.json');
-        assert.equal(reply.status, 404);
-        assert.equal(reply.text, '');
-        assert.equal(reply.headers['cache-control'], 'no-store');
-        assert.equal(reply.headers['x-content-type-options'], 'nosniff');
-        assert.equal((await http(relay, 'POST', '/app/latest.json')).status, 405);
-      });
-    }
-  );
+    await t.test('/app/latest.json answers 404 with no body when no release is known', async () => {
+      const reply = await http(relay, 'GET', '/app/latest.json');
+      assert.equal(reply.status, 404);
+      assert.equal(reply.text, '');
+      assert.equal(reply.headers['cache-control'], 'no-store');
+      assert.equal(reply.headers['x-content-type-options'], 'nosniff');
+      assert.equal((await http(relay, 'POST', '/app/latest.json')).status, 405);
+    });
+  });
 }
 
 test('the Rust relay serves the release the Android updater reads', { timeout: 60_000 }, async (t) => {

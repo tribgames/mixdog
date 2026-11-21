@@ -9,10 +9,6 @@ import { installTestDom } from './test-support/test-dom.mjs';
 v8.setFlagsFromString('--expose-gc');
 const gc = vm.runInNewContext('gc');
 
-// A list mounting its running marks starts many loops in one frame. Each
-// lock writes a start time, which invalidates style: a loop list read after
-// such a write forced another full style update, so a burst of N starts cost
-// N style updates in one task (a long task after every reload and reconnect).
 test('a burst of loop starts locks in one pass that reads every loop before writing any', async (t) => {
   const { window } = installTestDom(t, { expose: ['Element', 'MutationObserver'] });
   window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });

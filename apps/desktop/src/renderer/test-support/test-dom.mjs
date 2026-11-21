@@ -1,14 +1,8 @@
-// Shared jsdom installer for renderer tests: saves the globals it touches,
-// installs a JSDOM window, and restores everything (and closes the window) via
-// t.after (unmounting `root` first) — or via the returned sync `restore()` when
-// no test context is given.
 import { createRequire } from 'node:module';
 import { act } from 'react';
 import { JSDOM } from 'jsdom';
 
-// react-dom decides at load time whether a DOM exists (input-event polyfill,
-// canUseDOM), so it must never load before a test installs its window: the
-// helper requires it lazily, only when a root is requested.
+// react-dom decides at load time whether a DOM exists, so it loads lazily, only when a root is requested.
 const require = createRequire(import.meta.url);
 
 const BASE_GLOBALS = ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'];
@@ -44,12 +38,8 @@ export function toolModulesSource() {
   };
 }
 
-/**
- * The agent pool and the agent catalog reach the renderer as the `agentPool` and `agents` sections
- * (desktop-services.md §15 P6, P14). A test host that still describes them as `listAgentPool` (the first read),
- * `subscribeAgentPool` (pushes) and the `listAgents` capability is served as a `sections` source carrying those as
- * the sections, so the tests keep driving them the way they always did.
- */
+/** Serves a host that describes the agent pool as `listAgentPool` / `subscribeAgentPool` and the catalog as the `listAgents`
+ *  capability as a `sections` source carrying the `agentPool` and `agents` sections (desktop-services.md §15 P6, P14). */
 function withSectionsForLegacyPool(host) {
   if (!host || typeof host !== 'object' || host.sections) return host;
   const has = (name) => typeof host[name] === 'function';
@@ -137,10 +127,7 @@ export function installTestDom(t, options = {}) {
       frames.delete(handle);
       clearTimeout(handle);
     },
-    // jsdom has no ResizeObserver, which every browser the renderer runs in
-    // has (scroll-progress binds one on every scroller). jsdom renders no
-    // boxes, and an observer only reports a box that is rendered with a
-    // non-zero size, so this one never delivers. A suite that drives resizes
+    // jsdom has no ResizeObserver and renders no boxes, so this one never delivers. A suite that drives resizes
     // installs its own, before this call or through `globals`.
     ResizeObserver:
       globalThis.ResizeObserver ??

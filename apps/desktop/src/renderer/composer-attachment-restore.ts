@@ -3,9 +3,7 @@ import type { ComposerAttachment } from './composer-support';
 import { canonicalPromptFileMimeType, PDF_MIME_TYPE } from '../shared/prompt-limits';
 import { asRecord } from './text-format';
 
-/** Ids for restored attachments: keep a stored id when it is free, otherwise
- *  allocate past every reserved id and advance the composer's sequence. */
-function createRestoredIdAllocator(reservedIds: Set<number>, sequence: { current: number }) {
+function createRestoredIdAllocator(reservedIds: Set<number>, sequence: { current: number }): RestoredIdAllocator {
   return (rawId: number) => {
     let id = rawId > 0 ? rawId : sequence.current;
     while (reservedIds.has(id)) id = Math.max(id + 1, sequence.current++);
@@ -15,14 +13,87 @@ function createRestoredIdAllocator(reservedIds: Set<number>, sequence: { current
   };
 }
 
-function withoutToken(text: string, token: string): string {
+function tidyText(text: string): string {
   return text
-    .replace(token, ' ')
     .replace(/ {2,}/g, ' ')
     .split('\n')
     .map((line) => line.trim())
     .join('\n')
     .trim();
+}
+
+type RestoredIdAllocator = (rawId: number) => number;
+
+function restoreImageAttachments(
+  value: RecordValue,
+  text: string,
+  uniqueId: RestoredIdAllocator,
+  sequence: { current: number }
+): { attachments: ComposerAttachment[]; text: string } {
+  const attachments: ComposerAttachment[] = [];
+  let textValue = text;
+  for (const [key, raw] of Object.entries(asRecord(value.pastedImages) || {})) {
+    const image = asRecord(raw);
+    if (!image || typeof image.content !== 'string') continue;
+    const rawId = Number(image.id || key) || 0;
+    const name = String(image.filename || `Image ${rawId || sequence.current}`);
+    const namedToken = `[Image #${rawId}: ${name}]`;
+    const plainToken = `[Image #${rawId}]`;
+    let sourceToken = '';
+    if (textValue.includes(namedToken)) sourceToken = namedToken;
+    else if (textValue.includes(plainToken)) sourceToken = plainToken;
+    if (sourceToken) textValue = tidyText(textValue.replace(sourceToken, ' '));
+    attachments.push({
+      id: uniqueId(rawId),
+      name,
+      kind: 'image',
+      mimeType: String(image.mediaType || 'image/png'),
+      data: image.content,
+      token: '',
+      ...(typeof image.metadataText === 'string' && image.metadataText ? { metadataText: image.metadataText } : {}),
+      ...(typeof image.originalRef === 'string' && /^[a-f0-9]{64}$/.test(image.originalRef)
+        ? {
+            originalRef: image.originalRef,
+            ...(typeof image.originalMediaType === 'string' && image.originalMediaType
+              ? { originalMimeType: image.originalMediaType }
+              : {}),
+          }
+        : {}),
+    });
+  }
+  return { attachments, text: textValue };
+}
+
+function restorePastedTextAttachments(
+  value: RecordValue,
+  text: string,
+  uniqueId: RestoredIdAllocator
+): { attachments: ComposerAttachment[]; text: string } {
+  const attachments: ComposerAttachment[] = [];
+  let textValue = text;
+  for (const [key, raw] of Object.entries(asRecord(value.pastedTexts) || {})) {
+    const pasted = asRecord(raw);
+    if (!pasted || typeof pasted.text !== 'string') continue;
+    const rawId = Number(pasted.id || key) || 0;
+    const pastedMatch = textValue.match(new RegExp(`\\[Pasted text #${rawId}(?: \\+\\d+ lines)?\\]`));
+    const fileMatch = textValue.match(new RegExp(`\\[File #${rawId}(?:: [^\\]\\r\\n]+)?\\]`));
+    const source = pasted.source === 'file' || (!pastedMatch && Boolean(fileMatch)) ? 'file' : 'paste';
+    const match = source === 'file' ? fileMatch : pastedMatch;
+    if (!match) continue;
+    const id = uniqueId(rawId);
+    const token = id === rawId ? match[0] : match[0].replace(`#${rawId}`, () => `#${id}`);
+    if (token !== match[0]) textValue = textValue.replace(match[0], () => token);
+    attachments.push({
+      id,
+      name: String(pasted.filename || (source === 'file' ? `File ${id}` : `Pasted text ${id}`)),
+      kind: 'text',
+      mimeType: String(pasted.mimeType || 'text/plain'),
+      data: pasted.text,
+      token,
+      source,
+    });
+  }
+  return { attachments, text: textValue };
 }
 
 /**
@@ -36,63 +107,11 @@ export function restoreAttachmentsFromRecord(
   restoredText: string,
   ids: { reservedIds: Set<number>; sequence: { current: number } }
 ): { attachments: ComposerAttachment[]; text: string } {
-  const restored: ComposerAttachment[] = [];
   const uniqueId = createRestoredIdAllocator(ids.reservedIds, ids.sequence);
-  let textValue = restoredText;
-  for (const [key, raw] of Object.entries(asRecord(value.pastedImages) || {})) {
-    const image = asRecord(raw);
-    if (!image || typeof image.content !== 'string') continue;
-    const rawId = Number(image.id || key) || 0;
-    const name = String(image.filename || `Image ${rawId || ids.sequence.current}`);
-    const namedToken = `[Image #${rawId}: ${name}]`;
-    const plainToken = `[Image #${rawId}]`;
-    let sourceToken = '';
-    if (textValue.includes(namedToken)) sourceToken = namedToken;
-    else if (textValue.includes(plainToken)) sourceToken = plainToken;
-    if (sourceToken) textValue = withoutToken(textValue, sourceToken);
-    restored.push({
-      id: uniqueId(rawId),
-      name,
-      kind: 'image',
-      mimeType: String(image.mediaType || 'image/png'),
-      data: image.content,
-      token: '',
-      ...(typeof image.metadataText === 'string' && image.metadataText ? { metadataText: image.metadataText } : {}),
-      // The picked file the message was sent with: sent again with it, so the core judges it as it judges any send.
-      ...(typeof image.originalRef === 'string' && /^[a-f0-9]{64}$/.test(image.originalRef)
-        ? {
-            originalRef: image.originalRef,
-            ...(typeof image.originalMediaType === 'string' && image.originalMediaType
-              ? { originalMimeType: image.originalMediaType }
-              : {}),
-          }
-        : {}),
-    });
-  }
-  for (const [key, raw] of Object.entries(asRecord(value.pastedTexts) || {})) {
-    const text = asRecord(raw);
-    if (!text || typeof text.text !== 'string') continue;
-    const rawId = Number(text.id || key) || 0;
-    const pastedMatch = textValue.match(new RegExp(`\\[Pasted text #${rawId}(?: \\+\\d+ lines)?\\]`));
-    const fileMatch = textValue.match(new RegExp(`\\[File #${rawId}(?:: [^\\]\\r\\n]+)?\\]`));
-    const source = text.source === 'file' || (!pastedMatch && Boolean(fileMatch)) ? 'file' : 'paste';
-    const match = source === 'file' ? fileMatch : pastedMatch;
-    if (!match) continue;
-    const id = uniqueId(rawId);
-    const token = id === rawId ? match[0] : match[0].replace(`#${rawId}`, () => `#${id}`);
-    if (token !== match[0]) textValue = textValue.replace(match[0], () => token);
-    restored.push({
-      id,
-      name: String(text.filename || (source === 'file' ? `File ${id}` : `Pasted text ${id}`)),
-      kind: 'text',
-      mimeType: String(text.mimeType || 'text/plain'),
-      data: text.text,
-      token,
-      source,
-    });
-  }
-  // The runtime's display text spells each image part as a bare `[Image]`
-  // line; the restored image chips stand for them.
+  const images = restoreImageAttachments(value, restoredText, uniqueId, ids.sequence);
+  const texts = restorePastedTextAttachments(value, images.text, uniqueId);
+  const restored = [...images.attachments, ...texts.attachments];
+  let textValue = texts.text;
   if (restored.some((attachment) => attachment.kind === 'image') && textValue.includes('[Image]')) {
     textValue = textValue
       .split('\n')
@@ -136,16 +155,11 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/**
- * Restore PDF/Office file parts (pushed onto `restored`) and drop every
- * `[PDF #n …]`/`[File #n …]` token whose bytes are not available, so a
- * dangling token is never sent as literal text. Returns the cleaned text.
- */
 function restoreFileAttachments(
   value: RecordValue,
   text: string,
   restored: ComposerAttachment[],
-  uniqueId: (rawId: number) => number
+  uniqueId: RestoredIdAllocator
 ): string {
   let textValue = text;
   const keptTokens = new Set(restored.map((attachment) => attachment.token));
@@ -176,14 +190,7 @@ function restoreFileAttachments(
     dropped = true;
     return ' ';
   });
-  return dropped
-    ? kept
-        .replace(/ {2,}/g, ' ')
-        .split('\n')
-        .map((line) => line.trim())
-        .join('\n')
-        .trim()
-    : textValue;
+  return dropped ? tidyText(kept) : textValue;
 }
 
 /**

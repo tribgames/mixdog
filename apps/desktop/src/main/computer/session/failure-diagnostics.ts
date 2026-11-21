@@ -103,14 +103,54 @@ export function diagnosticRecord(input: Record<string, unknown>): Record<string,
   return result;
 }
 
+function bundleFiles(directory: string): { name: string; mtime: number }[] {
+  return readdirSync(directory)
+    .filter((name) => /^failure-[0-9a-f-]+\.json$/.test(name))
+    .map((name) => ({ name, mtime: statSync(join(directory, name)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime);
+}
+
+function writeBundle(directory: string, id: string, key: string, history: Record<string, unknown>[]): void {
+  const text = JSON.stringify({
+    version: 1,
+    id,
+    session: key,
+    createdAt: new Date().toISOString(),
+    platform: process.platform,
+    screenshots: 'excluded',
+    records: history,
+  });
+  if (Buffer.byteLength(text) > MAX_BYTES) return;
+  const pending = join(directory, `pending-${id}.json`);
+  writeFileSync(pending, text, { mode: 0o600 });
+  renameSync(pending, join(directory, `failure-${id}.json`));
+  for (const file of bundleFiles(directory).slice(MAX_BUNDLES)) unlinkSync(join(directory, file.name));
+}
+
+function readBundle(directory: string, name: string): unknown[] {
+  try {
+    const path = join(directory, name);
+    if (statSync(path).size > MAX_BYTES) return [];
+    const value = JSON.parse(readFileSync(path, 'utf8'));
+    return [
+      {
+        version: 1,
+        screenshots: 'excluded',
+        id: /^[0-9a-f-]{36}$/.test(value.id) ? value.id : undefined,
+        createdAt: diagnosticRecord({ at: value.createdAt }).at,
+        records: Array.isArray(value.records)
+          ? value.records.slice(-MAX_RECORDS).map((record: unknown) => diagnosticRecord(object(record)))
+          : [],
+      },
+    ];
+  } catch {
+    return [];
+  }
+}
+
 export function createComputerFailureDiagnostics(directory: string) {
   const histories = new Map<string, Record<string, unknown>[]>();
   const bundleIds = new Map<string, string>();
-  const files = () =>
-    readdirSync(directory)
-      .filter((name) => /^failure-[0-9a-f-]+\.json$/.test(name))
-      .map((name) => ({ name, mtime: statSync(join(directory, name)).mtimeMs }))
-      .sort((a, b) => b.mtime - a.mtime);
   return {
     record(sessionId: string, input: Record<string, unknown>): void {
       try {
@@ -129,50 +169,16 @@ export function createComputerFailureDiagnostics(directory: string) {
         mkdirSync(directory, { recursive: true });
         const id = bundleIds.get(key) ?? randomUUID();
         bundleIds.set(key, id);
-        const bundle = {
-          version: 1,
-          id,
-          session: key,
-          createdAt: new Date().toISOString(),
-          platform: process.platform,
-          screenshots: 'excluded',
-          records: history,
-        };
-        const text = JSON.stringify(bundle);
-        if (Buffer.byteLength(text) > MAX_BYTES) return;
-        const pending = join(directory, `pending-${id}.json`);
-        writeFileSync(pending, text, { mode: 0o600 });
-        renameSync(pending, join(directory, `failure-${id}.json`));
-        for (const file of files().slice(MAX_BUNDLES)) unlinkSync(join(directory, file.name));
+        writeBundle(directory, id, key, history);
       } catch {
         /* diagnostic failure must not alter an action's outcome */
       }
     },
     read(): unknown[] {
       try {
-        return files()
+        return bundleFiles(directory)
           .slice(0, MAX_BUNDLES)
-          .flatMap(({ name }) => {
-            try {
-              const path = join(directory, name);
-              if (statSync(path).size > MAX_BYTES) return [];
-              const value = JSON.parse(readFileSync(path, 'utf8'));
-              // Reapply the boundary even to persisted files.
-              return [
-                {
-                  version: 1,
-                  screenshots: 'excluded',
-                  id: /^[0-9a-f-]{36}$/.test(value.id) ? value.id : undefined,
-                  createdAt: diagnosticRecord({ at: value.createdAt }).at,
-                  records: Array.isArray(value.records)
-                    ? value.records.slice(-MAX_RECORDS).map((record: unknown) => diagnosticRecord(object(record)))
-                    : [],
-                },
-              ];
-            } catch {
-              return [];
-            }
-          });
+          .flatMap(({ name }) => readBundle(directory, name));
       } catch {
         return [];
       }

@@ -23,10 +23,6 @@ export function useStudioThumbnailState() {
   // a state dependency, so a landed thumbnail never restarts the loop.
   const thumbsRef = useRef<Record<string, string>>({});
   const loadedThumbsRef = useRef<Record<string, boolean>>({});
-  /** A thumbnail failure is terminal for ONE pass, not for the pane: a cold
-   *  rendition that timed out once otherwise left a permanent glyph until the
-   *  whole app restarted. Entering Studio again, or
-   *  pressing Retry, starts those tiles over. */
   const reset = useCallback(() => {
     failedThumbsRef.current = {};
     setFailedThumbs({});

@@ -24,10 +24,6 @@ import { ExtensionAction } from './extension-detail';
 import { mcpErrorSummary, mcpStatus } from './mcp-editor-dialog';
 import type { RecordValue as Row } from './capability-data';
 
-/** One single-line list row: the open button (icon, title, then the tag or the
- *  live sign-in step right after the name) and, beside it, the row's one action
- *  (연결 / 취소). The status detail (`line`) is not printed: the narrow rail has
- *  no room for it, so it is the tag's tooltip (the row's, without a tag). */
 export function ConnectorRow({
   id,
   icon,
@@ -127,12 +123,6 @@ export function retryOf(view: ConnectorRowView, actions: RowActions, switchAccou
   return actions.connect;
 }
 
-/**
- * A row's one state (connectorRowView) as its tag, live line and action:
- * pending → spinner + step and 취소 only; connected → 연결됨 (+ account) and
- * 관리; failed → "연결하지 못했습니다 · <reason>" and 다시 시도; turned off →
- * 다시 켜기; expired → 다시 인증; otherwise 연결.
- */
 function useRowState({
   server,
   serverName,

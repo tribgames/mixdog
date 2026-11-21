@@ -1,8 +1,3 @@
-// The reference-counted project watches of a core connection (`fs/watch`): one watch per (path, recursive) however many
-// subscribers ask, started with the first and released with the last. The window's project file changes
-// (renderer/project-file-changes.ts) and the host's `folderWatch` operation for the paired phones (the operation lane) are
-// the same registry over two carriers, so a project is never watched twice for the same reason.
-
 export interface ProjectWatchTarget {
   readonly path: string;
   readonly recursive: boolean;

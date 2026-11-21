@@ -1,7 +1,3 @@
-/**
- * generic-detail.mjs — the completed-detail row for tools without a
- * dedicated surface, plus the load_tool and web-search conventions.
- */
 import { isShellTool } from './shell-surface.mjs';
 
 const OUTPUT_DETAIL_TOOL_NAMES = new Set([
@@ -55,10 +51,6 @@ const uniqueToolNames = (names) => [
   ...new Set((Array.isArray(names) ? names : []).map((name) => String(name || '').trim()).filter(Boolean)),
 ];
 
-/**
- * What a bridge load_tool result described, missed and blocked; null for a
- * loader result (or anything that is not a describe result).
- */
 export function bridgeDescribeResult(resultText) {
   let parsed;
   try {

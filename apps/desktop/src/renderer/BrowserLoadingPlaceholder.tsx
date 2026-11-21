@@ -1,8 +1,3 @@
-// What a browser surface shows until its page has painted: the app's own
-// sheet with a spinner and the host being opened, instead of the black
-// rectangle of a native view that has nothing to draw yet. It sits over the
-// page surface, so the native view stays hidden (the shell is drawing over it)
-// until this placeholder is removed.
 import { ProgressSpinner } from './ProgressSpinner';
 import { t } from './i18n';
 

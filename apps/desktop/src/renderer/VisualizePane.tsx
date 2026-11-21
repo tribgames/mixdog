@@ -1,7 +1,3 @@
-// The pane dock's visualize view: the agent `visualize` tool's tabs for one
-// session. Main owns the tabs; this view draws the active one and reports the
-// user's tab picks and closes. Capture finds the tab body by its data
-// attributes, so they name the session and tab.
 import { Columns3, ListTree, Maximize2, MessageSquarePlus, SlidersHorizontal, X } from 'lucide-react';
 import { type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
@@ -64,10 +60,6 @@ interface BufferedFrameSpec {
   id: number;
 }
 
-/** A pane frame that never blanks on a reload: the new content loads in a
- *  hidden second frame laid over the shown one and replaces it once loaded.
- *  A page of the same file gets the shown page's scroll position back first
- *  (the page script reports and sets it); other frames just swap. */
 function BufferedFrame({
   src,
   revision,
@@ -154,10 +146,6 @@ function BufferedFrame({
     return clearTimers;
   }, [back?.id]);
 
-  // The swapped-in page announced itself while hidden, where the panels that
-  // listen for `ready` (they match the shown frame) could not accept it:
-  // announce it again, now from the frame that is shown. A `ready` that comes
-  // later is accepted as it is.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the swap (a new shown frame) is the trigger
   useLayoutEffect(() => {
     const queued = announced.current;
@@ -285,10 +273,6 @@ function shownInView(node: HTMLElement, scroller: HTMLElement | null): boolean {
   return rect.bottom >= top && rect.top <= bottom;
 }
 
-/** A remote PDF / Office pane as page images (a phone shows no PDF in a
- *  frame): the first page at once, then the next batch as the end scrolls
- *  into view. `onFail` hands the pane back to the blob path when not even
- *  the first page could be had (an older host). */
 function RemoteDocumentPages({
   label,
   read,
@@ -343,11 +327,7 @@ function RemoteDocumentPages({
       }
     );
   }, [read, onFail]);
-  // The next batch loads while the end of the list is in view (re-checked
-  // per batch, so a short document keeps loading until it fills the pane),
-  // on scroll and resize (each at most once per frame). No IntersectionObserver: while
-  // one exists, Chromium runs a main-thread frame on every vsync for as long
-  // as any animation runs in the window.
+  // No IntersectionObserver: while one exists, Chromium runs a main-thread frame on every vsync as long as any animation runs in the window.
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new batch is the trigger
   useEffect(() => {
     if (!sentinel) return undefined;
@@ -389,14 +369,49 @@ function RemoteDocumentPages({
   );
 }
 
-/** A pane on a paired remote client: the host's pane URLs name its loopback
- *  servers, so the content arrives over the relay instead (a media-lane
- *  stream, a blob: URL, page images of a PDF / Office file, or a
- *  self-contained page in an opaque-origin frame whose own file requests the
- *  page bridge serves). Remounted on each revision, so a file change on the
- *  host re-fetches it. The agent's annotation marks come with the tab state
- *  and are drawn inside the page with the desktop's own overlay (CSS outlines
- *  while the page may not run scripts yet). */
+/** Runs a remote page in its opaque-origin frame with the bridges it needs
+ *  (feedback script, annotation overlay, file fetches when `pagePath` is set,
+ *  zoom, network policy). Returns the teardown. */
+function mountRemotePage({
+  frame,
+  srcdoc,
+  marks,
+  pagePath,
+  servesFetches,
+  fetchRef,
+  networkAllowed,
+  report,
+}: {
+  frame: HTMLIFrameElement;
+  srcdoc: string;
+  marks: Array<{ selector: string; label: string }>;
+  pagePath: string | undefined;
+  servesFetches: boolean;
+  fetchRef: RefObject<VisualizePaneSource['fetch']>;
+  networkAllowed: boolean;
+  report(url: string, resource: string): void;
+}): () => void {
+  let page = withVisualizeOverlay(withVisualizeFeedbackScript(srcdoc), marks);
+  if (servesFetches && pagePath !== undefined) page = withPageFetchBridge(page, pagePath);
+  page = withFrameZoomBridge(page);
+  const unload = loadSandboxedPage(frame, networkAllowed ? withBlockedNetworkReporter(page) : withBlockedNetwork(page));
+  const unserve = servesFetches
+    ? servePageFetches(
+        frame,
+        (reference) => fetchRef.current?.(reference) ?? Promise.reject(new Error('The page is not loaded.'))
+      )
+    : undefined;
+  const unzoom = serveFrameZoom(frame);
+  // Reporting stays on either way: the frame's own CSP refuses some requests even when the tab allows network.
+  const unblocked = serveBlockedNetwork(frame, report);
+  return () => {
+    unload();
+    unserve?.();
+    unzoom();
+    unblocked();
+  };
+}
+
 function RemotePaneContent({
   pane,
   sessionId,
@@ -476,40 +491,19 @@ function RemotePaneContent({
   fetchRef.current = source?.fetch;
   // Marks change with the tab state; the page reloads to show the new set.
   const marksKey = JSON.stringify(marks);
-  // Pages run at once, as on the desktop, and under the desktop's network
-  // policy: outside network stays blocked until the desktop user allows it for
-  // the tab (`networkAllowed`, carried in the tab state; a change reloads).
-  // The feedback page script (Comment pins, `data-choice` picks) and the
-  // annotation overlay ride inside the page: nothing on this client can reach
-  // into the opaque frame. The page bridge answers the page's own fetch/XHR
-  // of its project files.
   // biome-ignore lint/correctness/useExhaustiveDependencies: marksKey stands for marks; pageId is the page's identity
   useEffect(() => {
     if (!frame || srcdoc === undefined) return undefined;
-    let page = withVisualizeOverlay(withVisualizeFeedbackScript(srcdoc), marks);
-    if (servesFetches && pagePath !== undefined) page = withPageFetchBridge(page, pagePath);
-    page = withFrameZoomBridge(page);
-    const unload = loadSandboxedPage(
+    return mountRemotePage({
       frame,
-      networkAllowed ? withBlockedNetworkReporter(page) : withBlockedNetwork(page)
-    );
-    const unserve = servesFetches
-      ? servePageFetches(
-          frame,
-          (reference) => fetchRef.current?.(reference) ?? Promise.reject(new Error('The page is not loaded.'))
-        )
-      : undefined;
-    const unzoom = serveFrameZoom(frame);
-    // Reporting stays on either way: the frame's own CSP refuses some requests even when the tab allows network.
-    const unblocked = serveBlockedNetwork(frame, (url, resource) =>
-      reportVisualizeBlockedNetwork(sessionId, tabId, index, url, resource)
-    );
-    return () => {
-      unload();
-      unserve?.();
-      unzoom();
-      unblocked();
-    };
+      srcdoc,
+      marks,
+      pagePath,
+      servesFetches,
+      fetchRef,
+      networkAllowed,
+      report: (url, resource) => reportVisualizeBlockedNetwork(sessionId, tabId, index, url, resource),
+    });
   }, [frame, srcdoc, pageId, pagePath, servesFetches, marksKey, networkAllowed, sessionId, tabId, index]);
   if (asPages) return <RemoteDocumentPages label={pane.label} read={pages} onFail={pagesUnavailable} />;
   if (error && pane.inline) {
@@ -526,11 +520,6 @@ function RemotePaneContent({
   if (error) return <div className="visualize-empty mx-empty-state">{error}</div>;
   if (!source) return <div className="visualize-empty mx-empty-state">{t('Loading…')}</div>;
   if (srcdoc !== undefined) {
-    // Scripts run in an opaque origin: no access to this app, its storage or
-    // its relay socket, and no outside network unless the tab allowed it (the
-    // desktop's policy, as a CSP in the page). Forms (their submit handlers;
-    // the CSP still refuses any form navigation) and alert/confirm work as on
-    // the desktop.
     return (
       <iframe
         key="live"

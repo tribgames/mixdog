@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import { useComposerFocus } from './use-composer-focus.ts';
 
-test('native window restoration focuses the active composer without stealing other input or dialog focus', async () => {
+async function withComposerFocusHarness(run) {
   const dom = new JSDOM("<!doctype html><body><input id='user'><main></main></body>", { url: 'https://mixdog.test/' });
   const saved = {
     window: globalThis.window,
@@ -30,8 +30,8 @@ test('native window restoration focuses the active composer without stealing oth
   window.matchMedia = () => ({ matches: false });
   dom.window.HTMLElement.prototype.attachEvent = () => {};
   dom.window.HTMLElement.prototype.detachEvent = () => {};
-  let focused = true;
-  document.hasFocus = () => focused;
+  const windowFocus = { current: true };
+  document.hasFocus = () => windowFocus.current;
   const root = createRoot(document.querySelector('main'));
   function Harness(props) {
     const textarea = useRef(null);
@@ -46,47 +46,9 @@ test('native window restoration focuses the active composer without stealing oth
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
   };
+  const restoreWindowFocus = () => window.dispatchEvent(new dom.window.Event('focus'));
   try {
-    const user = document.getElementById('user');
-    user.focus();
-    await render({ paneActive: false, transitioning: false, focusRequest: 1 });
-    assert.equal(document.activeElement, user);
-    await render({ paneActive: true, transitioning: false, focusRequest: 1 });
-    assert.equal(document.activeElement, user);
-    focused = false;
-    await render({ paneActive: true, transitioning: false, focusRequest: 2 });
-    assert.equal(document.activeElement, user);
-    focused = true;
-    window.dispatchEvent(new dom.window.Event('focus'));
-    await render({ paneActive: true, transitioning: false, focusRequest: 2 });
-    assert.equal(document.activeElement, user);
-    await render({ paneActive: true, transitioning: false, focusRequest: 3 });
-    assert.equal(document.activeElement.tagName, 'TEXTAREA');
-    const composer = document.activeElement;
-    composer.blur();
-    window.dispatchEvent(new dom.window.Event('focus'));
-    await render({ paneActive: true, transitioning: false, focusRequest: 3 });
-    assert.equal(document.activeElement, composer);
-
-    const dialog = document.createElement('div');
-    dialog.setAttribute('aria-modal', 'true');
-    document.body.append(dialog);
-    composer.blur();
-    window.dispatchEvent(new dom.window.Event('focus'));
-    await render({ paneActive: true, transitioning: false, focusRequest: 3 });
-    assert.equal(document.activeElement, document.body);
-    dialog.remove();
-
-    await render({ paneActive: false, transitioning: false, focusRequest: 3 });
-    window.dispatchEvent(new dom.window.Event('focus'));
-    await render({ paneActive: false, transitioning: false, focusRequest: 3 });
-    assert.equal(document.activeElement, document.body);
-
-    await render({ paneActive: true, transitioning: true, focusRequest: 3 });
-    composer.blur();
-    window.dispatchEvent(new dom.window.Event('focus'));
-    await render({ paneActive: true, transitioning: true, focusRequest: 3 });
-    assert.equal(document.activeElement, document.body);
+    await run({ render, windowFocus, restoreWindowFocus, user: document.getElementById('user') });
   } finally {
     await act(async () => root.unmount());
     dom.window.close();
@@ -94,4 +56,72 @@ test('native window restoration focuses the active composer without stealing oth
     if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
     else delete globalThis.navigator;
   }
+}
+
+const props = (overrides) => ({ paneActive: true, transitioning: false, focusRequest: 3, ...overrides });
+
+test('window restoration leaves another input focused until the composer is asked for', async () => {
+  await withComposerFocusHarness(async ({ render, windowFocus, restoreWindowFocus, user }) => {
+    user.focus();
+    await render(props({ paneActive: false, focusRequest: 1 }));
+    assert.equal(document.activeElement, user);
+    await render(props({ focusRequest: 1 }));
+    assert.equal(document.activeElement, user);
+    windowFocus.current = false;
+    await render(props({ focusRequest: 2 }));
+    assert.equal(document.activeElement, user);
+    windowFocus.current = true;
+    restoreWindowFocus();
+    await render(props({ focusRequest: 2 }));
+    assert.equal(document.activeElement, user);
+  });
+});
+
+test('a new focus request focuses the composer, and window restoration returns focus to it', async () => {
+  await withComposerFocusHarness(async ({ render, restoreWindowFocus, user }) => {
+    user.focus();
+    await render(props({ focusRequest: 2 }));
+    await render(props());
+    assert.equal(document.activeElement.tagName, 'TEXTAREA');
+    const composer = document.activeElement;
+    composer.blur();
+    restoreWindowFocus();
+    await render(props());
+    assert.equal(document.activeElement, composer);
+  });
+});
+
+test('window restoration does not focus the composer behind an open modal dialog', async () => {
+  await withComposerFocusHarness(async ({ render, restoreWindowFocus }) => {
+    await render(props());
+    document.activeElement.blur();
+    const dialog = document.createElement('div');
+    dialog.setAttribute('aria-modal', 'true');
+    document.body.append(dialog);
+    restoreWindowFocus();
+    await render(props());
+    assert.equal(document.activeElement, document.body);
+  });
+});
+
+test('window restoration does not focus the composer of an inactive pane', async () => {
+  await withComposerFocusHarness(async ({ render, restoreWindowFocus }) => {
+    await render(props());
+    document.activeElement.blur();
+    await render(props({ paneActive: false }));
+    restoreWindowFocus();
+    await render(props({ paneActive: false }));
+    assert.equal(document.activeElement, document.body);
+  });
+});
+
+test('window restoration does not focus the composer while its pane is transitioning', async () => {
+  await withComposerFocusHarness(async ({ render, restoreWindowFocus }) => {
+    await render(props());
+    document.activeElement.blur();
+    await render(props({ transitioning: true }));
+    restoreWindowFocus();
+    await render(props({ transitioning: true }));
+    assert.equal(document.activeElement, document.body);
+  });
 });

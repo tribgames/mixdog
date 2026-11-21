@@ -30,7 +30,7 @@ test('doctor report parsing puts problems first and rejects non-reports', () => 
   assert.deepEqual(doctorReport({ busy: true }).busy, true);
 });
 
-test('doctor dialog shows the verdict, per-check fixes, busy state and re-run', async () => {
+async function mountDoctor() {
   const { dom } = installTestDom(null, {
     html: '<!doctype html><html><body><div id="root"></div></body></html>',
     jsdom: { url: 'about:blank' },
@@ -39,7 +39,7 @@ test('doctor dialog shows the verdict, per-check fixes, busy state and re-run', 
   const container = dom.window.document.getElementById('root');
   const root = createRoot(container);
   const opened = [];
-  let reruns = 0;
+  const rerun = { count: 0 };
   const render = (value, running = false) =>
     act(async () => {
       root.render(
@@ -47,12 +47,21 @@ test('doctor dialog shows the verdict, per-check fixes, busy state and re-run', 
           value,
           running,
           onRerun: () => {
-            reruns += 1;
+            rerun.count += 1;
           },
           onOpenSettings: (section) => opened.push(section),
         })
       );
     });
+  const close = async () => {
+    await act(async () => root.unmount());
+    dom.window.close();
+  };
+  return { container, opened, rerun, render, close };
+}
+
+test('doctor dialog shows the verdict and the settings fix of each check', async () => {
+  const { container, opened, render, close } = await mountDoctor();
   try {
     await render(result);
     assert.equal(container.querySelector('.doctor-surface-summary').dataset.level, 'fail');
@@ -66,17 +75,31 @@ test('doctor dialog shows the verdict, per-check fixes, busy state and re-run', 
     assert.equal(rows[2].querySelector('.doctor-check-fix'), null);
     await act(async () => rows[1].querySelector('.doctor-check-fix').click());
     assert.deepEqual(opened, ['mcp']);
-    await act(async () => container.querySelector('.doctor-surface-actions button').click());
-    assert.equal(reruns, 1);
+  } finally {
+    await close();
+  }
+});
 
+test('doctor dialog re-runs the diagnostics and disables the button while they run', async () => {
+  const { container, rerun, render, close } = await mountDoctor();
+  try {
+    await render(result);
+    await act(async () => container.querySelector('.doctor-surface-actions button').click());
+    assert.equal(rerun.count, 1);
     await render(result, true);
     assert.equal(container.querySelector('.doctor-surface-actions button').disabled, true);
+  } finally {
+    await close();
+  }
+});
 
+test('doctor dialog shows only the busy notice while another command runs', async () => {
+  const { container, render, close } = await mountDoctor();
+  try {
     await render({ busy: true });
     assert.equal(container.querySelector('.doctor-check'), null);
     assert.match(container.textContent, /Another command is running/);
   } finally {
-    await act(async () => root.unmount());
-    dom.window.close();
+    await close();
   }
 });

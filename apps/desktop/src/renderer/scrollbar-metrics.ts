@@ -1,18 +1,4 @@
-// Measured scrollbar RESERVE, published as `--mx-scrollbar-gutter`.
-//
-// `--mx-scrollbar-size` (8px) is what we PAINT the bar at. Every layout that
-// pays for a scrollbar column — the session rail's negative margin, the
-// transcript reading column, the settings/studio right padding, the SCM dock
-// gutter — used that same static token as if the engine always reserved it.
-// It does not: overlay scrollbars (phone browsers, and any engine that ignores
-// ::-webkit-scrollbar sizing) reserve NOTHING, so each of those compensations
-// shifted its scroller content by a full 8px while the chrome outside the
-// scroller stayed put. In the session rail that split the "+" button from the
-// unread dots and spinners directly under it (the dots sat out of
-// line with the button horizontally).
-//
-// So the reserve is measured instead of assumed, once before the first paint
-// and again whenever zoom/rotation could change it (not on every resize).
+// Overlay scrollbars reserve no column, so the reserve is measured, not assumed, and published as `--mx-scrollbar-gutter`.
 const SCROLLBAR_GUTTER_VAR = '--mx-scrollbar-gutter';
 
 /** What the engine actually takes from a scroll container's content box.
@@ -22,10 +8,6 @@ function measureScrollbarGutter(): number {
   const host = document.body ?? document.documentElement;
   if (!host) return 0;
   const probe = document.createElement('div');
-  // `overflow: scroll` (not auto) forces the decision even with no content:
-  // a classic bar takes its column, an overlay bar leaves clientWidth alone.
-  // The probe inherits the shared ::-webkit-scrollbar sizing, so it measures
-  // OUR bar, not the platform default.
   probe.style.cssText =
     'position:absolute;top:-9999px;left:-9999px;' +
     'width:100px;height:100px;overflow:scroll;visibility:hidden;pointer-events:none';

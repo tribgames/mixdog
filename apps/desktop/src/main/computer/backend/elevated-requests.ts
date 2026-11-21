@@ -1,8 +1,3 @@
-/**
- * The pool's side of the one-shot elevated path: the session jobs that block
- * new input while an elevated stop is unconfirmed, the capacity slots an
- * elevated run occupies, and the ledger it leaves behind.
- */
 import type { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 
@@ -16,11 +11,6 @@ import type { PowerShellResponse } from '../shared/types';
 /** Capacity slots one elevated run holds until its stop is confirmed. */
 const ELEVATED_RUN_SLOTS = 3;
 
-/**
- * A finished elevated run recovers its ledger only when the worker is known to
- * have stopped; otherwise the ledger is held with the launcher's identity until
- * that process is verified gone.
- */
 export function settleElevatedLedger(
   stopped: boolean,
   path: string,

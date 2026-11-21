@@ -1,13 +1,3 @@
-// The visualize panel's Comment (pin) feature, one entry per pane kind: how
-// a pin is made on it (element click, dragged region), what anchors it, where
-// its crop comes from, how its label reads, which icon stands in for a pin
-// without a crop, and what the hint strip offers. The panel, the feedback
-// store and the composer card read only this table; supporting a new pane
-// kind is adding its entry here.
-//
-// Text here is English source text: the renderer passes its `t` as
-// `translate` (the locale catalogs carry these keys), tests pass nothing.
-
 import type { VisualizeInlineKind, VisualizePaneKind, VisualizePaneView } from './visualize';
 
 /** How the user marks what a pin is about. */

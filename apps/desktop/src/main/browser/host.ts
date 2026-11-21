@@ -1,21 +1,3 @@
-/**
- * Agent browser host — main-process owner of session-isolated Chromium pages
- * and the local bridge that lets the runtime's `browser` tool drive them.
- *
- * Architecture: guest-lifecycle owns non-activating page windows on the shared
- * persistent partition; BrowserPane displays pixels and sends bounded human
- * input. CDP drives the current page over the Chrome
- * DevTools Protocol, the action registry answers each command, reply turns
- * outcomes into text, and this module wires those parts together and hosts
- * the loopback HTTP server whose port+token ride a discovery file in the
- * Mixdog data directory. The runtime tool reads that file, so the tool
- * surface only exists while this desktop app runs — no daemon protocol
- * changes.
- *
- * background:true commands run against hidden offscreen BrowserWindows on the
- * SAME partition (named through `tab` for parallel pages), so the agent can
- * work invisibly while staying logged in.
- */
 import { join } from 'node:path';
 import { app, type BrowserWindow, type WebContents } from 'electron';
 
@@ -364,11 +346,6 @@ export function createBrowserHost(
     engine: base.engineLane.fill,
   });
 
-  // Pages nobody displays or drives for long are unloaded (URLs kept) and
-  // restore when the panel or an agent command returns — unless something only
-  // the live document holds is in use (see reclaimIdleUserSessions).
-  // The agents' background pages ride the same timer: it lives and dies with this
-  // browser, not with the bridge connection.
   const userReclaimTimer = setInterval(() => {
     lifecycle.reclaimIdleBackgroundPages();
     reclaimIdleUserSessions({

@@ -1,7 +1,3 @@
-// The handlers only a server (ssh) window registers: uploads of this PC's
-// files into the server's staging folder, "download to this PC", and the
-// trash probe its delete confirmation reads. Uploads travel over the window's
-// own session connection; a download is this PC's core's (see server-file-access.ts).
 import type { Shell } from 'electron';
 
 import { DESKTOP_IPC } from '../shared/contract';

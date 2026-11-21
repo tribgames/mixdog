@@ -1,10 +1,3 @@
-// Phone surface detection + pre-paint root marker. The Chrome-toolbar,
-// drawer, and popup CSS all key on `html[data-mixdog-mobile-tabs]`; every
-// browser lays out at device-width, so phone CSS is written in native CSS
-// pixels. Installing the marker in a mount effect meant the FIRST paint used
-// the desktop grammar and the phone visibly re-arranged itself a frame later.
-// bootstrap.tsx installs the marker synchronously BEFORE React renders, so the
-// phone lays out correctly exactly once.
 import { useSyncExternalStore } from 'react';
 import { nativeAppInfo } from '../shared/native-app';
 import { remoteWindowInfo } from '../shared/remote-window';
@@ -54,11 +47,6 @@ export function usePhoneSurfaceMarked(): boolean {
 export function isMobileRemoteSurface(): boolean {
   return inRemoteBrowser(() => {
     const probe = readSurfaceProbe(navigator, window);
-    // A phone keeps the phone layout at any width, so it never reads the
-    // width: `innerWidth` flushes style and layout, and this runs inside
-    // render (every useMobileRemoteSurface snapshot). On a phone opening a
-    // session, that flush laid out the half-built transcript mid-render
-    // (30-54ms tasks at a phone's CPU in the open trace).
     return isPhoneDevice(probe) || usesPhoneLayout(probe, surfaceViewportWidth());
   });
 }
@@ -127,12 +115,7 @@ function isDirectBrowserSurface(): boolean {
 
 /** Keeps the phone markers current across rotation/PWA restore. */
 export function installMobileSurfaceMarker(): () => void {
-  // The phone marker feeds nearly every phone rule, so toggling it makes the
-  // engine recalculate the WHOLE document. Android fires visualViewport
-  // resize continuously while the URL bar collapses and the keyboard animates,
-  // so the sync is coalesced into one frame and only touches the DOM when a
-  // value actually changed. Recalculating the phone layout on every repeated
-  // viewport event made buttons slow to respond.
+  // Android fires visualViewport resize continuously while the URL bar collapses and the keyboard animates; toggling the marker recalculates the whole document, so sync is coalesced into one frame and writes the DOM only on change.
   let frame = 0;
   let appliedMobile: boolean | null = null;
   let appliedIOS: boolean | null = null;

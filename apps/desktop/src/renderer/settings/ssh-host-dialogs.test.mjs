@@ -131,11 +131,36 @@ test("model login: switching back to this PC's accounts asks too", async (t) => 
   assert.equal(calls.find((call) => call[0] === 'settings')[2].modelLogin, 'pc');
 });
 
-test('server logins: subscriptions open in the browser, the pasted address completes them, keys and log-outs go to the server', async (t) => {
+const SERVER_HOST = { ...HOST, settings: { modelLogin: 'server' } };
+
+async function openServerLogins(t, extra = {}) {
+  const mounted = await mount(t, { host: SERVER_HOST, ...extra });
+  await click(buttonNamed(mounted.document, 'Manage server logins'));
+  await settle();
+  return mounted;
+}
+
+const loginRow = (document, index) => document.querySelectorAll('.ssh-login-row')[index];
+
+test('server logins: each provider lists its state and the actions that fit it', async (t) => {
+  const { document } = await openServerLogins(t);
+  assert.equal(document.querySelector('.conn-dialog h3').textContent, 'build-box logins');
+  const rows = [...document.querySelectorAll('.ssh-login-row')].map((row) => [
+    row.querySelector('b').textContent,
+    row.querySelector('small').textContent,
+    [...row.querySelectorAll('button')].map((button) => button.textContent),
+  ]);
+  assert.deepEqual(rows, [
+    ['Claude', 'Subscription · you@example.com', ['Log out']],
+    ['OpenAI', 'API key', ['Change', 'Log out']],
+    ['Gemini', 'Not signed in', ['Log in']],
+  ]);
+});
+
+test('server logins: a subscription login opens the steps, and the pasted address completes it', async (t) => {
   let logins = SERVER_LOGINS;
   const flows = [];
-  const { document, calls } = await mount(t, {
-    host: { ...HOST, settings: { modelLogin: 'server' } },
+  const { document } = await openServerLogins(t, {
     sshServerLogins: () => Promise.resolve(logins),
     sshServerLoginBegin: async (id, provider) => {
       flows.push(['begin', id, provider]);
@@ -165,33 +190,9 @@ test('server logins: subscriptions open in the browser, the pasted address compl
         forwarded: false,
       });
     },
-    sshServerLoginCancel: async (id, flowId) => {
-      flows.push(['cancel', id, flowId]);
-    },
-    sshServerLoginSaveKey: async (id, provider, key) => {
-      flows.push(['key', id, provider, key]);
-    },
-    sshServerLoginLogout: async (id, provider) => {
-      flows.push(['logout', id, provider]);
-    },
+    sshServerLoginCancel: async () => undefined,
   });
-  await click(buttonNamed(document, 'Manage server logins'));
-  await settle();
-  const dialog = document.querySelector('.conn-dialog');
-  assert.equal(dialog.querySelector('h3').textContent, 'build-box logins');
-  const rows = () =>
-    [...document.querySelectorAll('.ssh-login-row')].map((row) => [
-      row.querySelector('b').textContent,
-      row.querySelector('small').textContent,
-      [...row.querySelectorAll('button')].map((button) => button.textContent),
-    ]);
-  assert.deepEqual(rows(), [
-    ['Claude', 'Subscription · you@example.com', ['Log out']],
-    ['OpenAI', 'API key', ['Change', 'Log out']],
-    ['Gemini', 'Not signed in', ['Log in']],
-  ]);
-  // A subscription login: the steps and the paste field.
-  await click(document.querySelectorAll('.ssh-login-row')[2].querySelector('button'));
+  await click(loginRow(document, 2).querySelector('button'));
   await settle();
   assert.deepEqual(flows.at(-1), ['begin', 'h1', 'gemini-oauth']);
   const steps = [...document.querySelectorAll('.ssh-login-codebox li')].map((item) => item.textContent);
@@ -206,25 +207,39 @@ test('server logins: subscriptions open in the browser, the pasted address compl
   await settle();
   assert.deepEqual(flows.at(-1), ['complete', 'h1', 'f1', 'http://localhost:1455/auth/callback?code=x']);
   assert.equal(document.querySelector('.ssh-login-codebox'), null, 'the steps close once the login is done');
-  assert.deepEqual(
-    rows().map(([name, detail]) => [name, detail]),
-    [
-      ['Claude', 'Subscription · you@example.com'],
-      ['OpenAI', 'API key'],
-      ['Gemini', 'Subscription'],
-    ]
-  );
-  // An API key: typed here, stored on the server.
-  await click(document.querySelectorAll('.ssh-login-row')[1].querySelector('button'));
+  const details = [...document.querySelectorAll('.ssh-login-row small')].map((small) => small.textContent);
+  assert.deepEqual(details, ['Subscription · you@example.com', 'API key', 'Subscription']);
+});
+
+test('server logins: an API key typed here is stored on the server, trimmed', async (t) => {
+  const flows = [];
+  const { document } = await openServerLogins(t, {
+    sshServerLoginSaveKey: async (id, provider, key) => {
+      flows.push(['key', id, provider, key]);
+    },
+  });
+  await click(loginRow(document, 1).querySelector('button'));
   const key = document.querySelector('.ssh-login-codebox input[type="password"]');
   await typeInto(key, ' sk-new ');
   await submit(key.form);
   await settle();
-  assert.deepEqual(flows.at(-1), ['key', 'h1', 'openai', 'sk-new']);
-  await click(document.querySelectorAll('.ssh-login-row')[0].querySelector('button'));
+  assert.deepEqual(flows, [['key', 'h1', 'openai', 'sk-new']]);
+});
+
+test('server logins: a log-out goes to the server', async (t) => {
+  const flows = [];
+  const { document } = await openServerLogins(t, {
+    sshServerLoginLogout: async (id, provider) => {
+      flows.push(['logout', id, provider]);
+    },
+  });
+  await click(loginRow(document, 0).querySelector('button'));
   await settle();
-  assert.deepEqual(flows.at(-1), ['logout', 'h1', 'anthropic-oauth']);
-  // Closing goes back to the settings.
+  assert.deepEqual(flows, [['logout', 'h1', 'anthropic-oauth']]);
+});
+
+test('server logins: closing goes back to the settings without saving them', async (t) => {
+  const { document, calls } = await openServerLogins(t);
   await click(buttonNamed(document, 'Close'));
   assert.equal(document.querySelector('.conn-dialog h3').textContent, 'build-box settings');
   assert.equal(
@@ -508,32 +523,27 @@ test('server logins: an API key kept in the server’s private file says so', as
   assert.deepEqual(rows, ['API key · stored in a private file', 'API key']);
 });
 
-test('server logins: a custom provider asks before it is deleted; keyless and environment-key ones have no key action', async (t) => {
+const CUSTOM_PROVIDERS = [
+  { id: 'custom-a', name: 'Acme', kind: 'api', signedIn: true, custom: true },
+  { id: 'custom-b', name: 'Gateway', kind: 'api', signedIn: true, custom: true, keyless: true },
+  { id: 'custom-c', name: 'Fresh', kind: 'api', signedIn: false, custom: true },
+  { id: 'custom-d', name: 'Envy', kind: 'api', signedIn: true, custom: true, fromEnvironment: true },
+  { id: 'openai', name: 'OpenAI', kind: 'api', signedIn: true },
+];
+
+async function openCustomProviders(t) {
   const calls = [];
-  const { document } = await mount(t, {
-    host: { ...HOST, settings: { modelLogin: 'server' } },
-    sshServerLogins: async () => ({
-      ...SERVER_LOGINS,
-      providers: [
-        { id: 'custom-a', name: 'Acme', kind: 'api', signedIn: true, custom: true },
-        { id: 'custom-b', name: 'Gateway', kind: 'api', signedIn: true, custom: true, keyless: true },
-        { id: 'custom-c', name: 'Fresh', kind: 'api', signedIn: false, custom: true },
-        { id: 'custom-d', name: 'Envy', kind: 'api', signedIn: true, custom: true, fromEnvironment: true },
-        { id: 'openai', name: 'OpenAI', kind: 'api', signedIn: true },
-      ],
-    }),
-    sshServerLoginSaveKey: async (id, provider, key) => {
-      calls.push(['key', id, provider, key]);
-    },
-    sshServerLoginLogout: async (id, provider) => {
-      calls.push(['logout', id, provider]);
-    },
+  const mounted = await openServerLogins(t, {
+    sshServerLogins: async () => ({ ...SERVER_LOGINS, providers: CUSTOM_PROVIDERS }),
     sshServerLoginRemoveCustom: async (id, provider) => {
       calls.push(['remove', id, provider]);
     },
   });
-  await click(buttonNamed(document, 'Manage server logins'));
-  await settle();
+  return { ...mounted, removed: calls };
+}
+
+test('server logins: keyless and environment-key providers have no key action', async (t) => {
+  const { document } = await openCustomProviders(t);
   const rows = [...document.querySelectorAll('.ssh-login-row')];
   const labels = (row) => [...row.querySelectorAll('button')].map((button) => button.textContent);
   assert.deepEqual(labels(rows[0]), ['Change', 'Delete']);
@@ -543,27 +553,31 @@ test('server logins: a custom provider asks before it is deleted; keyless and en
   assert.deepEqual(labels(rows[3]), [], 'an environment key has no key action');
   assert.equal(rows[3].querySelector('small').textContent, 'API key · from the server’s environment');
   assert.deepEqual(labels(rows[4]), ['Change', 'Log out']);
-  await click(buttonNamed(rows[0], 'Delete'));
+});
+
+test('server logins: a custom provider is deleted only after the answer', async (t) => {
+  const { document, removed } = await openCustomProviders(t);
+  await click(buttonNamed(loginRow(document, 0), 'Delete'));
   assert.equal(document.querySelector('.conn-dialog h3').textContent, 'Delete custom provider?');
   assert.match(document.querySelector('.conn-dialog').textContent, /Remove Acme and its saved API key/);
-  assert.deepEqual(calls, [], 'nothing is deleted before the answer');
+  assert.deepEqual(removed, [], 'nothing is deleted before the answer');
   await click(buttonNamed(document, 'Cancel'));
   await settle();
-  assert.deepEqual(calls, [], 'cancel keeps the provider');
+  assert.deepEqual(removed, [], 'cancel keeps the provider');
   assert.equal(document.querySelectorAll('.ssh-login-row').length, 5);
-  await click(buttonNamed(document.querySelectorAll('.ssh-login-row')[0], 'Delete'));
+  await click(buttonNamed(loginRow(document, 0), 'Delete'));
   await click(buttonNamed(document, 'Delete'));
   await settle();
-  assert.deepEqual(calls, [['remove', HOST.id, 'custom-a']]);
-  await click(buttonNamed(document.querySelectorAll('.ssh-login-row')[1], 'Delete'));
+  assert.deepEqual(removed, [['remove', HOST.id, 'custom-a']]);
+});
+
+test('server logins: a keyless custom provider is removed after confirmation', async (t) => {
+  const { document, removed } = await openCustomProviders(t);
+  await click(buttonNamed(loginRow(document, 1), 'Delete'));
   assert.match(document.querySelector('.conn-dialog').textContent, /Remove Gateway and its saved API key/);
   await click(buttonNamed(document, 'Delete'));
   await settle();
-  assert.deepEqual(
-    calls[1],
-    ['remove', HOST.id, 'custom-b'],
-    'a keyless custom provider is removed after confirmation'
-  );
+  assert.deepEqual(removed, [['remove', HOST.id, 'custom-b']]);
 });
 
 test('server logins: a server whose credential storage is unsafe shows its repair hint and folder, secret-free', async (t) => {

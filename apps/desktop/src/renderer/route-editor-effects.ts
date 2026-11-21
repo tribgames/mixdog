@@ -45,10 +45,7 @@ export function useRouteDismissal({
     if (!mounted) return undefined;
     layout();
     const onViewport = () => layout();
-    // A phone keyboard resizes and offsets the VISUAL viewport, which fires
-    // no window resize on iOS: without these the panel kept its old box while
-    // the composer moved and the two drifted apart (when the typing bar
-    // rises, the two separate).
+    // A phone keyboard resizes and offsets the visual viewport, which fires no window resize on iOS.
     const visual = window.visualViewport;
     window.addEventListener('resize', onViewport);
     window.addEventListener('scroll', onViewport, true);
@@ -63,10 +60,7 @@ export function useRouteDismissal({
   }, [layout, mounted]);
 }
 
-// Pretendard splits Hangul into lazy unicode-range subsets, so a first open
-// painted fallback glyphs and swapped mid-animation (fonts jumped when
-// first opened). Warming the exact sheet/flyout strings at mount lands the
-// real faces long before the picker ever opens.
+// Pretendard loads Hangul in lazy unicode-range subsets; loading the sheet's strings at mount avoids a font swap on first open.
 export function useRouteFontWarmup() {
   useEffect(() => {
     try {

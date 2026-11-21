@@ -940,8 +940,16 @@ test('a desktop close names when to offer again; the retry sends one ready', asy
   assert.equal(h.signals('ready').length, 2);
 });
 
-test('ready carries the page’s native size as the video limit; receiver stats carry frame size and timings', async () => {
-  // CSS size × the page's device scale factor, bounded by the contract's 4096.
+const scaledGeometry = {
+  generation: 1,
+  cssWidth: 1280,
+  cssHeight: 720,
+  deviceScaleFactor: 2,
+  pixelWidth: 1280,
+  pixelHeight: 720,
+};
+
+test('the video limit is the page’s native size, bounded by the contract’s 4096', () => {
   assert.deepEqual(remoteVideoLimit({ cssWidth: 1707, cssHeight: 960, deviceScaleFactor: 1.5 }), {
     maxWidth: 2560,
     maxHeight: 1440,
@@ -951,7 +959,9 @@ test('ready carries the page’s native size as the video limit; receiver stats 
     maxHeight: 2880,
   });
   assert.equal(remoteVideoLimit({ cssWidth: 0, cssHeight: 0, deviceScaleFactor: 2 }), null);
+});
 
+test('receiver stats carry frame size and timings the contract’s parser takes', () => {
   const stats = readRemoteWebrtcReceiverStats(
     new Map([
       [
@@ -969,20 +979,18 @@ test('ready carries the page’s native size as the video limit; receiver stats 
   assert.equal(stats.inputRoundTripMs, 40);
   // The contract's own parser takes it.
   assert.deepEqual(parseRemoteWebrtcChannelFromClient(JSON.stringify({ v: 1, kind: 'stats', stats })).stats, stats);
+});
 
-  // Before any geometry the stream's frame bound stands: no limit.
+test('ready carries no video limit before any geometry', () => {
   const h = harness();
   h.viewer.start();
   assert.equal(h.signals('ready')[0].videoLimit, undefined);
-  // An offer below the page's native size: ready again with it, unanswered.
-  const scaled = {
-    generation: 1,
-    cssWidth: 1280,
-    cssHeight: 720,
-    deviceScaleFactor: 2,
-    pixelWidth: 1280,
-    pixelHeight: 720,
-  };
+});
+
+test('an offer below the page’s native size is answered with a ready carrying the wider limit, then the wider offer is answered', async () => {
+  const scaled = scaledGeometry;
+  const h = harness();
+  h.viewer.start();
   h.viewer.handle(offer(1, { geometry: scaled }));
   await settle();
   assert.equal(h.peers.length, 0, 'the downscaled offer is not answered');
@@ -994,7 +1002,10 @@ test('ready carries the page’s native size as the video limit; receiver stats 
   await settle();
   assert.equal(h.peers.length, 1);
   assert.equal(h.viewer.state, 'negotiating');
-  // A host that cannot widen offers the same again: asked once, then answered.
+});
+
+test('a host that cannot widen its offer is asked once, then answered', async () => {
+  const scaled = scaledGeometry;
   const o = harness();
   o.viewer.start();
   o.viewer.handle(offer(1, { geometry: scaled }));

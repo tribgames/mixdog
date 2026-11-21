@@ -11,11 +11,6 @@ interface ConsoleMessageSource {
   on(event: 'console-message', listener: (event: unknown) => void): unknown;
 }
 
-// Renderer console errors had no sink outside the screenshot window, so a
-// caught-and-logged failure left no evidence at all. Keep a bounded,
-// de-duplicated tail: enough to explain a boot, never a growth path.
-// Chromium's ResizeObserver deferral notice is no error and recurs for as long
-// as a layout settles over two frames, so it takes none of the tail.
 export function installRendererConsoleErrorTail(
   webContents: ConsoleMessageSource,
   startupStartedAt: number,

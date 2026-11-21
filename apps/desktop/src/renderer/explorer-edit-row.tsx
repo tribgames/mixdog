@@ -1,8 +1,3 @@
-// Inline create/rename row: the input that replaces a row label while a name is
-// being typed. Enter commits a valid value, Escape cancels, blur commits what
-// is valid, the live validation bubble blocks on an error and only informs on a
-// warning, and F2 cycles the rename selection. The pane owns the edit state and
-// the commit itself; this row owns the caret grammar.
 import { useEffect, useRef, type ReactNode } from 'react';
 import type { ExplorerNameProblem } from './explorer-logic';
 import { t } from './i18n';

@@ -1,9 +1,3 @@
-// The session capabilities the core replaced by pushed sections (D-desktop-core-2, group 1), in the renderer. The
-// source is chosen by the window's connection alone, as `desktop-core-route-1` chooses it: a window on a connection
-// with a core endpoint reads the section store, any other window asks the Node host. On a core connection a section
-// the store does not hold yet is waited for, never replaced by a request; a provider the core does not know is an
-// error. `getProviderSetup`'s `force`/`refresh`/keychain options recompute the section first
-// (`account/refreshProviderSetup`); the core pushes the new value before it answers.
 import type {
   DesktopApi,
   DesktopCapabilityReadRequest,

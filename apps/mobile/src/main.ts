@@ -1,8 +1,3 @@
-// First-run / host-picker screen of the Mixdog phone app. This page is the only
-// UI bundled into the app: scan the PC's QR or enter its 6-digit code,
-// remember the host, then navigate the WebView to the relay's
-// `/d/<deviceId>/` page. Everything after that is the relay web app. The
-// layout (pairing-ui.ts) is one full-screen column shared by every step.
 import { BarcodeFormat, BarcodeScanner } from '@capacitor-mlkit/barcode-scanning';
 import { App } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';

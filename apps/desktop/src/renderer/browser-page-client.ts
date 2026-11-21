@@ -264,10 +264,6 @@ export function createBrowserPageClient(options: {
     }
     if (disposed || !page || !options.api.browserPageControl) {
       clearPending();
-      // Pane chrome (zoom, geometry, navigation) and hover motion run before
-      // the first frame attaches; the pane reapplies them on did-attach and
-      // dom-ready, so an early attempt is not a user-facing failure. Only
-      // deliberate human input reports that the page cannot take it yet.
       if (!disposed && !page && options.api.browserPageControl && !humanInput(action)) {
         return Promise.reject(new Error('Browser page is attaching.'));
       }
@@ -318,10 +314,6 @@ export function createBrowserPageClient(options: {
           if (motion) return;
           await refreshAfterControl();
           if (disposed) return;
-          // Geometry belongs to the pane, not the old document, and a requested
-          // address is meant for whichever page the pane shows now (a parked
-          // pane's last frame may name a tab the host has since replaced).
-          // Retry once only after the host proved it had not dispatched it.
           if (action.type === 'resize' || action.type === 'navigate') {
             await options.api.browserPageControl!(options.sessionId, {
               ...action,

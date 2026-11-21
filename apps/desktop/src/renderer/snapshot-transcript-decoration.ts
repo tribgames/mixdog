@@ -1,9 +1,3 @@
-// One transcript contract for every renderer snapshot source.
-//
-// Background mixdog:session-state lanes pass through this bounded decorator so
-// they carry the same failure turn keys and stable row identities as the
-// focused mixdog:state stream. Without it, focus would change visible rows
-// ("failed" ↔ "Failed · Retry") even though PaneConversation stays mounted.
 import type { SessionSnapshot } from '../shared/contract';
 import { withStreamingPartial } from '../shared/streaming-partial';
 import { type Snapshot, type TranscriptItem, EMPTY_SNAPSHOT } from './desktop-types';
@@ -86,11 +80,4 @@ export function createTranscriptSnapshotDecorator({ register = true } = {}): Tra
   };
 }
 
-// ONE process-wide instance. Instantiating a decorator per pipeline (focused
-// mixdog:state vs session lanes) meant each converged on ITS OWN first-seen
-// row ids for the same session, so a pane focus swap still crossed id
-// namespaces: rows remounted, the virtualizer dropped measured heights, and
-// the transcript + TurnReviewBar visibly jumped on every focus move (user
-// report, CDP-attributed). Sharing the instance gives every source one
-// per-session identity baseline.
 export const sharedTranscriptSnapshotDecorator = createTranscriptSnapshotDecorator();

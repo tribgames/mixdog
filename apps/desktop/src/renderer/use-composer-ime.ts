@@ -39,10 +39,6 @@ export function useComposerIme({
       composingElements.delete(element);
     };
     const onCompositionEnd = () => {
-      // Match the reference composer: a keydown delivered after compositionend
-      // is the user's submit Enter, even when Chromium keeps both events in the
-      // same task. The separate beforeinput guard below still blocks the stray
-      // insertLineBreak emitted by engines that end composition after keydown.
       composingRef.current = false;
       composingElements.delete(element);
       const committed = element.value;

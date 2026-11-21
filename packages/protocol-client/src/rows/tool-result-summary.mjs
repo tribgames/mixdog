@@ -109,11 +109,6 @@ function countNonEmptyLines(text) {
     .filter((line) => line.trim()).length;
 }
 
-// Zero-result recognizer (audit HIGH): result text that SAYS "nothing found"
-// must summarize as an explicit zero, not be line-counted into "1 match".
-// Matches the shapes emitted by grep/glob/find/list/recall providers:
-//   "(no matches)", "no matches found", "(no results)", "No results",
-//   "(no fuzzy match for \"...\")", "0 matches", "(empty)", "(no entries)".
 function looksLikeZeroResultText(text) {
   const trimmed = String(text ?? '').trim();
   if (!trimmed) return false;
@@ -248,10 +243,6 @@ export function textBetweenTag(text, tag) {
   return match ? match[1].trim() : '';
 }
 
-// Strip the most common inline-markdown markers so a one-line card summary
-// reads as plain prose ("**not clean**" → "not clean", "`x`" → "x"). Block
-// markers (#, >, -, 1.) at line start are dropped too. Whitespace is collapsed
-// by the caller's truncateSingleLine.
 function stripInlineMarkdown(value) {
   return String(value ?? '')
     .replace(/^\s{0,3}(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)/, '')
@@ -295,43 +286,34 @@ function firstAgentResultLine(text) {
   return '';
 }
 
-function summarizeGenericResult(text, translate = keepOriginal) {
-  const trimmed = String(text ?? '').trim();
-  if (!trimmed) return null;
-  if (/^(?:undefined|null)$/i.test(trimmed)) return null;
+const GENERIC_COUNTED_KEYS = [
+  'items',
+  'results',
+  'resources',
+  'templates',
+  'providers',
+  'schedules',
+  'channels',
+  'tools',
+];
 
-  if (/^[[{]/.test(trimmed)) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return countLabel(translate, parsed.length, 'item');
-      if (parsed && typeof parsed === 'object') {
-        if (parsed.cwd) return truncateSingleLine(parsed.cwd, AGENT_SURFACE_BRIEF_MAX);
-        if (typeof parsed.ok === 'boolean') return parsed.ok ? 'Ok' : translate('Failed', 'Failed');
-        for (const key of [
-          'items',
-          'results',
-          'resources',
-          'templates',
-          'providers',
-          'schedules',
-          'channels',
-          'tools',
-        ]) {
-          if (Array.isArray(parsed[key]))
-            return countLabel(translate, parsed[key].length, (key.slice(0, -1) || 'item').toLowerCase());
-        }
-        // A status/state object is a transport envelope, not a successful
-        // result body. Leave it to the card's terminal-status rendering.
-        if (firstText(parsed.status, parsed.state)) return null;
-        const message = firstText(parsed.result, parsed.message);
-        if (message) return truncateSingleLine(message, AGENT_SURFACE_BRIEF_MAX);
-      }
-    } catch {
-      return null;
-    }
+// undefined: the payload says nothing, scan its text instead; null: no summary.
+function summarizeGenericJson(parsed, translate) {
+  if (Array.isArray(parsed)) return countLabel(translate, parsed.length, 'item');
+  if (!parsed || typeof parsed !== 'object') return undefined;
+  if (parsed.cwd) return truncateSingleLine(parsed.cwd, AGENT_SURFACE_BRIEF_MAX);
+  if (typeof parsed.ok === 'boolean') return parsed.ok ? 'Ok' : translate('Failed', 'Failed');
+  for (const key of GENERIC_COUNTED_KEYS) {
+    if (Array.isArray(parsed[key]))
+      return countLabel(translate, parsed[key].length, (key.slice(0, -1) || 'item').toLowerCase());
   }
+  if (firstText(parsed.status, parsed.state)) return null;
+  const message = firstText(parsed.result, parsed.message);
+  return message ? truncateSingleLine(message, AGENT_SURFACE_BRIEF_MAX) : undefined;
+}
 
-  const line =
+function firstGenericResultLine(text, trimmed) {
+  return (
     firstAgentResultLine(text) ||
     trimmed
       .split('\n')
@@ -343,7 +325,25 @@ function summarizeGenericResult(text, translate = keepOriginal) {
           !ENVELOPE_FIELD_LINE_RE.test(item) &&
           !BRACKETED_FIELD_LINE_RE.test(item)
       ) ||
-    '';
+    ''
+  );
+}
+
+function summarizeGenericResult(text, translate = keepOriginal) {
+  const trimmed = String(text ?? '').trim();
+  if (!trimmed) return null;
+  if (/^(?:undefined|null)$/i.test(trimmed)) return null;
+
+  if (/^[[{]/.test(trimmed)) {
+    try {
+      const summary = summarizeGenericJson(JSON.parse(trimmed), translate);
+      if (summary !== undefined) return summary;
+    } catch {
+      return null;
+    }
+  }
+
+  const line = firstGenericResultLine(text, trimmed);
   if (!line || line === '{' || line === '[') return null;
   if (/^(ok|done|success|saved|sent|updated|reloaded|connected|enabled|disabled|active|inactive)$/i.test(line)) {
     return titleStatus(line);
@@ -351,11 +351,6 @@ function summarizeGenericResult(text, translate = keepOriginal) {
   return truncateSingleLine(line, AGENT_SURFACE_BRIEF_MAX);
 }
 
-// Error-cause extractor (audit HIGH): when a tool result is an error, surface
-// the actual cause line instead of a bare "Failed"/raw first line. Handles
-// JSON error envelopes ({error|message|cause|detail}) and plain-text bodies
-// (first line that carries error-ish signal, else first non-empty line).
-// Exported for ToolExecution's collapsed detail row.
 export function extractErrorCause(resultText) {
   const text = String(resultText ?? '').trim();
   if (!text) return '';
@@ -681,11 +676,6 @@ const TOOL_RESULT_SUMMARIZERS = new Map(
   ].flatMap(([names, summarize]) => names.map((name) => [name, summarize]))
 );
 
-/**
- * Derive a short semantic one-liner for a completed tool call using only the
- * tool name, parsed args, and the raw result text. Returns null when nothing
- * reliable can be derived, so the caller falls back to the raw result block.
- */
 export function summarizeToolResult(name, args, resultText, isError = false, translate = keepOriginal) {
   const notification = parseTaskNotification(resultText);
   if (notification) {

@@ -1,8 +1,3 @@
-// A paired device learns which sessions have a Browser Use approval waiting on the PC -- marks only -- and still has no way to see or answer
-// the approval. Node's version (b6f10295a) also replayed the marks' delivery over the encrypted socket: the baseline after a re-key and the
-// refusal of a cleartext frame. Both belong to the connection, which the phone no longer builds from frames; the cleartext/authenticated rule
-// is replayed by apps/mobile/src/phone-client.test.ts. What the page keeps is the
-// subscription: the current list at once, then each change until the listener leaves.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { adapter as browser } from './remote-protocol-browser.ts';
@@ -57,7 +52,11 @@ test('a late subscriber gets the PC list at once, then changes and the clearing'
     update('browserDialogApprovalSessions', ['sess_after']);
     assert.equal(seen.length, 6, 'unsubscribed');
     detach();
-    // Still nothing that shows or answers the approval.
+  });
+});
+
+test('a paired device is given nothing that shows or answers the approval', async () => {
+  await withPhoneApi({}, async ({ api }) => {
     assert.equal(api.onBrowserApproval, undefined);
     assert.equal(api.browserApprovalDecide, undefined);
   });

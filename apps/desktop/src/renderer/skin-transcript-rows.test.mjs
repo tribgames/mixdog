@@ -1,10 +1,4 @@
-// Transcript rows under a skin, in a real Chrome against the app's own
-// stylesheets: every plated row (assistant reply, tool roll-up open and
-// closed, live status, turn-end line, compaction and error notices) shares the
-// assistant plate's token background and its left/right edges with every card
-// (question, changed files, approval, visualize, result), and its text holds
-// 4.5:1 (icons 3:1) on every skin x plate x theme x transparency (default,
-// max). Phone included. Set MIXDOG_ROWS_SHOTS=<dir> to write screenshots.
+// MIXDOG_ROWS_SHOTS=<dir> writes screenshots.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import puppeteer from 'puppeteer-core';

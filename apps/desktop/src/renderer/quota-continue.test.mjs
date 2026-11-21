@@ -144,15 +144,20 @@ const guidanceText = (otherAccount = false) =>
     ? translate("Switch accounts or to another provider's model to continue now")
     : translate("Switch to another provider's model to continue now");
 
-test('the quota banner is one line between the island and the composer, with no close', async (t) => {
+function quotaBanner(t) {
   const { root, document } = mount(t);
   const calls = [];
   const render = (quotaCard) =>
     act(async () => root.render(React.createElement(ComposerDock, { ...dockProps(), quotaCard })));
+  const resetAt = Date.now() + (2 * 60 + 15) * 60_000 - 1_000;
+  return { document, calls, render, resetAt };
+}
+
+test('the quota banner is one line between the island and the composer, with no close', async (t) => {
+  const { document, calls, render, resetAt } = quotaBanner(t);
   await render(null);
   assert.equal(banner(document), null);
 
-  const resetAt = Date.now() + (2 * 60 + 15) * 60_000 - 1_000;
   const time = quotaResetLabel(resetAt);
   await render({
     resetAt,
@@ -185,8 +190,10 @@ test('the quota banner is one line between the island and the composer, with no 
   assert.equal(buttons[0].dataset.reserved, undefined, 'off: the clock stays still');
   await act(async () => buttons[0].click());
   assert.deepEqual(calls, ['toggle']);
+});
 
-  // Reserved: the same button spins and pressing it cancels.
+test('a reserved resume spins its button and pressing it cancels', async (t) => {
+  const { document, calls, render, resetAt } = quotaBanner(t);
   await render({
     resetAt,
     otherAccount: false,
@@ -198,8 +205,10 @@ test('the quota banner is one line between the island and the composer, with no 
   assert.equal(reserved.getAttribute('aria-pressed'), 'true');
   assert.equal(reserved.dataset.reserved, 'true', 'on: the icon spins');
   assert.equal(reserved.getAttribute('title'), translate('Resume reserved · click to cancel'));
+});
 
-  // An unknown reset: no time part and no resume button.
+test('a quota stop with an unknown reset has no time part and no resume button', async (t) => {
+  const { document, render } = quotaBanner(t);
   await render({ resetAt: null, otherAccount: true, reserved: false, busy: false });
   assert.equal(banner(document).querySelector('.composer-quota-card-reset'), null);
   assert.equal(banner(document).querySelector('button'), null);

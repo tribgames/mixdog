@@ -26,16 +26,6 @@ interface StreamingMarkdownParts {
   parseUnstable: boolean;
 }
 
-/* Safety valve, not a rendering mode. The streaming projection normally has
- * no size cap: every projection
- * re-lexes the whole response, freezes all but the last token, and heals that
- * last token so it is always parsed. A small cap would fire on ordinary
- * output — one long list or an open fence has no stable boundary, so the
- * whole tail would cross it mid-stream and the reader would watch raw
- * `**`/`##` markers appear. 64 KiB only guards against a
- * pathological unbounded tail; below it the tail always parses, and above it
- * the renderer holds the last completed parse instead of dropping to
- * source (StreamingMarkdownBody). */
 export const MAX_STREAMING_UNSTABLE_MARKDOWN_CHARS = 64 * 1024;
 const STREAM_APPEND_PROBE_CHARS = 128;
 const nonPlainTextMarkdownSyntax = /[\\`*_[\]<>|&$]/;
@@ -61,10 +51,6 @@ function resetCache(cache: StreamingMarkdownCache): void {
   Object.assign(cache, createStreamingMarkdownCache());
 }
 
-/** A rewritten tail under intact frozen blocks: keep the blocks (and their
- *  mounted, parsed chunks) and rescan from the last frozen boundary. Frozen
- *  boundaries are top-level block starts outside any fence, so the scan
- *  resumes at a line start with no fence open. */
 function rewindTail(cache: StreamingMarkdownCache): void {
   cache.scanOffset = cache.stableText.length;
   cache.fenceMarker = '';
@@ -151,15 +137,12 @@ function stableMarkdownBoundaries(text: string, cache: StreamingMarkdownCache): 
     .map((offset) => base + offset);
 }
 
-/* Top-level block starts of a CommonMark document, exactly where remark-parse
- * (micromark) places `root.children[i].position.start.offset`. Running the
- * full main-thread parser over the live tail on every token flush only to
- * read those offsets cost ~160 ms per stream on a throttled phone, so this is
- * the spec's line-oriented block phase (container continuation, block starts,
- * lazy continuation) without inline parsing, and with micromark's deviations: indented code interrupts like a paragraph for
- * list items, an interrupting ordered item must be literally `1`, complete
- * HTML tags (condition 7) start on lazy lines, and link reference
- * definitions split the paragraph they open. */
+/* Top-level block starts matching remark-parse (micromark)
+ * `root.children[i].position.start.offset`, including micromark's deviations
+ * from the spec: indented code interrupts like a paragraph for list items, an
+ * interrupting ordered item must be literally `1`, complete HTML tags
+ * (condition 7) start on lazy lines, and link reference definitions split the
+ * paragraph they open. */
 type ScanBlockKind = 'document' | 'quote' | 'list' | 'item' | 'paragraph' | 'heading' | 'break' | 'code' | 'html';
 
 interface ScanBlock {
@@ -838,46 +821,8 @@ export function markdownBlockStarts(text: string): number[] {
   return new MarkdownBlockScanner().scan(String(text ?? ''));
 }
 
-export function resolveStreamingMarkdownChunks(
-  text: string,
-  streaming: boolean,
-  cache: StreamingMarkdownCache
-): StreamingMarkdownParts {
-  const value = String(text ?? '');
-  // Resetting on every rewrite dropped the frozen blocks above it: their
-  // chunks unmounted and the first one briefly stood in for the whole reply,
-  // collapsing the row until the new parse landed.
-  if (!continuesStreamingText(cache.sourceText, value)) {
-    if (cache.stableText && value.startsWith(cache.stableText)) rewindTail(cache);
-    else resetCache(cache);
-  }
-  if (!streaming) {
-    // Keep already-parsed blocks mounted when the stream settles. Resetting
-    // here would reparse the complete response in one renderer task, even
-    // though most blocks had already been frozen.
-    if (cache.stableText && value.startsWith(cache.stableText)) {
-      cache.sourceText = value;
-      return {
-        stableChunks: cache.stableChunks,
-        stableChunkKeys: cache.stableChunkKeys,
-        unstableText: value.slice(cache.stableText.length),
-        unstableKey: markdownChunkKey(cache.stableText.length),
-        parseUnstable: true,
-      };
-    }
-    resetCache(cache);
-    cache.sourceText = value;
-    return {
-      stableChunks: [],
-      stableChunkKeys: [],
-      unstableText: value,
-      unstableKey: markdownChunkKey(0),
-      parseUnstable: true,
-    };
-  }
-
-  const stableBoundaries = stableMarkdownBoundaries(value, cache);
-  for (const boundary of stableBoundaries) {
+function freezeStableChunks(value: string, cache: StreamingMarkdownCache): void {
+  for (const boundary of stableMarkdownBoundaries(value, cache)) {
     if (boundary <= cache.stableText.length || boundary > value.length) continue;
     const chunk = value.slice(cache.stableText.length, boundary);
     if (!chunk) continue;
@@ -887,7 +832,9 @@ export function resolveStreamingMarkdownChunks(
     cache.stableChunkKeys = [...cache.stableChunkKeys, chunkKey];
   }
   cache.boundaries = cache.boundaries.filter((position) => position > cache.stableText.length);
+}
 
+function projectCache(value: string, cache: StreamingMarkdownCache): StreamingMarkdownParts {
   cache.sourceText = value;
   const unstableText = value.slice(cache.stableText.length);
   return {
@@ -895,11 +842,25 @@ export function resolveStreamingMarkdownChunks(
     stableChunkKeys: cache.stableChunkKeys,
     unstableText,
     unstableKey: markdownChunkKey(cache.stableText.length),
-    // An open fence, table, list, or very long paragraph may have no safe
-    // boundary for many kilobytes. Re-running the full GFM parser for that
-    // growing tail every 80ms blocks Chromium's renderer thread. Preserve the
-    // live text as plain DOM until settlement instead; completed older blocks
-    // remain parsed and memoized above.
     parseUnstable: unstableText.length <= MAX_STREAMING_UNSTABLE_MARKDOWN_CHARS,
   };
+}
+
+export function resolveStreamingMarkdownChunks(
+  text: string,
+  streaming: boolean,
+  cache: StreamingMarkdownCache
+): StreamingMarkdownParts {
+  const value = String(text ?? '');
+  const keepsFrozen = () => Boolean(cache.stableText) && value.startsWith(cache.stableText);
+  if (!continuesStreamingText(cache.sourceText, value)) {
+    if (keepsFrozen()) rewindTail(cache);
+    else resetCache(cache);
+  }
+  if (!streaming) {
+    if (!keepsFrozen()) resetCache(cache);
+    return { ...projectCache(value, cache), parseUnstable: true };
+  }
+  freezeStableChunks(value, cache);
+  return projectCache(value, cache);
 }

@@ -217,10 +217,6 @@ function imageHold(text: string, lineStart: number, cut: number, live: boolean):
   return image >= 0 ? image : cut;
 }
 
-/** A table header row (a line with a cell pipe, not inside a formed table)
- *  ends right before `at` and the line at `at` may still be its delimiter
- *  row: the cut goes back to the header, which paints with its delimiter
- *  (alone it parses as a paragraph of raw pipes). */
 function tableHeadHold(text: string, at: number, live: boolean): number {
   if (at <= 0 || (!live && at >= text.length)) return at;
   // The line after the possible header: `at` starts it, or `at` is inside it
@@ -245,9 +241,6 @@ const BARE_HEADING_MARKER = /^ {0,3}(?:>[ \t]*)*#{1,6}[ \t]*$/;
 /** What a closing fence looks like while it is typed. */
 const FENCE_BEING_TYPED = /^[ \t>]*(?:`+|~+)$/;
 
-/** Start of the line holding `at` when the paced reveal may not stop at `at`:
- *  the line so far is only a list or heading marker, or, inside a code block,
- *  a fence still being typed. -1 when it may stop there. */
 function pacedHoldStart(text: string, at: number): number {
   if (at <= 0) return -1;
   const start = text.lastIndexOf('\n', at - 1) + 1;

@@ -1418,11 +1418,11 @@ test('a remote tab label naming the working directory falls back to the panes, h
   }
 });
 
-test('annotate needs the tab on screen, like capture', async () => {
+function desktopHarness() {
   const { cwd, cleanup } = workspace();
-  let minimized = false;
-  let bodyShown = false;
+  const screen = { minimized: false, bodyShown: false, remoteViewer: false };
   const injected = [];
+  const network = {};
   const frame = {
     url: '',
     isDestroyed: () => false,
@@ -1433,7 +1433,7 @@ test('annotate needs the tab on screen, like capture', async () => {
   };
   const window = {
     isDestroyed: () => false,
-    isMinimized: () => minimized,
+    isMinimized: () => screen.minimized,
     isVisible: () => true,
     webContents: {
       id: 7,
@@ -1455,14 +1455,12 @@ test('annotate needs the tab on screen, like capture', async () => {
       },
       // The rect query and the hit-test query answer differently: a rect, or whether the body is uncovered.
       executeJavaScript: async (script) => {
-        if (script.includes('elementFromPoint')) return bodyShown ? true : null;
-        return bodyShown ? { x: 0, y: 0, width: 10, height: 10 } : null;
+        if (script.includes('elementFromPoint')) return screen.bodyShown ? true : null;
+        return screen.bodyShown ? { x: 0, y: 0, width: 10, height: 10 } : null;
       },
       mainFrame: { framesInSubtree: [frame] },
     },
   };
-  const network = {};
-  let remoteViewer = false;
   const remoteEvents = [];
   const service = createDesktopVisualize({
     window: () => window,
@@ -1471,13 +1469,27 @@ test('annotate needs the tab on screen, like capture', async () => {
     },
     browserAvailable: () => true,
     publishRemote: (event) => remoteEvents.push(event),
-    remoteViewing: async (sessionId) => remoteViewer && sessionId === 's1',
+    remoteViewing: async (sessionId) => screen.remoteViewer && sessionId === 's1',
   });
-  const annotate = () =>
-    service.execute({ sessionId: 's1', cwd, action: 'annotate', input: { tab: 'v1', add: [{ selector: 'h1' }] } });
-  try {
+  const open = async () => {
     await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: ['site/index.html'] } });
     assert.ok(frame.url.startsWith('http://127.0.0.1:'));
+  };
+  const annotate = () =>
+    service.execute({ sessionId: 's1', cwd, action: 'annotate', input: { tab: 'v1', add: [{ selector: 'h1' }] } });
+  const problems = () => remoteEvents.at(-1).state.tabs[0].problems;
+  const cancelled = (details) => {
+    let result;
+    network.before({ webContentsId: 7, referrer: '', resourceType: 'xhr', ...details }, (answer) => (result = answer));
+    return result.cancel;
+  };
+  return { cwd, cleanup, screen, injected, network, frame, remoteEvents, service, open, annotate, problems, cancelled };
+}
+
+test('a desktop tab reaches the remote mirror with its file, and failed page asset loads are problems', async () => {
+  const { cwd, cleanup, frame, network, remoteEvents, service, open, problems } = desktopHarness();
+  try {
+    await open();
     // The daemon's copy names the resolved file and cwd (never sent to clients).
     const hostTab = remoteEvents.at(-1).state.tabs[0];
     assert.equal(hostTab.cwd, cwd);
@@ -1488,7 +1500,6 @@ test('annotate needs the tab on screen, like capture', async () => {
     // page's stylesheet and a network error are problems; a good response, an
     // aborted request, the page document itself and foreign requests are not.
     const asset = (name) => new URL(name, frame.url).href;
-    const problems = () => remoteEvents.at(-1).state.tabs[0].problems;
     // The webRequest session is shared: only the main window's page frame
     // (webContents 7) owns a request to its lease.
     const fromPage = (details, over = {}) => ({
@@ -1528,11 +1539,16 @@ test('annotate needs the tab on screen, like capture', async () => {
       ]
     );
     assert.doesNotMatch(JSON.stringify(problems()), /127\.0\.0\.1/);
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
 
-    // Outside network: refused only for requests made by a visualize page
-    // (or a frame nested in one, or by its referrer); the app, other
-    // origins' frames and the page's own lease stay untouched. Tabs open with
-    // network allowed; the guard is exercised once it is switched off.
+test('outside network is refused for visualize pages only, filed as problems, and lifted per tab by the toggle', async () => {
+  const { cleanup, frame, remoteEvents, service, open, problems, cancelled } = desktopHarness();
+  try {
+    await open();
     assert.equal(remoteEvents.at(-1).state.tabs[0].networkAllowed, true, 'allowed by default');
     // A paired device's view carries it too: its frame drops the block on it.
     assert.equal(remoteVisualizeState(remoteEvents.at(-1).state).tabs[0].networkAllowed, true);
@@ -1540,14 +1556,6 @@ test('annotate needs the tab on screen, like capture', async () => {
     const page = { url: frame.url, isDestroyed: () => false, parent: null };
     const child = { url: 'https://ads.example/frame.html', isDestroyed: () => false, parent: page };
     const appFrame = { url: 'file:///C:/app/index.html', isDestroyed: () => false, parent: null };
-    const cancelled = (details) => {
-      let result;
-      network.before(
-        { webContentsId: 7, referrer: '', resourceType: 'xhr', ...details },
-        (answer) => (result = answer)
-      );
-      return result.cancel;
-    };
     assert.equal(
       cancelled({
         webContentsId: 99,
@@ -1658,11 +1666,17 @@ test('annotate needs the tab on screen, like capture', async () => {
       true,
       'blocked again'
     );
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
 
-    // Ownership is by frame, not by its current URL: a pane that navigates
-    // itself to blob:/data:/about: and then fetches is still blocked, and the
-    // navigation itself is refused and reported. Other frames (the app UI, the
-    // browser panel, an iframe the app reuses) are never affected.
+test('a pane frame stays blocked and owned after it navigates itself, and the app frames are never affected', async () => {
+  const { cleanup, frame, network, service, open, problems, cancelled } = desktopHarness();
+  try {
+    await open();
+    await service.command({ sessionId: 's1', tabId: 'v1', action: 'network', allow: false });
     const topFrame = { url: 'file:///C:/app/index.html', isDestroyed: () => false, parent: null };
     const paneFrame = (url) => ({ url, frameTreeNodeId: 41, isDestroyed: () => false, parent: topFrame });
     const evil = { url: 'https://evil.example/x', resourceType: 'xhr' };
@@ -1717,25 +1731,34 @@ test('annotate needs the tab on screen, like capture', async () => {
     assert.equal(cancelled({ frame: paneFrame('blob:http://127.0.0.1:1/9f8e'), ...evil }), false, 'released');
     assert.equal(navigate(frame.url, { initiator: topFrame }), false);
     assert.equal(cancelled({ frame: paneFrame('blob:http://127.0.0.1:1/9f8e'), ...evil }), true, 'reclaimed');
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
 
-    minimized = true;
+test('annotate needs the tab on screen, like capture', async () => {
+  const { cleanup, screen, injected, remoteEvents, service, open, annotate } = desktopHarness();
+  try {
+    await open();
+    screen.minimized = true;
     await assert.rejects(annotate(), /minimized or hidden/);
-    minimized = false;
+    screen.minimized = false;
     // The frame exists but the panel shows nothing (closed / other session).
     await assert.rejects(annotate(), /not on screen/);
     // Only a paired remote device shows it: the marks go to the tab state,
     // which that device draws from; nothing is injected on the desktop.
-    remoteViewer = true;
+    screen.remoteViewer = true;
     assert.match((await annotate()).text, /h1 \(drawn on the paired device showing the tab/);
     assert.deepEqual(remoteEvents.at(-1).state.tabs[0].annotations, [{ pane: 0, selector: 'h1' }]);
-    minimized = true;
+    screen.minimized = true;
     assert.match((await annotate()).text, /drawn on the paired device/);
-    minimized = false;
+    screen.minimized = false;
     assert.deepEqual(injected, []);
     assert.equal(REMOTE_ONLY_ANNOTATE.length > 0, true);
 
     // Shown on the desktop too: no change, the marks are drawn there.
-    bodyShown = true;
+    screen.bodyShown = true;
     assert.match((await annotate()).text, /Annotations on tab v1/);
     assert.equal(injected.length, 1);
   } finally {

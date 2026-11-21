@@ -12,13 +12,8 @@ import { TRANSCRIPT_RELEARN_ATTRIBUTE, TRANSCRIPT_ROW_ESTIMATE } from './transcr
 const variesWithContext = (row: TranscriptRowModel | undefined) =>
   row?._tag === 'ToolActivity' || row?._tag === 'Thinking' || row?._tag === 'AssistantPart';
 
-/** What a row paints from its context (use-conversation-row-renderer.ts),
- *  which comes and goes with other rows: `lines:N` for the N hand-off lines
- *  it carries, `hidden` for a task report that paints nothing, '' for none of
- *  it. The height store learns each apart (one hidden round's 0px must not
- *  estimate a round showing a line). The list marks each painted row with it
- *  (TranscriptList.tsx data-variant): a measurement is recorded under what
- *  the row painted, never under rows that changed since. */
+/** `lines:N` for the N hand-off lines a row carries, `hidden` for a task report that paints nothing, '' otherwise. The
+ *  height store learns each apart; the list marks each painted row with it (TranscriptList.tsx data-variant). */
 export function transcriptRowVariant(
   rows: readonly TranscriptRowModel[],
   index: number,
@@ -31,10 +26,11 @@ export function transcriptRowVariant(
   return lines ? `lines:${lines}` : '';
 }
 
-/** Unmeasured rows start at their remembered or learned height instead of a
- *  flat 60px (transcript-row-estimates.ts). An estimate is held per key until
- *  the row is measured: re-estimating rows the reader never saw, whenever the
- *  learned heights moved, would shift everything below them. */
+const paintsNothing = (row: TranscriptRowModel, variant: string, surface: TranscriptRowSurface) =>
+  variant === 'hidden' ||
+  (row._tag === 'AssistantPart' && (roomPassIsQuiet(row.item) || routineReplyIsQuiet(row.item))) ||
+  (row._tag === 'Thinking' && surface === 'room' && !variant);
+
 export function useTranscriptRowEstimates({
   rowsRef,
   viewport,
@@ -70,16 +66,7 @@ export function useTranscriptRowEstimates({
       fallbackEstimates.current.delete(row.key);
       if (variant) heldVariants.current.set(row.key, variant);
       else heldVariants.current.delete(row.key);
-      // A quiet pass or a hidden task report paints nothing: estimating it at
-      // a reply's height made it shrink the thread by that much once measured.
-      // A room's live band too: nobody types until the supervisor picks a
-      // member (use-conversation-row-renderer.ts roomTyping), unless it
-      // carries hand-off lines.
-      if (
-        variant === 'hidden' ||
-        (row._tag === 'AssistantPart' && (roomPassIsQuiet(row.item) || routineReplyIsQuiet(row.item))) ||
-        (row._tag === 'Thinking' && surfaceRef.current === 'room' && !variant)
-      ) {
+      if (paintsNothing(row, variant, surfaceRef.current)) {
         heldEstimates.current.set(row.key, 0);
         return 0;
       }
@@ -98,12 +85,6 @@ export function useTranscriptRowEstimates({
     },
     [rowsRef, viewport, surfaceRef]
   );
-  // A newly learned shape re-estimates the rows still at the flat fallback,
-  // but only while the timeline follows its end: the end pin then keeps the
-  // reader's view still while every unmeasured row above changes size, in one
-  // write instead of one correction per row as each is scrolled into. A
-  // reader away from the end is never shifted by it; those rows pick up the
-  // learned shape at the next full re-layout (a page landing, a new row).
   const relearnFrame = useRef(0);
   // Marked on the viewport while a relearn waits for its frame: the entry
   // reveal (use-transcript-reveal.ts) never takes a revisit as final then.
@@ -133,10 +114,6 @@ export function useTranscriptRowEstimates({
   const measureRowSize = useCallback(
     (element: Element, entry: ResizeObserverEntry | undefined, instance: TranscriptVirtualizer) => {
       const size = measureTranscriptRow(element, entry, instance);
-      // Only the observer's settled boxes teach the store: a streaming reply
-      // or a row still waiting for its parser is not its final height. A 0px
-      // box teaches only from a row that paints nothing (an agent chat's
-      // hidden tool round, TranscriptList.tsx data-blank).
       const row = entry ? rowsRef.current[instance.indexFromElement(element as HTMLDivElement)] : undefined;
       if (
         row &&

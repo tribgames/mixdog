@@ -1,24 +1,12 @@
-// Android back-button (ABB) grammar for the projected phone surface: every
-// transient layer (session drawer, tab overview, bottom panel, utility dock)
-// claims the hardware/gesture back while it is open, so back closes the
-// topmost layer instead of leaving the PWA. With no layer open, back falls
-// through to the browser default.
-// Desktop/Electron surfaces never register: the helper no-ops unless the
-// mobile-tabs marker is present.
-//
-// Browsers with CloseWatcher (Android Chrome) get one watcher per layer opened
-// by a user gesture and history is never touched: a pushState/back pair on
-// every open and close flashed the Android navigation bar white. Browsers
-// without it keep
-// one history sentinel per layer.
-//
-// A CloseWatcher created WITHOUT transient user activation (a layer the app
-// opens by itself, e.g. the agent's visualize panel) is not a back target of
-// its own: Chrome joins it to the previous watcher's group, so one back
-// closes both or the press falls through to leaving the page. Such layers use
-// the history sentinel instead. Back always closes the newest layer, so the
-// two mechanisms never coexist: the first activation-less layer converts the
-// open watcher layers to sentinels, and watchers return once the stack drains.
+// CloseWatcher (Android Chrome): one watcher per layer opened by a user gesture,
+// history untouched: a pushState/back pair per open and close flashed the
+// Android navigation bar white. Browsers without it use one history sentinel
+// per layer.
+// A CloseWatcher created without transient user activation is not a back
+// target of its own: Chrome joins it to the previous watcher's group, so one
+// back closes both or leaves the page. Such layers use the history sentinel;
+// the first activation-less layer converts open watcher layers to sentinels,
+// and watchers return once the stack drains.
 import { useEffect, useRef } from 'react';
 import { nativeAppInfo } from '../shared/native-app';
 import { useSurfaceActive } from './surface-activity';

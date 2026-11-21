@@ -45,10 +45,6 @@ const RECORD_KEYS = [
   'uptimeMs',
 ];
 
-// Writes to fd 2 before the ready handshake, then — only once the fixture opens
-// its gate, which it does after the launcher has processed ready — writes one
-// more line and exits with a known code. The gate makes "late stderr, strictly
-// after ready" deterministic instead of a raced delay.
 const STUB_DAEMON = `
 import { existsSync } from 'node:fs';
 
@@ -179,7 +175,7 @@ function writeBoot(dir, stem, { bytes = 1024, record = null, mtimeMs }) {
   for (const file of files) utimesSync(file, at, at);
 }
 
-test('a daemon that dies after ready leaves its fd 2 text and exit code on disk', async (t) => {
+async function runStubDaemonToExit(t) {
   const fixture = workspace(t, 'mixdog-crash-capture-');
   const root = fixture.root;
   const logs = [];
@@ -201,17 +197,18 @@ test('a daemon that dies after ready leaves its fd 2 text and exit code on disk'
   capture.noteReady();
   child.disconnect();
   child.unref();
-  // Strictly after ready: the post-ready write cannot happen before this.
   writeFileSync(gate, 'go');
   await within(once(child, 'exit'), 15_000, 'stub exit');
+  return { capture, child, logs };
+}
 
+test('a daemon that dies after ready leaves its fd 2 text and exit code on disk', async (t) => {
+  const { capture, child } = await runStubDaemonToExit(t);
   const captured = readFileSync(capture.capturePath, 'utf8');
   assert.match(captured, /boot line one/);
   assert.match(captured, /post ready native line/);
 
-  const raw = readFileSync(capture.recordPath, 'utf8');
-  const record = JSON.parse(raw);
-  assert.deepEqual(Object.keys(record).sort(), RECORD_KEYS);
+  const record = JSON.parse(readFileSync(capture.recordPath, 'utf8'));
   assert.equal(record.kind, 'mixdog-daemon-crash-capture');
   assert.equal(record.pid, child.pid);
   assert.equal(record.ready, true);
@@ -220,13 +217,20 @@ test('a daemon that dies after ready leaves its fd 2 text and exit code on disk'
   assert.ok(record.stderrBytes > 0);
   assert.ok(record.spawnedAt && record.readyAt && record.exitedAt);
   assert.ok(Number.isFinite(record.uptimeMs) && record.uptimeMs >= 0);
+});
+
+test('the capture record holds the heap flags and no environment or argument material', async (t) => {
+  const { capture } = await runStubDaemonToExit(t);
+  const raw = readFileSync(capture.recordPath, 'utf8');
+  const record = JSON.parse(raw);
+  assert.deepEqual(Object.keys(record).sort(), RECORD_KEYS);
   assert.deepEqual(record.heapFlags, ['--max-old-space-size=64']);
-  // No environment or argument dump: only the heap flags that explain an OOM.
   assert.equal(raw.includes('daemon-capture-secret-value'), false);
   assert.equal(raw.includes('MIXDOG_TEST_SECRET'), false);
+});
 
-  // Every captured line reaches the launcher log exactly once across the
-  // ready and exit drains, and the exit is correlated to pid/ready state.
+test('every captured line reaches the launcher log once and the exit line names the daemon', async (t) => {
+  const { child, logs } = await runStubDaemonToExit(t);
   assert.equal(countLines(logs, 'boot line one'), 1);
   assert.equal(countLines(logs, 'boot line two'), 1);
   assert.equal(countLines(logs, 'post ready native line'), 1);
@@ -503,8 +507,6 @@ test('a restart prunes to the completed budget while its own active capture stay
     'completed boots are held to the documented budget, the active boot is extra'
   );
 
-  // Closing the boot folds it into the completed budget on the next restart,
-  // where it is the newest crash and therefore the one that must survive.
   capture.noteExit({ code: 1, signal: null });
   const next = fixture.own(beginDaemonSpawnCapture({ launcher: 'test', dataDir: root }));
   const afterRestart = bootStems(dir).filter((stem) => stem !== next.stem);
@@ -512,53 +514,63 @@ test('a restart prunes to the completed budget while its own active capture stay
   assert.ok(afterRestart.includes(capture.stem), 'the newest completed crash survives the restart');
 });
 
+const SIX_HOURS_AGO_MS = () => Date.now() - 6 * 60 * 60_000;
+
+function writeNewestCompletedBoot(dir) {
+  writeBoot(dir, 'daemon-20260915-064900-4242-cafe', {
+    bytes: 512,
+    mtimeMs: Date.now(),
+    record: deadRecord(),
+  });
+}
+
 test('a launch in progress is never pruned by a concurrent launcher', (t) => {
   const fixture = workspace(t, 'mixdog-crash-capture-concurrent-');
   const root = fixture.root;
   const dir = daemonCrashCaptureDir({ dataDir: root });
-  // Two launchers race: each opened fd 2, neither has published a child pid.
   const first = fixture.own(beginDaemonSpawnCapture({ launcher: 'a', dataDir: root }));
   const second = fixture.own(beginDaemonSpawnCapture({ launcher: 'b', dataDir: root }));
   const pressured = pruneDaemonCrashCaptures({ dir, keepBoots: 1, keepBytes: 64 * 1024 });
   assert.equal(pressured.removed, 0);
   assert.equal(pressured.activeBoots, 2);
   assert.ok(existsSync(first.capturePath) && existsSync(second.capturePath));
+});
 
-  // A raw capture whose sidecar has not landed yet, and a sidecar caught
-  // mid-write, are both UNKNOWN — never "safe to delete", at ANY age. Aging
-  // them out would be the bug: a live daemon whose metadata was damaged would
-  // lose the very file it is still writing its fatal report into.
+test('a capture without a readable sidecar is unknown, never pruned at any age', (t) => {
+  const fixture = workspace(t, 'mixdog-crash-capture-unknown-');
+  const dir = daemonCrashCaptureDir({ dataDir: fixture.root });
+  mkdirSync(dir, { recursive: true });
   const orphan = 'daemon-20260915-064859-4242-beef';
   writeFileSync(join(dir, `${orphan}.err.log`), 'partial boot output\n');
   const corrupt = 'daemon-20260915-064858-4242-dead';
   writeFileSync(join(dir, `${corrupt}.err.log`), 'x');
   writeFileSync(join(dir, `${corrupt}.json`), '{ "pid": ');
-  const old = new Date(Date.now() - 6 * 60 * 60_000);
+  const old = new Date(SIX_HOURS_AGO_MS());
   for (const name of [`${corrupt}.err.log`, `${corrupt}.json`, `${orphan}.err.log`]) {
     utimesSync(join(dir, name), old, old);
   }
-  // Debris from an interrupted atomic sidecar write is reclaimed only when its
-  // writer pid is provably gone; an OLD temp from a live writer is left alone.
-  const deadWriterTemp = join(dir, '.daemon-20260915-064858-999999998-dead.json.abcdef.tmp');
-  const liveWriterTemp = join(dir, `.daemon-20260915-064859-${process.pid}-beef.json.123456.tmp`);
-  writeFileSync(deadWriterTemp, '{');
-  writeFileSync(liveWriterTemp, '{');
-  utimesSync(liveWriterTemp, old, old);
-  // A completed boot newer than all of them, so nothing survives merely by
-  // being the newest crash on disk.
-  writeBoot(dir, 'daemon-20260915-064900-4242-cafe', {
-    bytes: 512,
-    mtimeMs: Date.now(),
-    record: deadRecord(),
-  });
+  writeNewestCompletedBoot(dir);
 
   const result = pruneDaemonCrashCaptures({ dir, keepBoots: 1, keepBytes: 64 * 1024 });
   assert.ok(existsSync(join(dir, `${corrupt}.err.log`)), 'an old unreadable sidecar stays protected');
   assert.ok(existsSync(join(dir, `${orphan}.err.log`)), 'an old sidecar-less capture stays protected');
   assert.equal(result.unknownBoots, 2, 'unknown boots are reported, never pruned');
-  assert.equal(result.activeBoots, 2);
   assert.equal(result.removed, 0);
+});
+
+test('a sidecar temp file is reclaimed only when its writer pid is gone', (t) => {
+  const fixture = workspace(t, 'mixdog-crash-capture-temp-');
+  const dir = daemonCrashCaptureDir({ dataDir: fixture.root });
+  mkdirSync(dir, { recursive: true });
+  const deadWriterTemp = join(dir, '.daemon-20260915-064858-999999998-dead.json.abcdef.tmp');
+  const liveWriterTemp = join(dir, `.daemon-20260915-064859-${process.pid}-beef.json.123456.tmp`);
+  writeFileSync(deadWriterTemp, '{');
+  writeFileSync(liveWriterTemp, '{');
+  const old = new Date(SIX_HOURS_AGO_MS());
+  utimesSync(liveWriterTemp, old, old);
+  writeNewestCompletedBoot(dir);
+
+  pruneDaemonCrashCaptures({ dir, keepBoots: 1, keepBytes: 64 * 1024 });
   assert.equal(existsSync(deadWriterTemp), false, 'debris from a dead writer is reclaimed');
   assert.ok(existsSync(liveWriterTemp), 'a temp whose writer still lives is left alone');
-  assert.ok(existsSync(first.capturePath) && existsSync(second.capturePath));
 });

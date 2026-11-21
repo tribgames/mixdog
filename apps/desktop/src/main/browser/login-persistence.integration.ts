@@ -1,14 +1,3 @@
-/**
- * Sign-ins across a real restart of the managed profile: a local site sets a
- * persistent and a session cookie (both HttpOnly) on the Browser Use
- * partition, the process ends — cleanly (the host's dispose path) or by a
- * crash a few seconds after the login — and a second process on the same
- * data directory restores the profile the way the host does and asks the
- * site who it is. Driven by scripts/run-browser-login-persistence-integration.mjs.
- * A crash before the profile ever wrote its Local State (a first run killed
- * within seconds) loses the keychain key, so sealed session cookies cannot
- * be read back; the `warm` phase stands for the earlier runs of a real install.
- */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { join } from 'node:path';

@@ -1,12 +1,3 @@
-/**
- * The network policy of a visualize HTML page, in one place. On the desktop
- * the main process enforces it on the window's session (`lease-guard.ts`,
- * `host-page-observer.ts`); a paired remote device has no such session, so its
- * frame enforces the same policy with a CSP built from the constants here.
- * While a tab has not allowed network, a page may reach only its own files:
- * http(s) and ws(s) addresses are refused and reported as `blocked-network`.
- */
-
 /** The schemes of the outside network. Everything else (data:, blob:…) is not network. */
 export const OUTSIDE_NETWORK_SCHEMES = ['http', 'https', 'ws', 'wss'] as const;
 

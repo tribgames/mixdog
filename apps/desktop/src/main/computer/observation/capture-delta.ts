@@ -1,20 +1,9 @@
 /**
- * What the model already holds of a window, and the delta that updates it.
- *
- * Every snapshot retires the worker's refs (`s<generation>:e<n>`): a ref from
- * an older snapshot is refused as stale, and the host never rewrites a ref the
- * model sends. A delta therefore cannot carry refs forward. It tells the model
- * which rows of the list it holds are still on screen unchanged and the live
- * ref each one has now (`unchanged: ["s1:e0..e4=s9:e0..e4"]`), and lists every
- * other row in full with its live ref. Whatever the model sends is either a
- * live ref of the newest snapshot or a retired one the worker refuses.
- *
- * "Unchanged" asserts only that a row renders identically (role, name, value,
- * state, bounds, actions); it makes no claim that the same UI object lived on
- * between the snapshots, which UIA cannot prove (RuntimeIds are reused, and
- * MSAA proxies identify rows by index). Rows are paired by an order-preserving
- * alignment of their content, so the model can rebuild exactly the list a full
- * observation would have sent.
+ * Every snapshot retires the worker's refs (`s<generation>:e<n>`), so a delta cannot carry
+ * refs forward: `unchanged` names the held rows still on screen with their live refs
+ * (`["s1:e0..e4=s9:e0..e4"]`) and every other row is listed in full.
+ * "Unchanged" means the row renders identically, not that the same UI object lived on:
+ * UIA RuntimeIds are reused and MSAA proxies identify rows by index.
  */
 import { isFreshComputerObservation, MAX_COMPUTER_OBSERVED_SCOPE_AGE_MS } from '../session/resources';
 
@@ -185,14 +174,35 @@ function sameWindowLineage(previous: ObservationDeltaState, input: ObservationIn
   );
 }
 
-/**
- * Record this observation as the one the model now holds and, when the
- * previous one is a valid baseline and the change is smaller than the list,
- * return the delta to send instead of the full rows. Anything that cannot be
- * proven a continuation (no baseline, another window or read, a dialog, a
- * generation that did not advance, OCR rows, a delta no smaller) answers
- * undefined and resets the baseline to this full list.
- */
+function buildDelta(
+  heldRows: HeldRow[],
+  rows: Array<{ ref: string; fingerprint: string; row: ElementRow }>
+): ElementRow {
+  const pairs = alignRows(
+    pairableKeys(
+      heldRows.map((held) => held.fingerprint),
+      rows.map((row) => row.fingerprint),
+      'held'
+    ),
+    pairableKeys(
+      rows.map((row) => row.fingerprint),
+      heldRows.map((held) => held.fingerprint),
+      'live'
+    )
+  );
+  const heldIndexByLive = new Map(pairs.map(([heldIndex, liveIndex]) => [liveIndex, heldIndex]));
+  const keptHeld = new Set(heldIndexByLive.values());
+  const added = rows.flatMap((row, index) => (heldIndexByLive.has(index) ? [] : [deltaRow(row.row)]));
+  const removed = heldRows.flatMap((held, index) => (keptHeld.has(index) ? [] : [held.ref]));
+  return {
+    unchanged: pairRuns(
+      pairs.map(([heldIndex, liveIndex]) => ({ held: heldRows[heldIndex].ref, live: rows[liveIndex].ref }))
+    ),
+    ...(added.length ? { added } : {}),
+    ...(removed.length ? { removed } : {}),
+  };
+}
+
 export function recordObservation(
   store: ObservationDeltaStore,
   sessionId: string,
@@ -225,32 +235,8 @@ export function recordObservation(
     sameWindowLineage(previous, input, now) &&
     !previous.held.some((held) => liveRefs.has(held.ref))
   ) {
-    const pairs = alignRows(
-      pairableKeys(
-        previous.held.map((held) => held.fingerprint),
-        rows.map((row) => row.fingerprint),
-        'held'
-      ),
-      pairableKeys(
-        rows.map((row) => row.fingerprint),
-        previous.held.map((held) => held.fingerprint),
-        'live'
-      )
-    );
-    const heldIndexByLive = new Map(pairs.map(([heldIndex, liveIndex]) => [liveIndex, heldIndex]));
-    const keptHeld = new Set(heldIndexByLive.values());
-    const added = rows.flatMap((row, index) => (heldIndexByLive.has(index) ? [] : [deltaRow(row.row)]));
-    const removed = previous.held.flatMap((held, index) => (keptHeld.has(index) ? [] : [held.ref]));
-    const delta: ElementRow = {
-      unchanged: pairRuns(
-        pairs.map(([heldIndex, liveIndex]) => ({ held: previous.held[heldIndex].ref, live: rows[liveIndex].ref }))
-      ),
-      ...(added.length ? { added } : {}),
-      ...(removed.length ? { removed } : {}),
-    };
+    const delta = buildDelta(previous.held, rows);
     if (JSON.stringify(delta).length < JSON.stringify(input.elements).length) {
-      // The model applies this reply to its list, so it now holds exactly the
-      // live refs published here: the next delta addresses these, not older ones.
       remember(
         rows.map((row) => ({ ref: row.ref, fingerprint: row.fingerprint })),
         previous.consecutiveDeltas + 1

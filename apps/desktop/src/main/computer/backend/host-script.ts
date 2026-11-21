@@ -1,8 +1,3 @@
-/**
- * Publishing the PowerShell host script: one uniquely named temp file per
- * process, plus the per-build assembly cache directory beside it. The script
- * is a temp artifact; orphans left by crashed hosts are swept on publication.
- */
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

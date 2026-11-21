@@ -1,20 +1,3 @@
-// The app's half of the push notification path.
-//
-// A tapped notification reaches the WORKER (public/sw.js), never this document
-// directly. The worker parks what was tapped and the app claims it here, the
-// same way a shared payload travels: that parking is what lets a tap survive a
-// phone which discarded the document while the app sat in the background.
-//
-// The same channel carries the UI language outward. A worker has no
-// localStorage, and the device showing a notification — not the desktop that
-// sent it — is the one whose language it should speak.
-//
-// Web Push itself is the RELAY's: it owns the one sender key (VAPID) this
-// browser subscribes with, so every paired PC can deliver to the same
-// subscription. The subscription is registered with the relay once per paired
-// PC, each time with THAT PC's own credential, and its keys are sealed to that
-// PC's E2EE identity so only the PC can encrypt for it. A relay without the
-// capability leaves the legacy path: one PC's own key, registered over RPC.
 import type { DesktopApi } from '../shared/contract';
 import { sealRelayWebPushKeys, type RelayE2EEPairingMaterial } from '../shared/remote-e2ee';
 import { isRemoteClientCredential, normalizeRemoteRelayOrigin, remotePairingKeys } from './remote-pairing-recovery';
@@ -128,21 +111,6 @@ function subscriptionServerKey(subscription: PushSubscription): string {
   return base64Url(subscription.options?.applicationServerKey ?? null);
 }
 
-/**
- * This browser's subscription, bound to the relay key. A subscription made
- * with another key (a PC's own, from before the relay owned it) can only ever
- * be delivered by that one PC, so it is replaced. Without a subscription one
- * is made only when `create` (the user turning notifications on).
- */
-async function ensureRelaySubscription(
-  pushManager: PushManager,
-  relayKey: string,
-  create: boolean,
-  environment: PushHostEnvironment = {}
-): Promise<PushSubscription | null> {
-  return ensureKeyedSubscription(pushManager, relayKey, create, environment, true);
-}
-
 /** The key the current subscription was made with: the browser's report, else
  *  the one recorded when this page made it; '' when neither says. */
 function knownServerKey(subscription: PushSubscription, environment: PushHostEnvironment): string {
@@ -227,10 +195,6 @@ async function postHost(
   });
 }
 
-/** The box sealed for one PC, per PC, reused while nothing it covers changed:
- *  sealing is randomized, and the relay writes nothing for a box it already
- *  holds, so a launch that re-states an unchanged registration costs it no
- *  write and no republish. */
 const SEALED_CACHE_PREFIX = 'mixdog.push-sealed:';
 
 async function fingerprint(parts: readonly string[]): Promise<string> {
@@ -268,11 +232,6 @@ async function sealedFor(
   return sealed;
 }
 
-/** Register the subscription with the relay for the paired PCs in `only`
- *  (default: every paired PC), each with its own credential. Resolves the PCs
- *  now registered; `complete` is false when one could not be asked (retry on
- *  the next connection). A PC that refused the credential is skipped — its
- *  pairing is gone — as is one the relay says cannot deliver through it. */
 async function registerRelayPushSubscription(
   subscription: PushSubscription,
   environment: PushHostEnvironment = {},
@@ -370,7 +329,7 @@ export async function statePushSubscription(
   const capable = states.filter((state) => state.supported === true).map((state) => state.deviceId);
   const undecided = states.some((state) => state.supported === null);
   if (relayKey && capable.length > 0) {
-    const subscription = await ensureRelaySubscription(pushManager, relayKey, create, environment);
+    const subscription = await ensureKeyedSubscription(pushManager, relayKey, create, environment, true);
     if (!subscription) {
       return { subscription: null, mode: 'relay', hosts: states, complete: !undecided, confirmed: false };
     }
@@ -385,10 +344,6 @@ export async function statePushSubscription(
     };
   }
   const existing = await pushManager.getSubscription();
-  // Whether any PC can take relay delivery is not known yet: change nothing.
-  // Turning it on with nothing to change still subscribes — on the connected
-  // PC's own key, which the next statement migrates once a PC is known to
-  // deliver through the relay.
   if (relayKey && undecided && (existing || !create)) {
     return { subscription: existing, mode: 'legacy', hosts: states, complete: false, confirmed: false };
   }
@@ -537,12 +492,8 @@ async function registerBrowserPushSubscription(
   });
 }
 
-/** Re-state this browser's CURRENT subscription once per launch. The browser
- *  may renew it on its own (sw.js pushsubscriptionchange) and its PCs would
- *  otherwise keep pushing to the retired endpoint. On a relay that owns the
- *  sender key, a subscription made with a PC's own key is migrated to the
- *  relay's, and the subscription is registered for EVERY paired PC — a PC
- *  paired since the last launch included. */
+/** Re-state this browser's current subscription once per launch, migrating a PC-key subscription to the relay key
+ *  and registering every paired PC. */
 export async function syncPushSubscription(
   api: PushRegistrationApi | undefined,
   environment: PushHostEnvironment = {}
@@ -569,12 +520,8 @@ export const PUSH_RESTATE_INTERVAL_MS = 60_000;
 
 type WorkerMessages = Pick<ServiceWorkerContainer, 'addEventListener' | 'removeEventListener'>;
 
-/** State the subscription on every connection until the desktop has accepted
- *  it. A single attempt on the first connection lost the statement whenever
- *  that connection dropped under the call, leaving the desktop pushing to a
- *  retired endpoint until the next launch. Once accepted, connections within
- *  PUSH_RESTATE_INTERVAL_MS are left alone unless the paired PCs changed; a
- *  renewal the worker reports starts the statement over regardless. */
+/** State the subscription on every connection until the desktop has accepted it; once accepted, connections within
+ *  PUSH_RESTATE_INTERVAL_MS are left alone unless the paired PCs changed. A renewal the worker reports restarts the statement. */
 export function installPushSubscriptionSync(
   api: PushRegistrationApi | undefined,
   readyEvent: string,

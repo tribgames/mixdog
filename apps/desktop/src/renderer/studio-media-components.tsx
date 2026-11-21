@@ -103,6 +103,334 @@ export function StudioThumbnail({
 /** A touch drag pages the detail once it is this long and mostly horizontal. */
 const SWIPE_DISTANCE = 48;
 
+/** Touch swipes on the detail stage page to the neighbouring asset. `swiped`
+ *  is set when a swipe paged, so the tap that follows it can be ignored. */
+function useSwipePaging(onNext?: () => void, onPrevious?: () => void) {
+  const swipeStart = useRef<{ id: number; x: number; y: number } | null>(null);
+  const swiped = useRef(false);
+  const startSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
+    swiped.current = false;
+    // Native video controls own their drags; the stage buttons keep plain taps.
+    const target = event.target as Element;
+    swipeStart.current =
+      event.pointerType === 'touch' && !target.closest('video, .studio-detail-nav, .studio-detail-stage-close')
+        ? { id: event.pointerId, x: event.clientX, y: event.clientY }
+        : null;
+  };
+  const endSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const start = swipeStart.current;
+    swipeStart.current = null;
+    if (!start || start.id !== event.pointerId) return;
+    const dx = event.clientX - start.x;
+    if (Math.abs(dx) < SWIPE_DISTANCE || Math.abs(dx) < Math.abs(event.clientY - start.y) * 1.5) return;
+    const page = dx < 0 ? onNext : onPrevious;
+    if (!page) return;
+    swiped.current = true;
+    page();
+  };
+  const cancelSwipe = () => {
+    swipeStart.current = null;
+  };
+  return { swiped, startSwipe, endSwipe, cancelSwipe };
+}
+
+/** The request as it was made, in the catalog's words; unset rows are blank. */
+function assetDetails(asset: MediaAsset, providerLabel: string, modelLabel: string): Array<[string, string]> {
+  const options = asset.options || {};
+  const duration = asset.durationSeconds || (asset.kind === 'video' ? Number(options.duration) || 0 : 0);
+  return [
+    [t('Provider'), providerLabel],
+    [t('Model'), modelLabel],
+    [t('Aspect'), options.aspectRatio ? pillLabel(options.aspectRatio) : ''],
+    [t('Resolution'), options.resolution ? pillLabel(options.resolution) : ''],
+    [t('Size'), options.size ? pillLabel(options.size) : ''],
+    [t('Quality'), options.quality ? pillLabel(options.quality) : ''],
+    [t('Duration'), duration ? `${duration}s` : ''],
+    [t('File size'), formatBytes(asset.bytes)],
+    [
+      t('Created'),
+      new Date(asset.createdAt).toLocaleString(uiFormatLocale(), {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+        ...timeFormatOptions(),
+      }),
+    ],
+  ];
+}
+
+function StudioDetailStage({
+  asset,
+  displayUrl,
+  posterUrl,
+  videoSrc,
+  localTransport,
+  mediaForeground,
+  remote,
+  detailsHidden,
+  onClose,
+  onNext,
+  onOpenAsset,
+  onPrevious,
+  onToggleDetails,
+  onUrlBroken,
+}: {
+  asset: MediaAsset;
+  displayUrl: string;
+  posterUrl: string | undefined;
+  videoSrc: string | undefined;
+  localTransport: boolean;
+  mediaForeground: boolean;
+  remote: boolean;
+  detailsHidden: boolean;
+  onClose: () => void;
+  onNext?: () => void;
+  onOpenAsset: (asset: MediaAsset) => void;
+  onPrevious?: () => void;
+  onToggleDetails: () => void;
+  onUrlBroken: (assetId: string, variant: string) => void;
+}) {
+  const videoKey = mediaForeground ? 'foreground' : 'suspended';
+  const videoPreload = mediaForeground && localTransport ? 'metadata' : 'none';
+  const { swiped, startSwipe, endSwipe, cancelSwipe } = useSwipePaging(onNext, onPrevious);
+  return (
+    <div
+      className="studio-detail-stage"
+      onPointerDown={startSwipe}
+      onPointerUp={endSwipe}
+      onPointerCancel={cancelSwipe}
+    >
+      {asset.kind === 'video' ? (
+        // biome-ignore lint/a11y/useMediaCaption: generated clips have no caption track
+        <video
+          key={videoKey}
+          src={videoSrc}
+          poster={posterUrl}
+          controls={mediaForeground}
+          autoPlay={mediaForeground && localTransport}
+          playsInline
+          preload={videoPreload}
+          onError={() => onUrlBroken(asset.id, 'original')}
+        />
+      ) : (
+        <button
+          type="button"
+          className="studio-detail-media-open"
+          title={remote ? undefined : t('Open image')}
+          aria-label={remote ? t('Toggle details') : t('Open image')}
+          aria-expanded={remote ? !detailsHidden : undefined}
+          onClick={() => {
+            // A swipe that paged the detail must not also count as a tap.
+            if (swiped.current) {
+              swiped.current = false;
+              return;
+            }
+            if (remote) onToggleDetails();
+            else onOpenAsset(asset);
+          }}
+        >
+          {/* alt stays empty: a prompt here painted as a wall of text in the
+              image's place until the display rendition landed. The button above carries the label and the
+              side rail already shows the prompt itself. */}
+          <img src={displayUrl} alt="" onError={() => onUrlBroken(asset.id, 'display')} />
+        </button>
+      )}
+      {onPrevious ? (
+        <button
+          type="button"
+          className="studio-detail-nav"
+          data-direction="previous"
+          aria-label={t('Previous')}
+          onClick={onPrevious}
+        >
+          <ChevronLeft size={18} aria-hidden="true" />
+        </button>
+      ) : null}
+      {onNext ? (
+        <button
+          type="button"
+          className="studio-detail-nav"
+          data-direction="next"
+          aria-label={t('Next')}
+          onClick={onNext}
+        >
+          <ChevronRight size={18} aria-hidden="true" />
+        </button>
+      ) : null}
+      <button type="button" className="studio-detail-stage-close" aria-label={t('Close preview')} onClick={onClose}>
+        <X size={16} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+function StudioDetailPrompt({
+  asset,
+  copied,
+  promptOpen,
+  onCopyPrompt,
+  onTogglePrompt,
+}: {
+  asset: MediaAsset;
+  copied: boolean;
+  promptOpen: boolean;
+  onCopyPrompt: (asset: MediaAsset) => void;
+  onTogglePrompt: () => void;
+}) {
+  const [promptClamped, setPromptClamped] = useState(false);
+  const promptNode = useRef<HTMLParagraphElement>(null);
+
+  // Show all appears only when the line clamp actually cut the prompt.
+  const prompt = asset.prompt;
+  useLayoutEffect(() => {
+    const node = promptNode.current;
+    if (!node || promptOpen || !prompt) {
+      if (!prompt) setPromptClamped(false);
+      return undefined;
+    }
+    const measure = () => setPromptClamped(node.scrollHeight > node.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver !== 'function') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [prompt, promptOpen]);
+
+  return (
+    <section className="studio-detail-block studio-detail-block--prompt">
+      <div className="studio-detail-block-head">
+        <span>{t('PROMPT')}</span>
+        <span className="studio-detail-block-tools">
+          {promptOpen || promptClamped ? (
+            <button type="button" aria-expanded={promptOpen} onClick={onTogglePrompt}>
+              {promptOpen ? t('Show less') : t('Show all')}
+            </button>
+          ) : null}
+          <button type="button" onClick={() => onCopyPrompt(asset)}>
+            <Copy size={12} aria-hidden="true" />
+            {copied ? t('Copied') : t('Copy')}
+          </button>
+        </span>
+      </div>
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: pointer shortcut that expands the prompt; the full text remains readable without it */}
+      <p
+        ref={promptNode}
+        className="studio-detail-prompt"
+        data-open={promptOpen ? 'true' : undefined}
+        onClick={onTogglePrompt}
+      >
+        {asset.prompt}
+      </p>
+    </section>
+  );
+}
+
+function StudioDetailActions({
+  asset,
+  canUseAsReference,
+  remote,
+  onOpenFolder,
+  onRegenerate,
+  onRemove,
+  onReusePrompt,
+  onSave,
+  onUseAsReference,
+}: {
+  asset: MediaAsset;
+  canUseAsReference: boolean;
+  remote: boolean;
+  onOpenFolder: (asset: MediaAsset) => void;
+  onRegenerate: (asset: MediaAsset) => void;
+  onRemove: (asset: MediaAsset) => void;
+  onReusePrompt: (asset: MediaAsset) => void;
+  onSave: (asset: MediaAsset) => void;
+  onUseAsReference: (asset: MediaAsset) => void;
+}) {
+  // Keyed by asset, so paging to the next one never carries an open menu.
+  const [menuAsset, setMenuAsset] = useState('');
+  const moreOpen = menuAsset === asset.id;
+  const moreNode = useRef<HTMLDivElement>(null);
+  useMobileBack(moreOpen, () => setMenuAsset(''));
+
+  useEffect(() => {
+    if (!moreOpen) return undefined;
+    const dismiss = (event: PointerEvent) => {
+      if (!moreNode.current?.contains(event.target as Node)) setMenuAsset('');
+    };
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      setMenuAsset('');
+    };
+    window.addEventListener('pointerdown', dismiss, true);
+    window.addEventListener('keydown', onEscape, true);
+    return () => {
+      window.removeEventListener('pointerdown', dismiss, true);
+      window.removeEventListener('keydown', onEscape, true);
+    };
+  }, [moreOpen]);
+
+  return (
+    <div className="studio-detail-actions">
+      <button type="button" className="studio-detail-primary" onClick={() => onRegenerate(asset)}>
+        <RotateCcw size={14} aria-hidden="true" />
+        <span>{t('Regenerate')}</span>
+      </button>
+      <button type="button" onClick={() => onReusePrompt(asset)}>
+        <PencilLine size={14} aria-hidden="true" />
+        <span>{t('Reuse prompt')}</span>
+      </button>
+      {asset.kind === 'image' ? (
+        <button type="button" disabled={!canUseAsReference} onClick={() => onUseAsReference(asset)}>
+          <ImagePlus size={14} aria-hidden="true" />
+          <span>{t('Use as reference')}</span>
+        </button>
+      ) : null}
+      {remote ? (
+        <button type="button" onClick={() => onSave(asset)}>
+          <Download size={14} aria-hidden="true" />
+          <span>{t('Save')}</span>
+        </button>
+      ) : (
+        <button type="button" onClick={() => onOpenFolder(asset)}>
+          <FolderOpen size={14} aria-hidden="true" />
+          <span>{isSshConnectionWindow() ? t('Reveal in Files') : t('Open Folder')}</span>
+        </button>
+      )}
+      <button type="button" className="studio-detail-danger" onClick={() => onRemove(asset)}>
+        <Trash2 size={14} aria-hidden="true" />
+        <span>{t('Delete')}</span>
+      </button>
+      <div className="studio-detail-more" ref={moreNode}>
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={moreOpen}
+          onClick={() => setMenuAsset(moreOpen ? '' : asset.id)}
+        >
+          <Ellipsis size={14} aria-hidden="true" />
+          <span>{t('More actions')}</span>
+        </button>
+        {moreOpen ? (
+          <div className="studio-detail-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              className="studio-detail-danger"
+              onClick={() => {
+                setMenuAsset('');
+                onRemove(asset);
+              }}
+            >
+              <Trash2 size={14} aria-hidden="true" />
+              {t('Delete')}
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function StudioDetailViewer({
   asset,
   assetUrl,
@@ -159,99 +487,11 @@ export function StudioDetailViewer({
   const displayUrl = assetUrl(asset.id, 'display') || previewUrl || thumbUrl;
   const originalUrl = assetUrl(asset.id, 'original') || previewUrl;
   const posterUrl = assetUrl(asset.id, 'thumb') || thumbUrl || undefined;
-  const videoKey = mediaForeground ? 'foreground' : 'suspended';
-  const videoSrc = mediaForeground ? originalUrl : undefined;
-  const videoPreload = mediaForeground && localTransport ? 'metadata' : 'none';
   // The web app reaches no OS viewer or folder on the device: a tap on the
   // image folds the rail away instead, and Save hands the file to the device.
   const remote = !localTransport;
   const [detailsHidden, setDetailsHidden] = useState(false);
-  // Keyed by asset, so paging to the next one never carries an open menu.
-  const [menuAsset, setMenuAsset] = useState('');
-  const moreOpen = menuAsset === asset.id;
-  const [promptClamped, setPromptClamped] = useState(false);
-  const promptNode = useRef<HTMLParagraphElement>(null);
-  const moreNode = useRef<HTMLDivElement>(null);
-  const swipeStart = useRef<{ id: number; x: number; y: number } | null>(null);
-  const swiped = useRef(false);
-  useMobileBack(moreOpen, () => setMenuAsset(''));
-
-  // Show all appears only when the line clamp actually cut the prompt.
-  const prompt = asset.prompt;
-  useLayoutEffect(() => {
-    const node = promptNode.current;
-    if (!node || promptOpen || !prompt) {
-      if (!prompt) setPromptClamped(false);
-      return undefined;
-    }
-    const measure = () => setPromptClamped(node.scrollHeight > node.clientHeight + 1);
-    measure();
-    if (typeof ResizeObserver !== 'function') return undefined;
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [prompt, promptOpen]);
-
-  useEffect(() => {
-    if (!moreOpen) return undefined;
-    const dismiss = (event: PointerEvent) => {
-      if (!moreNode.current?.contains(event.target as Node)) setMenuAsset('');
-    };
-    const onEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.stopPropagation();
-      setMenuAsset('');
-    };
-    window.addEventListener('pointerdown', dismiss, true);
-    window.addEventListener('keydown', onEscape, true);
-    return () => {
-      window.removeEventListener('pointerdown', dismiss, true);
-      window.removeEventListener('keydown', onEscape, true);
-    };
-  }, [moreOpen]);
-
-  const startSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
-    swiped.current = false;
-    // Native video controls own their drags; the stage buttons keep plain taps.
-    const target = event.target as Element;
-    swipeStart.current =
-      event.pointerType === 'touch' && !target.closest('video, .studio-detail-nav, .studio-detail-stage-close')
-        ? { id: event.pointerId, x: event.clientX, y: event.clientY }
-        : null;
-  };
-  const endSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const start = swipeStart.current;
-    swipeStart.current = null;
-    if (!start || start.id !== event.pointerId) return;
-    const dx = event.clientX - start.x;
-    if (Math.abs(dx) < SWIPE_DISTANCE || Math.abs(dx) < Math.abs(event.clientY - start.y) * 1.5) return;
-    const page = dx < 0 ? onNext : onPrevious;
-    if (!page) return;
-    swiped.current = true;
-    page();
-  };
-
-  const options = asset.options || {};
-  const duration = asset.durationSeconds || (asset.kind === 'video' ? Number(options.duration) || 0 : 0);
-  // The request as it was made, in the catalog's words; unset rows drop out.
-  const details: Array<[string, string]> = [
-    [t('Provider'), providerLabel],
-    [t('Model'), modelLabel],
-    [t('Aspect'), options.aspectRatio ? pillLabel(options.aspectRatio) : ''],
-    [t('Resolution'), options.resolution ? pillLabel(options.resolution) : ''],
-    [t('Size'), options.size ? pillLabel(options.size) : ''],
-    [t('Quality'), options.quality ? pillLabel(options.quality) : ''],
-    [t('Duration'), duration ? `${duration}s` : ''],
-    [t('File size'), formatBytes(asset.bytes)],
-    [
-      t('Created'),
-      new Date(asset.createdAt).toLocaleString(uiFormatLocale(), {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-        ...timeFormatOptions(),
-      }),
-    ],
-  ];
+  const details = assetDetails(asset, providerLabel, modelLabel);
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop click-to-dismiss; Escape handling closes the dialog from the keyboard
     <div
@@ -264,75 +504,22 @@ export function StudioDetailViewer({
       {/* biome-ignore lint/a11y/useKeyWithClickEvents: the click only stops propagation to the backdrop */}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the click only stops propagation to the backdrop */}
       <div className="studio-detail-card" onClick={(event) => event.stopPropagation()}>
-        <div
-          className="studio-detail-stage"
-          onPointerDown={startSwipe}
-          onPointerUp={endSwipe}
-          onPointerCancel={() => {
-            swipeStart.current = null;
-          }}
-        >
-          {asset.kind === 'video' ? (
-            // biome-ignore lint/a11y/useMediaCaption: generated clips have no caption track
-            <video
-              key={videoKey}
-              src={videoSrc}
-              poster={posterUrl}
-              controls={mediaForeground}
-              autoPlay={mediaForeground && localTransport}
-              playsInline
-              preload={videoPreload}
-              onError={() => onUrlBroken(asset.id, 'original')}
-            />
-          ) : (
-            <button
-              type="button"
-              className="studio-detail-media-open"
-              title={remote ? undefined : t('Open image')}
-              aria-label={remote ? t('Toggle details') : t('Open image')}
-              aria-expanded={remote ? !detailsHidden : undefined}
-              onClick={() => {
-                // A swipe that paged the detail must not also count as a tap.
-                if (swiped.current) {
-                  swiped.current = false;
-                  return;
-                }
-                if (remote) setDetailsHidden((hidden) => !hidden);
-                else onOpenAsset(asset);
-              }}
-            >
-              {/* alt stays empty: a prompt here painted as a wall of text in the
-                  image's place until the display rendition landed. The button above carries the label and the
-                  side rail already shows the prompt itself. */}
-              <img src={displayUrl} alt="" onError={() => onUrlBroken(asset.id, 'display')} />
-            </button>
-          )}
-          {onPrevious ? (
-            <button
-              type="button"
-              className="studio-detail-nav"
-              data-direction="previous"
-              aria-label={t('Previous')}
-              onClick={onPrevious}
-            >
-              <ChevronLeft size={18} aria-hidden="true" />
-            </button>
-          ) : null}
-          {onNext ? (
-            <button
-              type="button"
-              className="studio-detail-nav"
-              data-direction="next"
-              aria-label={t('Next')}
-              onClick={onNext}
-            >
-              <ChevronRight size={18} aria-hidden="true" />
-            </button>
-          ) : null}
-          <button type="button" className="studio-detail-stage-close" aria-label={t('Close preview')} onClick={onClose}>
-            <X size={16} aria-hidden="true" />
-          </button>
-        </div>
+        <StudioDetailStage
+          asset={asset}
+          displayUrl={displayUrl}
+          posterUrl={posterUrl}
+          videoSrc={mediaForeground ? originalUrl : undefined}
+          localTransport={localTransport}
+          mediaForeground={mediaForeground}
+          remote={remote}
+          detailsHidden={detailsHidden}
+          onClose={onClose}
+          onNext={onNext}
+          onOpenAsset={onOpenAsset}
+          onPrevious={onPrevious}
+          onToggleDetails={() => setDetailsHidden((hidden) => !hidden)}
+          onUrlBroken={onUrlBroken}
+        />
         <aside className="studio-detail-side">
           <header>
             <b>{asset.kind === 'video' ? t('Video') : t('Image')}</b>
@@ -341,31 +528,13 @@ export function StudioDetailViewer({
             </button>
           </header>
           <div className="studio-detail-body">
-            <section className="studio-detail-block studio-detail-block--prompt">
-              <div className="studio-detail-block-head">
-                <span>{t('PROMPT')}</span>
-                <span className="studio-detail-block-tools">
-                  {promptOpen || promptClamped ? (
-                    <button type="button" aria-expanded={promptOpen} onClick={onTogglePrompt}>
-                      {promptOpen ? t('Show less') : t('Show all')}
-                    </button>
-                  ) : null}
-                  <button type="button" onClick={() => onCopyPrompt(asset)}>
-                    <Copy size={12} aria-hidden="true" />
-                    {copied ? t('Copied') : t('Copy')}
-                  </button>
-                </span>
-              </div>
-              {/* biome-ignore lint/a11y/useKeyWithClickEvents: pointer shortcut that expands the prompt; the full text remains readable without it */}
-              <p
-                ref={promptNode}
-                className="studio-detail-prompt"
-                data-open={promptOpen ? 'true' : undefined}
-                onClick={onTogglePrompt}
-              >
-                {asset.prompt}
-              </p>
-            </section>
+            <StudioDetailPrompt
+              asset={asset}
+              copied={copied}
+              promptOpen={promptOpen}
+              onCopyPrompt={onCopyPrompt}
+              onTogglePrompt={onTogglePrompt}
+            />
             <section className="studio-detail-block studio-detail-block--metadata">
               <div className="studio-detail-block-head">
                 <span>{t('DETAILS')}</span>
@@ -382,66 +551,17 @@ export function StudioDetailViewer({
               </dl>
             </section>
           </div>
-          {/* One action set for every layout: the wide rail lists it, compact
-              layouts turn it into an icon bar and move Delete behind More. */}
-          <div className="studio-detail-actions">
-            <button type="button" className="studio-detail-primary" onClick={() => onRegenerate(asset)}>
-              <RotateCcw size={14} aria-hidden="true" />
-              <span>{t('Regenerate')}</span>
-            </button>
-            <button type="button" onClick={() => onReusePrompt(asset)}>
-              <PencilLine size={14} aria-hidden="true" />
-              <span>{t('Reuse prompt')}</span>
-            </button>
-            {asset.kind === 'image' ? (
-              <button type="button" disabled={!canUseAsReference} onClick={() => onUseAsReference(asset)}>
-                <ImagePlus size={14} aria-hidden="true" />
-                <span>{t('Use as reference')}</span>
-              </button>
-            ) : null}
-            {remote ? (
-              <button type="button" onClick={() => onSave(asset)}>
-                <Download size={14} aria-hidden="true" />
-                <span>{t('Save')}</span>
-              </button>
-            ) : (
-              <button type="button" onClick={() => onOpenFolder(asset)}>
-                <FolderOpen size={14} aria-hidden="true" />
-                <span>{isSshConnectionWindow() ? t('Reveal in Files') : t('Open Folder')}</span>
-              </button>
-            )}
-            <button type="button" className="studio-detail-danger" onClick={() => onRemove(asset)}>
-              <Trash2 size={14} aria-hidden="true" />
-              <span>{t('Delete')}</span>
-            </button>
-            <div className="studio-detail-more" ref={moreNode}>
-              <button
-                type="button"
-                aria-haspopup="menu"
-                aria-expanded={moreOpen}
-                onClick={() => setMenuAsset(moreOpen ? '' : asset.id)}
-              >
-                <Ellipsis size={14} aria-hidden="true" />
-                <span>{t('More actions')}</span>
-              </button>
-              {moreOpen ? (
-                <div className="studio-detail-menu" role="menu">
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="studio-detail-danger"
-                    onClick={() => {
-                      setMenuAsset('');
-                      onRemove(asset);
-                    }}
-                  >
-                    <Trash2 size={14} aria-hidden="true" />
-                    {t('Delete')}
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </div>
+          <StudioDetailActions
+            asset={asset}
+            canUseAsReference={canUseAsReference}
+            remote={remote}
+            onOpenFolder={onOpenFolder}
+            onRegenerate={onRegenerate}
+            onRemove={onRemove}
+            onReusePrompt={onReusePrompt}
+            onSave={onSave}
+            onUseAsReference={onUseAsReference}
+          />
         </aside>
       </div>
     </div>

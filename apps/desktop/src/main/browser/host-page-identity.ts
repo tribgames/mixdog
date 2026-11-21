@@ -1,7 +1,3 @@
-/**
- * The recorded title, icon and thumbnail per site: the store, its sealed file,
- * background page previews, and batched change notices to the display client.
- */
 import type { Session } from 'electron';
 import { createBrowserPageIdentityStore } from './page-identity';
 import { readBrowserPagePreview } from './page-identity-capture';

@@ -1,10 +1,3 @@
-// 6-digit pairing codes (pairing v2). The main PC registers a short-lived code
-// for its device route while Settings → Connection is open; a phone, another
-// PC or a browser enters it here and learns the route plus a one-time ticket.
-// The code never grants access: the ticket only lets the following /claim say
-// "entered a code" on the approval dialog, and the desktop still decides.
-// Codes and tickets are secrets of a few minutes' life: they are held in
-// memory only and never written to any log or to disk.
 import { randomBytes, randomInt } from 'node:crypto';
 
 import { RateLimiter } from './rate-limit.mjs';
@@ -18,10 +11,6 @@ const MAX_PAIR_CODE_BODY_BYTES = 1_024;
 const MAX_PRESENCE_IDS = 16;
 const MAX_NAME_LENGTH = 80;
 
-// Wrong guesses. A 6-digit space is only safe because attempts are scarce:
-// each source gets a handful per window and then an exponentially growing
-// lockout, and the whole code space shares one budget so a botnet of sources
-// still cannot enumerate it inside a code's five-minute life.
 export const IP_FAILS_PER_STRIKE = 5;
 export const IP_BACKOFF_BASE_MS = 60_000;
 const IP_BACKOFF_MAX_MS = 60 * 60_000;

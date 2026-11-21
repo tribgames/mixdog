@@ -1,14 +1,3 @@
-// The desktop pet window: a small frameless, transparent, always-on-top
-// window that is a side chat with Mixy (desktop-pet.html). The app window's
-// renderer publishes the state of Mixy's home chat and its composer card's
-// rect; this module relays the state, owns the window's life (on with the
-// setting, gone when off or at quit), its place, its menu, and its send path
-// (the composer's own: submitToSession).
-// Place: pinned (the default), the pet stands on the app window's message box
-// and follows it, hidden while the app window is minimised or hidden; free (a
-// drag unpins it), it stays on screen on its own, at a spot saved per display.
-// Either way it is clamped to a work area, back onto the primary display when
-// its own is removed.
 import { isDeepStrictEqual } from 'node:util';
 import type { ToolApprovalDecision } from '../shared/contract';
 import { DESKTOP_PET_WINDOW_IPC } from '../shared/desktop-pet-bridge';
@@ -414,10 +403,6 @@ function appShowing(s: PetContext): boolean {
   return Boolean(owner?.isVisible() && !owner.isMinimized());
 }
 
-/** Which layer the pet lives on: following the app window (owned by it:
- *  just above it, covered with it by other apps' windows, minimised with
- *  it), or above every window. Free on screen it is owned by none either:
- *  a window of its own (above every window only with keepAbove). */
 function wantedOwner(s: PetContext): PetAppWindow | null {
   return s.prefs.keepAbove || s.prefs.onScreen ? null : appWindow(s);
 }
@@ -520,10 +505,6 @@ async function bubbleSpan(s: PetContext): Promise<{ left: number; right: number 
   return { left: inWindow(left), right: Math.max(inWindow(left), inWindow(right)) };
 }
 
-/** The app's open transient layers (menus, popovers, listboxes, tooltips)
- *  over the pet window, in its px (rounded outward, clipped to it): the pet
- *  cuts them out of all it draws, so the app's layer shows through there
- *  and takes the pointer, as if the pet stood behind it. */
 function cutouts(s: PetContext): DesktopPetRect[] {
   const owner = appWindow(s);
   if (!owner || !live(s.pet) || !s.layers.length || !appShowing(s)) return [];
@@ -589,10 +570,7 @@ function pushConfig(s: PetContext) {
   if (owner && !owner.webContents.isDestroyed()) owner.webContents.send(DESKTOP_PET_IPC.config, config(s));
 }
 
-/** Put the window at `spot` (currentPosition), flipped at the screen's top
- *  (windowAt). Its size never changes (the menu fits beside the pet):
- *  resizing a transparent window flashes its old frame at the new bounds on
- *  Windows. */
+// Windows: resizing a transparent window flashes its old frame at the new bounds.
 async function place(s: PetContext, spot: Point) {
   if (!live(s.pet)) return;
   const { flipped, x, y } = await windowAt(s, spot);
@@ -684,10 +662,6 @@ function composerBox(s: PetContext, owner: PetAppWindow): DesktopPetRect | null 
   };
 }
 
-/** The pinned-here spot: its anchor against the app window's content
- *  bounds, the sprite kept inside them and the window on its display; null
- *  while the app window is gone, hidden or minimised. An older absolute
- *  spot becomes an anchor against the window it first meets. */
 async function hereSpot(s: PetContext): Promise<Point | null> {
   const owner = appWindow(s);
   if (!owner || !appShowing(s)) return null;
@@ -734,10 +708,6 @@ async function followedSpot(s: PetContext): Promise<Point | null> {
   return s.prefs.pinnedHere ? hereSpot(s) : null;
 }
 
-/** Composer-pinned and on screen, its sprite box over the transcript's
- *  column: beside it horizontally and reaching above the line the column's
- *  last row ends on (a bot resting on the island's baseline in a wide
- *  window stays below it). */
 function overTranscript(s: PetContext): boolean {
   const owner = appWindow(s);
   const column = s.composer?.transcript;
@@ -750,16 +720,6 @@ function overTranscript(s: PetContext): boolean {
   return box.x < right && box.x + box.width > left && box.y < content.y + column.bottom * zoom;
 }
 
-/** The width (the app's CSS px) the bot takes at the composer card's right
- *  end — its visible art (from the look's leftmost drawn column to the
- *  sprite box's right edge; the whole box for a room's stack or a picture)
- *  at this scale and zoom, the pin inset and the island's clearance — while
- *  the overlay is on and pinned above the
- *  message box; else 0. Only the setting decides, never whether the window
- *  shows at this moment (stepping aside from a menu, minimised with the app
- *  where the island is not seen either, a window replaced for a new size)
- *  nor where the island lifts it: the island's compact switch moves with
- *  the setting, the scale and the zoom, never with its own width. */
 function islandReserve(s: PetContext): number {
   const owner = appWindow(s);
   if (!owner || !s.prefs.enabled || !s.available || !s.prefs.pinned || !s.composer) return 0;
@@ -800,11 +760,6 @@ function occluded(s: PetContext): boolean {
   );
 }
 
-/** Pinned: stand on the composer. Shown only together with the app's
- *  composer (none yet while the app boots, none on a settings page,
- *  onboarding or a reload) — pinned already at its spot from the first
- *  frame; following the app window, only while that window is on screen;
- *  and never over the app's backdrop modals (its menus and popovers cut it). */
 async function layout(s: PetContext) {
   if (!live(s.pet)) {
     pushAppLayout(s);
@@ -959,11 +914,7 @@ async function setPlacement(s: PetContext, name: 'pinned' | 'pinnedHere' | 'onSc
   return changed(s);
 }
 
-/** The bot's size. The window keeps one size while it lives (resizing a
- *  transparent window flashes its old frame), so a new scale replaces it
- *  with one made for that scale; a free bot keeps its feet where they stood
- *  (the sprite stands at the window's bottom-left part, the window grows up
- *  and right). */
+// Windows: resizing a transparent window flashes its old frame; a new scale replaces the window.
 async function setScale(s: PetContext, scale: number): Promise<DesktopPetConfig> {
   if (s.prefs.scale === scale) return config(s);
   const before = windowSize(s);
@@ -1175,11 +1126,9 @@ function listenPetWindow(s: PetContext, window: PetWindow) {
     DESKTOP_PET_IPC.focusInput,
     guard((open) => {
       if (!live(s.pet)) return;
-      // The window stays activatable for its whole life (it is shown
-      // inactive, so a show never takes focus): toggling setFocusable at
-      // runtime left Chromium's IME without the window's text field, so a
-      // Korean syllable composed in a detached IME window and appeared only
-      // once committed. Closed again: focus goes back to the window below.
+      // Activatable for the window's whole life: toggling setFocusable at
+      // runtime left Chromium's IME without the text field (Korean syllables
+      // composed in a detached IME window).
       if (open !== true) {
         if (s.pet.isFocused()) s.pet.blur();
         return;
@@ -1241,14 +1190,11 @@ async function finishLoad(s: PetContext, window: PetWindow) {
     throw error;
   }
   if (window.isDestroyed() || s.pet !== window) return;
-  // Empty pixels pass clicks through; the renderer claims the pointer over
-  // the pet, its bubble and the quick message from the mouse moves Electron
-  // forwards. Only once the page is loaded: on Windows the forwarding posts
-  // to the page's child window, which Electron picks up when the page
-  // creates it; armed before that (the window is hidden until it has drawn
-  // anyway), it forwards to no window, no move ever reaches the pet, and the
-  // whole overlay stays click-through (a click or right-click on the bot
-  // lands on the app below).
+  // Empty pixels pass clicks through; the renderer claims the pointer from the
+  // forwarded mouse moves. Armed only after load: on Windows the forwarding
+  // posts to the page's child window, which Electron picks up when the page
+  // creates it; armed earlier, no move ever reaches the pet and the whole
+  // overlay stays click-through.
   window.setIgnoreMouseEvents(true, { forward: true });
   s.loaded = true;
   relayout(s);

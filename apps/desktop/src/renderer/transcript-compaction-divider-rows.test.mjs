@@ -1,12 +1,3 @@
-// A compaction divider lands ABOVE the prompt that started the turn (the
-// runtime inserts it at the turn's boundary). The frame that carries it may
-// also still carry a second copy of that prompt — its pending twin, or the
-// same item twice — and both used to project under the prompt's one row key.
-// The virtual list owns elements by key: the twin mounted a second element,
-// the core's element cache moved to it, and the original element was never
-// positioned again. It stayed at its pre-insert offset, drawn over the
-// divider, while the twin painted the prompt a second time below — and the
-// stranded element kept overlapping the divider after the twin was gone.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
@@ -211,12 +202,6 @@ test('a prompt and its twin in the divider frame project ONE row under the promp
   }
 });
 
-// The same twin without a divider: a message sent while the reply runs is a
-// steering bubble at the end; when the model reads it, its durable row can
-// land a publication before the queue drops the entry. A second message sent
-// meanwhile is a steering bubble under both. Every row must keep its own box:
-// a stranded element drew the first message over the typing band and the
-// rows below it (and the bubble's text twice).
 test('a steering message delivered while its queue entry lingers is drawn once, with no row overlapping another', async () => {
   const project = await projection();
   const turn = { kind: 'user', id: 'desktop-submit-go', text: 'go' };
@@ -273,13 +258,6 @@ test('a steering message delivered while its queue entry lingers is drawn once, 
   }
 });
 
-// A turn with many tool calls shows them as one activity group, keyed by the
-// first member it was shown with. A compaction mid-turn lands its divider
-// between tool rows of that group, and the group splits in two. When the
-// group's key came from a member that now opens the lower half (its head was
-// supplied later, by an older page), both halves projected under ONE key: the
-// stranded element of the old group stayed where it was and the two activity
-// summaries were drawn over each other under the divider.
 test('a compaction divider that splits a tool group mid-turn draws each half once, at its own offset', async () => {
   const project = await projection();
   const turn = { kind: 'user', id: 'desktop-submit-tools', text: '컴퓨터유즈 왜호출안되는지부터 파악필요할듯' };
@@ -341,10 +319,6 @@ test('a compaction divider that splits a tool group mid-turn draws each half onc
   }
 });
 
-// The other input: after a compaction the core sends every row of its window
-// again, archived. The client store holds only its tail; the older rows it
-// appended came out under the divider as a tool group of the current turn
-// (the earlier turn's folder listing and exploration calls, as a summary).
 test('rows re-sent archived after a compaction stay above the divider, out of the turn that goes on below it', async () => {
   const { sessionReducer, desktopSessionState } = await import(
     '../../../../packages/protocol-client/src/session-state.ts'

@@ -20,10 +20,8 @@ async function mountPane(t, desktop, props) {
   return { ...view, settle, q: (selector) => view.document.querySelector(selector) };
 }
 
-test('a Git root picks its Changes source in the toolbar; each source lists, empties and diffs its own files', async (t) => {
-  const reviews = [];
-  const diffs = [];
-  const view = await mountPane(
+function mountGitSourcePane(t, reviews, diffs) {
+  return mountPane(
     t,
     {
       gitReview: async (_cwd, source) => {
@@ -40,6 +38,11 @@ test('a Git root picks its Changes source in the toolbar; each source lists, emp
     },
     { sessionId: 'pane-git', cwd: 'C:/pane-repo' }
   );
+}
+
+test('a Git root shows its Changes source picker in the toolbar and reads the open file from that source', async (t) => {
+  const diffs = [];
+  const view = await mountGitSourcePane(t, [], diffs);
   const toolbar = view.q('.session-diff-toolbar');
   const select = toolbar.querySelector('.session-diff-source-select');
   assert.ok(select, 'the source picker is in the toolbar row');
@@ -51,7 +54,12 @@ test('a Git root picks its Changes source in the toolbar; each source lists, emp
   // The open file read its own patch, lazily, from the same source.
   assert.deepEqual(diffs, [['C:/pane-repo', 'src/a.ts', false, 'uncommitted']]);
   assert.ok(view.q('.session-diff-section .inline-diff'));
+});
 
+test('the source menu lists the conversation sources apart from Git’s; choosing one persists it and lists its own files', async (t) => {
+  const reviews = [];
+  const view = await mountGitSourcePane(t, reviews, []);
+  const trigger = view.q('.session-diff-source-select .mx-select-trigger');
   await act(async () =>
     trigger.dispatchEvent(new view.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
   );

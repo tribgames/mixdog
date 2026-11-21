@@ -1,13 +1,3 @@
-/**
- * The live-view sender window against a real Electron and a real display
- * (scripts/run-remote-webrtc-sender-integration.mjs): the real sender page and
- * preload open a real desktop video capture (`chromeMediaSource: 'desktop'`)
- * for the first screen, with a handler on the default session that refuses
- * every permission (the app's policy for non-app windows). The page is the
- * Vite-built document loaded from file://, and its meta CSP (the only policy
- * the built page gets) is shown to be enforced. Needs an interactive desktop
- * session; the permission denials are covered by sender-session.test.mjs.
- */
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { join } from 'node:path';

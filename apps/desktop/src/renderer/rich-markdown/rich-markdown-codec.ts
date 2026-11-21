@@ -13,10 +13,6 @@ function referenceHtml(markdown: string): string {
   return reference.parse(markdown, { async: false }) as string;
 }
 
-/** Whitespace-sensitive spans of the rendered HTML: code blocks, `$$` math,
- *  inline code and inline `$` math (matched by the editor's own rule). Their
- *  content is compared exactly (block math edges excepted: the editor writes
- *  `$$x$$` as `$$\nx\n$$`). */
 const EXACT_SPAN = new RegExp(
   String.raw`<pre\b[\s\S]*?<\/pre>|\$\$[\s\S]*?\$\$|<code>[\s\S]*?<\/code>|` + INLINE_MATH_SOURCE,
   'g'
@@ -62,10 +58,6 @@ export interface RichMarkdownCodec {
 const BARE_URL = /(?:(?:https?|ftp):\/\/|www\.)[^\s<]*/gi;
 const INLINE_MATH_AT = new RegExp(INLINE_MATH_SOURCE, 'y');
 
-/** Text escaping on top of the manager's own: bare URLs are left as typed,
- *  and `$…$` that would read back as math gets its opening `$` escaped.
- *  A `$` inside a bare URL is never escaped (a backslash there would become
- *  part of the URL): the URL is read first, so math cannot start in it. */
 function escapeRichMarkdownText(text: string, base: (text: string) => string): string {
   let out = '';
   let last = 0;
@@ -390,11 +382,6 @@ function myersPairs(
 /** How far `linearPairs` looks ahead for the next equal unit. */
 const LINEAR_LOOKAHEAD = 64;
 
-/** Unchanged pairs in linear time, for runs too far apart for a shortest
- *  diff and without unique units to anchor on (repeated identical units):
- *  runs of equal length pair units by position; otherwise a greedy walk
- *  pairs equal units and, at a difference, skips ahead on whichever side
- *  reaches the nearest equal pair (within a bounded window). */
 function linearPairs(
   before: SourceUnit[],
   after: SourceUnit[],
@@ -435,12 +422,6 @@ function linearPairs(
   return pairs;
 }
 
-/** Index pairs of units that stay unchanged between `before[b0, b1)` and
- *  `after[a0, a1)`. A shortest diff within the work budget; beyond it, units
- *  whose key is unique on both sides anchor the alignment (in order, the
- *  longest increasing run of them) and the gaps between are aligned the same
- *  way, and runs with no such unit are aligned linearly (`linearPairs`), so
- *  unchanged units keep their bytes however far apart the changes are. */
 function unchangedPairs(
   before: SourceUnit[],
   after: SourceUnit[],
@@ -503,13 +484,6 @@ function unchangedPairs(
   return pairs;
 }
 
-/**
- * `source` with every run of units that differs from `target` replaced by
- * `target`'s text for it; units both sides share (aligned by key) keep their
- * bytes, also between two separate changes. Where exactly one unit changed
- * on each side, `refine` may rewrite it in place, keeping its own unchanged
- * parts. `separator` joins units appended after the last one.
- */
 function spliceUnits(
   source: string,
   before: SourceUnit[],

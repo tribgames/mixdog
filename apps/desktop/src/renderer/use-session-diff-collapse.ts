@@ -5,11 +5,6 @@ import type { SessionDiffRow } from './session-diff-model';
 import { rowListIndex } from './session-diff-row-index';
 
 type Base = 'default' | 'folded' | 'open';
-/** `default`: every file open except a deleted one (Codex); `folded` / `open`:
- *  Collapse all / Expand all. `differs` holds, by row ID, only the files the
- *  user set apart from the base (a toggle back removes the entry), and
- *  `delta` is what those entries add to the base's folded count for `rows`.
- *  Nothing is seeded per file: a file's fold is decided when it is drawn. */
 type Folds = { base: Base; differs: Map<string, boolean>; delta: number; rows: readonly SessionDiffRow[] };
 
 function baseFolded(base: Base, row: Pick<SessionDiffRow, 'status'>): boolean {

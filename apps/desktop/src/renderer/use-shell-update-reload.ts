@@ -1,14 +1,3 @@
-// Adopting a deploy that landed while this app was already running.
-//
-// The service worker answers a navigation from the document it already had and
-// refreshes it behind the paint (sw.js shellFirst). That document pins the
-// content-hashed bundle of the deploy it came from, so the running app is the
-// PREVIOUS build in full until something reloads it. The worker reports a
-// document that genuinely changed; this decides WHEN to take it.
-//
-// A reload throws the DOM away, so it waits for a moment where that costs
-// nothing: no turn in flight, nothing half-typed, and either an app that is
-// off screen or a short pause in use.
 import { useEffect, useRef } from 'react';
 import { subscribeShellUpdate } from './shell-update-state';
 

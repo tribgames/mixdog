@@ -184,3 +184,79 @@ test('phone send: a refused or failed submit removes the row and keeps the text 
     restore();
   }
 });
+
+async function keyCapture() {
+  const { conversationKeyDownCapture } = await import('./conversation-support.tsx');
+  const log = [];
+  const element = {
+    clientHeight: 1000,
+    scrollHeight: 5000,
+    scrollBy: (options) => log.push(['scrollBy', options.top]),
+    scrollTo: (options) => log.push(['scrollTo', options.top]),
+  };
+  const composer = { focus: (options) => log.push(['focus', options.preventScroll]) };
+  const press = (key, { inField = false, paletteOpen = false, ctrlKey = false, readOnly = false } = {}) =>
+    conversationKeyDownCapture(
+      {
+        key,
+        ctrlKey,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+        target: { closest: (selector) => (inField && selector.includes('textarea') ? {} : null) },
+        currentTarget: {
+          querySelector: (selector) => (selector.includes('composer-input-row') ? composer : paletteOpen ? {} : null),
+        },
+        preventDefault: () => log.push(['preventDefault']),
+      },
+      {
+        readOnly,
+        viewport: { current: element },
+        onTranscriptKey: ({ key: paged }) => log.push(['transcriptKey', paged]),
+      }
+    );
+  return { log, press };
+}
+
+test('key capture: paging keys scroll the transcript unless a field, a palette or a modifier owns them', async () => {
+  const { log, press } = await keyCapture();
+  press('PageDown');
+  press('PageUp');
+  press('End');
+  press('Home');
+  assert.deepEqual(log, [
+    ['preventDefault'],
+    ['transcriptKey', 'PageDown'],
+    ['scrollBy', 900],
+    ['preventDefault'],
+    ['transcriptKey', 'PageUp'],
+    ['scrollBy', -900],
+    ['preventDefault'],
+    ['transcriptKey', 'End'],
+    ['scrollTo', 5000],
+    ['preventDefault'],
+    ['transcriptKey', 'Home'],
+    ['scrollTo', 0],
+  ]);
+  log.length = 0;
+  press('Home', { inField: true });
+  press('PageDown', { paletteOpen: true });
+  press('PageDown', { ctrlKey: true });
+  press('PageDown', { readOnly: true });
+  assert.deepEqual(log, []);
+});
+
+test('key capture: a printable or IME key pressed outside a field refocuses the composer', async () => {
+  const { log, press } = await keyCapture();
+  press('a');
+  press('Process');
+  assert.deepEqual(log, [
+    ['focus', true],
+    ['focus', true],
+  ]);
+  log.length = 0;
+  press('a', { inField: true });
+  press('a', { ctrlKey: true });
+  press('Shift');
+  assert.deepEqual(log, []);
+});

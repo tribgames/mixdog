@@ -1,9 +1,3 @@
-/**
- * One session's cursor window: a transparent, click-through, never-focused
- * BrowserWindow that draws the virtual pointer. It is owned the moment it is
- * created — even while its renderer still loads — so a dispose or a crash
- * midway retires it instead of leaking a stray window.
- */
 import { BrowserWindow, screen } from 'electron';
 
 import { tagRendererSurface } from '../../process-memory-diagnostics';

@@ -98,11 +98,6 @@ const HANDLE_ONLY = /^@[A-Za-z0-9_]{1,30}$/;
 const IDENTIFIER_FIELD = /user|e-?mail|login|identifier|phone|account/i;
 const IDENTIFIER_AUTOCOMPLETE = /(?:^|\s)(?:username|email|webauthn)(?:\s|$)/;
 
-/** Whether the agent typed into an account identifier: the snapshot did not
- *  mark it secret (a password / protected input), it is no password input,
- *  and it positively declares an identifier — type=email, an autocomplete
- *  of username / email / webauthn, or a textbox whose own name, id or
- *  autocomplete names a user, email, login, identifier, phone or account. */
 function identifierField(ref: { role: string; sensitive?: boolean }, field: LinkedFieldFacts | null): boolean {
   if (!field || ref.sensitive || field.type === 'password' || field.type === 'hidden') return false;
   if (field.type === 'email' || IDENTIFIER_AUTOCOMPLETE.test(field.autocomplete)) return true;
@@ -299,10 +294,6 @@ function createLinkedSignInTracker(now: () => number = Date.now) {
     return Boolean(origin && siteOf(origin) === flow.provider);
   };
 
-  /** Tab `key`'s main-frame navigation to `raw`: `start` (`initiator`: the
-   *  frame of this tab that started it, if one did), `redirect` or `commit`
-   *  (`failed`: an HTTP error answered). Returns the sign-in a commit
-   *  completes, if any. */
   function navigation(
     key: unknown,
     raw: string,

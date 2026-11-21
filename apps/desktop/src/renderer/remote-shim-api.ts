@@ -129,10 +129,6 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     finish: (transferId) => downloadCall<FileDownloadFinished>(FILE_DOWNLOAD_REMOTE_METHODS.finish, [transferId]),
     abort: (id) => downloadCall<boolean>(FILE_DOWNLOAD_REMOTE_METHODS.abort, [id]),
   };
-  // The sessions whose visualize panel this page has on screen (the store's
-  // VISUALIZE_PANELS_EVENT, visualize-store.ts): the desktop counts this
-  // device as viewing a session's visualize tabs only for these. Each new leg
-  // is told again; an older desktop ignores the call.
   let visualizePanels: string[] = [];
   const reportVisualizePanels = (): void => {
     ctx.visualizePanelIds = visualizePanels;
@@ -519,11 +515,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
         throw new FileDownloadError('host-too-old', 'Update Mixdog on the PC to download its files.');
       return call('visualizeExport', [sessionId, tabId, format, pane]);
     },
-    // Gallery bytes ride HTTP, not this socket: the browser caches tiles and
-    // asks for byte ranges when a clip seeks. A host that does not serve the
-    // lane answers 404 and the caller falls back to the RPC payload.
-    // '' (no byte lane) unless the host serves the encrypted lane and the
-    // service worker that decrypts it controls this page.
+    // '' unless the host serves the encrypted HTTP lane and the service worker that decrypts it controls this page.
     mediaUrl: (assetId, variant) => laneUrl(assetId, variant),
   };
   // Presence-checked members: read as absent unless the CURRENT host
@@ -593,10 +585,6 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
   Object.defineProperty(api, 'remoteTermSizeOwner', { enumerable: true, get: () => ctx.peerTermSizeOwner === true });
   // Read per access: a reconnect may reach a host that predates `usageRequests`.
   Object.defineProperty(api, 'remoteUsageRequests', { enumerable: true, get: () => ctx.peerUsageRequests === true });
-  // Never expose provideSecretInput, even if an older host advertises it:
-  // ApprovalCard keeps "Enter it on your PC" and still offers Cancel.
-  // Absent on a host that predates `hostDirectories`, so the folder browser
-  // keeps its legacy fallback.
   Object.defineProperty(api, 'listHostDirectories', {
     enumerable: true,
     get: () => (ctx.peerHostDirectories === true ? (path: string) => call('listHostDirectories', [path]) : undefined),

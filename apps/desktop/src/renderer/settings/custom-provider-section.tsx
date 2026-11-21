@@ -274,10 +274,6 @@ function discoveryOutcome(found: RecordValue, listed: CustomModel[]): RecordValu
   return listed.length ? null : { kind: 'empty' };
 }
 
-/** The form's connection actions — Refresh models, Test connection, Save —
- *  and their outcome. One attempt runs at a time; discovery can take up to a
- *  minute on a slow service, so "Stop waiting" bumps the attempt: the pending
- *  answer is then ignored and manual entry opens. */
 function useCustomProviderConnection({
   run,
   uid,

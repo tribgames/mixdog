@@ -1,13 +1,5 @@
-/**
- * Element aliases: a command may name a control by the mark it carried in the
- * latest capture. The mark resolves against that capture's targets — a
- * semantic ref, or an OCR/frame point for pointer actions — and must agree
- * with any explicit ref, window or coordinates the command also names.
- */
 import type { ComputerCommand, ElementAliasTarget } from '../shared/types';
 
-/** Actions that may address an element by alias, and the subset that can fall
- *  back to pixels when the alias resolves to a point. */
 const ELEMENT_ALIAS_ACTIONS = new Set([
   'invoke',
   'set_value',
@@ -43,10 +35,6 @@ const PIXEL_ALIAS_ACTIONS = new Set([
 
 export type ElementTargets = Map<number, ElementAliasTarget> | undefined;
 
-/** A capture publishes each OCR word as `ocr:<frame_id>:<mark>` in its ref, so
- *  a caller may name it there instead of in `element`. It resolves through the
- *  same targets as the mark, and only from the frame the capture recorded: a
- *  mark number alone would point at whatever the newest frame put there. */
 const OCR_REF_PATTERN = /^ocr:(.+):(\d+)$/;
 
 function ocrRefTarget(targets: ElementTargets, value: unknown, label: string): ElementAliasTarget | undefined {

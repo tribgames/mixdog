@@ -194,10 +194,6 @@ export async function recoveryStorageInventory(directory: string): Promise<Array
   return entries.sort(([a], [b]) => a.localeCompare(b));
 }
 
-// Invalid/retired records grant only deletion of their host-owned flat store,
-// never restoration of any path mentioned by an unreadable manifest. Hash a
-// bounded inventory so a replaced record or repaired manifest needs approval
-// again. Directory rename during leasing must not invalidate that inventory.
 export async function inspectRecoveryStorage(directory: string, leased = false): Promise<ProjectRecoveryDetail> {
   await validateRecoveryDirectory(directory);
   const owner = locationName(basename(directory))!;

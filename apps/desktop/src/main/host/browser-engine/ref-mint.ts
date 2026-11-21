@@ -7,9 +7,9 @@
  */
 import type { Precondition } from '../../../../../../packages/protocol/src/index.ts';
 import { redactBrowserText } from '../../browser/redaction';
-import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
+import type { HostConnection } from '../connection';
 import type { EngineContext } from './context';
-import { requireCurrentSnapshot } from './ref-call';
+import { invalid, requireCurrentSnapshot } from './ref-call';
 import { registerEngineMethod } from './registry';
 
 export const HOST_BROWSER_REF_MINT = 'host/browser/ref/mint';
@@ -21,10 +21,6 @@ const compact = (value: unknown): string =>
   String(value ?? '')
     .replace(/\s+/g, ' ')
     .trim();
-
-function invalid(message: string): HostRpcError {
-  return new HostRpcError(HOST_INVALID_PARAMS, message);
-}
 
 export function registerRefMint(connection: HostConnection, ctx: EngineContext): void {
   registerEngineMethod(connection, ctx, HOST_BROWSER_REF_MINT, async (params, signal, page) => {

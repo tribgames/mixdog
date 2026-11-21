@@ -8,11 +8,6 @@ import {
 import type { TouchScrollDeviation } from './transcript-list-touch-deviation';
 import { registerTranscriptScrollGeometry } from './use-transcript-follow';
 
-/** The follow hook, reveal and history fill read this viewport's extent and
- *  offset from here, never from layout on a scroll event or frame. The
- *  viewport's ref attaches AFTER this list's layout effects when both mount
- *  in one commit, so registration is retried on every commit (layout, then
- *  passive — before the parent's passive effects read it) until it holds. */
 export function useTranscriptScrollGeometry({
   viewport,
   spacer,
@@ -31,10 +26,6 @@ export function useTranscriptScrollGeometry({
   deviation: TouchScrollDeviation;
 }) {
   const geometry = useRef<{ root: HTMLDivElement; release(): void } | null>(null);
-  // The thread whose inset is held. A style read outside the document is ""
-  // (a pane host PersistentPanePortal has not put back yet): kept as 0, every
-  // end pin landed 44px short of the bottom for the list's whole life, and a
-  // room rested with its last reply clipped under the composer.
   const insetThread = useRef<Element | null>(null);
   const ensureScrollGeometry = () => {
     const root = viewport.current;

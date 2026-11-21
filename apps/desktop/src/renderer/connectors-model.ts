@@ -1,7 +1,3 @@
-// Extensions → 커넥터: which list every item belongs to, and what a pasted
-// "주소 또는 명령어" is. Presentation only: server names, credentials, plugin
-// ids, enabled flags and the per-agent/per-project off-lists are read as they
-// are and never rewritten here.
 import { CONNECTOR_CATALOG, type ConnectorCatalogEntry } from '../shared/core-src/runtime/shared/connector-catalog.mjs';
 
 type Row = Record<string, unknown>;

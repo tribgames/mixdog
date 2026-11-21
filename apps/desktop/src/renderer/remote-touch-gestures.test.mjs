@@ -17,10 +17,6 @@ import {
 } from './remote-touch-gestures.ts';
 import { initialView, pictureToStage, viewBounds } from './remote-viewport.ts';
 
-/**
- * A stage at client (10, 20) showing a picture through the shared viewport,
- * on a test clock with hand-run animation frames.
- */
 function rig({
   strategy = 'direct',
   picture = { width: 1920, height: 1080 },
@@ -295,7 +291,7 @@ test('a second tap soon and close reuses the first tap’s point; a far one does
   assert.equal(four.count, 1);
 });
 
-test('a touch from the edge band taps as anywhere; moving inward it is the system’s swipe, ignored', async () => {
+test('a touch from the edge band taps as anywhere, also with movement inside the slop', () => {
   const r = rig();
   const edge = EDGE_SLOP_PX - 7;
   // The stage starts at client x 10, so the right edge's band is on the picture.
@@ -313,8 +309,11 @@ test('a touch from the edge band taps as anywhere; moving inward it is the syste
   r.gestures.move(1, right - 5, 302);
   r.gestures.up(1, right - 5, 302);
   assert.equal(r.of('click').length, 2);
-  // Swipes from the left, right and bottom edges: nothing sent, the view still, no fling.
-  r.actions.length = 0;
+});
+
+test('moving inward from the edge band is the system’s swipe: nothing sent, the view still, no fling', () => {
+  const r = rig();
+  const edge = EDGE_SLOP_PX - 7;
   swipe(r, 2, edge, 300, 20, 0, 6);
   swipe(r, 3, 400 - edge, 300, -20, 0, 6);
   swipe(r, 4, 200, 800 - edge, 0, -20, 6);
@@ -330,7 +329,10 @@ test('a touch from the edge band taps as anywhere; moving inward it is the syste
   assert.deepEqual(r.actions, []);
   assert.deepEqual(r.views, []);
   assert.equal(r.pending(), 0);
-  // A long-press there still holds the button.
+});
+
+test('a long-press in the edge band still holds the button', async () => {
+  const edge = EDGE_SLOP_PX - 7;
   const actions = [];
   const g = createTouchGestures({
     toTarget: (x, y) => ({ x, y }),

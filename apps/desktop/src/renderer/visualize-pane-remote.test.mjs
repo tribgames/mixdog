@@ -1,7 +1,3 @@
-// The Visualize panel on a paired remote device: agent pages that run at once
-// under the desktop's network block, PDF / Office panes as page images (with
-// the blob fallback), the remote PNG/PDF export entries and the render report
-// a remote inline pane files.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
@@ -108,26 +104,34 @@ test('a remote agent page runs scripts at once, with no Run gate or run-pages me
   }
 });
 
-test('a remote page document blocks outside origins like the desktop, until the tab allows network', async () => {
-  commands.length = 0;
-  putTab({ id: 'r1b', label: 'a.html', revision: 0, panes: [page] });
-  let root = await mount();
+async function withRemotePage(tab, run) {
+  putTab(tab);
+  const root = await mount();
   try {
-    const { frame, html } = await framedDocument();
+    await run(await framedDocument());
+  } finally {
+    await act(async () => root.unmount());
+  }
+}
+
+const postBlocked = (data, source) =>
+  act(async () =>
+    window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'mixdog-page-blocked', ...data }, source }))
+  );
+
+test('a remote page document blocks outside origins like the desktop, with the policy before the page', async () => {
+  await withRemotePage({ id: 'r1b', label: 'a.html', revision: 0, panes: [page] }, async ({ html }) => {
     const csp = cspOf(html);
     assert.equal(csp, BLOCKED_NETWORK_CSP);
-    // Nothing of the outside network (http, https, ws, wss, or any host) is a source.
     assert.doesNotMatch(csp, /https?:|wss?:|\*|\/\//);
     assert.ok(html.indexOf('Content-Security-Policy') < html.indexOf('go()'), 'the policy precedes the page');
-    // A refusal inside the frame is filed with the host as the desktop's blocked-network problem.
-    await act(async () =>
-      window.dispatchEvent(
-        new window.MessageEvent('message', {
-          data: { type: 'mixdog-page-blocked', url: 'https://cdn.example/x.png', directive: 'img-src' },
-          source: frame.contentWindow,
-        })
-      )
-    );
+  });
+});
+
+test('a refusal inside a remote frame is filed with the host as a blocked-network problem', async () => {
+  commands.length = 0;
+  await withRemotePage({ id: 'r1b', label: 'a.html', revision: 0, panes: [page] }, async ({ frame }) => {
+    await postBlocked({ url: 'https://cdn.example/x.png', directive: 'img-src' }, frame.contentWindow);
     assert.deepEqual(commands.at(-1), {
       sessionId: 's1',
       tabId: 'r1b',
@@ -136,62 +140,42 @@ test('a remote page document blocks outside origins like the desktop, until the 
       url: 'https://cdn.example/x.png',
       resource: 'image',
     });
-    // A message from anywhere else, or about a local address, files nothing.
-    const filed = commands.length;
-    await act(async () =>
-      window.dispatchEvent(
-        new window.MessageEvent('message', {
-          data: { type: 'mixdog-page-blocked', url: 'https://other.example/', directive: 'img-src' },
-          source: window,
-        })
-      )
-    );
-    await act(async () =>
-      window.dispatchEvent(
-        new window.MessageEvent('message', {
-          data: { type: 'mixdog-page-blocked', url: 'inline', directive: 'script-src' },
-          source: frame.contentWindow,
-        })
-      )
-    );
-    assert.equal(commands.length, filed);
-  } finally {
-    await act(async () => root.unmount());
-  }
-  // The desktop user allowed network for the tab: the page loads without the block.
-  putTab({ id: 'r1c', label: 'a.html', revision: 0, panes: [page], networkAllowed: true });
-  root = await mount();
-  try {
-    const { frame, html } = await framedDocument();
-    assert.match(html, /<script>go\(\)<\/script>/);
-    assert.equal(cspOf(html), undefined);
-    // The reporter stays: the frame's own CSP (the relay's preview frame) still refuses e.g. wss:.
-    assert.match(html, /securitypolicyviolation/);
-    commands.length = 0;
-    await act(async () =>
-      window.dispatchEvent(
-        new window.MessageEvent('message', {
-          data: { type: 'mixdog-page-blocked', url: 'wss://live.example/socket', directive: 'connect-src' },
-          source: frame.contentWindow,
-        })
-      )
-    );
-    assert.deepEqual(commands, [
-      {
-        sessionId: 's1',
-        tabId: 'r1c',
-        action: 'blocked',
-        pane: 0,
-        url: 'wss://live.example/socket',
-        resource: 'webSocket',
-      },
-    ]);
-  } finally {
-    await act(async () => root.unmount());
-  }
+  });
 });
 
-test('a new revision of the same page content keeps its frame; fetches go to the newest load', async () => {
+test('a blocked-network message from anywhere else, or about a local address, files nothing', async () => {
+  commands.length = 0;
+  await withRemotePage({ id: 'r1b', label: 'a.html', revision: 0, panes: [page] }, async ({ frame }) => {
+    await postBlocked({ url: 'https://other.example/', directive: 'img-src' }, window);
+    await postBlocked({ url: 'inline', directive: 'script-src' }, frame.contentWindow);
+    assert.deepEqual(commands, []);
+  });
+});
+
+test('a remote page loads without the block once the desktop user allowed network for the tab', async () => {
+  commands.length = 0;
+  await withRemotePage(
+    { id: 'r1c', label: 'a.html', revision: 0, panes: [page], networkAllowed: true },
+    async ({ frame, html }) => {
+      assert.match(html, /<script>go\(\)<\/script>/);
+      assert.equal(cspOf(html), undefined);
+      assert.match(html, /securitypolicyviolation/);
+      await postBlocked({ url: 'wss://live.example/socket', directive: 'connect-src' }, frame.contentWindow);
+      assert.deepEqual(commands, [
+        {
+          sessionId: 's1',
+          tabId: 'r1c',
+          action: 'blocked',
+          pane: 0,
+          url: 'wss://live.example/socket',
+          resource: 'webSocket',
+        },
+      ]);
+    }
+  );
+});
+
+async function mountRevisedPage(nextContent) {
   const original = remote.source;
   const loads = [];
   const fetched = [];
@@ -211,42 +195,66 @@ test('a new revision of the same page content keeps its frame; fetches go to the
   remote.source = pageOf('live:aaa', '<p>same</p>');
   putTab({ id: 'r6', label: 'a.html', revision: 1, panes: [page] });
   const root = await mount();
+  const { frame } = await framedDocument();
+  const documents = () => {
+    const sent = [];
+    frame.contentWindow.postMessage = (message) => sent.push(message);
+    window.dispatchEvent(
+      new window.MessageEvent('message', { data: { type: 'mixdog-preview-ready' }, source: frame.contentWindow })
+    );
+    return sent.filter((message) => message?.type === 'mixdog-preview-document').length;
+  };
+  remote.source = nextContent ? pageOf(...nextContent) : remote.source;
+  await act(async () => putTab({ id: 'r6', label: 'a.html', revision: 2, panes: [page] }));
+  await settle();
+  return {
+    loads,
+    fetched,
+    frame,
+    documents,
+    cleanup: async () => {
+      remote.source = original;
+      await act(async () => root.unmount());
+    },
+  };
+}
+
+test('a new revision of the same page content keeps its frame', async () => {
+  const revised = await mountRevisedPage();
   try {
-    const { frame } = await framedDocument();
-    // A reload hands the frame a document again once it says it is ready.
-    const documents = () => {
-      const sent = [];
-      frame.contentWindow.postMessage = (message) => sent.push(message);
-      window.dispatchEvent(
-        new window.MessageEvent('message', { data: { type: 'mixdog-preview-ready' }, source: frame.contentWindow })
-      );
-      return sent.filter((message) => message?.type === 'mixdog-preview-document').length;
-    };
-    await act(async () => putTab({ id: 'r6', label: 'a.html', revision: 2, panes: [page] }));
-    await settle();
-    assert.equal(loads.length, 2, 'the new revision was read');
-    assert.equal(document.querySelector('.visualize-pane-content iframe'), frame);
-    assert.equal(documents(), 0, 'the frame did not reload');
-    frame.contentWindow.postMessage = () => {};
+    assert.equal(revised.loads.length, 2, 'the new revision was read');
+    assert.equal(document.querySelector('.visualize-pane-content iframe'), revised.frame);
+    assert.equal(revised.documents(), 0, 'the frame did not reload');
+  } finally {
+    await revised.cleanup();
+  }
+});
+
+test('page fetches go to the newest load of the same page content', async () => {
+  const revised = await mountRevisedPage();
+  try {
+    revised.frame.contentWindow.postMessage = () => {};
     await act(async () =>
       window.dispatchEvent(
         new window.MessageEvent('message', {
           data: { type: 'mixdog-page-fetch', id: 1, reference: 'data.json' },
-          source: frame.contentWindow,
+          source: revised.frame.contentWindow,
         })
       )
     );
     await settle();
-    assert.deepEqual(fetched, [[2, 'data.json']], 'the newest load serves the page fetch');
-
-    // Different content: the frame loads the new page.
-    remote.source = pageOf('live:bbb', '<p>other</p>');
-    await act(async () => putTab({ id: 'r6', label: 'a.html', revision: 3, panes: [page] }));
-    await settle();
-    assert.equal(documents(), 1, 'the frame reloaded');
+    assert.deepEqual(revised.fetched, [[2, 'data.json']]);
   } finally {
-    remote.source = original;
-    await act(async () => root.unmount());
+    await revised.cleanup();
+  }
+});
+
+test('a new revision with different page content reloads the frame', async () => {
+  const revised = await mountRevisedPage(['live:bbb', '<p>other</p>']);
+  try {
+    assert.equal(revised.documents(), 1, 'the frame reloaded');
+  } finally {
+    await revised.cleanup();
   }
 });
 

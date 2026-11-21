@@ -1,9 +1,3 @@
-/**
- * Where an input lands and what the desktop looked like around it: frame
- * coordinates become physical ones, foreground input records the state it must
- * hand back, and a mutation waits for the desktop to settle before the window
- * transition is read.
- */
 import type { CaptureFrame, ComputerCommand, ObservedWindowScope, PowerShellResponse } from '../shared/types';
 import type { ComputerWindowRecord } from '../shared/window-transition';
 import type { InputRecoveryState } from './execution-state';

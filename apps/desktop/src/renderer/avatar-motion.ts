@@ -1,10 +1,3 @@
-// Which avatar may move (design/mockups/mixy-art §4–5): at most one in view at
-// a time. An avatar asking for a motion state claims the stage while it is on
-// screen; the highest priority claim wins — a new-message bounce, then a
-// typing bubble, then a working list row, then the header's idle blink — and
-// the newest among equals. Every other avatar shows its still frame. Reduced
-// motion leaves every avatar still, and a hidden window pauses the one moving
-// (html[data-mx-av-paused], agent-avatar.css).
 import { type RefObject, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 export type AvatarMotionState = 'still' | 'idle' | 'typing' | 'message';

@@ -62,11 +62,7 @@ type ReadContext = {
   setAnsweredSession(session: string): void;
 };
 
-/** The session's turn scope. A long turn's prompt row can fall out of the
- *  transcript tail the daemon sends. The rows left are still that turn, so it
- *  keeps its scope: the shared `none` scope held an unrelated earlier review
- *  and skipped the checkpoint check. Reusing an unrelated review made the diff
- *  above the composer briefly show the wrong change count before it vanished. */
+/** The session's turn scope; a truncated transcript keeps the scope remembered for its session. */
 function useTurnReviewScope(items: TranscriptItem[], sessionId: string | undefined) {
   const reviewSession = String(sessionId || 'draft');
   const rememberedScope = useRef<{ session: string; key: string } | null>(null);
@@ -85,7 +81,40 @@ function useTurnReviewScope(items: TranscriptItem[], sessionId: string | undefin
   return { reviewSession, reviewScope, turnScopeKey, activeScope };
 }
 
-/** One turn-review capability read, coalesced with any read in flight. */
+/** A read for the scope already in flight: dropped when the read sent in this
+ *  commit answers it too, else merged into the one follow-up read that runs
+ *  after it. */
+function queueBehindInFlightRead(
+  ctx: ReadContext,
+  { refreshWorktree, summary, background }: { refreshWorktree: boolean; summary: boolean; background: boolean }
+): void {
+  const { reviewBoundaryKey, sameCommitRequest, pendingCapabilityRefresh } = ctx;
+  const requestedScope = ctx.turnScopeKey;
+  // The boundary effect and a running turn's background read both ask when
+  // one commit moves a boundary: the read already sent for it answers both,
+  // so a queued follow-up would only repeat it.
+  const issued = sameCommitRequest.current;
+  if (
+    issued?.scopeKey === requestedScope &&
+    issued.boundaryKey === reviewBoundaryKey &&
+    (!issued.summary || summary) &&
+    (issued.refreshWorktree || !refreshWorktree) &&
+    (!issued.background || background)
+  ) {
+    return;
+  }
+  const pending = pendingCapabilityRefresh.current;
+  const samePending = pending?.scopeKey === requestedScope;
+  pendingCapabilityRefresh.current = {
+    scopeKey: requestedScope,
+    boundaryKey: reviewBoundaryKey,
+    refreshWorktree: refreshWorktree || (samePending && pending.refreshWorktree),
+    summary,
+    // A queued foreground read stays foreground when a background read joins it.
+    background: background && (!samePending || pending.background),
+  };
+}
+
 async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, background: boolean) {
   const { sessionId, reviewBoundaryKey, capabilityRequestInFlight, sameCommitRequest, pendingCapabilityRefresh } = ctx;
   const api = window.mixdogDesktop as
@@ -102,34 +131,8 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
   if (!sessionId || !api?.invokeCapability) return;
   if (document.visibilityState === 'hidden') return;
   const summary = !ctx.detailShown.current;
-  // Only a read for the same scope coalesces. The pane keeps this hook across
-  // session switches: queueing the incoming session's entry read behind the
-  // previous session's worktree capture held its review bar (and the pane's
-  // reveal) for seconds. The outgoing read still answers its own cache.
   if (capabilityRequestInFlight.current?.scopeKey === requestedScope) {
-    // The boundary effect and a running turn's background read both ask when
-    // one commit moves a boundary: the read already sent for it answers both,
-    // so a queued follow-up would only repeat it.
-    const issued = sameCommitRequest.current;
-    if (
-      issued?.scopeKey === requestedScope &&
-      issued.boundaryKey === reviewBoundaryKey &&
-      (!issued.summary || summary) &&
-      (issued.refreshWorktree || !refreshWorktree) &&
-      (!issued.background || background)
-    ) {
-      return;
-    }
-    const pending = pendingCapabilityRefresh.current;
-    const samePending = pending?.scopeKey === requestedScope;
-    pendingCapabilityRefresh.current = {
-      scopeKey: requestedScope,
-      boundaryKey: reviewBoundaryKey,
-      refreshWorktree: refreshWorktree || (samePending && pending.refreshWorktree),
-      summary,
-      // A queued foreground read stays foreground when a background read joins it.
-      background: background && (!samePending || pending.background),
-    };
+    queueBehindInFlightRead(ctx, { refreshWorktree, summary, background });
     return;
   }
   const issued = { scopeKey: requestedScope, boundaryKey: reviewBoundaryKey, refreshWorktree, summary, background };
@@ -142,26 +145,12 @@ async function requestTurnReview(ctx: ReadContext, refreshWorktree: boolean, bac
     if (sameCommitRequest.current === issued) sameCommitRequest.current = null;
   });
   try {
-    // This bar belongs to the pane's session. During a tab switch the host's
-    // focused view can already point elsewhere, so omitting this address
-    // mixed another turn's diff into the bar and could hit a stale view.
-    // The tag lives with the cached review it names, so `unchanged` is only
-    // ever asked for a review this scope still holds.
-    // A `none` scope names no turn, so nothing read under it is kept for
-    // a later mount to show as its own review.
     const cacheable = requestedCheckpoint !== 'none';
-    // The entry read a session's open already started is this same request
-    // (stored summary, no worktree refresh, foreground): its answer is taken
-    // rather than asked for again. A refresh, a background read and an
-    // expanded patch are different requests and are issued as usual.
     const entryRead = !refreshWorktree && summary && !background ? turnReviewPrefetch(requestedScope) : undefined;
     let ticket = entryRead?.ticket;
     let result = entryRead ? await entryRead.read : null;
     if (!result) {
       const known = cacheable ? (reviewTagCache.get(requestedScope) ?? '') : '';
-      // The collapsed bar draws files and counts only. Its patch text is
-      // most of each read (and, for a large change, most of its cost), so
-      // it is read once the bar is opened.
       ticket = nextLastTurnRequest();
       result = await api.invokeCapability({
         capability: TURN_REVIEW_CAPABILITY,
@@ -268,10 +257,6 @@ function useTurnReviewRefreshSchedule({
   }, [expanded, active, hasTurnActivity, agentReviewCount, refreshAgentReviews]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: changeKey stands in for items, mutations for a history change, as re-run triggers
   useEffect(() => {
-    // A file-changing tool's end or the turn's end is the authoritative point
-    // at which the visible count must catch up. If an older request is still running, the callback
-    // above coalesces this into one mandatory follow-up refresh instead of
-    // dropping the final file set and leaving an earlier count on screen.
     if (active && hasTurnActivity) {
       // An idle entry asks the runtime's held snapshot first (fast), then the
       // fresh worktree read queues behind it.
@@ -281,12 +266,6 @@ function useTurnReviewRefreshSchedule({
       void refreshAgentReviews(true, boundaryInBackground);
     }
   }, [active, busy, refreshAgentReviews, hasTurnActivity, changeKey, mutations]);
-  // Besides the transcript's boundaries, the review reads again when the
-  // runtime says it may read differently (a command or tool boundary stamped
-  // the worktree, the turn's end captured it, a worker's review changed) and
-  // when the window comes back into view, and after a remote reconnect (the
-  // relay does not replay pushes sent while the leg was down). No timer: a
-  // review without such an event still shows its last capture.
   useEffect(() => {
     if (!active || (!hasTurnActivity && agentReviewCount === 0)) return undefined;
     return subscribeTurnReviewRereads(() => void refreshAgentReviews(true, busy && !expanded));
@@ -357,20 +336,7 @@ export function useTurnReviewReads({
   // Only probe once the transcript shows turn activity: a fresh/empty session
   // has no child review and passive mounts must not fire capability calls.
   const hasTurnActivity = reviewScope.hasActivity;
-  // Entering a session with no read for its turn yet shows no bar until the
-  // first authoritative read answers. The transcript estimate also counts
-  // edits outside the worktree: it painted "1 file changed" on entry, the read
-  // removed it ~1s later and the transcript dropped by the bar's height. A cached read answers in tens of
-  // milliseconds, so the bar lands with the transcript. A slow read remains
-  // undecided: the conversation owns the bounded entry wait, not a shorter
-  // timer that briefly paints an estimate before the real answer replaces it.
-  // A live turn in a session already answered never waits.
   const [answeredSession, setAnsweredSession] = useState('');
-  // Entry presentation is chosen once per turn, not on every focus change.
-  // A background pane may already show its transcript estimate. Its first
-  // focused refresh must not remove that bar and reinsert the same bar when
-  // the read answers. Conversely, blurring a pending foreground entry must
-  // not expose an estimate before its authoritative read has answered.
   const reviewEntry = useRef({ scopeKey: turnScopeKey, waitForRead: active });
   if (reviewEntry.current.scopeKey !== turnScopeKey) {
     reviewEntry.current = { scopeKey: turnScopeKey, waitForRead: active };

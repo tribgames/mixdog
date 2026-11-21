@@ -1,8 +1,3 @@
-// "항상 허용" the person gave one bot, listed in that bot's profile so each can
-// be turned back to asking: a connector tool the bot runs without asking (its
-// own policy entry) and an action kind it may do without asking (its
-// permission table: form submits, send/post clicks, and the outbound kinds
-// that offer "다시 묻지 않기"). Nothing shows while the bot has none.
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import type { DesktopApi } from '../shared/contract';
 import { actionLabel, connectorToolLabel } from './ApprovalCard';

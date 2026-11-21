@@ -1,13 +1,3 @@
-/**
- * Whether a foreground delivery left the desktop where it belongs. The observer
- * must still be the one recorded and no user input may have intervened; then
- * focus and pointer must be back where they were — unless a session holds the
- * desktop, which keeps both until its release. A refused input that left focus
- * untouched needs no restoration;
- * anything that drifted is reasserted once and read back. A refused input is
- * never conflated with failed cleanup: the reply builder reports the refusal,
- * this only closes cleanup.
- */
 import { INPUT_GAP_REASON, settleInputGap } from '../observation/capture-input-observation';
 import { elapsedMs } from '../shared/common';
 import type { ComputerCommand } from '../shared/types';
@@ -29,10 +19,6 @@ interface RecoveryCheck {
   inputRecovery: InputRecoveryState;
   timings: Record<string, number>;
   nativeResult: Record<string, unknown>;
-  /** Focus stays on the target for an explicit focus request or a session
-   *  holding the desktop; the user's window gets it back only at release.
-   *  Keys the user types between commands therefore reach the target, and the
-   *  session stands down as soon as it observes them. */
   preserveFocusForFollowup: boolean;
   /** The session owns the desktop until it releases: focus stays on the target
    *  and the pointer where it acts; the user's own state returns at release. */
@@ -217,6 +203,41 @@ function recoveryVerdict(
   };
 }
 
+/** The target closed and focus is held for a follow-up: focus goes home, the pointer stays. */
+async function closedTargetVerdict(
+  host: InputRecoveryVerifyHost,
+  check: RecoveryCheck,
+  before: InputRecoveryState
+): Promise<Verdict> {
+  const { inputRecovery } = check;
+  const { current } = await reassertInputState(host, check, before);
+  const observed =
+    current.inputObserverReady === true &&
+    current.inputMonitorId === inputRecovery.inputMonitorId &&
+    current.inputUserSequence === inputRecovery.inputUserSequence;
+  const returnedToOwner = current.foregroundWindowId === inputRecovery.targetOwnerWindowId;
+  const cursorRestored = cursorMatches(current, inputRecovery);
+  return {
+    ok: observed && returnedToOwner && cursorRestored,
+    target_closed: true,
+    focus_preserved_for_followup: returnedToOwner,
+    cursor_restored: cursorRestored,
+    reasserted: true,
+    ...withReadback(check),
+  };
+}
+
+function reassertionFailureVerdict(check: RecoveryCheck, error: unknown): Verdict {
+  return {
+    ok: false,
+    ...(/user_input_active/.test(String(error)) ? { user_control: true, recovery_skipped: true } : {}),
+    focus_restored: false,
+    cursor_restored: false,
+    error: (error as Error).message || String(error),
+    ...withReadback(check),
+  };
+}
+
 export async function verifyInputRecovery(
   host: InputRecoveryVerifyHost,
   command: ComputerCommand,
@@ -276,21 +297,7 @@ export async function verifyInputRecovery(
     // A closed target has no focus left to hold: focus goes home, pointer stays.
     if (current.targetExists === false && check.holdDesktop) check.preserveFocusForFollowup = false;
     if (current.targetExists === false && check.preserveFocusForFollowup) {
-      ({ current } = await reassertInputState(host, check, current));
-      const observed =
-        current.inputObserverReady === true &&
-        current.inputMonitorId === inputRecovery.inputMonitorId &&
-        current.inputUserSequence === inputRecovery.inputUserSequence;
-      const returnedToOwner = current.foregroundWindowId === inputRecovery.targetOwnerWindowId;
-      const cursorRestored = cursorMatches(current, inputRecovery);
-      return {
-        ok: observed && returnedToOwner && cursorRestored,
-        target_closed: true,
-        focus_preserved_for_followup: returnedToOwner,
-        cursor_restored: cursorRestored,
-        reasserted: true,
-        ...withReadback(check),
-      };
+      return await closedTargetVerdict(host, check, current);
     }
     let reasserted = false;
     let restoredTarget = '';
@@ -304,13 +311,6 @@ export async function verifyInputRecovery(
     }
     return recoveryVerdict(check, current, reasserted, restoredTarget);
   } catch (error) {
-    return {
-      ok: false,
-      ...(/user_input_active/.test(String(error)) ? { user_control: true, recovery_skipped: true } : {}),
-      focus_restored: false,
-      cursor_restored: false,
-      error: (error as Error).message || String(error),
-      ...withReadback(check),
-    };
+    return reassertionFailureVerdict(check, error);
   }
 }

@@ -62,6 +62,11 @@ const turnOf = (input: Record<string, unknown>): number => {
   const turn = Number(input.turn_id);
   return Number.isSafeInteger(turn) && turn >= 1 ? turn : 0;
 };
+const scopedTurn = (sessionId: string, input: Record<string, unknown>): number => {
+  const turn = turnOf(input);
+  if (!sessionId || !turn) throw unscoped();
+  return turn;
+};
 const key = (sessionId: string, turn: number): string => `${sessionId}\u0000${turn}`;
 /** The core's runtime id on the computer host's fill command (the host only needs one to scope the fill). */
 const CORE_RUNTIME = 'core';
@@ -84,8 +89,7 @@ export function createSavedLoginHost(deps: SavedLoginHostDeps) {
   const admitted = new Set<string>();
   /** The request's agent turn, once its fill was admitted for this session. */
   const admittedTurn = (sessionId: string, input: Record<string, unknown>): number => {
-    const turn = turnOf(input);
-    if (!sessionId || !turn) throw unscoped();
+    const turn = scopedTurn(sessionId, input);
     if (!admitted.has(key(sessionId, turn))) {
       throw new Error('saved_login_unavailable: the fill was not admitted for its session and turn; no input was sent');
     }
@@ -93,15 +97,13 @@ export function createSavedLoginHost(deps: SavedLoginHostDeps) {
   };
   return {
     admit(sessionId: string, input: Record<string, unknown>): { enabled: boolean } {
-      const turn = turnOf(input);
-      if (!sessionId || !turn) throw unscoped();
+      const turn = scopedTurn(sessionId, input);
       if (!deps.autoSignIn()) return { enabled: false };
       admitted.add(key(sessionId, turn));
       return { enabled: true };
     },
     release(sessionId: string, input: Record<string, unknown>): { released: true } {
-      const turn = turnOf(input);
-      if (!sessionId || !turn) throw unscoped();
+      const turn = scopedTurn(sessionId, input);
       for (const held of [...admitted]) {
         const [owner, at] = held.split('\u0000');
         if (owner === sessionId && Number(at) <= turn) admitted.delete(held);

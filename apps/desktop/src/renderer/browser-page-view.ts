@@ -1,8 +1,3 @@
-// Showing one exact browser page (tab) of a session in the viewer's panel: the
-// transcript's "브라우저 · 보기" and a takeover card's "열기". The desktop
-// selects the tab through the pane's own page control; a paired phone has no
-// such channel, so a host with conversation tab controls takes the same
-// select-tab over the remote browser control. The panel then opens on it.
 import { BROWSER_TAB_GONE_MESSAGE } from '../shared/browser-page-control';
 import { revealBrowserPane } from './browser-page-request';
 import { clearBorrowedBrowserTab, showBorrowedBrowserTab } from './browser-pane-borrowed-tab';

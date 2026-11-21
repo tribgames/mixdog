@@ -1,8 +1,4 @@
-/**
- * Native desktop coordinates, as the input backends use them: physical pixels
- * on Windows and Linux, and on macOS the global display points Electron
- * already reports, so no conversion applies there.
- */
+// Physical pixels on Windows and Linux; macOS uses the global display points Electron reports, unconverted.
 import { screen, type Display } from 'electron';
 
 type Point = { x: number; y: number };

@@ -167,10 +167,6 @@ function decodeImageElement(objectUrl: string, displayName: string): Promise<HTM
   });
 }
 
-// WebP first: it keeps alpha, which JPEG cannot, at a fraction of what
-// the same pixels cost as PNG — and a phone screenshot re-encoded as
-// PNG was the largest attachment a remote surface could send. A browser
-// without WebP encoding returns some other type, which this checks.
 async function reencodedImage(
   image: HTMLImageElement,
   file: File,
@@ -212,10 +208,6 @@ async function browserResizedImage(
     const scale = Math.min(1, WEB_IMAGE_MAX_WIDTH / originalWidth, WEB_IMAGE_MAX_HEIGHT / originalHeight);
     const displayWidth = Math.max(1, Math.floor(originalWidth * scale));
     const displayHeight = Math.max(1, Math.floor(originalHeight * scale));
-    // A PNG is lossless, so a screenshot stays enormous next to the same
-    // pixels in WebP even when it fits the generic budget. Re-encode it well
-    // before that budget; GIFs are left alone because a canvas round trip
-    // would drop every frame but the first.
     const oversizedLossless = /^image\/png$/i.test(file.type) && file.size > WEB_IMAGE_PNG_REENCODE_BYTES;
     const needsResize = scale < 1 || file.size > WEB_IMAGE_TARGET_BYTES || oversizedLossless;
     const payload: Blob = needsResize
@@ -253,10 +245,6 @@ export async function stageOriginalImage(raw: string, file: File, displayName: s
   }
 }
 
-// TUI parity: route images through the engine's optional-sharp resize pipeline
-// so desktop submits the same downscaled payload the terminal client would.
-// Hosts without the capability (older engines, test stubs) keep the raw attach,
-// while a REAL resize failure blocks the attach exactly like the TUI paste path.
 async function resizedImage(
   file: File,
   data: string,

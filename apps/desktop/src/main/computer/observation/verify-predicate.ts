@@ -15,12 +15,6 @@ export interface VerifyObservation {
   textComplete?: boolean;
 }
 
-/**
- * Why a text predicate could not be decided. `unknown` on its own reads like a
- * flaw in the condition, when the real cause is the read: an element list the
- * provider cut short, or a window that published no text at all. Naming it
- * tells the caller what to change instead of re-running the same wait.
- */
 export function verifyUnknownReason(observation: {
   needsElementText: boolean;
   providerError?: string;

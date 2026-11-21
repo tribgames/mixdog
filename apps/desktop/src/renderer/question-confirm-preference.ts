@@ -1,7 +1,3 @@
-// "Confirm question answers" (Settings → Display): a per-device renderer
-// preference. ON, picking a single-choice option only selects it and the
-// Next/Send button (or Enter) submits; OFF, the pick itself answers. Stored
-// locally so a phone can confirm while the PC keeps one-tap answers.
 const QUESTION_CONFIRM_KEY = 'mixdog.desktop.question-confirm.v1';
 const CHANGE_EVENT = 'mixdog:question-confirm-changed';
 let fallbackEnabled = false;

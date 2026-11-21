@@ -10,10 +10,6 @@ export interface ComputerUseOverlayControls {
 
 export type ComputerOverlayControlError = '' | 'cleanup' | 'stop' | 'failed';
 
-/** A control the host never hears back from must not latch the pill: the
- *  request is released before the overlay's own wait ends, so the next press —
- *  including Stop and the emergency shortcut — is accepted instead of joining
- *  a request that never settles. */
 const CONTROL_DEADLINE_MS = 15_000;
 
 function withControlDeadline(work: Promise<void>): Promise<void> {
@@ -32,10 +28,6 @@ function withControlDeadline(work: Promise<void>): Promise<void> {
 
 type OverlayAction = 'stop' | 'pause' | 'resume';
 
-/** Trusted overlay only: never exported as a model/bridge command. The pill
- *  offers Stop, plus Resume while paused; Pause belongs to a lost control
- *  surface alone. A failure outlives the takeover generation Stop itself
- *  advances, or the user would see nothing. */
 export function createComputerOverlayController(controls: ComputerUseOverlayControls, changed: () => void) {
   let busy = false;
   let error: ComputerOverlayControlError = '';

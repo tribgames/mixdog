@@ -20,9 +20,20 @@ function rig(hold = false, restored: string[] = []) {
   const subscribers = new Set<(change: StoreChange) => void>();
   const client = {
     status: READY,
-    on: (listener: (event: ClientEvent) => void) => (listeners.add(listener), () => listeners.delete(listener)),
-    store: { subscribe: (fn: (change: StoreChange) => void) => (subscribers.add(fn), () => subscribers.delete(fn)) },
-    confirmFeeds: async () => (asked.confirms++, asked.answer),
+    on: (listener: (event: ClientEvent) => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    store: {
+      subscribe: (fn: (change: StoreChange) => void) => {
+        subscribers.add(fn);
+        return () => subscribers.delete(fn);
+      },
+    },
+    confirmFeeds: async () => {
+      asked.confirms++;
+      return asked.answer;
+    },
     subscribeApp: async () => void calls.push('app'),
     resumeThread: async (id: string) => {
       calls.push(`resume:${id}`);
@@ -42,17 +53,24 @@ function rig(hold = false, restored: string[] = []) {
   const manager = createViewManager(client, {
     restored,
     wanted: ['t1'],
-    onSynced: () => void (events.synced += 1),
+    onSynced: () => {
+      events.synced += 1;
+    },
     syncing: () => undefined,
-    error: () => void (events.errors += 1),
-    recycle: () => void (events.recycled += 1),
+    error: () => {
+      events.errors += 1;
+    },
+    recycle: () => {
+      events.recycled += 1;
+    },
     probe: () => undefined,
     silentSince: () => false,
   });
   return { calls, client, status, store, events, manager, held, resuming, asked };
 }
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
-const settled = (promise: Promise<unknown>): Promise<'open' | 'shut'> => Promise.race([promise.then(() => 'open' as const), tick().then(() => 'shut' as const)]);
+const settled = (promise: Promise<unknown>): Promise<'open' | 'shut'> =>
+  Promise.race([promise.then(() => 'open' as const), tick().then(() => 'shut' as const)]);
 
 test('the terminal lane rejoins from dispatched output once, and redraws if that position is gone', async () => {
   const feedId = 'process:relay';
@@ -61,15 +79,26 @@ test('the terminal lane rejoins from dispatched output once, and redraws if that
   let redraws = 0;
   const client = {
     status: READY,
-    call: async (_method: string, params: unknown) => { calls.push(params); },
-    on(listener: (event: ClientEvent) => void) { emit = listener; return () => undefined; },
+    call: async (_method: string, params: unknown) => {
+      calls.push(params);
+    },
+    on(listener: (event: ClientEvent) => void) {
+      emit = listener;
+      return () => undefined;
+    },
   };
-  const lanes = createLaneFeeds(client as unknown as LaneClient, { redraw: () => { redraws++; }, retire: assert.fail });
+  const lanes = createLaneFeeds(client as unknown as LaneClient, {
+    redraw: () => {
+      redraws++;
+    },
+    retire: assert.fail,
+  });
   const status = (next: ConnectionStatus) => {
     client.status = next;
     emit({ type: 'status', status: next });
   };
-  const note = (method: string, epoch: string, seq: number) => emit({ type: 'notification', notification: { method, feed: { id: feedId, epoch, seq } } });
+  const note = (method: string, epoch: string, seq: number) =>
+    emit({ type: 'notification', notification: { method, feed: { id: feedId, epoch, seq } } });
   lanes.declare('terminal', [feedId]);
   lanes.use(['terminal']);
   note('feed/snapshot', 'old', 0);
@@ -98,7 +127,11 @@ test('a reconnect whose re-attachment was refused keeps the gate shut and retrie
   assert.equal(events.errors, 1);
   assert.equal(events.synced, 1, 'no connected report for a refused re-attachment');
   await gate;
-  assert.deepEqual(calls.slice(-1), ['resume:t1'], 'the retry re-subscribes what the refusal dropped, not what was restored');
+  assert.deepEqual(
+    calls.slice(-1),
+    ['resume:t1'],
+    'the retry re-subscribes what the refusal dropped, not what was restored'
+  );
   assert.equal(events.synced, 2);
 });
 
@@ -153,7 +186,11 @@ test('a first attach with K restored conversations sends the app feed and every 
   const list = manager.appSynced();
   await resuming;
   assert.equal(await settled(list), 'open', 'the app feed is attached while every transcript is still being resumed');
-  assert.deepEqual([...calls].sort(), ['app', 'resume:a', 'resume:b', 'resume:c', 'resume:d', 'resume:t1'], 'K + 1 requests, none waiting for another');
+  assert.deepEqual(
+    [...calls].sort(),
+    ['app', 'resume:a', 'resume:b', 'resume:c', 'resume:d', 'resume:t1'],
+    'K + 1 requests, none waiting for another'
+  );
   assert.equal(await settled(gate), 'shut');
   assert.equal(held.length, 5);
   for (const release of held) release();
@@ -223,7 +260,7 @@ test('a wake while a sync is still owed waits for it before asking', async (t) =
   assert.equal(await woke, true);
   assert.equal(asked.confirms, 1);
 });
-test('each sync carries its own claim: a reconnect between a sync\'s claim and its write cannot hand its frame to the next sync', async () => {
+test("each sync carries its own claim: a reconnect between a sync's claim and its write cannot hand its frame to the next sync", async () => {
   mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const { client, status, manager } = rig();
   const claims: Array<(sent: Promise<void>) => void> = [];
@@ -252,6 +289,6 @@ test('each sync carries its own claim: a reconnect between a sync\'s claim and i
   mock.timers.tick(0);
   await second;
   assert.equal(claims.length, 2);
-  assert.notEqual(claims[0], claims[1], 'the second sync gets a claim of its own, not the first one\'s');
+  assert.notEqual(claims[0], claims[1], "the second sync gets a claim of its own, not the first one's");
   mock.timers.reset();
 });

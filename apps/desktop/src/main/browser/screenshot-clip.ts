@@ -1,9 +1,3 @@
-/**
- * Cropping a capture down to one element. The page is measured in CSS pixels
- * and the image in device pixels, so the element box is scaled by the ratio
- * between them and clamped to what the capture actually contains: a crop that
- * ran past the image would show something other than what was asked for.
- */
 import type { BrowserScreenshotRect } from './screenshot-policy';
 
 interface BrowserScreenshotClip {

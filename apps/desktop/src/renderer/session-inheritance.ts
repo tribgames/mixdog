@@ -59,19 +59,7 @@ export function sessionModelSelection(snapshot: Snapshot): DesktopModelSelection
   };
 }
 
-/**
- * The heir's OWN reading of this conversation, answered by the runtime that
- * would perform the carry.
- *
- * A session's context gauge measures something else entirely: its own
- * provider's billed prompt against its own model's boundary. Offering or
- * refusing inheritance from that number let a session sitting at 87% be
- * rejected for needing 853k tokens on the model it was being carried to. The
- * decision therefore always comes from here.
- *
- * A preflight that cannot run returns null — a missing reading is not a
- * refusal, and the runtime guard still owns the final verdict.
- */
+/** The heir's own reading of this conversation, from the runtime that would perform the carry. Null when the preflight cannot run. */
 export async function inheritancePreflight(
   sessionId: string,
   route: DesktopModelSelection
@@ -90,16 +78,7 @@ export async function inheritancePreflight(
   }
 }
 
-/**
- * The carry itself, shared by the context card's Inherit button and /inherit:
- * no confirmation dialog — inheritance is a mechanical copy into a fresh
- * session and the source stays untouched. A transcript the heir cannot hold
- * even after compaction is refused before any session is created; one that
- * must be compacted first is announced, since the handover then takes a
- * while. An explicit whole carry (`compact: false`) never turns into a
- * summary: it is refused when the whole conversation does not fit. Resolves
- * true once the heir exists.
- */
+/** Carries a session into a fresh heir (the Inherit button and /inherit). A transcript the heir cannot hold even compacted is refused before any session exists; `compact: false` is refused when the whole conversation does not fit. Resolves true once the heir exists. */
 export async function inheritSessionDirectly(
   sessionId: string,
   route: DesktopModelSelection,

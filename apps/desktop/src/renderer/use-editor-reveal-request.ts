@@ -19,9 +19,6 @@ export function useEditorRevealRequest({
   autoFocusRef: RefObject<boolean>;
   onNavigationLocationRef: RefObject<((rel: string, line: number, column: number) => void) | undefined>;
 }): (item: EditorOutlineItem) => void {
-  // The reveal nonce is a wall-clock stamp, so two jumps raised in the same
-  // millisecond carry the same one. The line this body reads therefore keys the
-  // jump as well; the nonce still re-runs a repeat jump to the same line.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the jump is keyed on the requested line, column and nonce (pinned by editor-reveal-request.test.mjs) rather than the reveal object, and `load ? 1 : 0` re-runs it once when the file first loads without re-running on every content reload.
   useEffect(() => {
     if (!reveal || !load) return;

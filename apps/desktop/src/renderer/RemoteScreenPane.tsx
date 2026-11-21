@@ -1,9 +1,3 @@
-// The phone's whole-PC screen view (design/mockups/remote-screen, frames C, D2,
-// D3; docs/remote-screen.md): the PC picture over WebRTC, the one-line remote
-// keyboard docked at the bottom, special keys and the touch strategy in ⋯,
-// and the secure-desktop / stopped states from the PC's `screen-status`.
-// Fingers drive the picture's viewport and the PC's pointer through
-// remote-screen-touch.ts (gestures) and remote-screen-gesture.ts (messages).
 import { ArrowUp, Lock, Monitor, ShieldAlert, Square } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
 
@@ -377,10 +371,6 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
   const screen = useRemoteScreen({ api, screenId: display.screenId, onInputRejected: () => setNotSent(true) });
   const { view, send, retry, geometry, installHelper } = screen;
   const blocked = view.kind === 'blocked' ? view : null;
-  // The Windows-password sheet: opened by the blocked view's button, closed by
-  // Cancel, by an answer that leaves nothing to ask (done, declined, …) and
-  // when the secure screen is gone. The typed password lives only here, and is
-  // emptied by every submit.
   const [sheetOpen, setSheetOpen] = useState(false);
   const [form, setForm] = useState<ScreenHelperForm>(EMPTY_SCREEN_HELPER_FORM);
   const panel = screenHelperPanel(screen.helper, screen.helperPending, screen.status?.helper);

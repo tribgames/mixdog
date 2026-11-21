@@ -16,12 +16,6 @@ const CAPTURE_MODULE = new URL('./index.mjs', import.meta.url).href;
 const HEAP_CAP_ARGS = ['--max-old-space-size=32'];
 const FATAL_TEXT = /FATAL ERROR|out of memory/i;
 
-// Reports ready first, then waits for an explicit fixture gate before
-// allocating past its own old-space cap: V8 prints the fatal report straight to
-// fd 2 and aborts, with no JS hook in between. The gate replaces every guessed
-// delay, so the crash is provably caused by what the test arranged — it cannot
-// fire early and make a pre-launcher-exit abort look like the detached case.
-// The gate is a fixture-only file inside the test's own temp directory.
 const OOM_DAEMON = `
 import { existsSync } from 'node:fs';
 
@@ -94,20 +88,88 @@ function exitOf(child) {
 
 // Takes a handle to a live pid, reports `held`, then returns once the OS
 // signals that handle.
-const holdPidScript = (pid) => `try { $p = [Diagnostics.Process]::GetProcessById(${pid}); $null = $p.Handle } catch { [Console]::Error.WriteLine($_); exit 1 }
+const holdPidScript = (
+  pid
+) => `try { $p = [Diagnostics.Process]::GetProcessById(${pid}); $null = $p.Handle } catch { [Console]::Error.WriteLine($_); exit 1 }
 [Console]::Out.WriteLine('held')
 $p.WaitForExit()`;
 
+function killPid(pid) {
+  if (!isPidAlive(pid)) return;
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {}
+}
+
+function observePosixPid(pid, ends) {
+  // POSIX keeps an orphan signalable until init reaps it, which is after
+  // the kernel released its files and cwd: a failed probe is its end.
+  const exited = async () => {
+    if (!(await waitFor(() => !isPidAlive(pid)))) throw new Error(`pid ${pid} is still alive`);
+  };
+  ends.push({
+    end: async () => {
+      killPid(pid);
+      await exited();
+    },
+    abort: () => killPid(pid),
+  });
+  return { held: Promise.resolve(true), exited };
+}
+
+function observeWindowsPid(pid, ends) {
+  // Windows: a waiter holds a real handle to it and exits when the OS
+  // signals that handle. It runs outside the root, so the directory never
+  // depends on the waiter's own end.
+  const powershell = join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const waiter = spawn(powershell, ['-NoProfile', '-NonInteractive', '-Command', holdPidScript(pid)], {
+    cwd: tmpdir(),
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  const waiterExit = exitOf(waiter);
+  let err = '';
+  const held = new Promise((resolve) => {
+    let out = '';
+    waiter.stdout.setEncoding('utf8');
+    waiter.stderr.setEncoding('utf8');
+    waiter.stdout.on('data', (chunk) => {
+      out += chunk;
+      if (out.includes('held')) resolve(true);
+    });
+    waiter.stderr.on('data', (chunk) => {
+      err += chunk;
+    });
+    // 'close' follows every byte of its output, so a late `held` still wins.
+    waiter.once('close', () => resolve(`waiter ended without a handle on pid ${pid}: ${err}`));
+  });
+  const exited = async () => {
+    await waiterExit;
+    if (waiter.exitCode !== 0) throw new Error(`waiter on pid ${pid} exited ${waiter.exitCode}: ${err}`);
+  };
+  ends.push({
+    end: async () => {
+      const holding = await held;
+      killPid(pid);
+      if (holding !== true) throw new Error(holding);
+      await exited();
+    },
+    abort: () => {
+      killPid(pid);
+      waiter.kill('SIGKILL');
+      return waiterExit;
+    },
+  });
+  return { held, exited };
+}
+
+function observeOrphanPid(pid, ends) {
+  return process.platform === 'win32' ? observeWindowsPid(pid, ends) : observePosixPid(pid, ends);
+}
+
 function workspace(t, prefix) {
   const root = mkdtempSync(join(tmpdir(), prefix));
-  // Every fixture process as { end, abort }: `end()` stops it and settles on
-  // its real end (see exitOf), never on a pid probe — or throws when that end
-  // cannot be observed; `abort()` terminates whatever is left of it, observer
-  // included, once removal is no longer on the table.
   const ends = [];
-  // ONE cleanup hook, so ordering never depends on hook registration: every
-  // fixture process is stopped AND confirmed gone before its unique temp
-  // directory is removed.
   t.after(async () => {
     try {
       await within(Promise.all(ends.map((entry) => entry.end())), 15_000, 'every fixture process to exit');
@@ -130,81 +192,8 @@ function workspace(t, prefix) {
   };
   return {
     root,
-    // A pid this process did not spawn — the detached daemon, whose parent
-    // (the launcher) is gone — has no 'exit' here. `held` settles to true once
-    // its end is observable; await it while the process provably still runs,
-    // so the pid cannot have been reused.
     watch(pid) {
-      if (!pid) return null;
-      const stop = () => {
-        if (!isPidAlive(pid)) return;
-        try {
-          process.kill(pid, 'SIGKILL');
-        } catch {}
-      };
-      if (process.platform !== 'win32') {
-        // POSIX keeps an orphan signalable until init reaps it, which is after
-        // the kernel released its files and cwd: a failed probe is its end.
-        const exited = async () => {
-          if (!(await waitFor(() => !isPidAlive(pid)))) throw new Error(`pid ${pid} is still alive`);
-        };
-        ends.push({
-          end: async () => {
-            stop();
-            await exited();
-          },
-          abort: stop,
-        });
-        return { held: Promise.resolve(true), exited };
-      }
-      // Windows: a waiter holds a real handle to it and exits when the OS
-      // signals that handle. It runs outside the root, so the directory never
-      // depends on the waiter's own end.
-      const powershell = join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-      const waiter = spawn(powershell, ['-NoProfile', '-NonInteractive', '-Command', holdPidScript(pid)], {
-        cwd: tmpdir(),
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-      });
-      const waiterExit = exitOf(waiter);
-      let err = '';
-      const held = new Promise((resolve) => {
-        let out = '';
-        waiter.stdout.setEncoding('utf8');
-        waiter.stderr.setEncoding('utf8');
-        waiter.stdout.on('data', (chunk) => {
-          out += chunk;
-          if (out.includes('held')) resolve(true);
-        });
-        waiter.stderr.on('data', (chunk) => {
-          err += chunk;
-        });
-        // 'close' follows every byte of its output, so a late `held` still wins.
-        waiter.once('close', () => resolve(`waiter ended without a handle on pid ${pid}: ${err}`));
-      });
-      const exited = async () => {
-        await waiterExit;
-        if (waiter.exitCode !== 0) throw new Error(`waiter on pid ${pid} exited ${waiter.exitCode}: ${err}`);
-      };
-      // The waiter is never killed: its exit is the daemon's end only once it
-      // holds the handle. So the daemon is killed after that, and a waiter that
-      // never held one leaves the end unobserved — cleanup then fails instead
-      // of removing the directory.
-      ends.push({
-        end: async () => {
-          const holding = await held;
-          stop();
-          if (holding !== true) throw new Error(holding);
-          await exited();
-        },
-        // Safe only here: once removal is off, the waiter's exit authorizes nothing.
-        abort: () => {
-          stop();
-          waiter.kill('SIGKILL');
-          return waiterExit;
-        },
-      });
-      return { held, exited };
+      return pid ? observeOrphanPid(pid, ends) : null;
     },
     // Fixture children run INSIDE the temp directory, so a V8 fatal report or
     // core dump can never land in the repository.
@@ -288,16 +277,10 @@ test('a real heap-OOM abort after ready is captured with its exit signal', async
   assert.match(exitLine, /ready=1/);
 });
 
-test('a heap-OOM abort survives in the file after its detached launcher exited', async (t) => {
-  const fixture = workspace(t, 'mixdog-crash-oom-detached-');
-  const root = fixture.root;
-  const entry = join(root, 'oom-daemon.mjs');
-  writeFileSync(entry, OOM_DAEMON);
-  const launcherScript = join(root, 'detached-launcher.mjs');
+async function runDetachedLauncher(fixture, entry, gate) {
+  const launcherScript = join(fixture.root, 'detached-launcher.mjs');
   writeFileSync(launcherScript, launcherSource());
-  const gate = join(root, 'oom-gate');
-
-  const launcher = fixture.spawn(process.execPath, [launcherScript, root, entry, gate], {
+  const launcher = fixture.spawn(process.execPath, [launcherScript, fixture.root, entry, gate], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stdout = '';
@@ -312,13 +295,20 @@ test('a heap-OOM abort survives in the file after its detached launcher exited',
   });
   const [launcherCode] = await within(once(launcher, 'exit'), 30_000, 'the detached launcher to exit');
   assert.equal(launcherCode, 0, `launcher exited cleanly: ${stderr}`);
+  const handoff = JSON.parse(stdout.trim().split('\n').pop() || '{}');
+  return { handoff, stdout, stderr };
+}
 
-  const line = stdout.trim().split('\n').pop();
-  const handoff = JSON.parse(line || '{}');
+test('a heap-OOM abort survives in the file after its detached launcher exited', async (t) => {
+  const fixture = workspace(t, 'mixdog-crash-oom-detached-');
+  const root = fixture.root;
+  const entry = join(root, 'oom-daemon.mjs');
+  writeFileSync(entry, OOM_DAEMON);
+  const gate = join(root, 'oom-gate');
+
+  const { handoff, stdout, stderr } = await runDetachedLauncher(fixture, entry, gate);
   const daemon = fixture.watch(handoff.pid);
   assert.ok(handoff.capturePath && handoff.pid, `launcher published its capture: ${stdout}`);
-  // Whatever the daemon already wrote is the diagnosis when an assertion below
-  // fails: never report "not alive" without the native text behind it.
   const capturedText = () => {
     try {
       return readFileSync(handoff.capturePath, 'utf8').slice(-4_000);
@@ -326,8 +316,6 @@ test('a heap-OOM abort survives in the file after its detached launcher exited',
       return `<unreadable: ${error?.message || error}>`;
     }
   };
-  // The daemon is still alive and still waiting: the abort provably happens
-  // AFTER its launcher is gone, not before.
   assert.ok(
     isPidAlive(handoff.pid),
     `the daemon outlived the launcher that spawned it;` +

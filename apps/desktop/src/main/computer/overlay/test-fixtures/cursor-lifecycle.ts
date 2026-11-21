@@ -97,10 +97,6 @@ void app
             mode === 'foreground',
             'background feedback must not be globally topmost'
           );
-          // The user can move their own pointer at any moment, so an unchanged
-          // position cannot be required of a live desktop. What must never
-          // happen is the virtual pointer dragging the real one onto the exact
-          // spot it is drawing.
           assert.notDeepEqual(
             screen.getCursorScreenPoint(),
             expected,

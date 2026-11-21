@@ -1,8 +1,3 @@
-/**
- * Failure diagnostics for the local browser surface: what every live page,
- * the fixture shell and the guest looked like when the lane threw. Each read
- * is bounded so a hung renderer cannot replace the original failure.
- */
 import { webContents, type WebContents } from 'electron';
 import { browserPageWindow } from './page-window';
 

@@ -19,30 +19,62 @@ const clockOf = (time) => {
   return time;
 };
 
-function periodOf({ view, anchor, startDay, endDay, startTime, endTime }) {
+function windowPeriod(view, anchor) {
+  const days = WINDOW_DAYS[view];
+  const requested = anchor == null ? TODAY : dayOf(anchor);
+  const end = requested > TODAY ? TODAY : requested;
+  const start = shiftDay(end, 1 - days);
+  const previous = shiftDay(start, -1);
+  const next = shiftDay(end, days);
+  const endMs = Math.min(USAGE_STATS_NOW, START_OF_DAY(end) + DAY_MS - 1);
+  return {
+    view,
+    anchor: end,
+    fromMs: START_OF_DAY(start),
+    toMs: endMs,
+    endMs,
+    startDay: start,
+    endDay: end,
+    days,
+    previousAnchor: previous >= '1970-01-01' ? previous : null,
+    nextAnchor: end < TODAY ? (next > TODAY ? TODAY : next) : null,
+    isCurrent: end === TODAY,
+  };
+}
+
+function customPeriod({ startDay, endDay, startTime, endTime }) {
   const now = USAGE_STATS_NOW;
-  if (WINDOW_DAYS[view]) {
-    const days = WINDOW_DAYS[view];
-    const requested = anchor == null ? TODAY : dayOf(anchor);
-    const end = requested > TODAY ? TODAY : requested;
-    const start = shiftDay(end, 1 - days);
-    const previous = shiftDay(start, -1);
-    const next = shiftDay(end, days);
-    const endMs = Math.min(now, START_OF_DAY(end) + DAY_MS - 1);
-    return {
-      view,
-      anchor: end,
-      fromMs: START_OF_DAY(start),
-      toMs: endMs,
-      endMs,
-      startDay: start,
-      endDay: end,
-      days,
-      previousAnchor: previous >= '1970-01-01' ? previous : null,
-      nextAnchor: end < TODAY ? (next > TODAY ? TODAY : next) : null,
-      isCurrent: end === TODAY,
-    };
-  }
+  const start = dayOf(startDay);
+  const end = dayOf(endDay);
+  const from = clockOf(startTime);
+  const to = clockOf(endTime);
+  if (start > end) throw new Error('Usage range start must not follow its end');
+  if (end > TODAY) throw new Error('Usage range cannot include future dates');
+  const fromMs = Date.parse(`${start}T${from ?? '00:00'}:00.000+09:00`);
+  // An end names its unit whole: no time keeps the day, HH:MM keeps all of that minute.
+  const toMs = Math.min(now, Date.parse(`${end}T${to ?? '23:59'}:59.999+09:00`));
+  if (fromMs > now) throw new Error('Usage range cannot include future dates');
+  if (fromMs > toMs) throw new Error('Usage range start must not follow its end');
+  return {
+    view: 'custom',
+    anchor: null,
+    fromMs,
+    toMs,
+    endMs: toMs,
+    startDay: start,
+    endDay: end,
+    startTime: from,
+    endTime: to,
+    days: Math.round((START_OF_DAY(end) - START_OF_DAY(start)) / DAY_MS) + 1,
+    previousAnchor: null,
+    nextAnchor: null,
+    isCurrent: end === TODAY,
+  };
+}
+
+function periodOf({ view, anchor, ...custom }) {
+  const now = USAGE_STATS_NOW;
+  if (WINDOW_DAYS[view]) return windowPeriod(view, anchor);
   if (view === 'hour')
     return {
       view,
@@ -70,34 +102,7 @@ function periodOf({ view, anchor, startDay, endDay, startTime, endTime }) {
       nextAnchor: null,
       isCurrent: true,
     };
-  if (view === 'custom') {
-    const start = dayOf(startDay);
-    const end = dayOf(endDay);
-    const from = clockOf(startTime);
-    const to = clockOf(endTime);
-    if (start > end) throw new Error('Usage range start must not follow its end');
-    if (end > TODAY) throw new Error('Usage range cannot include future dates');
-    const fromMs = Date.parse(`${start}T${from ?? '00:00'}:00.000+09:00`);
-    // An end names its unit whole: no time keeps the day, HH:MM keeps all of that minute.
-    const toMs = Math.min(now, Date.parse(`${end}T${to ?? '23:59'}:59.999+09:00`));
-    if (fromMs > now) throw new Error('Usage range cannot include future dates');
-    if (fromMs > toMs) throw new Error('Usage range start must not follow its end');
-    return {
-      view,
-      anchor: null,
-      fromMs,
-      toMs,
-      endMs: toMs,
-      startDay: start,
-      endDay: end,
-      startTime: from,
-      endTime: to,
-      days: Math.round((START_OF_DAY(end) - START_OF_DAY(start)) / DAY_MS) + 1,
-      previousAnchor: null,
-      nextAnchor: null,
-      isCurrent: end === TODAY,
-    };
-  }
+  if (view === 'custom') return customPeriod(custom);
   throw new Error(`usageSnapshot has no period for view ${view}`);
 }
 

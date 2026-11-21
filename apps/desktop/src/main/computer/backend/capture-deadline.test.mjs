@@ -8,12 +8,8 @@ import { PS_SESSION } from './ps-session.ts';
 import { PS_RUNTIME } from './ps-runtime.ts';
 import { loadComputerSource } from './native-assets.ts';
 
-// Only a hung fixture may end here. The former 10s budget SIGTERM-killed a
-// healthy fixture on a hosted windows-latest runner (release-gate run
-// 35088208105: code null, killed true, signal SIGTERM, empty stdout/stderr):
-// the first inline `Add-Type` of a job compiles with a cold csc.exe while the
-// whole suite runs in parallel, which took over 10s there, and the warm runs
-// of this same helper in the same file then finished in ~1.3s each.
+// A 10 s budget SIGTERM-killed a healthy fixture on a windows-latest runner (release-gate run 35088208105): the
+// first inline Add-Type compiles with a cold csc.exe and took over 10 s; warm runs take ~1.3 s.
 const FIXTURE_BUDGET_MS = 60_000;
 
 async function run(script, input = '') {

@@ -1,9 +1,3 @@
-/**
- * Each tab's chat-card picture: at most one in-flight job per tab, stopped
- * as soon as the tab's view changes. While an agent turn runs none is taken:
- * its end takes one per tab it opened, off screen, on the final version
- * (`takeAtTurnEnd`), and each picture is kept per version.
- */
 import { visualizeThumbnail } from '../../shared/visualize';
 import { ACTIVATE_SETTLE_MS, type VisualizeServiceContext } from './context';
 import { shownLayout, type TabState, view } from './tab-state';
@@ -29,10 +23,6 @@ export function createThumbnails(
     thumbnailJobs.delete(tab);
   };
 
-  /** Take the tab's chat-card picture once the shown page had time to
-   *  settle. One job per tab: a new job, a newer revision or a closed tab
-   *  aborts the old one (the taker sees its signal between capture rounds).
-   *  Tracked by `settled()`. */
   const refresh = (sessionId: string, tab: TabState): void => {
     const take = ctx.deps.thumbnail;
     // A running turn (or its end, which takes its own) is never captured.
@@ -64,12 +54,6 @@ export function createThumbnails(
     void run.then(() => ctx.pendingReloads.delete(run));
   };
 
-  /** A turn ended: each tab it opened gets its card picture of the version
-   *  it ends on, drawn off screen (the panel still shows what it showed
-   *  before the turn), all within TURN_END_THUMBNAIL_MS. A tab whose picture
-   *  of that version exists keeps it; one that cannot be drawn (audio,
-   *  video, a visible password field, a failure, too slow) has none, and its
-   *  card shows the kind placeholder. Publishes nothing. */
   const takeAtTurnEnd = async (sessionId: string, tabs: readonly TabState[]): Promise<void> => {
     const take = ctx.deps.thumbnailOffscreen;
     const controller = new AbortController();

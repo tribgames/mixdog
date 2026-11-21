@@ -1,14 +1,3 @@
-/**
- * Starting a browser takeover fixes the page it hands over
- * (browser/user-takes-page.ts). A named tab that cannot be resolved makes that
- * throw, and the session-state listener that starts the takeover runs inside
- * the publication's error isolation, which drops what a listener throws
- * (session-host-publication.ts emitIsolated). So the failure is settled here:
- * the pending takeover approval is declined with the error as its reason, so
- * the agent is told and the card does not stay pending, and the failure is
- * reported.
- */
-
 interface TakeoverCaptureDeps {
   /** Fixes the handed-over page; throws when the named tab cannot be handed over. */
   capture(sessionId: string, id: string, tab: string): void;

@@ -1,49 +1,21 @@
-// The phone's controller key for the secure-desktop helper
-// (shared/secure-desktop-grant.ts): one non-extractable P-256 key per PAIRED PC,
-// kept in IndexedDB as a CryptoKey (it survives structured clone, its bytes are
-// never readable) and reused by every session until that pairing is dropped.
-//
-// Per pairing, not per device: the helper enrolls this key's public half, so
-// the key is exactly as long-lived as the trust the PC placed in this phone.
-// Unpairing one PC (remote-shim-pairing `resetApprovalAndAsk`) then retires
-// that PC's key and nothing else, and pairing again mints a key the old
-// enrollment cannot be used with. A device-wide key would outlive the pairing
-// it was enrolled under and tie every PC this phone knows to one identity.
 import {
   generateSecureDesktopControllerKey,
   isSecureDesktopControllerKey,
   type SecureDesktopControllerKey,
 } from '../shared/secure-desktop-grant';
 import { readRemoteDeviceId, remotePairingKeys, REMOTE_PAIRING_STORAGE_KEYS } from './remote-pairing-recovery';
+import { defaultIdbFactory, openSingleStoreDatabase, type IdbFactory } from './remote-idb';
 
 const DATABASE = 'mixdog-remote-screen-controller';
 const STORE = 'keys';
 
-type Factory = Pick<IDBFactory, 'open'>;
-
-const defaultFactory = (): Factory => {
-  const factory = (globalThis as { indexedDB?: IDBFactory }).indexedDB;
-  if (!factory) throw new Error('IndexedDB is unavailable.');
-  return factory;
-};
-
-const openDatabase = (factory: Factory): Promise<IDBDatabase> =>
-  new Promise((resolve, reject) => {
-    const request = factory.open(DATABASE, 1);
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore(STORE);
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-
 /** One transaction, settled when it COMPLETES with the value `work` reported. */
 async function transact<T>(
-  factory: Factory,
+  factory: IdbFactory,
   mode: IDBTransactionMode,
   work: (store: IDBObjectStore, report: (value: T) => void) => void
 ): Promise<T> {
-  const database = await openDatabase(factory);
+  const database = await openSingleStoreDatabase(factory, DATABASE, STORE);
   try {
     return await new Promise<T>((resolve, reject) => {
       let reported: T | undefined;
@@ -74,7 +46,7 @@ function readStoredKey(value: unknown): SecureDesktopControllerKey | null {
 /** The key stored for this pairing, or null when there is none. */
 export function loadControllerKey(
   scope: string,
-  factory: Factory = defaultFactory()
+  factory: IdbFactory = defaultIdbFactory()
 ): Promise<SecureDesktopControllerKey | null> {
   return transact<SecureDesktopControllerKey | null>(factory, 'readonly', (store, report) => {
     const request = store.get(scope);
@@ -87,7 +59,7 @@ export function loadControllerKey(
  *  end up sharing the first one stored. */
 export async function ensureControllerKey(
   scope: string,
-  factory: Factory = defaultFactory()
+  factory: IdbFactory = defaultIdbFactory()
 ): Promise<SecureDesktopControllerKey> {
   const existing = await loadControllerKey(scope, factory);
   if (existing) return existing;
@@ -107,7 +79,7 @@ export async function ensureControllerKey(
 }
 
 /** Forget this pairing's key (the PC was unpaired). */
-export async function clearControllerKey(scope: string, factory: Factory = defaultFactory()): Promise<void> {
+export async function clearControllerKey(scope: string, factory: IdbFactory = defaultIdbFactory()): Promise<void> {
   await transact<undefined>(factory, 'readwrite', (store) => {
     store.delete(scope);
   });
@@ -142,7 +114,7 @@ function controllerKeyScope(): string {
 
 /** The keys of one pairing, loaded once and kept for the page's life so a
  *  grant can be signed without a database read in front of it. */
-export function createControllerKeys(scope: () => string = controllerKeyScope, factory?: Factory) {
+export function createControllerKeys(scope: () => string = controllerKeyScope, factory?: IdbFactory) {
   let cached: { scope: string; key: SecureDesktopControllerKey } | null = null;
   let creating: Promise<SecureDesktopControllerKey> | null = null;
   const remember = (key: SecureDesktopControllerKey, at: string): SecureDesktopControllerKey => {

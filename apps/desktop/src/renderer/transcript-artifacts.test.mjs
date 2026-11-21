@@ -135,7 +135,7 @@ test('artifact images open in the shared lightbox and navigate within the strip'
   }
 });
 
-test('collapsed activity exposes image, playable video, a document that opens in its conversation Project, and a deleted one as deleted', async () => {
+async function renderCollapsedActivity(t) {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><div id="root"></div>',
     jsdom: { url: 'http://localhost/' },
@@ -167,57 +167,69 @@ test('collapsed activity exposes image, playable video, a document that opens in
     }),
   };
   const root = createRoot(dom.window.document.getElementById('root'));
-  try {
-    await act(async () =>
-      root.render(
-        React.createElement(
-          MarkdownOpenFileContext.Provider,
-          { value: (...args) => opened.push(args) },
-          React.createElement(
-            MarkdownProjectContext.Provider,
-            { value: 'C:/work' },
-            React.createElement(ToolActivityGroup, {
-              items: [
-                media({ ok: true, assetId: 'a', output: 'C:/work/a.png' }),
-                media({ ok: true, assetId: 'b', output: 'C:/work/b.mp4' }, { action: 'generate', kind: 'video' }),
-                office('C:/work/report #1.docx'),
-                office('C:/work/gone.xlsx'),
-                { kind: 'tool', name: 'edit', args: { file_path: 'C:/work/chart.svg' }, result: 'ok' },
-              ],
-            })
-          )
-        )
-      )
-    );
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    const gone = dom.window.document.querySelector('.transcript-artifact-file[aria-disabled="true"]');
-    assert.equal(gone.tagName, 'SPAN');
-    assert.equal(gone.querySelector('.file-type-word').textContent, 'XLSX');
-    assert.equal(gone.querySelector('.transcript-artifact-body > span').textContent, 'gone.xlsx');
-    assert.equal(gone.querySelector('small > span:last-child').textContent, 'Deleted');
-    assert.ok(gone.querySelector('.transcript-artifact-thumb svg.file-sheet'));
-    assert.equal(gone.querySelector('.transcript-artifact-open'), null);
-    assert.equal(dom.window.document.querySelector('.tool-activity-header').getAttribute('aria-expanded'), 'false');
-    assert.ok(dom.window.document.querySelector('.transcript-artifacts img'));
-    // A written SVG renders as an image through the file preview lane, never inline markup.
-    const svg = dom.window.document.querySelector('img[src="mixdog-media://preview/token/chart.svg"]');
-    assert.equal(svg?.closest('figure')?.querySelector('figcaption > span')?.textContent, 'chart.svg');
-    // A video card shows its thumbnail; playback exists only in the dialog the user opens.
-    assert.equal(dom.window.document.querySelector('.transcript-artifacts video'), null);
-    const videoCard = dom.window.document.querySelector('.transcript-artifact-frame[aria-label="b.mp4"]');
-    await act(async () => videoCard.click());
-    const video = dom.window.document.querySelector('.transcript-artifact-preview video');
-    assert.equal(video.controls, true);
-    assert.equal(video.autoplay, false);
-    assert.equal(video.preload, 'none');
-    const link = dom.window.document.querySelector('a.transcript-artifact-file');
-    await act(async () => link.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true })));
-    // The renderer resolves the artifact inside its conversation Project and
-    // opens the document in the in-app preview tab, never the OS app.
-    assert.deepEqual(opened, [['C:/work', 'report #1.docx', undefined]]);
-    assert.deepEqual(launched, []);
-  } finally {
+  t.after(async () => {
     await act(async () => root.unmount());
     restore();
-  }
+  });
+  await act(async () =>
+    root.render(
+      React.createElement(
+        MarkdownOpenFileContext.Provider,
+        { value: (...args) => opened.push(args) },
+        React.createElement(
+          MarkdownProjectContext.Provider,
+          { value: 'C:/work' },
+          React.createElement(ToolActivityGroup, {
+            items: [
+              media({ ok: true, assetId: 'a', output: 'C:/work/a.png' }),
+              media({ ok: true, assetId: 'b', output: 'C:/work/b.mp4' }, { action: 'generate', kind: 'video' }),
+              office('C:/work/report #1.docx'),
+              office('C:/work/gone.xlsx'),
+              { kind: 'tool', name: 'edit', args: { file_path: 'C:/work/chart.svg' }, result: 'ok' },
+            ],
+          })
+        )
+      )
+    )
+  );
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  return { dom, opened, launched };
+}
+
+test('collapsed activity shows a document whose file is gone as deleted', async (t) => {
+  const { dom } = await renderCollapsedActivity(t);
+  const gone = dom.window.document.querySelector('.transcript-artifact-file[aria-disabled="true"]');
+  assert.equal(gone.tagName, 'SPAN');
+  assert.equal(gone.querySelector('.file-type-word').textContent, 'XLSX');
+  assert.equal(gone.querySelector('.transcript-artifact-body > span').textContent, 'gone.xlsx');
+  assert.equal(gone.querySelector('small > span:last-child').textContent, 'Deleted');
+  assert.ok(gone.querySelector('.transcript-artifact-thumb svg.file-sheet'));
+  assert.equal(gone.querySelector('.transcript-artifact-open'), null);
+  assert.equal(dom.window.document.querySelector('.tool-activity-header').getAttribute('aria-expanded'), 'false');
+});
+
+test('collapsed activity renders a written SVG as an image through the file preview lane', async (t) => {
+  const { dom } = await renderCollapsedActivity(t);
+  assert.ok(dom.window.document.querySelector('.transcript-artifacts img'));
+  const svg = dom.window.document.querySelector('img[src="mixdog-media://preview/token/chart.svg"]');
+  assert.equal(svg?.closest('figure')?.querySelector('figcaption > span')?.textContent, 'chart.svg');
+});
+
+test('collapsed activity plays a video only in the dialog the user opens', async (t) => {
+  const { dom } = await renderCollapsedActivity(t);
+  assert.equal(dom.window.document.querySelector('.transcript-artifacts video'), null);
+  const videoCard = dom.window.document.querySelector('.transcript-artifact-frame[aria-label="b.mp4"]');
+  await act(async () => videoCard.click());
+  const video = dom.window.document.querySelector('.transcript-artifact-preview video');
+  assert.equal(video.controls, true);
+  assert.equal(video.autoplay, false);
+  assert.equal(video.preload, 'none');
+});
+
+test('a document card opens in its conversation Project preview tab, never the OS app', async (t) => {
+  const { dom, opened, launched } = await renderCollapsedActivity(t);
+  const link = dom.window.document.querySelector('a.transcript-artifact-file');
+  await act(async () => link.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true })));
+  assert.deepEqual(opened, [['C:/work', 'report #1.docx', undefined]]);
+  assert.deepEqual(launched, []);
 });

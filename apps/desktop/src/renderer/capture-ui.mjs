@@ -119,10 +119,6 @@ function pidIsAlive(pid) {
   }
 }
 
-// A hard-killed capture cannot run its own finally block. The next capture
-// reclaims profiles whose owner is dead, while retaining fresh or merely
-// suspended live owners. Legacy unowned profiles receive a conservative age
-// grace so concurrent captures from older builds are never interrupted.
 async function sweepStaleCaptureProfiles(now = Date.now()) {
   let entries;
   try {
@@ -174,10 +170,6 @@ const ownerHeartbeat = setInterval(() => {
 }, captureHeartbeatMs);
 ownerHeartbeat.unref?.();
 let activeCaptureChild = null;
-// Last-resort self-destruct: if any cleanup/teardown path wedges past the
-// capture deadline (locked temp profiles, zombie Electron descendants), kill
-// this process outright so the calling shell never waits out its own
-// deadline. unref'd — never delays a normal exit.
 const hardExitWatchdog = setTimeout(() => {
   console.error(`[capture-ui] hard-exit watchdog fired ${timeoutMs + 30_000}ms after start; forcing exit 3.`);
   clearInterval(ownerHeartbeat);
@@ -198,18 +190,9 @@ const hardExitWatchdog = setTimeout(() => {
   process.exit(3);
 }, timeoutMs + 30_000);
 if (typeof hardExitWatchdog.unref === 'function') hardExitWatchdog.unref();
-// Full shared-state isolation: the capture engine must never touch the real
-// ~/.mixdog home or the machine-shared runtime root (%TMP%/mixdog). A capture
-// session that registers itself there is discovered by the live channel
-// worker, which rebinds its transcript forwarder to the capture session and
-// silently diverts the user's real session.
 const isolatedHome = join(userData, 'mixdog-home');
 const isolatedRuntimeRoot = join(userData, 'mixdog-runtime');
 const captureId = randomUUID();
-// The isolated profile starts without a config, which the desktop's disk-first
-// onboarding probe (ipc-window-settings.ts) reads as a first run: the wizard
-// would open as a modal over every pass and own the keyboard. Captures measure
-// an onboarded desktop.
 await mkdir(join(isolatedHome, 'data'), { recursive: true });
 await writeFile(
   join(isolatedHome, 'data', 'mixdog-config.json'),
@@ -221,10 +204,6 @@ await rm(windowOutput, { force: true });
 await rm(metadataOutput, { force: true });
 await rm(errorOutput, { force: true });
 await stat(captureEntry);
-// The capture window is a client of an isolated mixdogd (main/capture-core.ts). MIXDOGD_BIN names the built binary;
-// it is staged in this capture's profile with the js-runtime.json a product install has beside it (the daemon refuses
-// to start without one), as a live run stages its core, and the Electron child gets the staged absolute path. A name
-// without a directory is an installed mixdogd the core launcher finds on PATH, manifest included, so it is passed as given.
 const captureCoreBinary = await (async () => {
   const named = String(process.env.MIXDOGD_BIN || '').trim();
   if (!named) {
@@ -595,10 +574,6 @@ try {
   );
   assert.equal(metadata.dictationSmoke.micIdle, true, 'mic button must settle back to idle');
   assert.equal(metadata.dictationSmoke.notice, '', 'dictation smoke must not raise a composer notice');
-  // Tool presentation E2E: the showcase renders through the real transcript
-  // renderer, where the calls on each side of the assistant prose fold into
-  // one activity group apiece. Groups stay collapsed; live shell output and
-  // diff bodies must never auto-grow the transcript.
   const toolsOutput = windowOutput.replace(/\.png$/i, '-tools.png');
   const toolsTopOutput = windowOutput.replace(/\.png$/i, '-tools-top.png');
   const [toolsPng, toolsStat, toolsTopPng, toolsTopStat] = await Promise.all([

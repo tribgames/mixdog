@@ -5,70 +5,68 @@ import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { useAppSessionTitle } from './app-shell-session-title.ts';
 
-test('useAppSessionTitle handles edit modal, draft changes, commit, and whitespace rejection', async () => {
+async function mountTitle(t) {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><div id="root"></div>',
     jsdom: { url: 'about:blank' },
   });
-
-  let renamed = null;
+  const state = { renamed: null, hook: null };
   const sessions = [{ id: 's1', title: 'Original Title', prompt: 'Hello' }];
   const tabs = [{ key: 'session:s1', title: 'Original Title', selection: { kind: 'session', id: 's1' } }];
-
-  let hookResult;
   function TestHarness() {
-    hookResult = useAppSessionTitle({
+    state.hook = useAppSessionTitle({
       navigationSelection: { kind: 'session', id: 's1' },
       sessions,
       tabs,
       renameSession: (id, title) => {
-        renamed = { id, title };
+        state.renamed = { id, title };
       },
     });
     return null;
   }
-
   const root = createRoot(dom.window.document.getElementById('root'));
-  try {
-    await act(async () => {
-      root.render(React.createElement(TestHarness));
-    });
-
-    assert.equal(hookResult.visibleSessionTitle, 'Original Title');
-    assert.equal(hookResult.headerTitleEditingSessionId, '');
-
-    // 1. Open editor
-    await act(async () => {
-      hookResult.openHeaderTitleEditor();
-    });
-    assert.equal(hookResult.headerTitleEditingSessionId, 's1');
-    assert.equal(hookResult.headerTitleDraft, 'Original Title');
-
-    // 2. Set draft to new valid name and commit
-    await act(async () => {
-      hookResult.setHeaderTitleDraft('New Title');
-    });
-    await act(async () => {
-      hookResult.commitHeaderTitleEditor(false);
-    });
-    assert.equal(hookResult.headerTitleEditingSessionId, '');
-    assert.deepEqual(renamed, { id: 's1', title: 'New Title' });
-
-    // 3. Test empty draft on blur: invalidates and cancels without rename
-    renamed = null;
-    await act(async () => {
-      hookResult.openHeaderTitleEditor();
-      hookResult.setHeaderTitleDraft('   ');
-    });
-    await act(async () => {
-      hookResult.commitHeaderTitleEditor(true);
-    });
-    assert.equal(renamed, null);
-    assert.equal(hookResult.headerTitleEditingSessionId, '');
-  } finally {
+  t.after(async () => {
     await act(async () => {
       root.unmount();
     });
     restore();
-  }
+  });
+  await act(async () => {
+    root.render(React.createElement(TestHarness));
+  });
+  return state;
+}
+
+test('useAppSessionTitle opens the editor on the visible title and renames on commit', async (t) => {
+  const state = await mountTitle(t);
+  assert.equal(state.hook.visibleSessionTitle, 'Original Title');
+  assert.equal(state.hook.headerTitleEditingSessionId, '');
+
+  await act(async () => {
+    state.hook.openHeaderTitleEditor();
+  });
+  assert.equal(state.hook.headerTitleEditingSessionId, 's1');
+  assert.equal(state.hook.headerTitleDraft, 'Original Title');
+
+  await act(async () => {
+    state.hook.setHeaderTitleDraft('New Title');
+  });
+  await act(async () => {
+    state.hook.commitHeaderTitleEditor(false);
+  });
+  assert.equal(state.hook.headerTitleEditingSessionId, '');
+  assert.deepEqual(state.renamed, { id: 's1', title: 'New Title' });
+});
+
+test('useAppSessionTitle closes without renaming when a whitespace draft is committed on blur', async (t) => {
+  const state = await mountTitle(t);
+  await act(async () => {
+    state.hook.openHeaderTitleEditor();
+    state.hook.setHeaderTitleDraft('   ');
+  });
+  await act(async () => {
+    state.hook.commitHeaderTitleEditor(true);
+  });
+  assert.equal(state.renamed, null);
+  assert.equal(state.hook.headerTitleEditingSessionId, '');
 });

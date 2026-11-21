@@ -351,10 +351,6 @@ export function outputFactsOf(wireItem: TranscriptItem, nowMs = Date.now()): Too
 
 type PresentationBackgroundTask = ReturnType<typeof toolActivityBackgroundTask>;
 
-/** What the closed row reports for a finished, stopped or failed call, from
- *  one place: a stopped call reads "Stopped", a failed background task keeps
- *  its status and exit, a running one reports nothing (its output is the
- *  body), a failed command reads "실패 · <why>". */
 function toolActivityFailureOutcome(input: {
   stopped: boolean;
   backgroundTask: PresentationBackgroundTask;
@@ -435,15 +431,7 @@ function isCompletePatch(text: string): boolean {
   return hunks > 0 && !oldLeft && !newLeft;
 }
 
-/** The file sections of a patch that belong to one edited file. Calls landing
- *  in the same batch can each carry the whole batch's patch; the row names one
- *  file, so its body shows that file only. A patch with no section for the
- *  target is kept whole. */
 function targetSectionMatcher(targetPath: string, root = ''): ((names: string[]) => boolean) | null {
-  // Exact path identity: separators, `.`/`..` segments and absolute-vs-relative
-  // (against the call's root) are normalized; a suffix never matches.
-  // Windows-style paths (drive letter, UNC or backslash form) compare
-  // case-insensitively; POSIX paths compare exactly.
   const isWindows = (path: string) => /^[A-Za-z]:|^[\\/]{2}/.test(path) || path.includes('\\');
   const clean = (path: string) => {
     const slashed = path.replace(/\\/g, '/');
@@ -670,10 +658,6 @@ function presentationTone(
     item.isError ||
     Number(item.errorCount || 0) > 0 ||
     /fail|error|timeout|denied/i.test(String(model.terminalStatus || ''));
-  // A call stopped by the user or the runtime did not fail: it reads
-  // "Stopped" in the quieter warning ink, never as a failure.
-  // (A task tool's "cancel" action reports what it cancelled; that is its
-  // result, not a stop of the call, so only command runs read this way.)
   const stopped =
     !model.pending &&
     /^(?:shell|bash|bash_session|shell_command)$/.test(normalizedName) &&

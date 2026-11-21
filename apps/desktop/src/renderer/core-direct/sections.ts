@@ -1,8 +1,3 @@
-// The window's `sections` API served by its own client (the composed renderer API, createSessionsApi's sibling). The
-// section store is the client library's own, in this renderer: a snapshot is read from it, a change of it is a push, and
-// the scoped feeds a window follows (a file watch, the ports list, `media:<jobId>`, a sign-in flow) are the connection's.
-// Nothing is relayed, so a whole-store replace is one synchronous swap: when the connection was replaced, and when a leg
-// that came back has folded its app snapshot (it may be a restarted core's).
 import type { DesktopApi } from '../../shared/contract.ts';
 import {
   EVENT_SECTIONS,

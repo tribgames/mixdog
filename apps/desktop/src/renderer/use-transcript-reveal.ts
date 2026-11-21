@@ -12,11 +12,6 @@ export const ENTRY_REVEAL_MAX_MS = 2_000;
 // Total wait for entry-pending chrome (the review bar's first read, a lazy
 // dock fallback); past it the reveal proceeds and the chrome may land late.
 export const ENTRY_CHROME_MAX_MS = 1_500;
-// A dock still easing to a new height: the viewport the rows are pinned to
-// reaches its observer a frame after each step, so a reveal mid-motion
-// painted the tail moving with the dock. An island slot holding a reserved
-// height (ComposerIsland) may yet close, on a revisit too: revealed above
-// it, the end-pinned tail dropped by the slot's height when it did.
 const DOCK_MOTION = '.composer-island-slot[data-motion], .composer-island-slot[data-reserved]';
 // Undecided dock chrome too, on an entry whose island height is not known yet.
 const ENTRY_CHROME_PENDING = `[data-entry-pending], ${DOCK_MOTION}`;
@@ -44,44 +39,30 @@ export function useTranscriptReveal({
   pinned = false,
 }: {
   identity: string;
-  /** The row measurements the timeline left with (its virtual snapshot). A
-   *  revisit whose geometry was evicted remounts from estimates, so it enters
-   *  cold. A warm one reveals in its commit only when its mounted visible rows
-   *  read back at exactly these sizes and offsets. */
+  /** The timeline's virtual snapshot at departure. A warm revisit reveals in
+   *  its commit only when its visible rows read back at exactly these sizes
+   *  and offsets; without it the revisit enters cold. */
   retainedGeometry?: readonly RetainedRow[];
   /** The timeline follows its end: its end pin must have landed. */
   pinned?: boolean;
   enabled: boolean;
   draft: boolean;
   /** The phone: reveal as soon as a visible row holds its real content (no
-   *  pending Markdown), in the frame the rows commit. Waiting for the dock
-   *  chrome, fonts and stable geometry kept the latest messages hidden behind
-   *  the skeleton (or blank, on a retained revisit) for several frames on a
-   *  phone's CPU. */
+   *  pending Markdown), in the frame the rows commit. */
   eager?: boolean;
   viewport: RefObject<HTMLDivElement | null>;
   content: RefObject<HTMLDivElement | null>;
-  /** Conversation root: chrome outside the rows (the review bar) marks its
-   *  undecided entry state with `data-entry-pending`; the island slot marks
-   *  its height motion with `data-motion`, a reserved height with
-   *  `data-reserved`. */
+  /** Conversation root: undecided chrome marks `data-entry-pending`; the
+   *  island slot marks `data-motion` or `data-reserved`. */
   scope?: RefObject<HTMLElement | null>;
   hasScrollGesture(): boolean;
 }): boolean {
   const [revealedIdentity, setRevealedIdentity] = useState(draft ? identity : '');
-  // Each visit earns its own reveal. Leaving an entry before it settled kept
-  // the PREVIOUS session's identity recorded, so going straight back to that
-  // session skipped the gate and painted it on the outgoing dock inset — the
-  // tail then jumped by the island height a frame later.
   const [visitIdentity, setVisitIdentity] = useState(identity);
   if (visitIdentity !== identity) {
     setVisitIdentity(identity);
     setRevealedIdentity('');
   }
-  // Timelines this pane has revealed. Going back to one is a warm revisit:
-  // its rows remount at their remembered measurements (transcript-virtual-
-  // cache) and its island at its remembered resting height (ComposerIsland),
-  // so only what can still move on screen holds it.
   const [revealedBefore] = useState(() => new Set<string>());
   // Read at the commit's microtask: whether the end pin must already hold.
   const pinnedRef = useRef(pinned);
@@ -115,11 +96,6 @@ export function useTranscriptReveal({
       // it, so every visit painted at least one more blank (hidden) frame.
       flushSync(() => setRevealedIdentity(identity));
     };
-    // Geometry only, never layout: this samples right after commits, where
-    // rect reads forced a layout of the whole list. The timeline supplies
-    // offset and extent; each row's virtual position is its inline top, and it
-    // ends where the next row (or the list) starts, so any measured size
-    // change moves the signature.
     const measure = (root: HTMLDivElement, space: HTMLDivElement) => {
       const position = transcriptScrollPosition(root);
       // Row offsets are spacer-relative; the scroll offset includes the
@@ -175,10 +151,6 @@ export function useTranscriptReveal({
       const pending = rowsPending || chromePending || document.fonts?.status === 'loading';
       const atEnd = position.maxScrollTop - top <= 1;
       const readerOwnsPosition = hasScrollGesture();
-      // An entry settles at the end it is anchored to. A revisit's offset is
-      // resolved from remembered measurements, so a stable one is final
-      // wherever it rests: waiting for the end there only ran out the bound
-      // and then revealed the same rows.
       const placed = warm || atEnd || readerOwnsPosition;
       const settled = visible > 0 && !pending && placed && current === previous;
       if (eager && eagerReady(space, visible)) {
@@ -193,11 +165,6 @@ export function useTranscriptReveal({
       previous = pending ? '' : current;
       frame = requestAnimationFrame(sample);
     };
-    // The first stable sample is the commit itself, once its microtasks (the
-    // end pin's write) have run. A revisit whose restored geometry is already
-    // final then reveals in the first frame instead of painting the pane
-    // blank for two frames — or for as long as the tasks after the switch
-    // take on a slow device.
     queueMicrotask(() => {
       const root = viewport.current;
       const space = content.current;
@@ -210,11 +177,6 @@ export function useTranscriptReveal({
         return;
       }
       const pending = rowsPending || scope?.current?.querySelector(chrome) || document.fonts?.status === 'loading';
-      // A first visit whose rows are all real and exact in this commit (the
-      // layout phase measured them and re-rendered before this microtask) is
-      // final too: it reveals in the click's frame, not after confirming
-      // samples. The end it follows must have landed. The last row's extent
-      // excludes the list's tail spacer, which no row owns.
       if (
         !warm &&
         !pending &&
@@ -228,14 +190,6 @@ export function useTranscriptReveal({
         reveal();
         return;
       }
-      // A revisit's geometry is final here when its mounted visible rows read
-      // back at exactly the sizes and offsets they were remembered with (one
-      // layout read the browser needs before paint anyway), no estimate
-      // relearn or reader gesture is pending, a followed end has landed and a
-      // visible row holds its content. It then paints in this commit's frame
-      // rather than after a confirming sample. Whatever changed while away
-      // (rows, width, zoom, fonts, skin, tool expansion) moves a row, so any
-      // other revisit settles through the samples below.
       const unchanged =
         warm &&
         !pending &&

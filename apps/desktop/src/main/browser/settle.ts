@@ -1,10 +1,3 @@
-/**
- * When a page is done moving. A gesture is followed by three independent
- * quiet signals — load, DOM mutations, and in-flight requests — and a
- * postcondition is sampled the same way whether it was asked for before or
- * after the action. Nothing here decides what to do next; it only reports
- * that the page stopped changing.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserCommandResult } from './host-types';
@@ -107,10 +100,6 @@ async function waitForNetworkQuiet(host: BrowserSettleHost, guest: WebContents, 
  *  the gesture itself navigated (Enter in a search box, a submit button). */
 export const DOCUMENT_REPLACED = /Inspected target navigated or closed|Execution context was destroyed/;
 
-/** Let input handlers and their rendering work run without waiting for
- * unrelated DOM mutations. The next gesture still owns its target's
- * actionability checks; the final reply waits for pending load/network work.
- * Hidden pages may throttle animation frames, so the checkpoint is bounded. */
 async function stepSettleResult(
   host: BrowserSettleHost,
   guest: WebContents,
@@ -198,14 +187,6 @@ export function createBrowserSettle(host: BrowserSettleHost) {
     throwIfBrowserCancelled(signal);
   }
 
-  /** Post-gesture settle starts load, DOM, and network observation together.
-   *  Long-polling pages cannot hold the command forever.
-   *
-   *  `until` is an early exit, not a cancellation: once the caller's own
-   *  postcondition holds, the page has reached the state that was asked for,
-   *  so the generic quiet windows stop waiting for pages that never go quiet
-   *  (analytics, polling widgets). Measured: expect-bearing clicks sat at
-   *  1.3-1.5s while the condition itself matched almost immediately. */
   async function settleAfterAction(
     guest: WebContents,
     signal?: AbortSignal,
@@ -222,13 +203,6 @@ export function createBrowserSettle(host: BrowserSettleHost) {
       }
     };
     signal?.addEventListener('abort', stopOnAbort, { once: true });
-    // Real cancellation stops the page; a cutoff only stops WAITING for it, so
-    // the two signals must never share the stop-page listener above.
-    // A client-side route change swaps the view without loading a document:
-    // nothing is loading, the network can already be quiet, and a url
-    // postcondition is satisfied by history.pushState before the new screen
-    // renders. Returning then reports the screen the caller just left, so this
-    // one case waits for the page to go quiet and refuses the early exit.
     const routeChanged =
       options.previousUrl !== undefined && !guest.isLoading() && guest.getURL() !== options.previousUrl;
     const earlyExit = routeChanged ? undefined : until;
@@ -245,10 +219,6 @@ export function createBrowserSettle(host: BrowserSettleHost) {
       await waitForLoadSettle(host, guest, host.loadTimeoutMs, settleSignal);
       signal?.throwIfAborted();
       if (host.diagnostics(guest).pendingDialog) return;
-      // Uniform for individual gestures and batches: flush queued rendering,
-      // then wait only when actual load/network work remains. A future timer
-      // has no knowable completion time; explicit expect/settleMs own that
-      // dependency and are still awaited independently by reply.
       let unconfirmed = false;
       const checkpoint = await stepSettleResult(host, guest, signal, options.background, () => {
         unconfirmed = true;

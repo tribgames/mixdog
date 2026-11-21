@@ -1,15 +1,3 @@
-// Live registries of the elements that match a selector, kept from the DOM's
-// own lifecycle instead of a document query per use. One mutation observer on
-// <html> reports every mount and unmount (portals included: they mount under
-// the same tree) and every flip of the attributes the selectors read; a
-// registry scans only what was inserted, never the document again. Reading a
-// registry first takes the observer's pending records, so the answer is
-// current synchronously, also inside the event handler that just changed the
-// DOM. The hot paths that would otherwise query the whole document per keystroke
-// or per frame (the keymap's modal check, the desktop pet's floating layers)
-// read these instead: their cost follows the registered elements, not the
-// size of the document (a hidden but mounted panel can hold ~50k nodes).
-
 const FOLLOWING = 4; // Node.DOCUMENT_POSITION_FOLLOWING
 
 interface Registry {

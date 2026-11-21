@@ -1,7 +1,7 @@
 import { CapabilityIcon } from '../CapabilityIcon';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { DesktopGitCliStatus, DesktopLibreOfficeStatus, DesktopSettings } from '../../shared/contract';
+import type { DesktopGitCliStatus, DesktopLibreOfficeStatus } from '../../shared/contract';
 import { t } from '../i18n';
 import { showDesktopToast } from '../desktop-toasts';
 import { ErrorNotice } from '../ErrorNotice';
@@ -34,6 +34,7 @@ import { useLocalProviderActions } from './local-provider-actions';
 import type { LocalProviderActions } from './local-provider-actions';
 import { GitPanel } from './git-panel';
 import {
+  type DesktopStatus,
   getCachedDesktopStatus,
   readDesktopStatus,
   recordDesktopStatus,
@@ -81,63 +82,43 @@ function voiceProgress(snapshot: unknown): { text: string; percent: number | nul
   };
 }
 
+/** A cached status that re-reads when the remote connection is ready (and on setup changes where asked), plus whether the last read failed. */
+function useStatusRead<K extends 'settings' | 'gitCli'>(api: PanelContext['api'], key: K, followSetupChanges: boolean) {
+  const [value, setValue] = useState<DesktopStatus[K] | null>(() => getCachedDesktopStatus(api, key) ?? null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const read = () => {
+      void Promise.resolve(readDesktopStatus(api, key)).then(
+        (next) => {
+          if (!live) return;
+          setFailed(!next);
+          if (next) setValue(next);
+        },
+        () => {
+          if (live) setFailed(true);
+        }
+      );
+    };
+    read();
+    const unsubscribe = followSetupChanges ? subscribeSetupChanges(read) : undefined;
+    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, read);
+    return () => {
+      live = false;
+      unsubscribe?.();
+      window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, read);
+    };
+  }, [api, key, followSetupChanges]);
+  return [value, setValue, failed] as const;
+}
+
 /** Desktop settings and the Git / LibreOffice dependency status the cards depend on. */
 function useDesktopFeatureStatus(api: PanelContext['api'], officeDetailOpen: boolean) {
-  const [settings, setSettings] = useState<DesktopSettings | null>(
-    () => getCachedDesktopStatus(api, 'settings') ?? null
-  );
-  const [gitStatus, setGitStatus] = useState<DesktopGitCliStatus | null>(
-    () => getCachedDesktopStatus(api, 'gitCli') ?? null
-  );
+  const [settings, setSettings, settingsFailed] = useStatusRead(api, 'settings', true);
+  const [gitStatus, setGitStatus, gitFailed] = useStatusRead(api, 'gitCli', false);
   const [officeDependency, setOfficeDependency] = useState<DesktopLibreOfficeStatus | null>(
     () => getCachedDesktopStatus(api, 'libreOffice') ?? null
   );
-  const [settingsFailed, setSettingsFailed] = useState(false);
-  const [gitFailed, setGitFailed] = useState(false);
-  useEffect(() => {
-    let live = true;
-    const read = () => {
-      void Promise.resolve(readDesktopStatus(api, 'settings')).then(
-        (next) => {
-          if (!live) return;
-          setSettingsFailed(!next);
-          if (next) setSettings(next);
-        },
-        () => {
-          if (live) setSettingsFailed(true);
-        }
-      );
-    };
-    read();
-    const unsubscribe = subscribeSetupChanges(read);
-    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, read);
-    return () => {
-      live = false;
-      unsubscribe();
-      window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, read);
-    };
-  }, [api]);
-  useEffect(() => {
-    let live = true;
-    const read = () => {
-      void Promise.resolve(readDesktopStatus(api, 'gitCli')).then(
-        (next) => {
-          if (!live) return;
-          setGitFailed(!next);
-          if (next) setGitStatus(next);
-        },
-        () => {
-          if (live) setGitFailed(true);
-        }
-      );
-    };
-    read();
-    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, read);
-    return () => {
-      live = false;
-      window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, read);
-    };
-  }, [api]);
   useEffect(() => {
     let live = true;
     const read = () => {
@@ -389,6 +370,27 @@ function FeatureDetailDialog({
   );
 }
 
+function useLegacyModulePoll(api: PanelContext['api'], enabled: boolean, onModules: (modules: RecordValue) => void) {
+  useEffect(() => {
+    if (!enabled || !api.invokeCapability) return;
+    let live = true;
+    let timer: number;
+    const read = async () => {
+      try {
+        const response = await api.invokeCapability?.<RecordValue>({ capability: 'getToolModuleSettings', args: [] });
+        if (live && response?.value) onModules(response.value);
+      } finally {
+        if (live) timer = window.setTimeout(() => void read().catch(() => {}), 1500);
+      }
+    };
+    timer = window.setTimeout(() => void read().catch(() => {}), 1500);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [api, enabled, onModules]);
+}
+
 export function BuiltInFeaturesPanel({
   data,
   snapshot,
@@ -465,24 +467,7 @@ export function BuiltInFeaturesPanel({
       (localJobActive || (openId === 'localProvider' && Boolean(pending)))) ||
       (!record(toolModulesSection).autoEffort &&
         (autoEffort.installing === true || (action?.id === 'autoEffort' && action.status === 'installing'))));
-  useEffect(() => {
-    if (!pollLegacy || !api.invokeCapability) return;
-    let live = true;
-    let timer: number;
-    const read = async () => {
-      try {
-        const response = await api.invokeCapability?.<RecordValue>({ capability: 'getToolModuleSettings', args: [] });
-        if (live && response?.value) setLegacyModules(response.value);
-      } finally {
-        if (live) timer = window.setTimeout(() => void read().catch(() => {}), 1500);
-      }
-    };
-    timer = window.setTimeout(() => void read().catch(() => {}), 1500);
-    return () => {
-      live = false;
-      window.clearTimeout(timer);
-    };
-  }, [api, pollLegacy]);
+  useLegacyModulePoll(api, pollLegacy, setLegacyModules);
 
   const installed = useMemo<Record<BuiltInFeatureId, boolean>>(
     () => ({

@@ -8,14 +8,8 @@ import { studioReferenceChip, type StudioMediaJob, type StudioReference } from '
 import type { createStudioGenerationActions } from './studio-pane-generation';
 import type { createStudioMediaActions } from './studio-pane-media-actions';
 import { mediaFile } from './studio-pane-support';
-import {
-  callCapability,
-  errorText,
-  type MediaAsset,
-  type MediaKind,
-  type StudioApi,
-  type StudioOptions,
-} from './studio-support';
+import { callCapability, type MediaAsset, type MediaKind, type StudioApi, type StudioOptions } from './studio-support';
+import { errorMessage } from './editor-pane-session-errors';
 
 type GenerationActions = ReturnType<typeof createStudioGenerationActions>;
 
@@ -80,7 +74,7 @@ export function createStudioAssetActions({
       // re-open its queue slot the moment the asset left the gallery.
       setJobs((current) => current.filter((entry) => entry.assetId !== asset.id));
     } catch (reason) {
-      setError(errorText(reason));
+      setError(errorMessage(reason));
     }
   };
 
@@ -110,7 +104,7 @@ export function createStudioAssetActions({
       setSelected(null);
       promptRef.current?.focus({ preventScroll: true });
     } catch (reason) {
-      setError(errorText(reason));
+      setError(errorMessage(reason));
     }
   };
 

@@ -50,14 +50,9 @@ export function touchPrimaryPointer(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
 }
 
-/** A press on a composer button (send/stop) must not take focus from the
- *  field it belongs to. On a phone the tap moves focus to the button, the soft
- *  keyboard slides away, and the viewport resizes under the very frame in which
- *  the draft clears, the field shrinks and the new row lands: the composer
- *  rides the keyboard down and then settles (the visible jump). Cancelling the
- *  press's mousedown keeps the field focused, so the keyboard neither closes
- *  nor reopens; with the keyboard already closed nothing is focused and nothing
- *  changes. The click still fires. Desktop pointers keep their focus grammar. */
+/** Keeps a composer button's press (send/stop) from taking focus off its field
+ *  on touch surfaces, where the focus move closes the soft keyboard and resizes
+ *  the viewport. Cancelling mousedown keeps the field focused; the click still fires. */
 export function holdFieldFocusOnPress(event: ReactMouseEvent<HTMLButtonElement>): void {
   if (!touchPrimaryPointer() && !isPhoneSurfaceMarked()) return;
   const active = document.activeElement;
@@ -79,13 +74,6 @@ export function shouldFocusSurfaceInput(
   return !selection || selection.isCollapsed;
 }
 
-/** Settings and the command surfaces stay MOUNTED after closing so a reopen is
- *  warm, and their dialog keeps a static aria-modal. A bare
- *  `querySelector('[aria-modal="true"]')` therefore reported a phantom modal
- *  for the rest of the window's life and silently killed every workbench
- *  shortcut. A parked surface is
- *  inert / aria-hidden / an inactive preserved layer; only a dialog outside all
- *  of those actually owns the keyboard. */
 const PARKED_SURFACE_SELECTOR = '[inert],[aria-hidden="true"],[data-surface-active="false"]';
 
 /** Every mounted `aria-modal="true"` element, registered as it mounts,

@@ -1,7 +1,3 @@
-// Media travels as a proxied byte stream over the desktop leg: the phone gets
-// a cacheable, range-able HTTP response instead of a base64 RPC answer, and
-// the relay only has to forward frames. The timeout covers the FIRST frame;
-// a long clip then streams for as long as the desktop keeps sending.
 import { randomUUID } from 'node:crypto';
 
 import { parseMediaRequest } from './media-http.mjs';
@@ -12,11 +8,6 @@ import { requestCookieToken } from './static-http.mjs';
 // the phone retries the range instead of watching a socket that never ends.
 const MEDIA_HEAD_TIMEOUT_MS = 30_000;
 const MEDIA_STALL_TIMEOUT_MS = 30_000;
-// Byte-lane flow control. The desktop pauses on ITS socket backlog, which a
-// relay that drains eagerly never fills, so a slow phone's clip would buffer
-// here instead. Pause the producer once the response buffer fills, and cut a
-// leg that stopped draining entirely (media is retryable: the browser asks
-// for the range again).
 const MEDIA_PAUSE_BUFFER_BYTES = 1024 * 1024;
 const MEDIA_KILL_BUFFER_BYTES = 8 * 1024 * 1024;
 // One tab opening a screenful of tiles is normal; unbounded proxied streams
@@ -24,9 +15,6 @@ const MEDIA_KILL_BUFFER_BYTES = 8 * 1024 * 1024;
 const MAX_MEDIA_STREAMS = 32;
 const MEDIA_SESSION_ID = /^[A-Za-z0-9_-]{43}$/;
 
-/** Percent-decoding throws on malformed input (`/media/%`). That input arrives
- *  unauthenticated, so it has to become a response, never an exception on the
- *  server's request path. Null means "not a decodable path". */
 function decodePathname(pathname) {
   try {
     return decodeURIComponent(String(pathname || ''));
@@ -35,15 +23,7 @@ function decodePathname(pathname) {
   }
 }
 
-/**
- * `/media/<assetId>?variant=` — the gallery's byte lane through the relay.
- *
- * The files live on the desktop, so the relay proxies: it forwards one media
- * request over the desktop leg and streams the frames straight into the HTTP
- * response. Payloads pass through un-inspected, exactly like /hook: the
- * desktop seals every body with a key only the paired phone holds
- * (shared/remote-media-crypto.ts), so what streams through here is ciphertext.
- */
+/** `/media/<assetId>?variant=` — proxies one media request over the desktop leg. */
 export function handleMediaRequest(store, liveDesktops, unauthorizedLimiter, request, response) {
   const url = requestUrl(request);
   if (!url) {
@@ -76,18 +56,8 @@ export function handleMediaRequest(store, liveDesktops, unauthorizedLimiter, req
     endText(response, 404, 'Not found.');
     return;
   }
-  // Names the E2EE session whose media key sealed the bytes. It is the
-  // session's public handshake challenge: the relay forwards it as a label
-  // and never holds anything that could open the stream.
-  const sid = url.searchParams.get('sid') || '';
-  if (sid && !MEDIA_SESSION_ID.test(sid)) {
-    endText(response, 400, 'Bad request.');
-    return;
-  }
-  // The protocol opt-in: only a client that sends it is answered with
-  // encrypted frames; the desktop treats everything else as plaintext-era.
-  const enc = url.searchParams.get('enc') || '';
-  if (!/^[A-Za-z0-9]{0,16}$/.test(enc)) {
+  const labels = streamLabels(url.searchParams);
+  if (!labels) {
     endText(response, 400, 'Bad request.');
     return;
   }
@@ -96,14 +66,18 @@ export function handleMediaRequest(store, liveDesktops, unauthorizedLimiter, req
     endText(response, 503, refusal.text, refusal.headers);
     return;
   }
-  openMediaStream(entry, { ...target, sid, enc }, request, response);
+  openMediaStream(entry, { ...target, ...labels }, request, response);
 }
 
-// Feature probe, answered for the DESKTOP that would produce the bytes.
-// The relay serves ONE web bundle to every phone while installs update on
-// their own schedule, so this relay is routinely newer than the desktop it
-// is paired with. Reporting the desktop's lane keeps that skew a plain
-// answer instead of something the phone has to infer from a stall.
+/** `sid` names the E2EE session whose media key sealed the bytes; `enc` is the
+ *  client's opt-in to encrypted frames. Null when either is malformed. */
+function streamLabels(searchParams) {
+  const sid = searchParams.get('sid') || '';
+  const enc = searchParams.get('enc') || '';
+  if ((sid && !MEDIA_SESSION_ID.test(sid)) || !/^[A-Za-z0-9]{0,16}$/.test(enc)) return null;
+  return { sid, enc };
+}
+
 function answerMediaHealth(response, supported) {
   if (!supported) {
     response.writeHead(503, { 'Content-Type': 'application/json' }).end('{"status":"unsupported"}');
@@ -115,10 +89,6 @@ function answerMediaHealth(response, supported) {
 /** Why the desktop cannot take one more stream right now (all 503), or null. */
 function mediaRefusal(entry, online) {
   if (!online) return { text: 'Desktop offline.' };
-  // An older desktop leg drops unknown frames on the floor, so asking it for
-  // media would buy nothing but a first-frame timeout on every tile. One
-  // capability bit from the leg turns that into an instant downgrade to the
-  // RPC payload.
   if (!entry.mediaLane) return { text: 'Desktop media lane unsupported.' };
   if (entry.media.size >= MAX_MEDIA_STREAMS) {
     return { text: 'Too many media streams.', headers: { 'Retry-After': '1' } };
@@ -192,10 +162,6 @@ function armMediaTimer(entry, id, pending, ms) {
   pending.timer.unref?.();
 }
 
-// Desktop-supplied media metadata is forwarded, not trusted: these bytes leave
-// the RELAY origin, so an HTML/SVG asset must never become an active document
-// there and the leg must not be able to set arbitrary headers (cookies, CSP
-// overrides) on it. Everything outside this table is dropped.
 const MEDIA_PASS_HEADERS = new Map([
   ['content-type', 'Content-Type'],
   ['content-length', 'Content-Length'],

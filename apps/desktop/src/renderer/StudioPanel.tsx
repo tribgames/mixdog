@@ -17,7 +17,8 @@ import { StudioBoardIcon, StudioBoardNameInput } from './studio-board-components
 import { contextMenuRowProps, ScmContextMenu, type ScmContextMenuState } from './ScmContextMenu';
 import { SidebarPanelHeaderSlot, toggleHeading } from './session-sidebar-sections';
 import { SessionRowStatusIcon } from './session-status-mark';
-import { errorText, type StudioApi } from './studio-support';
+import type { StudioApi } from './studio-support';
+import { errorMessage } from './editor-pane-session-errors';
 
 /** The count at a row's end, or the running spinner while a run in it is in flight. */
 function RowEnd({ count, working, name }: { count: number; working: boolean; name: string }) {
@@ -61,7 +62,7 @@ export function StudioPanel({
   const needle = searching ? query.trim().toLowerCase() : '';
   const shownBoards = needle ? boards.filter((board) => board.name.toLowerCase().includes(needle)) : boards;
 
-  const fail = (reason: unknown) => showDesktopToast(errorText(reason), 'error');
+  const fail = (reason: unknown) => showDesktopToast(errorMessage(reason), 'error');
   const open = (id: string) => {
     openStudioBoard(id);
     onShowStudio();

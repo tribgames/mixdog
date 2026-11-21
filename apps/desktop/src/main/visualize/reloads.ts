@@ -1,8 +1,3 @@
-/**
- * File tabs follow their files: each pane file is watched, a change reloads
- * the tab once writes go quiet (re-resolved inside their recorded roots, snapshotted, published
- * as an in-place update), and an older load never overwrites a newer one.
- */
 import type { VisualizeServiceContext } from './context';
 import type { FileTarget, TabState } from './tab-state';
 import { isFileMissing, OutsideRecordedRootError, resolveTargetWithin } from './targets';
@@ -168,8 +163,6 @@ export function createReloads(
     reload,
     watchTab,
     cancelScheduledReload,
-    /** Resolves once every file-change reload scheduled so far (and any it
-     *  triggers) has finished: debounce, re-resolve, version snapshot, publish. */
     async settled(): Promise<void> {
       while (pendingReloads.size) {
         // A waiter keeps the (unref'd) debounce timers alive.

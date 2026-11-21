@@ -46,7 +46,7 @@ test('only a run whose reply names its terminal leaves a card; a pending call le
   assert.deepEqual(desktopToolActivityTerminalRuns([run('e', 'ls', 'ok')]), []);
 });
 
-test('the "터미널 · 명령 · 보기" card selects the run\'s terminal tab and reveals the session terminal', async () => {
+async function withPeekDom(body) {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' });
   const previous = new Map(
     ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT'].map((key) => [
@@ -60,21 +60,44 @@ test('the "터미널 · 명령 · 보기" card selects the run\'s terminal tab a
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   dom.window.mixdogDesktop = {};
   const sid = 'sess-1';
-  const revealed = [];
   const root = createRoot(dom.window.document.getElementById('root'));
   try {
-    // No dock can be revealed yet: no card.
     const items = [run('a', 'npm test', REPLY(`session-terminal:${sid}:2`))];
-    await act(async () => root.render(React.createElement(TerminalPeekLines, { items, sessionId: sid })));
-    assert.equal(dom.window.document.querySelector('.transcript-terminal-peek'), null);
+    await body({ dom, root, sid, items });
+  } finally {
+    releaseSessionTerminalTabs(sid);
+    await act(async () => root.unmount());
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+    dom.window.close();
+  }
+}
 
-    let stop = () => {};
-    await act(async () => {
-      stop = onTerminalRevealRequested((sessionId) => revealed.push(sessionId));
-    });
+const peekCard = (dom) => dom.window.document.querySelector('.transcript-terminal-peek');
+
+async function subscribeReveal(revealed) {
+  let stop = () => {};
+  await act(async () => {
+    stop = onTerminalRevealRequested((sessionId) => revealed.push(sessionId));
+  });
+  return () => act(async () => stop());
+}
+
+test('no card is shown while no dock can be revealed', () =>
+  withPeekDom(async ({ dom, root, sid, items }) => {
+    await act(async () => root.render(React.createElement(TerminalPeekLines, { items, sessionId: sid })));
+    assert.equal(peekCard(dom), null);
+  }));
+
+test('the "터미널 · 명령 · 보기" card selects the run\'s terminal tab and reveals the session terminal', () =>
+  withPeekDom(async ({ dom, root, sid, items }) => {
+    const revealed = [];
+    const unsubscribe = await subscribeReveal(revealed);
     try {
       await act(async () => root.render(React.createElement(ToolActivityGroup, { items, disclosureScope: sid })));
-      const card = dom.window.document.querySelector('.transcript-terminal-peek');
+      const card = peekCard(dom);
       assert.ok(card, 'the tool group carries a terminal card');
       assert.equal(card.textContent, 'Terminal·npm test·View');
       assert.equal(activeSessionTerminalId(sid), `session-terminal:${sid}`);
@@ -85,20 +108,18 @@ test('the "터미널 · 명령 · 보기" card selects the run\'s terminal tab a
         getSessionTerminalTabs(sid).tabs.map((tab) => tab.n),
         [1, 2]
       );
-
-      // A draft has no dock to open.
-      await act(async () => root.render(React.createElement(TerminalPeekLines, { items, sessionId: 'new-task' })));
-      assert.equal(dom.window.document.querySelector('.transcript-terminal-peek'), null);
     } finally {
-      await act(async () => stop());
+      await unsubscribe();
     }
-  } finally {
-    releaseSessionTerminalTabs(sid);
-    await act(async () => root.unmount());
-    for (const [key, descriptor] of previous) {
-      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-      else delete globalThis[key];
+  }));
+
+test('a draft session has no dock to open, so no card', () =>
+  withPeekDom(async ({ dom, root, items }) => {
+    const unsubscribe = await subscribeReveal([]);
+    try {
+      await act(async () => root.render(React.createElement(TerminalPeekLines, { items, sessionId: 'new-task' })));
+      assert.equal(peekCard(dom), null);
+    } finally {
+      await unsubscribe();
     }
-    dom.window.close();
-  }
-});
+  }));

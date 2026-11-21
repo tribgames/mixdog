@@ -1,8 +1,3 @@
-// The Computer Use helper (native/mixdog-computer) in the Windows package: prepare-runtime builds it for the
-// target and stages it as native-tools/mixdog-computer.exe, electron-builder signs it with the other native-tools
-// executables, and the desktop hands its path to the core it starts as MIXDOG_COMPUTER_BIN (the core's own resolver
-// is tested in mixdog-core run_host/native_tools.rs). The prepared-runtime check runs only where a Windows runtime
-// was prepared (npm run prepare:runtime) and starts the helper with --version alone, which touches no desktop.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';

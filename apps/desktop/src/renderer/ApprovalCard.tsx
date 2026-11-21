@@ -1,9 +1,3 @@
-// The pending human decision (human-gate/requests.mjs kinds) as the one
-// approval surface (approval-prompt.tsx, design/mockups/approval-buttons):
-// docked above the composer of the top-level chat, content centred, decided
-// with buttons. The login takeover keeps its flow (✕ folds it into a one-line
-// chip, the request stays pending). Held requests of unattended runs render as
-// the same card from their home-thread row (HeldRequestCard).
 import {
   Fragment,
   type KeyboardEvent,
@@ -33,7 +27,13 @@ import type { Approval, TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 import { useDesktopStatus } from './settings/use-desktop-status';
-import { type ApprovalButton, ApprovalPreviewRow, ApprovalPrompt, noteApprovalDecision } from './approval-prompt';
+import {
+  type ApprovalButton,
+  ApprovalPreviewRow,
+  ApprovalPrompt,
+  clock,
+  noteApprovalDecision,
+} from './approval-prompt';
 import { PixelIcon, type PixelIconName } from './pixel-icon';
 import { asRecord } from './text-format';
 import {
@@ -128,10 +128,6 @@ export function useRequester(
   return chain ? { ...requester, headAgent: chain } : requester;
 }
 
-/** The session a chat handed work to, when this card shows its request in
- *  that chat (the runtime's `handoff`, tool-approval.mjs): its id, the name
- *  the chat gave it and the bot whose own chat it is ('' for a session). Null
- *  for any other request, and in that session's own pane. */
 function approvalHandoffTarget(
   approval: Approval,
   hostSessionId: string
@@ -142,9 +138,6 @@ function approvalHandoffTarget(
   return { sessionId, title: String(handoff.title || ''), agentId: String(handoff.agentId || '') };
 }
 
-/** The amber chip of a hand-off target: a bot's chat by that bot, any other
- *  session by its current title (the name the chat gave it until the catalog
- *  has it), as the chat's hand-off line names it. */
 function useHandoffChip(target: ReturnType<typeof approvalHandoffTarget>): { name: string; agentId?: string } | null {
   const title = useSessionTitle(target?.sessionId ?? '', target?.title || t('Session'));
   const bot = useAgentName(target?.agentId ?? '');
@@ -152,10 +145,6 @@ function useHandoffChip(target: ReturnType<typeof approvalHandoffTarget>): { nam
   return target.agentId ? { name: bot, agentId: target.agentId } : { name: title };
 }
 
-/** The one who-line chip of a secret or sign-in card: the asking session's
- *  name (a bot's face and name, a sub-agent's chain, else its title), only
- *  where the card shows in another conversation (a copy in the chat that
- *  delegated the work); null in its own conversation, where the line is omitted. */
 function useOwnerChip(
   approval: Approval,
   hostSessionId: string,
@@ -249,16 +238,55 @@ const loginStatuses = new Map<string, DesktopBrowserLoginStatus>();
 
 type LoginRow = { label: string; action: 'open' | 'fill' | 'reimport' | 'cancel'; disabled?: boolean };
 
-/** The login takeover's card (design/mockups/browser-login, side-panel-audit
- *  §1): one head line "<site> 로그인이 필요합니다". With saved logins for the
- *  page's origin it lists them (masked) to pick from: 지금 안 함 / 직접 로그인 /
- *  이 계정으로 로그인, the last filling the picked one through the saved-login
- *  path (profile-import.ts useCredential) and settling the takeover. 직접
- *  로그인 (or 로그인하기 without saved logins) opens this PC's sign-in window
- *  (main/browser/login-popup.ts); closing it without 완료 leaves "로그인하지
- *  않았습니다 · 다시 로그인하기"; a provider that refuses embedded sign-in
- *  offers the Chrome import; 완료 shows "로그인됨" while the agent continues.
- *  A phone cannot open the window: it says so and can cancel. */
+/** The sign-in takeover's buttons and heading for where its window stands. */
+function loginCardView({
+  local,
+  choosing,
+  settled,
+  status,
+  picked,
+  controlReady,
+  site,
+}: {
+  local: boolean;
+  choosing: boolean;
+  settled: ApprovalCardProps['settled'];
+  status: DesktopBrowserLoginStatus;
+  picked: string;
+  controlReady: boolean;
+  site: string;
+}): { rows: LoginRow[]; title: string } {
+  const state = status.state;
+  const cancel: LoginRow = { label: choosing ? t('Not now') : t('Cancel'), action: 'cancel' };
+  let rows: LoginRow[] = [];
+  if (!local) {
+    // A phone: the sign-in happens on the PC, but the takeover can end here.
+    rows = settled ? [] : [cancel];
+  } else if (choosing) {
+    // Until the agent has stopped, nothing that opens or fills the page can be chosen.
+    const yourself: LoginRow = { label: t('Sign in yourself'), action: 'open', disabled: !controlReady };
+    rows = picked
+      ? [{ label: t('Sign in with this account'), action: 'fill', disabled: !controlReady }, yourself, cancel]
+      : [yourself, cancel];
+  } else if (!settled && (state === 'idle' || state === 'closed')) {
+    const label = state === 'closed' ? t('Sign in again…') : t('Sign in…');
+    rows = [{ label, action: 'open', disabled: !controlReady }, cancel];
+  } else if (!settled && state === 'refused') {
+    rows = [{ label: t('Import again from Chrome'), action: 'reimport' }, cancel];
+  }
+  let title = t('{{site}} sign-in required', { site });
+  if (!local) {
+    title = t('Sign in on your PC');
+  } else if (state === 'done' || settled?.approved) {
+    title = t('Signed in');
+  } else if (state === 'closed') {
+    title = t('Not signed in');
+  } else if (state === 'refused') {
+    title = t('{{site}} does not allow sign-in in this window', { site: status.provider || site });
+  }
+  return { rows, title };
+}
+
 function BrowserLoginCard({
   approval,
   resolve,
@@ -325,33 +353,7 @@ function BrowserLoginCard({
 
   const state = status.state;
   const choosing = local && !settled && (state === 'idle' || state === 'closed') && accounts.length > 0;
-  const cancel: LoginRow = { label: choosing ? t('Not now') : t('Cancel'), action: 'cancel' };
-  let rows: LoginRow[] = [];
-  if (!local) {
-    // A phone: the sign-in happens on the PC, but the takeover can end here.
-    rows = settled ? [] : [cancel];
-  } else if (choosing) {
-    // Until the agent has stopped, nothing that opens or fills the page can be chosen.
-    const yourself: LoginRow = { label: t('Sign in yourself'), action: 'open', disabled: !controlReady };
-    rows = picked
-      ? [{ label: t('Sign in with this account'), action: 'fill', disabled: !controlReady }, yourself, cancel]
-      : [yourself, cancel];
-  } else if (!settled && (state === 'idle' || state === 'closed')) {
-    const label = state === 'closed' ? t('Sign in again…') : t('Sign in…');
-    rows = [{ label, action: 'open', disabled: !controlReady }, cancel];
-  } else if (!settled && state === 'refused') {
-    rows = [{ label: t('Import again from Chrome'), action: 'reimport' }, cancel];
-  }
-  let title = t('{{site}} sign-in required', { site });
-  if (!local) {
-    title = t('Sign in on your PC');
-  } else if (state === 'done' || settled?.approved) {
-    title = t('Signed in');
-  } else if (state === 'closed') {
-    title = t('Not signed in');
-  } else if (state === 'refused') {
-    title = t('{{site}} does not allow sign-in in this window', { site: status.provider || site });
-  }
+  const { rows, title } = loginCardView({ local, choosing, settled, status, picked, controlReady, site });
   const done = local && (state === 'done' || Boolean(settled?.approved));
   const closable = local && !done && state !== 'open';
 
@@ -386,10 +388,6 @@ function BrowserLoginCard({
     setResolving(true);
     setError('');
     if (row.action === 'fill') {
-      // The saved login goes only into the page this takeover was bound to,
-      // while it is still on the takeover's origin (host-agent.ts fillBoundLogin).
-      // A refusal is worded here, never the raw (English) IPC error: the page
-      // moved off the takeover's page or origin, or it could not take the login.
       const refused = (pageChanged: boolean) => {
         if (!mounted.current) return;
         setResolving(false);
@@ -694,13 +692,6 @@ function OfficeApprovalDetails({ args }: { args: Record<string, unknown> | null 
   );
 }
 
-/** A secret card's inputs (design/mockups/side-panel-audit §2): a sign-in's
- *  아이디 + 비밀번호 with "save as this site's login" (its default from the
- *  `saveChatLogins` setting), one box per character of a one-time code (3-3 or
- *  4-4, filled whole by a paste and entered once full), else one password box.
- *  Every field is uncontrolled: what is typed lives only in the DOM inputs
- *  until the card reads it at submit (never React state, props or markup). The
- *  code boxes know only how many characters are filled. */
 function SecretFields({
   form,
   length,
@@ -841,9 +832,6 @@ function cardButtons(
     activate,
   }: { clickOnly: boolean; permission: ReturnType<typeof permissionChoices>; activate: (row: CardRow) => void }
 ): { buttons: ApprovalButton[]; denyDecision: CardRow['decision'] | undefined } {
-  // Deny (the plain "no" row) on the left, the first row as the primary on
-  // the right, anything else between.
-  // A secret's plain skip (건너뛰기 / 취소) is its Esc button too.
   const denyRow = rows.find(
     (row) =>
       typeof row.decision === 'object' &&
@@ -851,9 +839,6 @@ function cardButtons(
       (!row.decision.response || (row.decision.response === 'skip' && !row.decision.reason))
   );
   const [primary, ...others] = rows;
-  // "Always allow" is only ever pressed on purpose (a click, or Enter / Space
-  // on the button once focus was moved to it): the prompt keeps it out of
-  // initial focus and of the card's own Enter.
   const isAlways = (row: CardRow) => {
     const decision = typeof row.decision === 'object' ? row.decision : null;
     return (
@@ -863,8 +848,6 @@ function cardButtons(
       (Boolean(decision?.scope) && decision?.scope === permission.always?.id)
     );
   };
-  // A row's own description (what "Always allow" changes) is its tooltip; a
-  // click-only allow's says it takes a click.
   const toButton = (row: CardRow, tone?: ApprovalButton['tone']): ApprovalButton => ({
     label: row.label,
     tone,
@@ -877,16 +860,61 @@ function cardButtons(
   const primaryButton: ApprovalButton = clickOnly
     ? { ...toButton(primary, 'primary'), hint: t('Allowing takes a click; Enter does not allow.') }
     : toButton(primary, 'primary');
-  // A takeover's "Open" and "Import again from Chrome" are each their own
-  // full-width row on top, so its decision row stays Cancel · Done.
   const ownRow = (row: CardRow) => row.decision === 'open' || row.decision === 'reimport';
   const rowButtons = ['open', 'reimport'].flatMap((decision) =>
     others.filter((row) => row.decision === decision).map((row) => ({ ...toButton(row), wide: true }))
   );
   const choices = others.filter((row) => row !== denyRow && !ownRow(row)).map((row) => toButton(row));
-  // Every card reads deny, the choices, then the primary.
   const buttons: ApprovalButton[] = [...rowButtons, ...denyButton, ...choices, primaryButton];
   return { buttons, denyDecision: denyRow?.decision };
+}
+
+/** The card's one decision path: a decision in flight blocks the next, an
+ *  unconfirmed refusal is retryable, and a failure is worded for the card. */
+function useApprovalDecision(resolve: ApprovalCardProps['resolve'], settled: ApprovalCardProps['settled']) {
+  const [resolving, setResolving] = useState(false);
+  const [error, setError] = useState('');
+  const resolvingRef = useRef(false);
+  const decide = async (decision: ToolApprovalDecision) => {
+    if (resolvingRef.current || settled) return;
+    resolvingRef.current = true;
+    noteApprovalDecision();
+    setError('');
+    setResolving(true);
+    try {
+      const accepted = await resolve(decision);
+      // Recorded, or confirmed decided elsewhere: the buttons stay disabled
+      // until the request leaves the snapshot. An unconfirmed refusal is retryable.
+      if (accepted === 'unconfirmed') {
+        resolvingRef.current = false;
+        setResolving(false);
+        return;
+      }
+      if (typeof accepted === 'boolean') return;
+      setError(t('This decision could not be saved. Please try again.'));
+    } catch (reason) {
+      const detail = reason instanceof Error ? reason.message : String(reason || '');
+      setError(
+        detail
+          ? t('This decision could not be saved: {{detail}}', { detail })
+          : t('This decision could not be saved. Please try again.')
+      );
+    }
+    resolvingRef.current = false;
+    setResolving(false);
+  };
+  return { decide, resolving, resolvingRef, error, setError };
+}
+
+async function provideSecret(secretId: string, value: string, username: string, save: boolean): Promise<boolean> {
+  const provide = window.mixdogDesktop?.provideSecretInput;
+  try {
+    if (username) await provide?.(`${secretId}${SECRET_USERNAME_SUFFIX}`, username);
+    if (save) await provide?.(`${secretId}${SECRET_SAVE_SUFFIX}`, '1');
+    return (await provide?.(secretId, value)) === true;
+  } catch {
+    return false;
+  }
 }
 
 function ToolApprovalCard({
@@ -937,9 +965,7 @@ function ToolApprovalCard({
   const [codeFilled, setCodeFilled] = useState(0);
   const saveDefault = useSaveChatLogins(model.secretForm === 'login');
   const [saveLogin, setSaveLogin] = useState<boolean | null>(null);
-  const [resolving, setResolving] = useState(false);
-  const [error, setError] = useState('');
-  const resolvingRef = useRef(false);
+  const { decide, resolving, resolvingRef, error, setError } = useApprovalDecision(resolve, settled);
   const edited = model.editable.length > 0 && text !== model.payload;
   // Changed text or a partly filled sign-in form not sent yet keeps the
   // conversation; a field's value is only tested for emptiness, never kept.
@@ -961,8 +987,6 @@ function ToolApprovalCard({
   });
   const disabled = resolving || Boolean(settled);
 
-  /** Shows the exact page the takeover is about; no named tab: the panel as it is.
-   *  A computer takeover is about the PC itself: its whole screen, full-screen. */
   const openTakeoverPage = async () => {
     setError('');
     if (model.surface === 'computer') return openRemoteScreen();
@@ -978,34 +1002,6 @@ function ToolApprovalCard({
     else if (shown.status === 'failed') setError(shown.message);
   };
 
-  const decide = async (decision: ToolApprovalDecision) => {
-    if (resolvingRef.current || settled) return;
-    resolvingRef.current = true;
-    noteApprovalDecision();
-    setError('');
-    setResolving(true);
-    try {
-      const accepted = await resolve(decision);
-      // Recorded, or confirmed decided elsewhere: the buttons stay disabled
-      // until the request leaves the snapshot. An unconfirmed refusal is retryable.
-      if (accepted === 'unconfirmed') {
-        resolvingRef.current = false;
-        setResolving(false);
-        return;
-      }
-      if (typeof accepted === 'boolean') return;
-      setError(t('This decision could not be saved. Please try again.'));
-    } catch (reason) {
-      const detail = reason instanceof Error ? reason.message : String(reason || '');
-      setError(
-        detail
-          ? t('This decision could not be saved: {{detail}}', { detail })
-          : t('This decision could not be saved. Please try again.')
-      );
-    }
-    resolvingRef.current = false;
-    setResolving(false);
-  };
   const activate = (row: CardRow) => {
     if (row.disabled) return;
     if (row.decision === 'reimport') {
@@ -1029,23 +1025,10 @@ function ToolApprovalCard({
       field.value = '';
       if (usernameRef.current) usernameRef.current.value = '';
       setCodeFilled(0);
-      void (async () => {
-        const provide = window.mixdogDesktop?.provideSecretInput;
-        // The sign-in's 아이디 and the save choice ride their own slots of
-        // the request (main/secret-input.ts); the password is the request's own.
-        // A phone's call can fail on the way (the leg dropped, an older PC):
-        // the value is gone from the field, so say so instead of going quiet.
-        let held = false;
-        try {
-          if (login && name) await provide?.(`${model.secretId}${SECRET_USERNAME_SUFFIX}`, name);
-          if (save) await provide?.(`${model.secretId}${SECRET_SAVE_SUFFIX}`, '1');
-          held = (await provide?.(model.secretId, value)) === true;
-        } catch {
-          held = false;
-        }
+      void provideSecret(model.secretId, value, login ? name : '', save).then((held) => {
         if (held) return void decide({ approved: true, response: 'provide-secret' });
         setError(t('This PC could not take the value. Please try again.'));
-      })();
+      });
       return;
     }
     const decision = row.decision;
@@ -1056,8 +1039,6 @@ function ToolApprovalCard({
     );
   };
 
-  // Payment, permanent delete and an Office rollback or recovery discard are
-  // allowed by a click only (shared/approval-enter-rule.ts, as a notification's Allow).
   const clickOnly = approvalAllowIsPointerOnly(approval);
   const permission = permissionChoices(model.kind === 'permission' ? model.scopes : []);
   const { buttons, denyDecision } = cardButtons(rows, { clickOnly, permission, activate });
@@ -1070,8 +1051,6 @@ function ToolApprovalCard({
   let rawTool = model.tool || (model.kind === 'outbound' ? String(approval.name || '') : '');
   if (model.connector) rawTool = `mcp__${model.connector.server}__${model.connector.tool}`;
   const service = connectorServiceLabel(rawTool) || rawTool;
-  // A sub-agent's request shown in the top-level chat links to its own
-  // session, as does one of a session this chat handed work to.
   const ownSession = String(approval.sessionId || '');
   const surface = String(approval.surfaceSessionId || '');
   const sessionLink =
@@ -1091,8 +1070,6 @@ function ToolApprovalCard({
     <ApprovalTextEditor text={text} payload={model.payload} disabled={disabled} onChange={setText} />
   );
   const office = model.office && <OfficeApprovalDetails args={args} />;
-  // What the agent asked in its own words, where the request is not outbound.
-  // A connector card says plainly which bot, connector and tool, and the levels.
   const cardText = model.connector ? connectorChangeText(agentName, model.connector) : model.text;
   const ownText = model.kind !== 'outbound' && !(model.kind === 'secret' && !secretEntry) && cardText;
   const previewNode =
@@ -1234,11 +1211,6 @@ function heldApproval(held: Record<string, unknown>): Approval {
       : { args: urlArgs }),
   };
 }
-
-const clock = (ms: number) => {
-  const seconds = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-};
 
 /** A held request of an unattended run, in its owner's home thread: the same
  *  card with "<routine> 실행 · m:ss 남음" while it waits. */

@@ -11,11 +11,6 @@ import { isBrowserComponentAddress } from './request-scheme';
 type CdpParams = Record<string, unknown>;
 type CallFrame = { url?: string; lineNumber?: number };
 
-/* Diagnostics from Chromium's own bundled components (the PDF viewer, its
- * resources) belong to the browser, not the page, and nobody can act on them.
- * Console calls and exceptions name their execution context, whose origin
- * says which component ran; log entries and failed requests name a URL. */
-
 const contextKey = (sessionId: string | undefined, contextId: unknown) => `${sessionId ?? ''}:${String(contextId)}`;
 
 export function onExecutionContextCreated(
@@ -121,11 +116,6 @@ export function onLoadingFailed(
   if (request) {
     request.failure = explainNetworkFailure(request.failure || 'failed', diagnostics.refusedRequests.get(request.url));
   }
-  // Chromium cancels a request when the address turns into a download,
-  // when the page abandons a fetch, and when a navigation replaces it.
-  // None of those is a fault of the page, so a cancelled request stays in
-  // the network ledger but never joins the failures a reply volunteers — a
-  // saved file is not a failed request.
   if (request && !request.canceled && !isBrowserComponentAddress(request.url)) {
     pushBounded(
       diagnostics.networkFailures,

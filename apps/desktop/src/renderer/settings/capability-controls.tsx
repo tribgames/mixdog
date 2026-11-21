@@ -136,19 +136,11 @@ export function CompactSwitch({
   className?: string;
   onChange(value: boolean): void;
 }) {
-  // Optimistic: the switch follows the click immediately and each further click
-  // flips the LAST intended value, so a burst is not coalesced against a
-  // settings snapshot that has not refreshed yet. The override drops as soon as
-  // the refreshed value agrees.
   const [override, setOverride] = useState<boolean | null>(null);
   useEffect(() => {
     setOverride((current) => (!optimistic || current === null || current === checked ? null : current));
   }, [checked, optimistic]);
   const value = optimistic ? (override ?? checked) : checked;
-  // A toggle stays clickable while ITS OWN write is in flight: disabling it for
-  // the round trip swallowed rapid consecutive clicks (the second press landed
-  // on a disabled control). Writes are serialized and idempotent, so the last
-  // click wins.
   const blocked = disabled === true && (!optimistic || override === null);
   return (
     <label className={`mixdog-settings__switch compact-switch ${className}`.trim()}>
@@ -296,6 +288,24 @@ export function ActionButton({
   );
 }
 
+/** Hands focus back after a modal closes: the opener, else the focused pane's composer, else another visible
+ *  composer; nothing if none is usable (gone, disabled, or still inert behind another modal). */
+function refocusAfterModal(opener: Element | null) {
+  const usable = (element: Element | null | undefined): element is HTMLElement =>
+    Boolean(
+      element?.isConnected &&
+        !(element as HTMLButtonElement).disabled &&
+        !element.closest('[inert]') &&
+        typeof (element as HTMLElement).focus === 'function'
+    );
+  const visible = (element: HTMLElement) => element.getClientRects().length > 0;
+  const composers = [
+    ...document.querySelectorAll<HTMLElement>('.pane-cell.is-focused .composer textarea'),
+    ...document.querySelectorAll<HTMLElement>('.composer textarea'),
+  ];
+  [opener, ...composers.filter(visible)].find(usable)?.focus();
+}
+
 export function SettingsConfirmDialog({
   options,
   onClose,
@@ -334,23 +344,7 @@ export function SettingsConfirmDialog({
     const from = opener.current;
     return () => {
       releaseModal();
-      // Never focus a control that is gone, disabled, or still inert behind
-      // another modal.
-      const usable = (element: Element | null | undefined): element is HTMLElement =>
-        Boolean(
-          element?.isConnected &&
-            !(element as HTMLButtonElement).disabled &&
-            !element.closest('[inert]') &&
-            typeof (element as HTMLElement).focus === 'function'
-        );
-      // The opener, else the focused pane's composer, else another visible
-      // composer; nothing if none is usable.
-      const visible = (element: HTMLElement) => element.getClientRects().length > 0;
-      const composers = [
-        ...document.querySelectorAll<HTMLElement>('.pane-cell.is-focused .composer textarea'),
-        ...document.querySelectorAll<HTMLElement>('.composer textarea'),
-      ];
-      [from, ...composers.filter(visible)].find(usable)?.focus();
+      refocusAfterModal(from);
     };
   }, []);
   // Fullscreen scrim: the native caption controls dim with it.

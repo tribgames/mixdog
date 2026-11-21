@@ -5,13 +5,6 @@ import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-launch.mjs';
 
-// The edge fades follow the scroller from scroll-progress.ts on every layout:
-// no CSS scroll timeline may exist (Electron 43 renderer CHECK on a mouse-up
-// over a selection, frozen Android WebView flings). In a real Chrome against
-// the app's own stylesheets, on desktop and on the phone layout: nothing is
-// scroll-driven, and each fade matches the ranges the former timelines used at
-// the top, in the middle and at the end.
-
 const PAGE = `
   <div class="workbench-side-panel" data-side="left" style="display:contents">
   <aside class="sidebar session-sidebar" id="rail" style="display:flex;flex-direction:column;width:300px;height:640px">
@@ -101,14 +94,16 @@ const expectedAt = (id, top, max) => {
   return { fade: `${24 * unit((max - top) / 24)}px` };
 };
 
-test('every layout: no scroll-driven animation, fades follow the scroller over the former ranges', async (t) => {
-  const resolveDir = fileURLToPath(new URL('.', import.meta.url));
-  const [bundle, styles] = await Promise.all([
-    build({
-      stdin: {
-        resolveDir,
-        loader: 'tsx',
-        contents: `
+let opened;
+const fixture = () => {
+  opened ??= (async () => {
+    const resolveDir = fileURLToPath(new URL('.', import.meta.url));
+    const [bundle, styles] = await Promise.all([
+      build({
+        stdin: {
+          resolveDir,
+          loader: 'tsx',
+          contents: `
           import { createElement, useRef } from 'react';
           import { createRoot } from 'react-dom/client';
           import { bindScrollProgress, useScrollProgress } from './scroll-progress';
@@ -120,67 +115,112 @@ test('every layout: no scroll-driven animation, fades follow the scroller over t
               createElement('div', { style: { height: '500px' } }));
           }
           window.mountProbe = (host) => createRoot(host).render(createElement(Probe));`,
-      },
-      bundle: true,
-      write: false,
-      logLevel: 'error',
-      format: 'iife',
-      outfile: 'bind.js',
-      define: { 'process.env.NODE_ENV': '"production"' },
-    }),
-    build({
-      stdin: {
-        resolveDir,
-        loader: 'css',
-        contents: ['font-faces', 'ui/tokens', 'styles', 'desktop', 'pane-layout']
-          .map((sheet) => `@import "./${sheet}.css";`)
-          .join('\n'),
-      },
-      outfile: 'scroll-progress.css',
-      bundle: true,
-      write: false,
-      logLevel: 'error',
-      external: ['*.woff2', '*.woff', '*.ttf', '*.otf', '*.svg', '*.png', '*.jpg', '*.webp', '*.gif'],
-    }),
-  ]);
-  const browser = await launchPuppeteerBrowser(puppeteer, {
-    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
-    headless: true,
-  });
-  t.after(() => browser.close());
-  const page = await browser.newPage();
-  await page.setViewport({ width: 900, height: 700 });
-  const errors = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  await page.setContent(`<!doctype html><html><head></head><body style="margin:0">${PAGE}</body></html>`);
-  await page.addStyleTag({ content: styles.outputFiles.find((file) => file.path.endsWith('.css')).text });
-  await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
-  await page.evaluate(`${FILL}${SAMPLE}`);
+        },
+        bundle: true,
+        write: false,
+        logLevel: 'error',
+        format: 'iife',
+        outfile: 'bind.js',
+        define: { 'process.env.NODE_ENV': '"production"' },
+      }),
+      build({
+        stdin: {
+          resolveDir,
+          loader: 'css',
+          contents: ['font-faces', 'ui/tokens', 'styles', 'desktop', 'pane-layout']
+            .map((sheet) => `@import "./${sheet}.css";`)
+            .join('\n'),
+        },
+        outfile: 'scroll-progress.css',
+        bundle: true,
+        write: false,
+        logLevel: 'error',
+        external: ['*.woff2', '*.woff', '*.ttf', '*.otf', '*.svg', '*.png', '*.jpg', '*.webp', '*.gif'],
+      }),
+    ]);
+    const browser = await launchPuppeteerBrowser(puppeteer, {
+      ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+      headless: true,
+    });
+    const page = await browser.newPage();
+    await page.setViewport({ width: 900, height: 700 });
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.setContent(`<!doctype html><html><head></head><body style="margin:0">${PAGE}</body></html>`);
+    await page.addStyleTag({ content: styles.outputFiles.find((file) => file.path.endsWith('.css')).text });
+    await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
+    await page.evaluate(`${FILL}${SAMPLE}`);
+    await page.evaluate(() => {
+      window.unbinds = [
+        window.bindScrollProgress(document.getElementById('list'), ':scope > .session-sidebar-top-fade'),
+        window.bindScrollProgress(document.getElementById('panels'), ':scope > .session-panel-header'),
+        window.bindScrollProgress(document.getElementById('transcript'), ':scope > .transcript-scroll-fade'),
+        window.bindScrollProgress(document.getElementById('palette')),
+        window.bindScrollProgress(document.getElementById('short')),
+      ];
+    });
+    return { browser, page, errors };
+  })();
+  return opened;
+};
+test.after(async () => {
+  if (opened) await (await opened).browser.close();
+});
 
-  const positions = async () =>
-    page.evaluate((ids) => {
-      const out = {};
-      for (const id of ids) {
-        const el = document.getElementById(id);
-        const max = el.scrollHeight - el.clientHeight;
-        // top / just inside the 12px and 32px ranges / 2% / middle / 12px and 3px short of the end / end.
-        out[id] = [0, 6, 20, max * 0.02, max / 2, max - 12, max - 3, max];
-      }
-      return out;
-    }, SCROLLERS);
-  const measure = async () => {
-    const at = await positions();
-    const result = {};
-    for (const id of SCROLLERS) {
-      result[id] = [];
-      for (const top of at[id]) result[id].push(await page.evaluate((id, top) => window.sample(id, top), id, top));
+const NONE = { timelines: 0, declared: [] };
+
+const measure = async (page) => {
+  const at = await page.evaluate((ids) => {
+    const out = {};
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      const max = el.scrollHeight - el.clientHeight;
+      // top / just inside the 12px and 32px ranges / 2% / middle / 12px and 3px short of the end / end.
+      out[id] = [0, 6, 20, max * 0.02, max / 2, max - 12, max - 3, max];
     }
-    return result;
-  };
-  const none = { timelines: 0, declared: [] };
-  assert.deepEqual(await page.evaluate('scrollDriven()'), none, 'desktop: no scroll-driven animation');
+    return out;
+  }, SCROLLERS);
+  const result = {};
+  for (const id of SCROLLERS) {
+    result[id] = [];
+    for (const top of at[id]) result[id].push(await page.evaluate((id, top) => window.sample(id, top), id, top));
+  }
+  return result;
+};
 
-  // The hook binds on desktop (no phone marker).
+const check = (layout, measured) => {
+  assert.ok(measured.list.at(-1).max > 100, 'the fixture scrolls');
+  for (const id of SCROLLERS) {
+    for (const actual of measured[id]) {
+      const expected = expectedAt(id, actual.top, actual.max);
+      const label = `${layout} ${id} @${actual.top}/${actual.max}`;
+      near(actual.fade, expected.fade, `${label}: fade`);
+      if (id === 'list') near(actual.topFade, expected.topFade, `${label}: header fade`);
+      if (id === 'panels') {
+        near(actual.header, expected.header, `${label}: title band`);
+        near(numbers(actual.pin).slice(-4), expected.tail, `${label}: pinned control tail ${actual.pin}`);
+      }
+    }
+  }
+};
+
+test('desktop: no scroll-driven animation, fades follow the scroller over the former ranges', async (t) => {
+  const { page } = await fixture(t);
+  assert.deepEqual(await page.evaluate('scrollDriven()'), NONE, 'desktop: no scroll-driven animation');
+  check('desktop', await measure(page));
+  assert.deepEqual(await page.evaluate('scrollDriven()'), NONE, 'desktop: still none after scrolling');
+});
+
+test('phone layout: no scroll-driven animation, fades follow the scroller over the former ranges', async (t) => {
+  const { page } = await fixture(t);
+  await page.evaluate(() => document.documentElement.setAttribute('data-mixdog-mobile-tabs', ''));
+  t.after(() => page.evaluate(() => document.documentElement.removeAttribute('data-mixdog-mobile-tabs')));
+  check('phone', await measure(page));
+  assert.deepEqual(await page.evaluate('scrollDriven()'), NONE, 'phone: no scroll-driven animation');
+});
+
+test('useScrollProgress writes the scroller position on desktop', async (t) => {
+  const { page } = await fixture(t);
   const hooked = await page.evaluate(async () => {
     const host = document.createElement('div');
     document.body.append(host);
@@ -194,41 +234,11 @@ test('every layout: no scroll-driven animation, fades follow the scroller over t
     await frames();
     return [el.style.getPropertyValue('--mx-scroll-top'), el.style.getPropertyValue('--mx-scroll-max')];
   });
-  assert.deepEqual(hooked, ['50', '400'], 'desktop: useScrollProgress writes the scroller position');
+  assert.deepEqual(hooked, ['50', '400']);
+});
 
-  await page.evaluate(() => {
-    window.unbinds = [
-      window.bindScrollProgress(document.getElementById('list'), ':scope > .session-sidebar-top-fade'),
-      window.bindScrollProgress(document.getElementById('panels'), ':scope > .session-panel-header'),
-      window.bindScrollProgress(document.getElementById('transcript'), ':scope > .transcript-scroll-fade'),
-      window.bindScrollProgress(document.getElementById('palette')),
-      window.bindScrollProgress(document.getElementById('short')),
-    ];
-  });
-  const check = (layout, measured) => {
-    assert.ok(measured.list.at(-1).max > 100, 'the fixture scrolls');
-    for (const id of SCROLLERS) {
-      for (const actual of measured[id]) {
-        const expected = expectedAt(id, actual.top, actual.max);
-        const label = `${layout} ${id} @${actual.top}/${actual.max}`;
-        near(actual.fade, expected.fade, `${label}: fade`);
-        if (id === 'list') near(actual.topFade, expected.topFade, `${label}: header fade`);
-        if (id === 'panels') {
-          near(actual.header, expected.header, `${label}: title band`);
-          near(numbers(actual.pin).slice(-4), expected.tail, `${label}: pinned control tail ${actual.pin}`);
-        }
-      }
-    }
-  };
-  check('desktop', await measure());
-  assert.deepEqual(await page.evaluate('scrollDriven()'), none, 'desktop: still none after scrolling');
-
-  await page.evaluate(() => document.documentElement.setAttribute('data-mixdog-mobile-tabs', ''));
-  check('phone', await measure());
-  assert.deepEqual(await page.evaluate('scrollDriven()'), none, 'phone: no scroll-driven animation');
-  await page.evaluate(() => document.documentElement.removeAttribute('data-mixdog-mobile-tabs'));
-
-  // A list that cannot scroll keeps both fades at 0; growing it (no scroll event) starts the bottom fade.
+test('a list that cannot scroll has no fade until it grows scrollable', async (t) => {
+  const { page } = await fixture(t);
   const fades = () =>
     page.evaluate(async () => {
       for (let i = 0; i < 3; i += 1) await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -243,14 +253,16 @@ test('every layout: no scroll-driven animation, fades follow the scroller over t
     ).join('');
   });
   assert.deepEqual(await fades(), ['0px', '20px'], 'a list that grows scrollable fades its end');
+});
 
+test('unbinding removes the scroll position properties and the page raised no errors', async (t) => {
+  const { page, errors } = await fixture(t);
   await page.evaluate(() => {
     for (const unbind of window.unbinds) unbind();
   });
   assert.equal(
     await page.evaluate(() => document.getElementById('list').style.getPropertyValue('--mx-scroll-top')),
-    '',
-    'unbinding removes the scroll position properties'
+    ''
   );
   assert.deepEqual(errors, []);
 });

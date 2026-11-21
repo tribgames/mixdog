@@ -24,7 +24,8 @@ export class MockConn {
       if (this.closedFlag) throw new Error('send on closed mock connection');
       // A frame's departure receipt: resolved at once (the in-memory write is complete), held until `releaseSent`, refused, or not
       // given at all (a transport that cannot tell).
-      if (sent && this.claims === 'held') sent(new Promise<void>((left, refuse) => this.leaving.push({ left, refuse })));
+      if (sent && this.claims === 'held')
+        sent(new Promise<void>((left, refuse) => this.leaving.push({ left, refuse })));
       else if (sent && this.claims === 'given') sent(Promise.resolve());
       else if (sent && this.claims === 'refused') sent(Promise.reject(new Error('the write failed')));
       if (this.waiter) {

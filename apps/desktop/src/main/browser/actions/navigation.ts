@@ -1,6 +1,3 @@
-/**
- * Moving between documents: open, navigate (or reload), and back.
- */
 import { NAVIGATE_SETTLE_TIMEOUT_MS } from '../host-types';
 import { pushBounded } from '../host-state';
 import { redactBrowserText } from '../redaction';

@@ -1,12 +1,3 @@
-// Runtime ↔ desktop-service channel for held requests of unattended runs
-// (session-runtime/held-requests.mjs). The daemon's held-request registry
-// registers the resolver; the desktop service hosted in this daemon registers
-// a notifier that sends the sanitized phone push. The session API answers a
-// held request through resolveHeldRequest, whatever session it was sent from.
-//
-// Deliberately dependency-free: the desktop service bundle imports this file
-// too, and both copies share one registry through a global symbol.
-
 const KEY = Symbol.for('mixdog.heldRequestHost.v1');
 
 function registry() {

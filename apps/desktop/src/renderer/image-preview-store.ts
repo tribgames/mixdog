@@ -1,10 +1,3 @@
-// A cache of thumbnails for images the user sent. Stored history keeps no image
-// bytes, so the thumbnails are refilled from the host: on a miss the row asks
-// the host to rebuild the thumbnail from the stored original (keyed by its
-// attachment ref, scoped by session) and puts the result here in IndexedDB.
-// The store is per device/profile and only a cache: an entry that is gone is
-// fetched again. Total size is capped and least-recently-used entries go first.
-
 import { loadImage } from './load-image';
 import { isRemoteContentSurface } from './remote-conversation-privacy';
 

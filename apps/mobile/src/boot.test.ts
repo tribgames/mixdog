@@ -234,7 +234,10 @@ test('a rapid double tap on the saved-PC list opens only the first-tapped PC', a
   const busy = b.screen.querySelector('.mxp-pc.busy');
   assert.equal(busy?.querySelector('.mxp-pc-meta')?.textContent, 'Connecting…');
   assert.ok([...b.screen.querySelectorAll<HTMLButtonElement>('.mxp-pc')].every((row) => row.disabled));
-  assert.deepEqual(b.actions().filter((a) => a !== 'open-pc'), ['cancel']);
+  assert.deepEqual(
+    b.actions().filter((a) => a !== 'open-pc'),
+    ['cancel']
+  );
   desk.click();
   await settleUntil(() => b.navigations.length > 0);
   for (let i = 0; i < 20; i += 1) await new Promise((r) => setImmediate(r));

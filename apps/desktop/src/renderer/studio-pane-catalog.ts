@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { reportStudioLoadStage } from './renderer-load-metrics';
 import type { MediaAsset } from './studio-support';
 import {
-  errorText,
   laneSpec,
   listMediaLanes,
   MEDIA_CATALOG_POLL_MS,
@@ -15,6 +14,7 @@ import {
   resolveStudioModel,
   type StudioApi,
 } from './studio-support';
+import { errorMessage } from './editor-pane-session-errors';
 
 /** The lanes' catalog failures as one pane error ('' when none failed). */
 function catalogErrorsText(lanes: readonly MediaLane[]): string {
@@ -24,11 +24,7 @@ function catalogErrorsText(lanes: readonly MediaLane[]): string {
     .join('\n');
 }
 
-/** The provider lanes. Bounded listing: a gateway catalog that takes most of
- *  a minute (NanoGPT) answers `catalogPending` instead of holding the whole
- *  pane behind it, and a pending catalog is asked again until it lands or
- *  fails; each ask joins the runtime's in-flight request rather than starting
- *  a new one. `loadLanes` throws the catalogs' failures. */
+/** A slow gateway catalog (NanoGPT) answers `catalogPending`; it is asked again until it lands or fails. */
 export function useStudioLaneCatalog(api: StudioApi, active: boolean, setError: (error: string) => void) {
   const [lanes, setLanes] = useState<MediaLane[]>([]);
   const loadLanes = useCallback(async () => {
@@ -42,17 +38,13 @@ export function useStudioLaneCatalog(api: StudioApi, active: boolean, setError: 
   useEffect(() => {
     if (!active || !catalogPending) return undefined;
     const timer = window.setTimeout(() => {
-      void loadLanes().catch((reason) => setError(errorText(reason)));
+      void loadLanes().catch((reason) => setError(errorMessage(reason)));
     }, MEDIA_CATALOG_POLL_MS);
     return () => window.clearTimeout(timer);
   }, [active, catalogPending, lanes, loadLanes]);
   return { lanes, loadLanes, catalogErrorText: catalogErrorsText(lanes) };
 }
 
-/** The pane's load on every entry (and Retry): the gallery must not wait on
- *  the lane catalog — provider auth checks are the slow leg of this pane, and
- *  the tiles would paint only after they answered — so each half commits on
- *  arrival. */
 export function useStudioLoad({
   active,
   refreshAssetKind,
@@ -84,7 +76,7 @@ export function useStudioLoad({
       const catalog = loadLanes().finally(() => setCatalogSettled(true));
       const settled = await Promise.allSettled([gallery, catalog]);
       const failed = settled.find((result) => result.status === 'rejected');
-      setError(failed ? errorText((failed as PromiseRejectedResult).reason) : '');
+      setError(failed ? errorMessage((failed as PromiseRejectedResult).reason) : '');
       setLoading(false);
     },
     [loadLanes, refreshAssetKind, resetThumbnails, setError]
@@ -107,10 +99,6 @@ export function useStudioLoad({
   };
 }
 
-/** The lanes the active kind can use, the kinds any signed-in lane offers (a
- *  kind no lane offers falls back to one that is), the chosen lane, and the
- *  model resolved against that lane's contract now — kind changes render
- *  before the route sync runs, so the previous kind's label never paints. */
 export function useStudioLaneChoice({
   lanes,
   kind,

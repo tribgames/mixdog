@@ -652,10 +652,6 @@ export function OAuthControl({
       providerId === 'cursor-oauth'
         ? t('Cursor OAuth status could not be checked.')
         : t('OAuth status could not be checked.'),
-    // A browser-callback login completes through the feed or a status read, never through
-    // completeOAuthProviderLogin, so it invalidates the provider-derived caches
-    // (setup snapshot and model pickers) itself. The daemon reports `complete`
-    // only after it adopted the new credentials.
     refresh: async () => {
       invalidateSidebarReferenceForMutation('completeOAuthProviderLogin');
       const next = await run<RecordValue>(

@@ -63,7 +63,6 @@ import {
   extractImageMarkers,
   extractPastedTextMarkers,
   extractTweaksLines,
-  type PastedTextChip,
   ReturnedAttachments,
   SentAttachments,
   splitInlinePastes,
@@ -113,16 +112,6 @@ const StableMarkdownBody = memo(function StableMarkdownBody({ text }: { text: st
   return <MarkdownBody text={text} copyControl={CopyControl} />;
 });
 
-/** The fade of the paced reply row `key` showing `text` (markdown-stream-fade):
- *  the timeline its body fades on, and whether the row is live: streaming,
- *  text not on screen yet (a parse still to land: it fades in when it shows),
- *  or a body showing a fade (exactly until the last one ends; the row renders
- *  again then, and its timeline goes). `streaming` false with text that had
- *  not shown: that rest becomes the last phrase. What the bodies bring on
- *  screen and show fading is recorded as they commit, before this row's
- *  layout effect: a row with nothing left to show or fading settles before
- *  that commit paints. The render's pass is read while rendering and
- *  recorded when it commits. */
 function useStreamFade(
   key: string,
   text: string,
@@ -356,10 +345,6 @@ export function isVisibleTranscriptItem(item: TranscriptItem | undefined): boole
   );
 }
 
-// Attribution badge above a user-role bubble. Only a Lead-authored brief in an
-// Agent session earns a visible badge: in the user's own conversation a USER
-// label is pure noise above a bubble that already reads as theirs. The `sender`
-// metadata stays intact for every message — this is a display rule only.
 export function transcriptSourceLabel(item: TranscriptItem): string {
   if (item.kind !== 'user' || item.fromAgent) return '';
   return String(item.sender || '').toLowerCase() === 'lead' ? 'LEAD' : '';
@@ -426,6 +411,80 @@ export function TranscriptResponseFooter({
   );
 }
 
+function NoticeRow({ item, sessionId }: { item: TranscriptItem; sessionId: string }) {
+  if (item.room) {
+    return (
+      <>
+        <RoomTranscriptRow item={item} />
+        {/* The files a member's turn produced, under its speech. */}
+        {item.room.kind === 'speech' ? <ReturnedAttachments records={item.attachments} /> : null}
+      </>
+    );
+  }
+  // A held request of an unattended run waits as an approval card.
+  const held = asRecord(item.heldRequest);
+  if (held?.status === 'pending') return <HeldRequestCard held={held} sessionId={sessionId} />;
+  const task = asRecord(item.routine);
+  // A task report's files stay in its session: the card says how many.
+  if (task?.kind === 'task') return <AgentTaskLine routine={task} />;
+  const tone = item.tone === 'error' || item.tone === 'warn' ? item.tone : '';
+  const routine = routineNoticeText(item.routine);
+  const fallback = routine == null ? localizeRouteFallbackNotice(item.text ?? '') : null;
+  if (fallback) return <ModelSwitchDivider label={fallback} />;
+  return (
+    <div className={`notice ${tone}`} role={item.tone === 'error' ? 'alert' : 'status'}>
+      {routine ?? noticeText(item.text)}
+    </div>
+  );
+}
+
+function useRowStreaming(item: TranscriptItem, revealKey: string, paced: boolean) {
+  const assistant = item.kind === 'assistant';
+  const streamedHere = useRef(false);
+  if (assistant && item.streaming) streamedHere.current = true;
+  const parserLoad = useSyncExternalStore(subscribeSyncMarkdownParser, syncMarkdownParserLoad, syncMarkdownParserLoad);
+  const ending = streamedHere.current && !item.streaming;
+  if (ending && typeof parserLoad === 'object') throw parserLoad.error;
+  const streaming = Boolean(item.streaming) || (ending && parserLoad !== 'ready');
+  useEffect(() => {
+    if (streaming && !item.streaming) void preloadSyncMarkdownParser();
+  }, [streaming, item.streaming]);
+  const revealed = useTranscriptTextReveal({
+    key: assistant ? revealKey : '',
+    text: assistant ? String(item.text || '') : '',
+    streaming,
+    paced,
+  });
+  const fade = useStreamFade(assistant && paced ? revealKey : '', revealed.text, streaming, revealed.revision);
+  const live = assistant && fade.live;
+  const previousStreaming = useRef(streaming);
+  const announceSettled = previousStreaming.current && !streaming;
+  useEffect(() => {
+    previousStreaming.current = streaming;
+  }, [streaming]);
+  return { streaming, revealed, fade, live, announceSettled };
+}
+
+function foldUserContent(item: TranscriptItem, text: string, pastedTexts: readonly (string | undefined)[]) {
+  const attachedImages = Array.isArray(item.images) ? item.images : [];
+  const imageMarkers = extractImageMarkers(text);
+  const markerChips = attachedImages.length > 0 ? [] : imageMarkers.chips;
+  const userDisplayText =
+    attachedImages.length > 0 ? stripImagePlaceholders(stripImageTokens(imageMarkers.text)) : imageMarkers.text;
+  const pastedFold = extractPastedTextMarkers(userDisplayText, pastedTexts);
+  const fileFold = extractEscapedFileMarkers(pastedFold.text);
+  const tweaksFold = extractTweaksLines(extractWebhookPayload(fileFold.text).text);
+  return { attachedImages, markerChips, pastedFold, fileFold, tweaksFold };
+}
+
+const NO_USER_FOLD: ReturnType<typeof foldUserContent> = {
+  attachedImages: [],
+  markerChips: [],
+  pastedFold: { text: '', chips: [] },
+  fileFold: { text: '', chips: [] },
+  tweaksFold: { text: '', lines: [] },
+};
+
 export const TranscriptRow = memo(
   function TranscriptRow({
     item,
@@ -460,39 +519,7 @@ export const TranscriptRow = memo(
     const viewerDevice = useContext(TranscriptViewerDeviceContext);
     const sessionScope = useContext(MarkdownSessionContext);
     const { texts: pastedTexts, records: pastedTokenRecords } = useSentPastedTexts(item, sessionScope);
-    const assistant = item.kind === 'assistant';
-    // A reply that streamed here ends with its final text parsed in the
-    // commit that ends it (MarkdownResponse `final`), which needs the
-    // main-thread parser: until its import resolved, the row keeps its
-    // streaming presentation, then ends in one commit.
-    const streamedHere = useRef(false);
-    if (assistant && item.streaming) streamedHere.current = true;
-    const parserLoad = useSyncExternalStore(
-      subscribeSyncMarkdownParser,
-      syncMarkdownParserLoad,
-      syncMarkdownParserLoad
-    );
-    const ending = streamedHere.current && !item.streaming;
-    if (ending && typeof parserLoad === 'object') throw parserLoad.error;
-    const streaming = Boolean(item.streaming) || (ending && parserLoad !== 'ready');
-    useEffect(() => {
-      if (streaming && !item.streaming) void preloadSyncMarkdownParser();
-    }, [streaming, item.streaming]);
-    const revealed = useTranscriptTextReveal({
-      key: assistant ? revealKey : '',
-      text: assistant ? String(item.text || '') : '',
-      streaming,
-      paced,
-    });
-    // A paced reply that ended shows the rest at once, fading in, and stays a
-    // live row exactly while a fade runs.
-    const fade = useStreamFade(assistant && paced ? revealKey : '', revealed.text, streaming, revealed.revision);
-    const live = assistant && fade.live;
-    const previousStreaming = useRef(streaming);
-    const announceSettled = previousStreaming.current && !streaming;
-    useEffect(() => {
-      previousStreaming.current = streaming;
-    }, [streaming]);
+    const { streaming, revealed, fade, live, announceSettled } = useRowStreaming(item, revealKey, paced);
     const { menuProps, menuElement } = useAttachmentContextMenu(useContext(MarkdownOpenFileContext));
     if (item.kind === 'tool') {
       if (shouldSuppressFullyFailedToolItem(item)) return null;
@@ -501,32 +528,7 @@ export const TranscriptRow = memo(
     if (item.kind === 'statusdone' || item.kind === 'turndone') {
       return <CompletionStatus item={item} backgroundWork={backgroundWork} />;
     }
-    if (item.kind === 'notice') {
-      if (item.room) {
-        return (
-          <>
-            <RoomTranscriptRow item={item} />
-            {/* The files a member's turn produced, under its speech. */}
-            {item.room.kind === 'speech' ? <ReturnedAttachments records={item.attachments} /> : null}
-          </>
-        );
-      }
-      // A held request of an unattended run waits as an approval card.
-      const held = asRecord(item.heldRequest);
-      if (held?.status === 'pending') return <HeldRequestCard held={held} sessionId={sessionScope} />;
-      const task = asRecord(item.routine);
-      // A task report's files stay in its session: the card says how many.
-      if (task?.kind === 'task') return <AgentTaskLine routine={task} />;
-      const tone = item.tone === 'error' || item.tone === 'warn' ? item.tone : '';
-      const routine = routineNoticeText(item.routine);
-      const fallback = routine == null ? localizeRouteFallbackNotice(item.text ?? '') : null;
-      if (fallback) return <ModelSwitchDivider label={fallback} />;
-      return (
-        <div className={`notice ${tone}`} role={item.tone === 'error' ? 'alert' : 'status'}>
-          {routine ?? noticeText(item.text)}
-        </div>
-      );
-    }
+    if (item.kind === 'notice') return <NoticeRow item={item} sessionId={sessionScope} />;
     if (item.kind !== 'user' && item.kind !== 'assistant') return null;
     const user = item.kind === 'user';
     const sourceLabel = transcriptSourceLabel(item);
@@ -552,19 +554,9 @@ export const TranscriptRow = memo(
       );
     }
     const showFooter = !user && !streaming && Boolean(completion);
-    const attachedImages = user && Array.isArray(item.images) ? item.images : [];
-    const imageMarkers = user ? extractImageMarkers(text) : { text, chips: [] };
-    const markerChips = attachedImages.length > 0 ? [] : imageMarkers.chips;
-    const userDisplayText =
-      attachedImages.length > 0 ? stripImagePlaceholders(stripImageTokens(imageMarkers.text)) : imageMarkers.text;
-    const pastedFold = user
-      ? extractPastedTextMarkers(userDisplayText, pastedTexts)
-      : { text: userDisplayText, chips: [] as PastedTextChip[] };
-    const fileFold = user ? extractEscapedFileMarkers(pastedFold.text) : { text: pastedFold.text, chips: [] };
-    const webhookFold = user ? extractWebhookPayload(fileFold.text) : { text: fileFold.text, payload: '' };
-    const tweaksFold = user ? extractTweaksLines(webhookFold.text) : { text: webhookFold.text, lines: [] as string[] };
-    // The runtime reports which `$name` mentions it applied; only those are
-    // marked, so `$HOME` or a skill that was off stays prose.
+    const { attachedImages, markerChips, pastedFold, fileFold, tweaksFold } = user
+      ? foldUserContent(item, text, pastedTexts)
+      : NO_USER_FOLD;
     const appliedSkills = user ? appliedSkillsOf(item) : [];
     const reactions = user ? messageReactionsOf(item) : [];
     const originalMissingNote = user ? originalImagesMissingText(item.originalImagesMissing) : null;

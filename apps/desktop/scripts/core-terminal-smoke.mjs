@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// Terminal smoke runner against a running core (mixdogd): the same checks on every shell profile the core lists, over the
-// protocol only (packages/protocol-client, no Electron, no node-pty). It replaces the node-pty load check of the packaged Linux
-// build (linux-pty-check.cjs) and drives the terminal release matrix (Windows powershell, pwsh, cmd, Git Bash, WSL; macOS; Linux).
-//
 //   node apps/desktop/scripts/core-terminal-smoke.mjs --endpoint ws://127.0.0.1:<port> --token-file <path> \
 //     [--profile <id>] [--json out.json]
 //
@@ -11,20 +7,6 @@
 // --profile    one profile id from terminal/profiles; without it every listed profile is run (the OS default when none is listed).
 // --json       writes {profile, profiles:[{profile, checks}], checks:[{profile, name, ok, ms, detail}]} there.
 // Exit 0 when every check of every profile passed, 1 when one failed, 2 on a bad command line or an unreachable core.
-//
-// Checks per profile (each profile gets its own tabs, all disposed at the end):
-//   ensure+attach     terminal/ensure then terminal/attach: a replay and a subscription {id, mode, epoch, startSeq}.
-//   input             terminal/input "echo <marker>": a line equal to the marker comes back on process:<tab>. The echo of the typed
-//                     command is on the feed too, so only a line that is exactly the marker counts (the output of the command).
-//   resize            terminal/resize with a claim: the terminalTabs section names this connection's size; the claim is released.
-//   flood             ~5.8 MB of numbered lines; the reader pauses at 256 KiB of unprocessed output and resumes at 32 KiB, and the
-//                     numbers arrive in order with none missing; the unprocessed backlog stays bounded (FLOOD_BACKLOG_LIMIT).
-//   reconnect         a connection ends, output is produced while none reads, a new one attaches with resumeFrom the last stamp:
-//                     the first frame is the next stamp, stamps are consecutive, the output arrives once and the old output not again.
-//   second-connection two connections read a tab, the second pauses, the first closes: the tab still answers; resume delivers.
-//   dispose           terminal/dispose: process/exited on the tab's feed within 5 s.
-// The shell families the flood and the marker are written for are read from the profile (cmd.exe; PowerShell / pwsh; anything
-// else is taken to be a POSIX shell, which also covers Git Bash, MSYS2, Cygwin and WSL).
 import { readFile, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 

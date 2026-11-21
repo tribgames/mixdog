@@ -282,10 +282,6 @@ function AgentSubtree({
   );
 }
 
-/** Which owners and agents show their sub-agents. Collapsed by default; the
- *  expand-all command opens or folds every visible group, and sub-agents that
- *  wait on the user open their parent once as the wait begins (the user can
- *  fold it again). */
 function useAgentSessionExpansion(
   allGroups: readonly AgentActivitySessionGroup[],
   hiddenOwnerIds: ReadonlySet<string>
@@ -485,6 +481,74 @@ function leadMenuState(
   };
 }
 
+/** What each section of the agent page lists once the search and the user's hidden groups are applied. */
+function selectAgentPaneRows({
+  contacts,
+  groups,
+  sessions,
+  needle,
+  hidden,
+  hiddenOwnerIds,
+  mixyCreated,
+  botOrder,
+  needsUser,
+}: {
+  contacts: readonly AgentContact[];
+  groups: ReturnType<typeof agentActivitySessionGroups>;
+  sessions: readonly DesktopSessionSummary[];
+  needle: string;
+  hidden: ReadonlySet<PaneToggleId>;
+  hiddenOwnerIds: ReadonlySet<string>;
+  mixyCreated: boolean | null | undefined;
+  botOrder: ReturnType<typeof useBotOrder>;
+  needsUser: ReturnType<typeof useSessionAttentionIndex>['needsUser'];
+}) {
+  // Local search over what the rows show: names and preview lines.
+  const matches = (...texts: Array<string | undefined>) =>
+    !needle ||
+    texts.some((value) =>
+      String(value || '')
+        .toLowerCase()
+        .includes(needle)
+    );
+  const shownContacts = applyBotOrder(
+    contacts
+      .filter(
+        (contact) =>
+          // Mixy only once the host said she exists: unknown (not answered,
+          // or a failed read) never offers a row that would create her chat.
+          !(contact.mixy && mixyCreated !== true) &&
+          !hidden.has(contact.mixy ? 'representative' : 'bots') &&
+          matches(contact.name, contact.preview)
+      )
+      .sort((left, right) => Number(right.mixy) - Number(left.mixy) || right.at - left.at),
+    botOrder
+  );
+  // The agent page lists agents and their chats only: an ordinary coding
+  // session's work stays with that session (agent-created task sessions are
+  // listed with the other sessions, not under their contact).
+  const groupMatches = (group: (typeof groups)[number]): boolean =>
+    !needle || matches(sessionDisplayTitle(group.session, ''), group.session.preview, group.session.lastMessagePreview);
+  const visibleGroups = groups.filter(
+    (group) => isAgentChatSession(group.ownerId) && !hiddenOwnerIds.has(group.ownerId) && groupMatches(group)
+  );
+  const leadSessionListed = (session: DesktopSessionSummary): boolean =>
+    !isAgentChatSession(session.id) &&
+    !session.archived &&
+    !hiddenOwnerIds.has(session.id) &&
+    (!needle || matches(sessionDisplayTitle(session, ''), session.preview, session.lastMessagePreview));
+  const leadRows = agentLeadRows(
+    groups.filter((group) => leadSessionListed(group.session)),
+    needsUser,
+    {
+      retainMs: retainWindowMs(retainChoice(botOrder)),
+      pinned: pinnedLeadIds(botOrder),
+      sessions: sessions.filter(leadSessionListed),
+    }
+  );
+  return { shownContacts, visibleGroups, leadRows };
+}
+
 export function AgentActivityPane({
   active,
   sessions,
@@ -511,7 +575,6 @@ export function AgentActivityPane({
   showGroupActions?: boolean;
   sessions: readonly DesktopSessionSummary[];
   sessionsReady?: boolean;
-  activeSessionIds?: readonly string[];
   /** The focused tab's session (the session sidebar's selection). */
   selectedSessionId?: string;
   /** The dock header's action row: search and "+" render there. */
@@ -573,34 +636,19 @@ export function AgentActivityPane({
         <InitialSurface />
       </div>
     );
-  // Local search over what the rows show: names and preview lines.
-  const matches = (...texts: Array<string | undefined>) =>
-    !needle ||
-    texts.some((value) =>
-      String(value || '')
-        .toLowerCase()
-        .includes(needle)
-    );
-  // Mixy stays on top, set apart by a hairline (no heading); the other bots
-  // follow the user's order (shared with the Sessions sidebar, stored on the
-  // host), new ones after it. With no order set yet: by latest conversation,
-  // and one with none yet keeps its catalog place after them (the sort is stable).
-  // The user's hidden groups; a search looks through everything, hidden or not.
   const userHidden = hiddenPaneGroups(botOrder);
   const hidden: ReadonlySet<PaneToggleId> = needle ? new Set() : userHidden;
-  const shownContacts = applyBotOrder(
-    contacts
-      .filter(
-        (contact) =>
-          // Mixy only once the host said she exists: unknown (not answered,
-          // or a failed read) never offers a row that would create her chat.
-          !(contact.mixy && mixyFirst.mixyCreated !== true) &&
-          !hidden.has(contact.mixy ? 'representative' : 'bots') &&
-          matches(contact.name, contact.preview)
-      )
-      .sort((left, right) => Number(right.mixy) - Number(left.mixy) || right.at - left.at),
-    botOrder
-  );
+  const { shownContacts, visibleGroups, leadRows } = selectAgentPaneRows({
+    contacts,
+    groups,
+    sessions,
+    needle,
+    hidden,
+    hiddenOwnerIds,
+    mixyCreated: mixyFirst.mixyCreated,
+    botOrder,
+    needsUser,
+  });
   // The focused session's composer runs on its lane's model; a draft or the
   // engine snapshot answers otherwise.
   const composerRoute = () =>
@@ -609,34 +657,6 @@ export function AgentActivityPane({
       : null) ??
     readComposerModel?.() ??
     null;
-  // The agent page lists agents and their chats only: an ordinary coding
-  // session's work stays with that session (agent-created task sessions are
-  // listed with the other sessions, not under their contact).
-  const groupMatches = (group: (typeof groups)[number]): boolean =>
-    !needle || matches(sessionDisplayTitle(group.session, ''), group.session.preview, group.session.lastMessagePreview);
-  const visibleGroups = groups.filter(
-    (group) => isAgentChatSession(group.ownerId) && !hiddenOwnerIds.has(group.ownerId) && groupMatches(group)
-  );
-  // Ordinary coding sessions whose Lead or any descendant works (or waits on
-  // the user) now, one row each; a finished Lead stays, resting, for the
-  // "Keep finished agents" window (1 hour by default, the pool's own window;
-  // longer ones and pins are built from the session list, which outlives the
-  // pool's rows). A task session a bot created is a Lead like any other: it
-  // lists by its own title, never under the bot that created it.
-  const leadSessionListed = (session: DesktopSessionSummary): boolean =>
-    !isAgentChatSession(session.id) &&
-    !session.archived &&
-    !hiddenOwnerIds.has(session.id) &&
-    (!needle || matches(sessionDisplayTitle(session, ''), session.preview, session.lastMessagePreview));
-  const leadRows = agentLeadRows(
-    groups.filter((group) => leadSessionListed(group.session)),
-    needsUser,
-    {
-      retainMs: retainWindowMs(retainChoice(botOrder)),
-      pinned: pinnedLeadIds(botOrder),
-      sessions: sessions.filter(leadSessionListed),
-    }
-  );
   // Sub-agent rows (the trees under each Lead, bot and work session).
   const openSubAgent = onPeekSession ?? onOpenSession;
   const subtreeProps = {

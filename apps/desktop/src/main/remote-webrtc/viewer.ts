@@ -1,10 +1,3 @@
-/**
- * One viewer (paired client × source) of the WebRTC live view: the transport
- * state machine of shared/remote-webrtc.ts, desktop-authoritative. It keeps
- * the JPEG relay view as the fallback that is never torn down first, moves
- * input ownership only across an epoch barrier, and never applies a channel
- * input twice or after its epoch ended.
- */
 import { REMOTE_CLIENT_PENDING_FRAMES } from '../../shared/remote-frame-budget';
 import {
   REMOTE_WEBRTC_ICE_TRANSPORT_POLICY,
@@ -214,10 +207,6 @@ export function createRemoteWebrtcViewer(source: RemoteWebrtcSource, effects: Re
     connection = null;
   }
 
-  /** Input leaves the channel (demotion, or the viewer leaving while it owned
-   *  input): a new epoch, nothing held or queued is applied, and every mouse
-   *  button the channel pressed is released — the phone drops the release it
-   *  still had. The one place the source's release runs. */
   function handBack(): void {
     epoch += 1;
     lastSeq = 0;

@@ -132,7 +132,11 @@ export class RelaySession {
     );
     this.deps.signal?.addEventListener('abort', this.onAbort, { once: true });
     // The plain (untransported) leg's own queue: a frame has left once the socket's buffer holds no more than what was sent after it.
-    this.wsDeparture = new CarrierDeparture(() => this.ws.bufferedAmount, () => !this.finished, timers);
+    this.wsDeparture = new CarrierDeparture(
+      () => this.ws.bufferedAmount,
+      () => !this.finished,
+      timers
+    );
     this.writer = {
       send: (text, claim) => this.send(text, claim),
       close: (code, reason) => this.fail(code, reason),
@@ -386,7 +390,11 @@ export class RelaySession {
     this.offerSeen = challenge.transportWebrtc === 1 && challenge.binaryFrames === 1;
     this.arm(HANDSHAKE_DEADLINE_MS);
     const optIn = this.deps.webrtc !== undefined && remoteTransportOptIn(challenge, true);
-    const handshake = await createRelayE2EEClientHandshake(this.pairing, challenge, optIn ? { transportWebrtc: true } : {});
+    const handshake = await createRelayE2EEClientHandshake(
+      this.pairing,
+      challenge,
+      optIn ? { transportWebrtc: true } : {}
+    );
     // A newer challenge arrived while this one was being answered.
     if (this.finished || mine !== this.generation) return;
     const channel = handshake.channel;
@@ -436,7 +444,8 @@ export class RelaySession {
     const hello = message as { type?: unknown; version?: unknown; transcript?: unknown } | null;
     if (hello?.type !== 'e2ee-ready' || hello.version !== 1) throw new Error('relay data before encryption was ready');
     // A transcript answers an offer; one with no offer means the relay stripped the offer.
-    if (hello.transcript !== undefined && !this.offerSeen) throw new Error('relay encryption handshake transcript mismatch');
+    if (hello.transcript !== undefined && !this.offerSeen)
+      throw new Error('relay encryption handshake transcript mismatch');
     const channel = this.channel!;
     channel.confirmHandshake(hello);
     this.peer?.confirm();

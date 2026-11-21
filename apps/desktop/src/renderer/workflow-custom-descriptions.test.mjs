@@ -24,10 +24,6 @@ const { adoptSidebarReferenceHost, resetSidebarReferenceCache, updateSidebarRefe
 );
 const { initUiLanguage, setUiLanguagePreference } = await import('./i18n.ts');
 
-// "History" is an app catalog key (ko: 기록), used here as a stand-in for any
-// translatable text. Only a positively known built-in source (the backend's
-// 'built-in' | 'user' union) may translate a description; names are identity
-// and always stay literal; unknown sources are preserved.
 const workflows = [
   { id: 'default', name: 'Default', source: 'built-in', description: 'History' },
   { id: 'default-user', name: 'Default', source: 'user', description: 'History' },

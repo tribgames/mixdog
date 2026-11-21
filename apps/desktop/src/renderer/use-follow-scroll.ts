@@ -43,12 +43,6 @@ export function useScrollBaselines() {
   return { lastTop, lastNativeTop, reseedBaselines };
 }
 
-/**
- * The scroll judgement: one observation of the viewport's offset (a scroll
- * event, or a finger lift) and what it means for follow — see
- * judgeScrollEvent. Returns the observer to call with `true` for a scroll
- * event and `false` for a lift.
- */
 export function useFollowScrollJudge({
   viewport,
   followingRef,
@@ -96,13 +90,6 @@ export function useFollowScrollJudge({
       }
       const now = Date.now();
       const state = signals.current;
-      // The offset is the only layout value read here; the extent comes from the
-      // timeline's geometry. Programmatic writes are recorded as the native
-      // offsets they landed on; reading position and extent are logical, which
-      // includes a correction the timeline holds during a touch scroll. The
-      // previous position is the current logical one minus the NATIVE move, so
-      // a held correction growing between two events is never read as reader
-      // direction.
       const nativeTop = element.scrollTop;
       const metrics = scrollMetrics(element, undefined, nativeTop + transcriptScrollDeviation(element));
       const top = metrics.top;
@@ -155,9 +142,6 @@ export function useFollowScrollJudge({
           verdict,
         });
       }
-      // A native reader ramp may outlive the initial 250ms gesture window.
-      // Extend ownership only from real movement, never from a virtual-core
-      // correction, so compensation resumes once wheel/inertia actually stops.
       if (top !== previousTop && !write.recent && !write.exact && hasReaderScroll()) markReaderMotion();
       if (verdict === 'pin') {
         if (!followingRef.current) publish(true);

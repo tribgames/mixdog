@@ -121,7 +121,7 @@ test('context tool previews use highlighted JSON cards without changing the sour
   assert.equal(contextPreviewMarkdown(prose, 'instruction'), prose);
 });
 
-test('desktop reveals content only on selection and drops preview state on a new revision', async (context) => {
+function installContextDom(context) {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' });
   const previous = {
     window: globalThis.window,
@@ -139,6 +139,18 @@ test('desktop reveals content only on selection and drops preview state on a new
     globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
     dom.window.close();
   });
+  return root;
+}
+
+const click = (selector) =>
+  act(async () => {
+    document.querySelector(selector).click();
+  });
+
+const PREVIEW_TEXT = '# PRIVATE_PREVIEW\n\n**Formatted**\n\n- Item\n\n<script>not executable</script>';
+
+async function mountPreviewInspector(context) {
+  const root = installContextDom(context);
   const requests = [];
   const inspection = {
     revision: 'first',
@@ -153,85 +165,82 @@ test('desktop reveals content only on selection and drops preview state on a new
     measurement: { source: 'last_api_request', tokens: 30 },
     inspection,
   };
-  let deferred = false;
-  let release;
-  const previewText = '# PRIVATE_PREVIEW\n\n**Formatted**\n\n- Item\n\n<script>not executable</script>';
-  await parseStreamingMarkdownAst(previewText);
+  const pending = { deferred: false, release: null };
+  await parseStreamingMarkdownAst(PREVIEW_TEXT);
   const request = async (capability, args) => {
     requests.push({ capability, args });
-    if (deferred)
+    if (pending.deferred)
       return new Promise((resolve) => {
-        release = resolve;
+        pending.release = resolve;
       });
-    return { inspection: { preview: { id: 'message:0', text: previewText } } };
+    return { inspection: { preview: { id: 'message:0', text: PREVIEW_TEXT } } };
   };
   const render = () => act(() => root.render(React.createElement(ContextBody, { status, snapshot: {}, request })));
   await render();
+  return { inspection, pending, render, requests, status };
+}
+
+const openFirstEntry = async () => {
+  await click('button[data-context-key="system"]');
+  await click('.context-entry-list button');
+};
+
+test('the context inspector requests no preview until an entry is selected', async (context) => {
+  const { requests } = await mountPreviewInspector(context);
   assert.equal(document.querySelectorAll('.context-block-map i').length, 128);
   assert.equal(requests.length, 0);
   assert.doesNotMatch(document.body.textContent, /PRIVATE_PREVIEW/);
-  await act(async () => {
-    document.querySelector('button[data-context-key="system"]').click();
-  });
+  await click('button[data-context-key="system"]');
   assert.equal(requests.length, 0);
-  await act(async () => {
-    document.querySelector('.context-entry-list button').click();
-  });
+  await click('.context-entry-list button');
   assert.equal(requests.length, 1);
   assert.deepEqual(requests[0].args, [{ inspect: true, entryId: 'message:0', revision: 'first' }]);
+});
+
+test('a selected entry previews as formatted markdown without executing its html', async (context) => {
+  await mountPreviewInspector(context);
+  await openFirstEntry();
   assert.equal(document.querySelector('.context-preview-content h1').textContent, 'PRIVATE_PREVIEW');
   assert.equal(document.querySelector('.context-preview-content strong').textContent, 'Formatted');
   assert.equal(document.querySelector('.context-preview-content li').textContent, 'Item');
   assert.equal(document.querySelector('script'), null);
-  // The preview replaces the list in the same pane; the back control returns to it.
+});
+
+test('the preview replaces the entry list and the back control returns to it', async (context) => {
+  await mountPreviewInspector(context);
+  await openFirstEntry();
   assert.equal(document.querySelector('.context-entry-list'), null);
-  await act(async () => {
-    document.querySelector('.context-entry-preview .context-detail-icon').click();
-  });
+  await click('.context-entry-preview .context-detail-icon');
   assert.equal(document.querySelector('.context-preview-content'), null);
   assert.ok(document.querySelector('.context-entry-list'));
-  await act(async () => {
-    document.querySelector('.context-entry-list button').click();
-  });
+  await click('.context-entry-list button');
   assert.match(document.querySelector('.context-preview-content').textContent, /PRIVATE_PREVIEW/);
+});
+
+test('a new revision drops the preview state', async (context) => {
+  const { inspection, render, status } = await mountPreviewInspector(context);
+  await openFirstEntry();
   status.inspection = { ...inspection, revision: 'second' };
   await render();
   assert.equal(document.querySelector('.context-preview-content'), null);
   assert.doesNotMatch(document.body.textContent, /PRIVATE_PREVIEW/);
-  deferred = true;
-  await act(async () => {
-    document.querySelector('button[data-context-key="system"]').click();
-  });
-  await act(async () => {
-    document.querySelector('.context-entry-list button').click();
-  });
+});
+
+test('a preview that answers after a new revision is discarded', async (context) => {
+  const { inspection, pending, render, status } = await mountPreviewInspector(context);
+  pending.deferred = true;
+  await openFirstEntry();
   status.inspection = { ...inspection, revision: 'third' };
   await render();
   await act(async () => {
-    release({ inspection: { preview: { text: 'LATE_PRIVATE_PREVIEW' } } });
+    pending.release({ inspection: { preview: { text: 'LATE_PRIVATE_PREVIEW' } } });
   });
   assert.equal(document.querySelector('.context-preview-content'), null);
   assert.doesNotMatch(document.body.textContent, /LATE_PRIVATE_PREVIEW/);
 });
 
-test('category rows rank by size, mark empty rows, and close the entry list', async (context) => {
-  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' });
-  const previous = {
-    window: globalThis.window,
-    document: globalThis.document,
-    act: globalThis.IS_REACT_ACT_ENVIRONMENT,
-  };
-  globalThis.window = dom.window;
-  globalThis.document = dom.window.document;
-  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  const root = createRoot(document.getElementById('root'));
-  context.after(async () => {
-    await act(() => root.unmount());
-    globalThis.window = previous.window;
-    globalThis.document = previous.document;
-    globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
-    dom.window.close();
-  });
+async function mountCategoryInspector(context) {
+  const root = installContextDom(context);
   const inspection = {
     revision: 'r',
     estimatedTokens: 60,
@@ -275,6 +284,12 @@ test('category rows rank by size, mark empty rows, and close the entry list', as
     inspection,
   };
   await act(() => root.render(React.createElement(ContextBody, { status, snapshot: {}, request: async () => ({}) })));
+}
+
+const ENTRY_BUTTON = '.context-entry-list button:not(.context-entry-group-head)';
+
+test('category rows rank by size and mark empty rows', async (context) => {
+  await mountCategoryInspector(context);
   const keys = [...document.querySelectorAll('.context-inspector button.context-mix-row')].map(
     (row) => row.dataset.contextKey
   );
@@ -284,41 +299,35 @@ test('category rows rank by size, mark empty rows, and close the entry list', as
   assert.equal(document.querySelector('button[data-context-key="messages"] em').textContent, '50%');
   assert.ok(document.querySelector('.context-mix-remainder [data-context-key="free"]'));
   assert.equal(document.querySelector('.context-entry-section'), null);
-  // The detail pane starts as a placeholder, then shows the chosen category
-  // with rows in the UI language, and its × returns to the placeholder.
+});
+
+test('the detail pane shows the chosen category and its × returns to the placeholder', async (context) => {
+  await mountCategoryInspector(context);
   assert.ok(document.querySelector('.context-inspector-detail .context-detail-empty'));
-  await act(async () => {
-    document.querySelector('button[data-context-key="messages"]').click();
-  });
+  await click('button[data-context-key="messages"]');
   assert.ok(document.querySelector('.context-inspector-detail .context-entry-section'));
   assert.equal(document.querySelector('.context-detail-empty'), null);
   assert.equal(document.querySelector('button[data-context-key="messages"]').getAttribute('aria-pressed'), 'true');
   assert.equal(document.querySelector('.context-detail-bar h3').textContent, t('Messages'));
-  // Two role groups, both closed until their heads are clicked; the assistant
-  // turn names the tool result it carries.
+  await click('.context-detail-bar [aria-label]');
+  assert.equal(document.querySelector('.context-entry-section'), null);
+  assert.ok(document.querySelector('.context-detail-empty'));
+});
+
+test('role groups stay closed until their heads are clicked and name the tool results they carry', async (context) => {
+  await mountCategoryInspector(context);
+  await click('button[data-context-key="messages"]');
   const heads = [...document.querySelectorAll('.context-entry-group-head > span')].map((node) => node.textContent);
   assert.deepEqual(heads, [t('User'), t('Assistant')]);
-  assert.equal(document.querySelectorAll('.context-entry-list button:not(.context-entry-group-head)').length, 0);
+  assert.equal(document.querySelectorAll(ENTRY_BUTTON).length, 0);
   await act(async () => {
     for (const head of document.querySelectorAll('.context-entry-group-head')) head.click();
   });
-  const labels = [...document.querySelectorAll('.context-entry-list button:not(.context-entry-group-head) > span')].map(
-    (node) => node.textContent
-  );
+  const labels = [...document.querySelectorAll(`${ENTRY_BUTTON} > span`)].map((node) => node.textContent);
   assert.deepEqual(labels, [`${t('User')} 1`, `${t('Assistant')} 1read`]);
   assert.equal(document.querySelector('.context-entry-tools').textContent, 'read');
-  assert.equal(
-    document.querySelector('.context-entry-list button:not(.context-entry-group-head)').title,
-    t('Raw estimate: ≈{{tokens}}', { tokens: '40' })
-  );
-  await act(async () => {
-    document.querySelector('.context-entry-group-head').click();
-  });
-  assert.equal(document.querySelectorAll('.context-entry-list button:not(.context-entry-group-head)').length, 1);
+  assert.equal(document.querySelector(ENTRY_BUTTON).title, t('Raw estimate: ≈{{tokens}}', { tokens: '40' }));
+  await click('.context-entry-group-head');
+  assert.equal(document.querySelectorAll(ENTRY_BUTTON).length, 1);
   assert.equal(document.querySelector('.context-inspector-toggle'), null);
-  await act(async () => {
-    document.querySelector('.context-detail-bar [aria-label]').click();
-  });
-  assert.equal(document.querySelector('.context-entry-section'), null);
-  assert.ok(document.querySelector('.context-detail-empty'));
 });

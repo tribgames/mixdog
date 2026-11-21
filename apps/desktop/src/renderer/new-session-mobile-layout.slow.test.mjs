@@ -5,11 +5,6 @@ import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-launch.mjs';
 
-// New-session (draft) screen on a phone: the context chips (Project, Workflow,
-// Delegation, Branch) take a line of their own above the two-row card, whose
-// bottom row holds the +, the model picker, the mic and send. At 360-430px the
-// chips used to share one non-wrapping line with the model picker, squeezed
-// over each other.
 const select = (cls, label) => `<div class="mx-select-root route-select ${cls}">
   <button type="button" class="mx-select-trigger"><span class="mx-select-value">${label}</span><svg width="12" height="12"></svg></button></div>`;
 const chips = `<div class="composer-project-context" id="c-project"><svg width="14" height="14"></svg>

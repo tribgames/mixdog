@@ -94,6 +94,31 @@ function rowFieldDelta(
   return { changed, dropped };
 }
 
+function listUpserts<T>(
+  rows: ReadonlyArray<readonly [string, T]>,
+  previous: ReadonlyMap<string, { signature: string }>,
+  next: ReadonlyMap<string, { signature: string }>
+): Array<ListUpsert<T>> {
+  const upsert: Array<ListUpsert<T>> = [];
+  for (const [key, item] of rows) {
+    const before = previous.get(key);
+    if (before && before.signature === next.get(key)?.signature) continue;
+    const delta = before ? rowFieldDelta(JSON.parse(before.signature), item) : null;
+    if (delta) {
+      const entry: ListUpsert<T> =
+        delta.dropped.length > 0
+          ? [key, delta.changed as Partial<T>, 1, delta.dropped]
+          : [key, delta.changed as Partial<T>, 1];
+      if (JSON.stringify(entry).length < JSON.stringify([key, item]).length) {
+        upsert.push(entry);
+        continue;
+      }
+    }
+    upsert.push([key, item]);
+  }
+  return upsert;
+}
+
 export function createKeyedListDeltaEncoder<T>(keyOf: (item: T, index: number) => string): KeyedListDeltaEncoder<T> {
   let revision = 0;
   let emitted = false;
@@ -176,29 +201,7 @@ export function createKeyedListDeltaEncoder<T>(keyOf: (item: T, index: number) =
         remember();
         return { __listRevision: revision, rows };
       }
-      // An unchanged row is not sent at all, and a changed one sends only its
-      // changed FIELDS whenever that is smaller than the row. One `working`
-      // flag flipping would otherwise re-send that session's preview, title,
-      // cwd and route every second — the flag itself is a few dozen bytes.
-      const upsert: Array<ListUpsert<T>> = [];
-      for (const [key, item] of rows) {
-        const before = previous.get(key);
-        if (before && before.signature === next.get(key)?.signature) continue;
-        // The caller may reuse a row object. Its retained JSON signature is
-        // the last transmitted value even if that object changed in place.
-        const delta = before ? rowFieldDelta(JSON.parse(before.signature), item) : null;
-        if (delta) {
-          const entry: ListUpsert<T> =
-            delta.dropped.length > 0
-              ? [key, delta.changed as Partial<T>, 1, delta.dropped]
-              : [key, delta.changed as Partial<T>, 1];
-          if (JSON.stringify(entry).length < JSON.stringify([key, item]).length) {
-            upsert.push(entry);
-            continue;
-          }
-        }
-        upsert.push([key, item]);
-      }
+      const upsert = listUpserts(rows, previous, next);
       const removed = order.filter((key) => !next.has(key));
       const orderChanged = order.length !== nextOrder.length || order.some((key, index) => key !== nextOrder[index]);
       const forced = rewound;
@@ -224,6 +227,61 @@ export function createKeyedListDeltaEncoder<T>(keyOf: (item: T, index: number) =
       return wire;
     },
   };
+}
+
+function catchUpOrder<T>(
+  patch: Partial<ListCatchUp<T>>,
+  order: readonly string[],
+  nextRows: ReadonlyMap<string, T>
+): string[] | null {
+  if (patch.order) return [...patch.order];
+  const upsert = patch.upsert as Array<[string, T]>;
+  const placed = new Set(upsert.map(([key]) => key));
+  const rest = order.filter((key) => !placed.has(key) && nextRows.has(key));
+  const nextOrder: string[] = [];
+  let taken = 0;
+  for (const [index, at] of (patch.place as unknown[]).entries()) {
+    if (
+      !Number.isSafeInteger(at) ||
+      (at as number) < nextOrder.length ||
+      (at as number) - nextOrder.length > rest.length - taken
+    ) {
+      return null;
+    }
+    while (nextOrder.length < (at as number)) nextOrder.push(rest[taken++]);
+    nextOrder.push(upsert[index][0]);
+  }
+  nextOrder.push(...rest.slice(taken));
+  return nextOrder;
+}
+
+/** Applies one wire upsert entry to `nextRows`; false when it is malformed or a field patch has no row to build on. */
+function applyUpsertEntry<T>(nextRows: Map<string, T>, raw: unknown): boolean {
+  if (!Array.isArray(raw) || typeof raw[0] !== 'string') return false;
+  const parts = raw as unknown[];
+  const key = parts[0] as string;
+  if (parts.length === 2) {
+    nextRows.set(key, parts[1] as T);
+    return true;
+  }
+  if ((parts.length !== 3 && parts.length !== 4) || parts[2] !== 1) return false;
+  const base = nextRows.get(key);
+  if (!base || typeof base !== 'object') return false;
+  const fields = parts[1];
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return false;
+  const merged: Record<string, unknown> = {
+    ...(base as Record<string, unknown>),
+    ...(fields as Record<string, unknown>),
+  };
+  if (parts.length === 4) {
+    if (!Array.isArray(parts[3])) return false;
+    for (const dropped of parts[3]) {
+      if (typeof dropped !== 'string') return false;
+      delete merged[dropped];
+    }
+  }
+  nextRows.set(key, merged as T);
+  return true;
 }
 
 export function createKeyedListDeltaDecoder<T>(): KeyedListDeltaDecoder<T> {
@@ -253,27 +311,8 @@ export function createKeyedListDeltaDecoder<T>(): KeyedListDeltaDecoder<T> {
       if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== 'string') return { ok: false };
       nextRows.set(entry[0], entry[1] as T);
     }
-    let nextOrder: string[];
-    if (patch.order) {
-      nextOrder = [...patch.order];
-    } else {
-      const placed = new Set(patch.upsert.map(([key]) => key));
-      const rest = order.filter((key) => !placed.has(key) && nextRows.has(key));
-      nextOrder = [];
-      let taken = 0;
-      for (const [index, at] of (patch.place as unknown[]).entries()) {
-        if (
-          !Number.isSafeInteger(at) ||
-          (at as number) < nextOrder.length ||
-          (at as number) - nextOrder.length > rest.length - taken
-        ) {
-          return { ok: false };
-        }
-        while (nextOrder.length < (at as number)) nextOrder.push(rest[taken++]);
-        nextOrder.push(patch.upsert[index][0]);
-      }
-      nextOrder.push(...rest.slice(taken));
-    }
+    const nextOrder = catchUpOrder(patch, order, nextRows);
+    if (!nextOrder) return { ok: false };
     const listed = new Set(nextOrder);
     if (
       nextOrder.length !== patch.count ||
@@ -373,34 +412,7 @@ export function createKeyedListDeltaDecoder<T>(): KeyedListDeltaDecoder<T> {
       if (typeof key !== 'string') return { ok: false };
       nextRows.delete(key);
     }
-    for (const raw of patch.upsert) {
-      if (!Array.isArray(raw) || typeof raw[0] !== 'string') return { ok: false };
-      const parts = raw as unknown[];
-      const key = parts[0] as string;
-      if (parts.length === 2) {
-        nextRows.set(key, parts[1] as T);
-        continue;
-      }
-      // A field patch only means anything against the row this decoder
-      // already holds: a missing base is a broken chain, never a new row.
-      if ((parts.length !== 3 && parts.length !== 4) || parts[2] !== 1) return { ok: false };
-      const base = nextRows.get(key);
-      if (!base || typeof base !== 'object') return { ok: false };
-      const fields = parts[1];
-      if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return { ok: false };
-      const merged: Record<string, unknown> = {
-        ...(base as Record<string, unknown>),
-        ...(fields as Record<string, unknown>),
-      };
-      if (parts.length === 4) {
-        if (!Array.isArray(parts[3])) return { ok: false };
-        for (const dropped of parts[3]) {
-          if (typeof dropped !== 'string') return { ok: false };
-          delete merged[dropped];
-        }
-      }
-      nextRows.set(key, merged as T);
-    }
+    for (const raw of patch.upsert) if (!applyUpsertEntry(nextRows, raw)) return { ok: false };
     const nextOrder = patch.order ?? order.filter((key) => nextRows.has(key));
     if (nextOrder.some((key) => typeof key !== 'string' || !nextRows.has(key))) {
       return { ok: false };

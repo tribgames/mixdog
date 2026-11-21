@@ -1,10 +1,3 @@
-/**
- * Public Computer Use host boundary.
- *
- * The current Windows implementation is isolated behind this facade so a
- * compiled native backend can replace it without changing desktop startup or
- * the renderer/session contract.
- */
 import type { ForegroundLeaseRuntime } from './backend/foreground-lock-host';
 import { createPowerShellComputerHost, type PowerShellComputerHost } from './host/powershell-host';
 

@@ -1,7 +1,3 @@
-// The file handlers that stay in main: a project page's local URL and the in-app preview of a file (both register what the
-// `mixdog-media` and local-page schemes serve in this process), and, in a server window, the uploads, downloads and trash probe.
-// Reading, writing, listing, searching, the editor backups, the entries, the language servers and the code graph are requests of
-// the window's own core connection.
 import { isAbsolute, posix } from 'node:path';
 import type { Shell } from 'electron';
 import { DESKTOP_IPC } from '../shared/contract';
@@ -52,11 +48,6 @@ export function registerProjectFileIpc({
   server = null,
   uploads = null,
 }: ProjectFileIpcOptions): () => void {
-  // A path that is not a registered Project but is an existing folder answers every file call as its own root, wherever it is: a
-  // chat link to it opens it like a Project's, and the path alone re-establishes that root. Nothing is remembered or granted. A
-  // registered Project always keeps the host's route: the host is tried first, and only when it refuses does the core classify the
-  // path (standaloneRoot: null for a registered Project, a missing path or a file). A failing core call is an error, not "no
-  // Projects". A server window never gets this: its folders are the server's.
   const standaloneFolder = async (projectPath: string): Promise<string | null> => {
     if (server || !isAbsolute(projectPath)) return null;
     return invokeDesktopOperation<string | null>('standaloneRoot', [projectPath]);

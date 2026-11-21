@@ -1,14 +1,3 @@
-// The running mark and the decorative loops beside it, in a real Chrome
-// against the app's own stylesheets:
-// - the mark's two loops (arc strip, outer rotation) step at 24 fps on one
-//   shared 1/24 s grid, the strip showing every second pre-drawn frame, and
-//   the star holds still in its static pose; the arcs cross the loop seam
-//   with an ordinary step, as rasterized;
-// - the text sweep steps on the same grid: a whole number of frames a cycle,
-//   one equal step per frame through its seam;
-// - every loop (mark, text sweep, typing dots) holds still under each "not
-//   visible" signal, on desktop and phone: the computed play state after the
-//   whole cascade, not the selectors that are meant to win it.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -114,6 +103,17 @@ async function launch(t) {
     `<!doctype html><html data-mixdog-theme="dark"><head><style>${await appStyles()}\n${rooms}</style></head><body>${PAGE}</body></html>`
   );
   return page;
+}
+
+async function addMotionSync(page) {
+  const bundle = await build({
+    entryPoints: [new URL('./decorative-motion-sync.ts', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')],
+    bundle: true,
+    format: 'iife',
+    globalName: 'motionSync',
+    write: false,
+  });
+  await page.addScriptTag({ content: bundle.outputFiles[0].text });
 }
 
 test('every decorative loop holds still wherever it cannot be seen, desktop and phone', async (t) => {
@@ -329,9 +329,6 @@ test('the arcs cross the loop seam with an ordinary step, as drawn', async (t) =
   }
   const step = (index) => ((((measured[index + 1].angle - measured[index].angle) % 120) + 180) % 120) - 60;
   const inkStep = (index) => Math.abs(measured[index + 1].ink - measured[index].ink);
-  // The comparison below means nothing on blank frames (no ink, a zero angle
-  // everywhere, every step 0): every frame must draw, and the arcs must turn
-  // between each pair of frames.
   measured.forEach(({ ink }, index) => {
     assert.ok(ink > 0, `frame ${44 + index} has no ink`);
   });
@@ -449,14 +446,7 @@ test('the desktop text sweep steps at 24 fps: one pose per frame, a whole number
 
 test('every loop locks to the timeline origin when it mounts or resumes, and a held loop stays with its CSS', async (t) => {
   const page = await launch(t);
-  const bundle = await build({
-    entryPoints: [new URL('./decorative-motion-sync.ts', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')],
-    bundle: true,
-    format: 'iife',
-    globalName: 'motionSync',
-    write: false,
-  });
-  await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  await addMotionSync(page);
   const LOOP_NAMES = [
     'live-activity-arc-flow',
     'live-activity-logo-spin',
@@ -576,14 +566,7 @@ test('every loop locks to the timeline origin when it mounts or resumes, and a h
 
 test('loops recreated by a layout switch, reduced motion or anything else lock too, before their first paint where the cause is known', async (t) => {
   const page = await launch(t);
-  const bundle = await build({
-    entryPoints: [new URL('./decorative-motion-sync.ts', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')],
-    bundle: true,
-    format: 'iife',
-    globalName: 'motionSync',
-    write: false,
-  });
-  await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  await addMotionSync(page);
   await page.evaluate(
     async (html) => {
       const root = document.documentElement;
@@ -710,13 +693,8 @@ test('loops recreated by a layout switch, reduced motion or anything else lock t
   await takeStarts();
   await mediaChange();
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
-  // Chromium reports a preference change (the matchMedia `change` event) one
-  // frame after the style update that already recreated the loops with it, and
-  // dispatches their `animationstart` in the same step, ahead of the animation
-  // callbacks: whether that event still sees the unlocked start depends on
-  // frame scheduling. The cause is therefore not known before the first paint
-  // (unlike a layout switch, a DOM change seen before the frame's style
-  // update); the loops lock as soon as it is, and stay locked.
+  // Chromium reports a preference change one frame after the style update that recreated the loops, so the cause is not known
+  // before the first paint.
   await check('reduced motion on -> off', 6, { prePaint: false, started: 1 });
 
   // A cause no hook knows (an inline animation override dropped): locked on
@@ -826,53 +804,45 @@ test('phone: the mask position at step k is the keyframe interpolation, -band to
   }
 });
 
+async function installVirtualClock(page) {
+  await page.evaluate(() => {
+    const clock = { real: performance.now.bind(performance), now: performance.now(), timers: new Map(), ids: 0 };
+    performance.now = () => clock.now;
+    window.setTimeout = (callback, ms = 0) => {
+      clock.ids += 1;
+      clock.timers.set(clock.ids, { callback, due: clock.now + Math.max(0, ms) });
+      return clock.ids;
+    };
+    window.clearTimeout = (id) => {
+      clock.timers.delete(id);
+    };
+    // Runs the timers due within `ms`; the k-th fires `lateness[k % n]` after its due time.
+    clock.advance = async (ms, lateness) => {
+      const target = clock.now + ms;
+      for (let fired = 0; ; fired += 1) {
+        let next = null;
+        for (const [id, timer] of clock.timers) if (!next || timer.due < next.timer.due) next = { id, timer };
+        if (!next) break;
+        const at = next.timer.due + lateness[fired % lateness.length];
+        if (at > target) break;
+        clock.timers.delete(next.id);
+        clock.now = Math.max(clock.now, at);
+        next.timer.callback();
+        // The write's mutation record is delivered before the clock moves on.
+        await Promise.resolve();
+      }
+      clock.now = target;
+    };
+    window.__clock = clock;
+  });
+}
+
 /** A phone page with the sync module installed, every glint and the mark
  *  mounted through its ref hook, and every glint's step writes recorded. */
 async function drivenPage(t, { phone, virtualClock = false }) {
   const page = await launch(t);
-  if (virtualClock) {
-    // The page's clock and timers are the test's: a timer fires exactly when
-    // `advance` says (due time plus the lateness it is given), so the step
-    // timer's beat does not depend on the machine's timer latency.
-    await page.evaluate(() => {
-      const clock = { real: performance.now.bind(performance), now: performance.now(), timers: new Map(), ids: 0 };
-      performance.now = () => clock.now;
-      window.setTimeout = (callback, ms = 0) => {
-        clock.ids += 1;
-        clock.timers.set(clock.ids, { callback, due: clock.now + Math.max(0, ms) });
-        return clock.ids;
-      };
-      window.clearTimeout = (id) => {
-        clock.timers.delete(id);
-      };
-      // Runs the timers due within `ms`; the k-th fires `lateness[k % n]` after its due time.
-      clock.advance = async (ms, lateness) => {
-        const target = clock.now + ms;
-        for (let fired = 0; ; fired += 1) {
-          let next = null;
-          for (const [id, timer] of clock.timers) if (!next || timer.due < next.timer.due) next = { id, timer };
-          if (!next) break;
-          const at = next.timer.due + lateness[fired % lateness.length];
-          if (at > target) break;
-          clock.timers.delete(next.id);
-          clock.now = Math.max(clock.now, at);
-          next.timer.callback();
-          // The write's mutation record is delivered before the clock moves on.
-          await Promise.resolve();
-        }
-        clock.now = target;
-      };
-      window.__clock = clock;
-    });
-  }
-  const bundle = await build({
-    entryPoints: [new URL('./decorative-motion-sync.ts', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')],
-    bundle: true,
-    format: 'iife',
-    globalName: 'motionSync',
-    write: false,
-  });
-  await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  if (virtualClock) await installVirtualClock(page);
+  await addMotionSync(page);
   const meta = await page.evaluate((phone) => {
     const root = document.documentElement;
     if (phone) root.dataset.mixdogMobileTabs = 'true';

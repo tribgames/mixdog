@@ -1,13 +1,3 @@
-// The agent panel's 프로필 tab: the agent's face, name and 하는 일 on top, then
-// the same controls the new-agent dialog uses — face, name, model, 하는 일,
-// 성격 (PERSONA.md) and 일하는 방식 (AGENT.md) — saved through
-// saveAgentDefinition, with 저장 / 취소 shown only once something changed.
-// 켜기/끄기 and 삭제 live in the dock header's ⋯ menu (dock-panel-actions).
-//
-// Mixy (the Lead): its name and face are agents/lead/agent.json `name` and
-// `avatar` (saveLeadIdentity; the star badge stays); its model is the Main route the
-// Lead runs on (also applied to its thread), its persona agents/lead/PERSONA.md
-// and its 일하는 방식 agents/lead/AGENT.md.
 import { ChevronRight, Power, RotateCcw, Star, Trash2 } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -117,9 +107,6 @@ function routeSelection(value: unknown, leaf = false): DesktopModelSelection {
 const sameRoute = (left: DesktopModelSelection, right: DesktopModelSelection) =>
   JSON.stringify(routeSelection(left)) === JSON.stringify(routeSelection(right));
 
-/** The profile per home thread (keyed-read-cache): opening the panel paints
- *  the last loaded one in the first frame and revalidates behind it, sharing
- *  the warm-up's read still in flight. */
 const profileCache = createKeyedReadCache<AgentProfile>();
 
 /** Loads `sessionId`'s profile, its connector switches and always-allowed
@@ -379,6 +366,66 @@ export function AgentProfileForm({
   );
 }
 
+/** Mixy's profile is split across her own capabilities: route, persona, instructions, identity. */
+async function saveMixyProfile(api: AgentProfileApi | undefined, sessionId: string, changes: RecordValue) {
+  const route = changes.route as DesktopModelSelection | undefined;
+  if (route) {
+    // Mixy's own route (never the Lead's), then this thread from its next turn.
+    await api?.invokeCapability?.({ capability: 'setAgentRoute', args: [MIXY_AGENT_ID, route] });
+    await api?.setModelRoute?.(route, sessionId);
+  }
+  if (typeof changes.persona === 'string')
+    await api?.invokeCapability?.({ capability: 'saveLeadPersona', args: [changes.persona] });
+  if (typeof changes.body === 'string')
+    await api?.invokeCapability?.({ capability: 'saveLeadAgentBody', args: [changes.body] });
+  if ('name' in changes || 'avatar' in changes) {
+    const identity = await api?.invokeCapability?.({
+      capability: 'saveLeadIdentity',
+      args: [
+        {
+          ...('name' in changes ? { name: changes.name } : {}),
+          ...('avatar' in changes ? { avatar: changes.avatar } : {}),
+        },
+      ],
+    });
+    // Every surface naming or drawing Mixy follows (mixy-identity.ts).
+    publishMixyStatus(identity?.value);
+  }
+}
+
+/** An agent's saved definition, refused when it changed elsewhere since `profile` was loaded. */
+async function saveAgentProfile(
+  api: AgentProfileApi | undefined,
+  agentId: string,
+  sessionId: string,
+  profile: AgentProfile,
+  changes: RecordValue
+) {
+  const name = String(changes.name ?? profile.name);
+  const description = String(changes.description ?? profile.description);
+  const { route, body, ...rest } = changes;
+  const keptOff = profile.disabled ? { disabled: true } : {};
+  await api?.invokeCapability?.({
+    capability: 'saveAgentDefinition',
+    args: [
+      {
+        id: agentId,
+        // Refused if the agent changed elsewhere since this load.
+        expectedRevision: profile.revision,
+        name,
+        description,
+        ...rest,
+        // A model change on an agent that is off keeps it off.
+        ...(route ? { route: { ...(route as RecordValue), ...keptOff } } : {}),
+        body: String(body ?? profile.body).trim() || agentBodyFromBrief(name, description),
+      },
+    ],
+  });
+  invalidateSidebarReferenceForMutation('saveAgentDefinition');
+  // This thread from its next turn, as for Mixy: the chat's model chip shows it.
+  if (route) await api?.setModelRoute?.(route as DesktopModelSelection, sessionId);
+}
+
 export function AgentProfilePane({
   sessionId,
   active,
@@ -481,55 +528,8 @@ export function AgentProfilePane({
     setBusy(true);
     setError('');
     try {
-      if (mixy) {
-        const route = changes.route as DesktopModelSelection | undefined;
-        if (route) {
-          // Mixy's own route (never the Lead's), then this thread from its next turn.
-          await api?.invokeCapability?.({ capability: 'setAgentRoute', args: [MIXY_AGENT_ID, route] });
-          await api?.setModelRoute?.(route, sessionId);
-        }
-        if (typeof changes.persona === 'string')
-          await api?.invokeCapability?.({ capability: 'saveLeadPersona', args: [changes.persona] });
-        if (typeof changes.body === 'string')
-          await api?.invokeCapability?.({ capability: 'saveLeadAgentBody', args: [changes.body] });
-        if ('name' in changes || 'avatar' in changes) {
-          const identity = await api?.invokeCapability?.({
-            capability: 'saveLeadIdentity',
-            args: [
-              {
-                ...('name' in changes ? { name: changes.name } : {}),
-                ...('avatar' in changes ? { avatar: changes.avatar } : {}),
-              },
-            ],
-          });
-          // Every surface naming or drawing Mixy follows (mixy-identity.ts).
-          publishMixyStatus(identity?.value);
-        }
-      } else {
-        const name = String(changes.name ?? profile.name);
-        const description = String(changes.description ?? profile.description);
-        const { route, body, ...rest } = changes;
-        const keptOff = profile.disabled ? { disabled: true } : {};
-        await api?.invokeCapability?.({
-          capability: 'saveAgentDefinition',
-          args: [
-            {
-              id: agentId,
-              // Refused if the agent changed elsewhere since this load.
-              expectedRevision: profile.revision,
-              name,
-              description,
-              ...rest,
-              // A model change on an agent that is off keeps it off.
-              ...(route ? { route: { ...(route as RecordValue), ...keptOff } } : {}),
-              body: String(body ?? profile.body).trim() || agentBodyFromBrief(name, description),
-            },
-          ],
-        });
-        invalidateSidebarReferenceForMutation('saveAgentDefinition');
-        // This thread from its next turn, as for Mixy: the chat's model chip shows it.
-        if (route) await api?.setModelRoute?.(route as DesktopModelSelection, sessionId);
-      }
+      if (mixy) await saveMixyProfile(api, sessionId, changes);
+      else await saveAgentProfile(api, agentId, sessionId, profile, changes);
       reload();
     } catch (reason) {
       if (isAgentDefinitionConflict(reason)) setConflict(true);

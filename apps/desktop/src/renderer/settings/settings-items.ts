@@ -145,10 +145,7 @@ export const SETTINGS_CATEGORIES = [
     group: 'Basics',
     items: ['notifications'],
   },
-  // Theme: light/dark/system or a skin picture, color theme files and fonts, all
-  // device-local, so a remote surface lists it under "This device". The id stays
-  // 'skin' (stored deep links); the retired 'appearance' (fonts) page id is
-  // redirected here by settingsCategoryForSurface.
+  // The id stays 'skin' (stored deep links); the retired 'appearance' id redirects here via settingsCategoryForSurface.
   {
     value: 'skin',
     label: 'Theme',

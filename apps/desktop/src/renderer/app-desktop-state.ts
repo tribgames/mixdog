@@ -62,10 +62,6 @@ export function useDesktopState() {
         setError((current) => (current === previousReadError ? '' : current));
       }
     };
-    // Tracked apart from the message: a dropped connection rejects with an
-    // EMPTY message, and keying the retry on the text left a phone that booted
-    // while its desktop was still redialing (a relay deploy) unhydrated behind
-    // the boot cover for good.
     let initialReadFailed = false;
     let initialReadError = '';
     let readPending = false;

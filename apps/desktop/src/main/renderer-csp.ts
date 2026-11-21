@@ -2,10 +2,8 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** The production renderer inlines boot.js into index.html (see
- *  electron.vite.config.ts) so first paint never waits on a script request.
- *  The packaged policy grants exactly that source by hash — the relay does the
- *  same for the web shell — and only when the document really contains it. */
+/** The packaged policy grants the boot.js that electron.vite.config.ts inlines
+ *  into index.html by hash, only when the document contains it. */
 export function inlineBootScriptHash(rendererDir: string): string | null {
   try {
     const source = readFileSync(join(rendererDir, 'boot.js'), 'utf8');

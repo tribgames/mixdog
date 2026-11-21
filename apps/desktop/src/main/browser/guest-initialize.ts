@@ -1,8 +1,3 @@
-/**
- * What every new page is wired to as it appears: its state record, the host's
- * own watchers, injected page tweaks, navigation admission, document
- * tracking, window.open handling, fault reporting, and its debugger.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserGuestCdp } from './cdp';
@@ -62,11 +57,6 @@ export function createBrowserGuestInitializer(host: BrowserGuestInitializerHost,
     guest.on('did-navigate', () => state.commitDocument(guest));
     handleWindowOpens(guest, popupOpening);
     watchPageFaults(state, guest);
-    // Every page gets its debugger up front, agent bridge or not: a page
-    // dialog only reaches the pane through it. A popup is attached at once
-    // too, without the blank first load (its navigation is window.open's):
-    // a dialog its first document opens while parsing would otherwise slip
-    // past the bridge.
     if (attach === 'restored') {
       // A restored page commits its own blank document first; attaching
       // earlier would load about:blank over the URL being restored.

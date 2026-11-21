@@ -1,9 +1,3 @@
-/**
- * The browser host's shared base: guest state, sessions and command ledgers,
- * the display-client edge, URL policy, the persistent partition with its
- * cookies and restart state, profile import, CDP with its documents and
- * settle, display textures and tracking, page identity and leave confirmation.
- */
 import type { WebContents } from 'electron';
 import { join } from 'node:path';
 import { app, type BrowserWindow, sharedTexture, webContents } from 'electron';
@@ -44,10 +38,7 @@ import { browserPageGuardScripts } from './webrtc-guard';
 
 type Diagnostic = (event: string, data: Record<string, unknown>) => void;
 
-/** Chromium keeps persistent cookies and localStorage for the partition on
- *  its own; session cookies — most sign-ins — die with the process unless
- *  the host carries them across a restart itself. Both are written within a
- *  second of a sign-in, so a crash after it keeps the login too. */
+/** Chromium drops session cookies with the process, so the host carries them across a restart itself. */
 function createBrowserRestartState(
   partition: Electron.Session,
   cookieJar: ReturnType<typeof createBrowserCookieJar>,
@@ -194,11 +185,6 @@ export interface EngineLaneBinding {
   visibilityChanged(guest: WebContents): void;
 }
 
-/**
- * The browser's side of the engine lane. The browser is built before the protocol connection and the lane
- * belongs to a connection, so everything the browser reads from the lane goes through here: bound while the
- * connection is claimed, and a plain "no lane" (nothing routed, no engine mode) otherwise.
- */
 function createEngineLane() {
   let bound: EngineLaneBinding | null = null;
   const current = (): EngineLaneBinding => {

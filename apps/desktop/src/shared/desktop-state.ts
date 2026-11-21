@@ -138,6 +138,142 @@ function readWithIds(rows: Array<Record<string, unknown>>): Map<string, string> 
   return upper;
 }
 
+type SessionRow = Record<string, unknown>;
+
+interface SessionPlacement {
+  cwd: string;
+  classification: DesktopSessionClassification;
+  projectPath: string;
+  workspace: DesktopSessionWorkspace | null;
+}
+
+function sessionPlacement(row: SessionRow, taskWorkspace: string): SessionPlacement | null {
+  const rawMeta = row.desktopSession;
+  if (rawMeta != null && (typeof rawMeta !== 'object' || Array.isArray(rawMeta))) return null;
+  const meta = rawMeta ? (rawMeta as Record<string, unknown>) : null;
+  if (meta && meta.classification !== 'project' && meta.classification !== 'task') return null;
+  const cwd = String(row.cwd || '').trim();
+  if (cwd.includes('\0')) return null;
+  const storedClassification = meta?.classification;
+  let classification: DesktopSessionClassification;
+  if (storedClassification === 'project' || storedClassification === 'task') classification = storedClassification;
+  else classification = cwd && !isTaskWorkspaceFolder(cwd, taskWorkspace) ? 'project' : 'task';
+  const storedProjectPath = typeof meta?.projectPath === 'string' ? meta.projectPath.trim() : '';
+  const workspace = sessionWorkspace(row.workspace);
+  const projectPath = classification === 'project' ? workspace?.projectPath || cwd || storedProjectPath : '';
+  if (classification === 'project' && (!projectPath || projectPath.includes('\0'))) return null;
+  return { cwd, classification, projectPath, workspace };
+}
+
+/** The row's display title, or null when the row is no conversation to list. */
+function sessionTitle(
+  row: SessionRow,
+  preview: string,
+  messageCount: number,
+  agentHome: string,
+  titles: Readonly<Record<string, string>>,
+  names: Readonly<Record<string, string>>
+): string | null {
+  const id = String(row.id || '');
+  const manualTitle = normalizeSessionTitle(names[id] || '', '');
+  const sharedTitle = generatedSessionTitle(row.title || '', '');
+  const legacyDesktopTitle = generatedSessionTitle(titles[id] || '', '');
+  const previewTitle = compactedSessionTitle(preview, '') || generatedSessionTitle(preview, '');
+  const realTurnCount = typeof row.realTurnCount === 'number' ? row.realTurnCount : null;
+  const hadConversation =
+    messageCount >= MIN_CONVERSATION_MESSAGE_COUNT &&
+    row.detachedReason !== 'cli-resume' &&
+    (realTurnCount === null || realTurnCount >= 1);
+  if (
+    !previewTitle &&
+    !manualTitle &&
+    !sharedTitle &&
+    !legacyDesktopTitle &&
+    !hadConversation &&
+    !(agentHome && messageCount > 0)
+  )
+    return null;
+  return manualTitle || sharedTitle || legacyDesktopTitle || previewTitle || generatedSessionTitle(preview);
+}
+
+function summarizeSessionRow(
+  row: SessionRow,
+  readWith: ReadonlyMap<string, string>,
+  titles: Readonly<Record<string, string>>,
+  names: Readonly<Record<string, string>>,
+  taskWorkspace: string
+): DesktopSessionSummary | null {
+  const placement = sessionPlacement(row, taskWorkspace);
+  if (!placement) return null;
+  const { cwd, classification, projectPath, workspace } = placement;
+  const preview = String(row.preview || '').trim();
+  const lastMessagePreview = String(row.lastMessagePreview || '').trim();
+  const lastMessageRoutine = normalizeRoutineProvenance(row.lastMessageRoutine);
+  const incomingTail = cleanIncomingTail(row.incomingTail);
+  const id = String(row.id || '');
+  const ownWorking = row.working === true;
+  const agentWorking = row.agentWorking === true;
+  const working = ownWorking || agentWorking;
+  const handedBy = Array.isArray(row.handedBy)
+    ? row.handedBy.filter((agentId): agentId is string => typeof agentId === 'string' && agentId !== '')
+    : [];
+  const updatedAt = Number(row.updatedAt) || 0;
+  const activityAt = Number(row.lastUsedAt) || updatedAt;
+  const sourceType = String(row.sourceType || '')
+    .trim()
+    .toLowerCase();
+  const sourceName = String(row.sourceName || '').trim();
+  const automationType =
+    sourceType === 'schedule' || sourceType === 'webhook' ? (sourceType as 'schedule' | 'webhook') : null;
+  const provider = String(row.provider || '').trim();
+  const model = String(row.model || '').trim();
+  const createdAt = Number(row.createdAt) || 0;
+  const inheritedFrom = String(row.inheritedFromSessionId || '').trim();
+  const messageCount = Math.max(0, Math.floor(Number(row.messageCount) || 0));
+  const agentHome = agentIdOfHomeSession(id);
+  const [taskAgent = '', taskFrom = ''] = taskAgentSource(row);
+  const title = sessionTitle(row, preview, messageCount, agentHome, titles, names);
+  if (title === null) return null;
+  return {
+    id,
+    ...(row.visibility === 'agent-only' || (row.owner === 'agent' && row.agent !== 'lead')
+      ? { agentSession: true }
+      : {}),
+    preview,
+    title,
+    updatedAt,
+    activityAt,
+    messageCount,
+    cwd,
+    classification,
+    projectPath: classification === 'project' ? projectPath : null,
+    ...(working ? { working: true } : {}),
+    ...(ownWorking ? { leadWorking: true } : {}),
+    ...(agentWorking ? { agentWorking: true } : {}),
+    ...(handedBy.length ? { handedBy } : {}),
+    ...(row.awaitingApproval === true ? { awaitingApproval: true } : {}),
+    ...(row.awaitingApproval === true && row.awaitingQuestion === true ? { awaitingQuestion: true } : {}),
+    ...(automationType ? { sourceType: automationType } : {}),
+    ...(automationType && sourceName ? { sourceName } : {}),
+    ...(provider ? { provider } : {}),
+    ...(model ? { model } : {}),
+    ...(createdAt > 0 ? { createdAt } : {}),
+    ...(inheritedFrom ? { inheritedFromSessionId: inheritedFrom } : {}),
+    ...(workspace ? { workspace } : {}),
+    ...(agentHome ? { agentHome } : {}),
+    ...(taskAgent ? { taskAgent } : {}),
+    ...(readWith.has(id) ? { readWith: readWith.get(id) } : {}),
+    ...(taskAgent && (taskFrom === 'home' || taskFrom === 'room' || taskFrom === 'run') ? { taskFrom } : {}),
+    ...(row.sessionMode === 'agent' ? { sessionMode: 'agent' as const } : {}),
+    ...(lastMessagePreview ? { lastMessagePreview } : {}),
+    ...(lastMessagePreview && lastMessageRoutine ? { lastMessageRoutine } : {}),
+    ...(incomingTail ? { incomingTail } : {}),
+    ...(Number.isSafeInteger(row.compactCount) && (row.compactCount as number) >= 0
+      ? { compactCount: row.compactCount as number }
+      : {}),
+  };
+}
+
 export function desktopSessionSummaries(
   rows: Array<Record<string, unknown>>,
   titles: Readonly<Record<string, string>> = {},
@@ -148,134 +284,9 @@ export function desktopSessionSummaries(
 ): DesktopSessionSummary[] {
   const readWith = readWithIds(rows);
   return rows
-    .flatMap((row): DesktopSessionSummary[] => {
-      const rawMeta = row.desktopSession;
-      if (rawMeta != null && (typeof rawMeta !== 'object' || Array.isArray(rawMeta))) return [];
-      const meta = rawMeta && typeof rawMeta === 'object' ? (row.desktopSession as Record<string, unknown>) : null;
-      if (meta && meta.classification !== 'project' && meta.classification !== 'task') return [];
-      const cwd = String(row.cwd || '').trim();
-      if (cwd.includes('\0')) return [];
-      // Runtime listSessions already removes worker/agent sessions. Preserve
-      // explicit desktop grouping, while admitting legacy CLI/TUI lead sessions
-      // so the desktop sidebar is a complete view of Mixdog conversation history.
-      const storedClassification = meta?.classification;
-      let classification: DesktopSessionClassification;
-      if (storedClassification === 'project' || storedClassification === 'task') classification = storedClassification;
-      else classification = cwd && !isTaskWorkspaceFolder(cwd, taskWorkspace) ? 'project' : 'task';
-      const storedProjectPath = typeof meta?.projectPath === 'string' ? meta.projectPath.trim() : '';
-      // A worktree-bound session executes in a managed folder (`cwd`) but stays
-      // grouped under its registered Project: the workspace record, then the
-      // stored classification, outrank the execution root.
-      const workspace = sessionWorkspace(row.workspace);
-      const projectPath = classification === 'project' ? workspace?.projectPath || cwd || storedProjectPath : '';
-      if (classification === 'project' && (!projectPath || projectPath.includes('\0'))) return [];
-      const preview = String(row.preview || '').trim();
-      const lastMessagePreview = String(row.lastMessagePreview || '').trim();
-      const lastMessageRoutine = normalizeRoutineProvenance(row.lastMessageRoutine);
-      const incomingTail = cleanIncomingTail(row.incomingTail);
-      const id = String(row.id || '');
-      const manualTitle = normalizeSessionTitle(names[id] || '', '');
-      const sharedTitle = generatedSessionTitle(row.title || '', '');
-      const legacyDesktopTitle = generatedSessionTitle(titles[id] || '', '');
-      const previewTitle = compactedSessionTitle(preview, '') || generatedSessionTitle(preview, '');
-      // Turn activity the daemon overlays from its in-memory runtime state.
-      const ownWorking = row.working === true;
-      const agentWorking = row.agentWorking === true;
-      const working = ownWorking || agentWorking;
-      const handedBy = Array.isArray(row.handedBy)
-        ? row.handedBy.filter((agentId): agentId is string => typeof agentId === 'string' && agentId !== '')
-        : [];
-      const updatedAt = Number(row.updatedAt) || 0;
-      const activityAt = Number(row.lastUsedAt) || updatedAt;
-      // Automation origin of a pre-bot-chat schedule/webhook runner session.
-      const sourceType = String(row.sourceType || '')
-        .trim()
-        .toLowerCase();
-      const sourceName = String(row.sourceName || '').trim();
-      const automationType =
-        sourceType === 'schedule' || sourceType === 'webhook' ? (sourceType as 'schedule' | 'webhook') : null;
-      // The store index already carries each session's last route. Passing it
-      // through lets pane chrome name the model on its first frame instead of
-      // blanking until a lane snapshot arrives.
-      const provider = String(row.provider || '').trim();
-      const model = String(row.model || '').trim();
-      const createdAt = Number(row.createdAt) || 0;
-      const inheritedFrom = String(row.inheritedFromSessionId || '').trim();
-      const messageCount = Math.max(0, Math.floor(Number(row.messageCount) || 0));
-      const agentHome = agentIdOfHomeSession(String(row.id || ''));
-      // A coding task session an agent created (session create): `agent:<id>`,
-      // then where it was created (`@home`, `@room`, `@run`) when recorded.
-      // Only a host-made task session (a Lead, never an agent-owned session) carries it.
-      const [taskAgent = '', taskFrom = ''] = taskAgentSource(row);
-      // Empty and synthetic runtime previews both normalize to no usable title.
-      // Keep compacted handoffs when their earliest real user prompt can be
-      // recovered, but hide abandoned/interrupted/internal rows instead of
-      // stacking "Untitled session" placeholders. A row that persisted at
-      // least one full exchange (user + assistant) is a real conversation
-      // whose title sources were lost to compaction: it keeps the default
-      // title instead of vanishing. Abandoned/internal rows hold at most the
-      // lone synthetic user message, so they stay hidden. The durable
-      // `realTurnCount` (real human turns + compact summaries) rules out
-      // synthetic-only rows, and resume-machinery scratch forks never count.
-      // Rows indexed before that field existed (null/absent) keep the
-      // message-count rule alone.
-      const realTurnCount = typeof row.realTurnCount === 'number' ? row.realTurnCount : null;
-      const hadConversation =
-        messageCount >= MIN_CONVERSATION_MESSAGE_COUNT &&
-        row.detachedReason !== 'cli-resume' &&
-        (realTurnCount === null || realTurnCount >= 1);
-      // An agent home thread is a contact's chat, titled by its agent: a home
-      // that holds only routine results (no real turn, no first-prompt
-      // preview) still belongs in the catalog the Agents pane reads.
-      if (
-        !previewTitle &&
-        !manualTitle &&
-        !sharedTitle &&
-        !legacyDesktopTitle &&
-        !hadConversation &&
-        !(agentHome && messageCount > 0)
-      )
-        return [];
-      return [
-        {
-          id,
-          ...(row.visibility === 'agent-only' || (row.owner === 'agent' && row.agent !== 'lead')
-            ? { agentSession: true }
-            : {}),
-          preview,
-          title: manualTitle || sharedTitle || legacyDesktopTitle || previewTitle || generatedSessionTitle(preview),
-          updatedAt,
-          activityAt,
-          messageCount,
-          cwd,
-          classification,
-          projectPath: classification === 'project' ? projectPath : null,
-          ...(working ? { working: true } : {}),
-          ...(ownWorking ? { leadWorking: true } : {}),
-          ...(agentWorking ? { agentWorking: true } : {}),
-          ...(handedBy.length ? { handedBy } : {}),
-          ...(row.awaitingApproval === true ? { awaitingApproval: true } : {}),
-          ...(row.awaitingApproval === true && row.awaitingQuestion === true ? { awaitingQuestion: true } : {}),
-          ...(automationType ? { sourceType: automationType } : {}),
-          ...(automationType && sourceName ? { sourceName } : {}),
-          ...(provider ? { provider } : {}),
-          ...(model ? { model } : {}),
-          ...(createdAt > 0 ? { createdAt } : {}),
-          ...(inheritedFrom ? { inheritedFromSessionId: inheritedFrom } : {}),
-          ...(workspace ? { workspace } : {}),
-          ...(agentHome ? { agentHome } : {}),
-          ...(taskAgent ? { taskAgent } : {}),
-          ...(readWith.has(id) ? { readWith: readWith.get(id) } : {}),
-          ...(taskAgent && (taskFrom === 'home' || taskFrom === 'room' || taskFrom === 'run') ? { taskFrom } : {}),
-          ...(row.sessionMode === 'agent' ? { sessionMode: 'agent' as const } : {}),
-          ...(lastMessagePreview ? { lastMessagePreview } : {}),
-          ...(lastMessagePreview && lastMessageRoutine ? { lastMessageRoutine } : {}),
-          ...(incomingTail ? { incomingTail } : {}),
-          ...(Number.isSafeInteger(row.compactCount) && (row.compactCount as number) >= 0
-            ? { compactCount: row.compactCount as number }
-            : {}),
-        },
-      ];
+    .flatMap((row) => {
+      const summary = summarizeSessionRow(row, readWith, titles, names, taskWorkspace);
+      return summary ? [summary] : [];
     })
     .filter((row) => isSessionId(row.id));
 }

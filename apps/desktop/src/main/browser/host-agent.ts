@@ -1,8 +1,3 @@
-/**
- * The agent's command path: the services every action reads, the runner that
- * admits a command to its page, the per-page queue it waits in, and the
- * bridge that receives commands from the runtime's `browser` tool.
- */
 import type { WebContents } from 'electron';
 
 import type { BrowserActionServices } from './actions';
@@ -36,10 +31,6 @@ import { type SecretFillOutcome, secretInputs, type SecretInputs } from '../secr
 
 type Toolkit = ReturnType<typeof createBrowserCommandToolkit>;
 
-/** Fill an account's stored credential into the page it was asked for, never
- *  into one the guest navigated to meanwhile. An explicit fill the form took
- *  records the account as last used (vault metadata, never a secret), so it
- *  ranks first for the site's next auto sign-in. */
 function storedCredentialFill(
   profileImporter: BrowserProfileImportService,
   fillCredentialInGuest: Toolkit['credentialFill']['fillCredentialInGuest'],
@@ -99,11 +90,6 @@ function assertSessionFree(host: Pick<SecretFillHost, 'assertFree'>, sessionId: 
   (host.assertFree ?? ((id: string) => takeoverGate.assertFree(id)))(sessionId);
 }
 
-/** The checks made before a secret input takes its value: the request is bound to this
- *  session, the session's takeover lock is free, the page it was bound to is still on its https
- *  origin showing the main-frame document it showed then (a navigation, even within the origin,
- *  retires the binding), and the exact elements to write were bound. Every refusal drops the
- *  request's binding and answers only its outcome. */
 function boundTarget(
   host: SecretFillHost,
   sessionId: string,
@@ -609,10 +595,6 @@ export function createBrowserHostAgent(options: {
       ),
     replyLine: base.linkedSignIns.replyLine,
   };
-  // Every agent command reaches its page here, before acting on it: from
-  // now on a veto answers the agent, not a person's earlier click or key.
-  // The host's own command runner calls it for the page a command resolved,
-  // and the engine lane for the page a command of the core leases.
   const drivePage = (guest: WebContents): (() => void) => {
     leave.agentActs(guest);
     // A window the page opens from here on is the agent's (popup-focus).

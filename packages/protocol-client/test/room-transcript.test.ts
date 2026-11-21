@@ -18,7 +18,16 @@ test('the room transcript restores user files and peer speech as references, jus
       fromName: 'Lead',
       parts: [{ type: 'image', attachmentRef: inputRef, mimeType: 'image/png', sizeBytes: 12 }],
     },
-    attachments: [{ id: inputRef, kind: 'image', name: 'plan.png', mimeType: 'image/png', size: 12, bytes: 'not a transcript field' }],
+    attachments: [
+      {
+        id: inputRef,
+        kind: 'image',
+        name: 'plan.png',
+        mimeType: 'image/png',
+        size: 12,
+        bytes: 'not a transcript field',
+      },
+    ],
     images: [{ id: 1, name: 'plan.png', mimeType: 'image/png', bytes: 12, attachmentRef: inputRef }],
     meta: { messageId: 'prompt-1', at: 10 },
   };
@@ -53,7 +62,9 @@ test('the room transcript restores user files and peer speech as references, jus
       },
       messageId: 'prompt-1',
       at: 10,
-      attachments: [{ id: inputRef, attachmentRef: inputRef, kind: 'image', name: 'plan.png', mimeType: 'image/png', size: 12 }],
+      attachments: [
+        { id: inputRef, attachmentRef: inputRef, kind: 'image', name: 'plan.png', mimeType: 'image/png', size: 12 },
+      ],
       images: [{ id: 1, name: 'plan.png', mimeType: 'image/png', bytes: 12, attachmentRef: inputRef }],
       fromAgent: 'lead',
     },
@@ -65,7 +76,9 @@ test('the room transcript restores user files and peer speech as references, jus
       room: { kind: 'speech', name: 'Reviewer', id: 'reply-1', at: 20 },
       messageId: 'reply-1',
       at: 20,
-      attachments: [{ id: outputRef, attachmentRef: outputRef, kind: 'file', name: 'review.txt', mimeType: 'text/plain', size: 15 }],
+      attachments: [
+        { id: outputRef, attachmentRef: outputRef, kind: 'file', name: 'review.txt', mimeType: 'text/plain', size: 15 },
+      ],
     },
   ];
   assert.deepEqual(desktopSessionState(sessionReducer.initial(snapshot), []).items, expected, 'snapshot');

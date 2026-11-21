@@ -4,11 +4,6 @@ import type { DesktopUpdaterState } from '../shared/contract';
 import { downloadPercent, isAppUpdatePending, useNativeAppUpdate } from './AppUpdateBanner';
 import { t } from './i18n';
 
-// One update button for the rail's foot, above Usage and Settings. Two state
-// sources feed it: the Android shell's own app update (the phone app shows the
-// PC's renderer, so the PC's updater is not what the user can act on there) and
-// the desktop updater of the Electron app.
-
 export type RailUpdateSettingsTarget = 'update';
 
 export interface RailUpdate {

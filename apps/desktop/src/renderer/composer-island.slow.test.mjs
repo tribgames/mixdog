@@ -1127,8 +1127,6 @@ test('the usage summary model sums exact sessions only', async () => {
   assert.equal(islandUsageSummary(null, []).totalTokens, null);
 });
 
-/** The real dock stylesheet decides the slot's box; jsdom has no layout, so
- *  the stage reports the pill row's 46px, or 212px with an approval card. */
 /** The app's @property registrations (font-faces.css): --island-slot-height
  *  eases only as a registered length. */
 function registeredProperties() {
@@ -1136,6 +1134,8 @@ function registeredProperties() {
   return `${(sheet.match(/@property[^}]*\}/g) ?? []).join('\n')}\n`;
 }
 
+/** jsdom has no layout: the stage reports the pill row's 46px, or 212px with an
+ *  approval card. */
 function slotFixture(t, window, document) {
   const style = document.createElement('style');
   style.textContent =
@@ -1576,10 +1576,9 @@ function islandPage(t) {
   );
 }
 
-/** Resolves once the island has fitted what the page last changed. Observing
- *  the island's room delivers once at the next rendering step, after the
- *  island's own observer (registered at mount) and every re-fit it caused in
- *  that step. */
+/** Resolves once the island has fitted what the page last changed: this
+ *  observer, registered after the island's own, delivers after it and the
+ *  re-fits it caused in the same rendering step. */
 const fitted = (page) =>
   page.evaluate(
     () =>
@@ -2111,27 +2110,27 @@ test('the shared poll runs once for all subscribers, pauses while hidden and ref
   assert.equal(timers.size, 0);
 });
 
-test('the files segment opens a menu: View changes opens Changes, Delete history confirms first', async (t) => {
+async function mountFilesMenu(t) {
   const { root, document, window } = mount(t);
   window.mixdogDesktop.setTitleBarDimmed = () => {};
   await import('./TurnReview');
-  const calls = [];
-  let cleared = false;
-  let refuse = '';
+  const state = { calls: [], cleared: false, refuse: '', opened: 0 };
   window.mixdogDesktop.invokeCapability = async (request) => {
-    calls.push(request);
+    state.calls.push(request);
     if (request.capability === 'clearSessionChangeHistory') {
-      if (refuse) throw new Error(refuse);
-      cleared = true;
+      if (state.refuse) throw new Error(state.refuse);
+      state.cleared = true;
       return { value: { turns: 12 } };
     }
     // The turn review read carries the retained turn count Delete history removes.
     if (request.capability === 'getTurnReviewDiff') {
-      return { value: { supported: true, authoritative: true, files: [], patch: '', historyTurns: cleared ? 0 : 12 } };
+      return {
+        value: { supported: true, authoritative: true, files: [], patch: '', historyTurns: state.cleared ? 0 : 12 },
+      };
     }
     if (request.capability !== 'getSessionReviewDiff') return { value: { supported: true, files: [], patch: '' } };
     // No Git here (no gitReview): the island counts the session diff.
-    const files = cleared
+    const files = state.cleared
       ? []
       : [
           { path: 'src/a.ts', status: 'M', additions: 3, deletions: 1 },
@@ -2139,7 +2138,6 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
         ];
     return { value: { supported: true, authoritative: true, complete: true, patch: '', files } };
   };
-  let opened = 0;
   await act(async () =>
     root.render(
       React.createElement(
@@ -2148,29 +2146,43 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
           reviewSessionId: 'island-files',
           reviewCwd: 'C:/work',
           reviewItems: [{ kind: 'turndone', id: 'island-done' }],
-          onOpenSessionDiff: () => opened++,
+          onOpenSessionDiff: () => state.opened++,
         })
       )
     )
   );
   const segment = () => document.querySelector('.turn-review-segment');
   const menu = () => document.querySelector('.turn-review-files-menu');
-  const all = () => [...(menu()?.querySelectorAll('[role="menuitem"]') ?? [])];
-  const fileRows = () => [...(menu()?.querySelectorAll('.turn-review-files-row') ?? [])];
-  // [View changes, Delete history], fixed under the list.
-  const items = () => {
-    const foot = [...(menu()?.querySelectorAll('.turn-review-files-foot [role="menuitem"]') ?? [])];
-    return [foot[1], foot[0]];
-  };
   const flush = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   await flush();
+  return {
+    document,
+    window,
+    state,
+    segment,
+    menu,
+    flush,
+    all: () => [...(menu()?.querySelectorAll('[role="menuitem"]') ?? [])],
+    fileRows: () => [...(menu()?.querySelectorAll('.turn-review-files-row') ?? [])],
+    // [View changes, Delete history], fixed under the list.
+    items: () => {
+      const foot = [...(menu()?.querySelectorAll('.turn-review-files-foot [role="menuitem"]') ?? [])];
+      return [foot[1], foot[0]];
+    },
+    dialog: () => document.querySelector('.settings-confirm-dialog'),
+    escape: () => act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }))),
+  };
+}
+
+test('the files segment opens an island menu listing every file; Escape closes it and returns focus', async (t) => {
+  const { document, window, state, segment, menu, all, fileRows, items, flush, escape } = await mountFilesMenu(t);
   assert.ok(segment(), 'the session has uncommitted files');
   assert.equal(segment().getAttribute('aria-haspopup'), 'menu');
 
   // Click opens the menu (no Changes yet): View changes, a separator, Delete history.
   await act(async () => segment().click());
   await flush();
-  assert.equal(opened, 0);
+  assert.equal(state.opened, 0);
   assert.equal(segment().getAttribute('aria-expanded'), 'true');
   // Like the island's other tabs it expands the island upward in place: an
   // island panel inside the island, not a popup portaled under it.
@@ -2191,29 +2203,34 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
   assert.equal(document.activeElement, fileRows()[0], 'keyboard focus lands on the first item');
   await act(async () => menu().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
   assert.equal(document.activeElement, fileRows()[1]);
-  await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
+  await escape();
   assert.equal(menu(), null, 'Escape closes the menu');
   assert.equal(island.dataset.expanded, undefined);
   assert.equal(document.activeElement, segment(), 'focus returns to the segment');
+});
 
-  // View changes does what the click used to do.
+test('View changes opens the list of every file in Changes', async (t) => {
+  const { state, segment, menu, items } = await mountFilesMenu(t);
   await act(async () => segment().click());
   await act(async () => items()[0].click());
-  assert.equal(opened, 1);
+  assert.equal(state.opened, 1);
   assert.equal(menu(), null);
   assert.equal(pendingSessionDiffFileRequest('island-files').path, '', 'the list of every file');
+});
 
-  // A file row opens the session diff on that file.
+test('a file row opens the session diff on that file', async (t) => {
+  const { state, segment, menu, fileRows } = await mountFilesMenu(t);
   await act(async () => segment().click());
   await act(async () => fileRows()[1].click());
-  assert.equal(opened, 2);
+  assert.equal(state.opened, 1);
   assert.equal(menu(), null);
   assert.equal(pendingSessionDiffFileRequest('island-files').path, 'b.ts');
+});
 
-  // Delete history asks first, with Cancel focused; Cancel changes nothing.
+test('Delete history asks first in a modal with Cancel focused; Escape and Cancel change nothing', async (t) => {
+  const { document, window, state, segment, items, dialog } = await mountFilesMenu(t);
   await act(async () => segment().click());
   await act(async () => items()[1].click());
-  const dialog = () => document.querySelector('.settings-confirm-dialog');
   assert.equal(dialog().querySelector('h3').textContent, "Delete this session's change history?");
   assert.equal(
     dialog().querySelector('p').textContent,
@@ -2251,31 +2268,31 @@ test('the files segment opens a menu: View changes opens Changes, Delete history
   await act(async () => buttons()[0].click());
   assert.equal(dialog(), null);
   assert.equal(document.activeElement, segment());
-  assert.equal(calls.filter((call) => call.capability === 'clearSessionChangeHistory').length, 0);
+  assert.equal(state.calls.filter((call) => call.capability === 'clearSessionChangeHistory').length, 0);
+});
 
-  // A refusal (a running turn) shows its reason in the reopened menu.
-  refuse = 'Change history cannot be deleted while this session is running a turn';
+test('a refused Delete history (a running turn) shows its reason in the reopened menu and deletes nothing', async (t) => {
+  const { state, segment, menu, items, dialog, flush, escape } = await mountFilesMenu(t);
+  state.refuse = 'Change history cannot be deleted while this session is running a turn';
   await act(async () => segment().click());
   await act(async () => items()[1].click());
-  await act(async () => buttons()[1].click());
+  await act(async () => dialog().querySelectorAll('footer button')[1].click());
   await flush();
   assert.match(menu().querySelector('.error-notice').textContent, /while a response is running/);
   assert.ok(segment(), 'nothing was deleted');
-  await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
+  await escape();
+});
 
-  // Confirming deletes this session's history and the segment leaves.
-  refuse = '';
+test("confirming Delete history clears this session's history and the segment leaves", async (t) => {
+  const { document, state, segment, items, dialog, flush } = await mountFilesMenu(t);
   await act(async () => segment().click());
   await act(async () => items()[1].click());
-  await act(async () => buttons()[1].click());
+  await act(async () => dialog().querySelectorAll('footer button')[1].click());
   await flush();
-  const clears = calls.filter((call) => call.capability === 'clearSessionChangeHistory');
+  const clears = state.calls.filter((call) => call.capability === 'clearSessionChangeHistory');
   assert.deepEqual(
     clears.map((call) => [call.sessionId, call.args]),
-    [
-      ['island-files', []],
-      ['island-files', []],
-    ]
+    [['island-files', []]]
   );
   await untilDom(document, () => segment() === null);
   assert.equal(segment(), null, 'an empty history hides the segment');
@@ -2468,12 +2485,12 @@ test('the branch segment shows for every git session: branch, detached commit, w
   assert.equal(segment().querySelector('.composer-island-seg-text').textContent, 'mixdog/fix-login');
 });
 
-test('the worktree menu runs Merge through the confirm popup, shows conflicts in a popup and flashes the result', async (t) => {
+async function mountWorktreeMerge(t, reply) {
   // The flash expires on a timer: tick a mocked clock instead of waiting it out.
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 5_000_000 });
   const { root, document, window } = mount(t);
   const calls = [];
-  let reply = { merged: false, target: 'main', commit: null, conflicts: ['src/login.ts', 'src/session.ts'] };
+  const state = { reply };
   window.mixdogDesktop.invokeCapability = async (request) => {
     if (request.capability === 'getBranchMenu') return { value: worktreeMenu() };
     // The git action's change read is not a worktree call.
@@ -2481,12 +2498,41 @@ test('the worktree menu runs Merge through the confirm popup, shows conflicts in
     // The clean-up button's read-only preview is not a worktree action.
     if (request.capability === 'previewWorktreeCleanup') return { value: { hasCandidates: true } };
     calls.push(request);
-    return { value: reply };
+    return { value: state.reply };
   };
-  await act(async () => root.render(React.createElement(ComposerDock, dockProps({ workspace: worktreeWorkspace() }))));
+  const render = (props) =>
+    act(async () =>
+      root.render(React.createElement(ComposerDock, dockProps({ workspace: worktreeWorkspace(), ...props })))
+    );
+  await render({});
   const segment = () => document.querySelector('.composer-island-seg-worktree');
   const menu = () => document.querySelector('.composer-island-branch-panel');
   const item = (id) => menu().querySelector(`[data-action-id="${id}"]`);
+  const popup = () => document.querySelector('.settings-confirm-dialog');
+  const footer = () => [...popup().querySelectorAll('footer button')];
+  return {
+    document,
+    calls,
+    state,
+    render,
+    segment,
+    menu,
+    item,
+    popup,
+    footer,
+    flash: () => document.querySelector('.composer-island-flash'),
+    runMerge: async () => {
+      await act(async () => segment().click());
+      await act(async () => item('merge').click());
+      await act(async () => footer()[1].click());
+    },
+  };
+}
+
+const MERGE_CONFLICTS = { merged: false, target: 'main', commit: null, conflicts: ['src/login.ts', 'src/session.ts'] };
+
+test('the worktree menu is an island tab with search, branches and the Merge and Remove actions', async (t) => {
+  const { document, segment, menu, item } = await mountWorktreeMerge(t, MERGE_CONFLICTS);
   await act(async () => segment().click());
   // An island tab like the others: the island expands into the branch panel.
   assert.ok(menu());
@@ -2519,8 +2565,11 @@ test('the worktree menu runs Merge through the confirm popup, shows conflicts in
     ]
   );
   assert.equal(menu().querySelector('[data-kind="worktree"], [data-kind="create"]'), null);
-  const popup = () => document.querySelector('.settings-confirm-dialog');
-  const footer = () => [...popup().querySelectorAll('footer button')];
+});
+
+test('Merge asks in the confirm popup before running; a conflicting preflight names the files in a Close-only popup', async (t) => {
+  const { calls, segment, menu, item, popup, footer } = await mountWorktreeMerge(t, MERGE_CONFLICTS);
+  await act(async () => segment().click());
   // Merge closes the menu and asks in the confirm popup: nothing runs yet.
   await act(async () => item('merge').click());
   assert.equal(menu(), null);
@@ -2547,38 +2596,36 @@ test('the worktree menu runs Merge through the confirm popup, shows conflicts in
   );
   await act(async () => footer()[0].click());
   assert.equal(popup(), null);
-  // A clean merge flashes the result on the island.
-  reply = { merged: true, target: 'main', commit: 'def456' };
-  await act(async () => segment().click());
-  await act(async () => item('merge').click());
-  await act(async () => footer()[1].click());
+});
+
+test('a clean merge flashes the result on the island', async (t) => {
+  const { popup, flash, runMerge } = await mountWorktreeMerge(t, { merged: true, target: 'main', commit: 'def456' });
+  await runMerge();
   assert.equal(popup(), null);
-  assert.equal(document.querySelector('.composer-island-flash').textContent, 'Merged mixdog/fix-login into main');
-  // A refused cleanup keeps the worktree but the merge still reads as done.
-  await act(async () => t.mock.timers.tick(2_700));
-  reply = { merged: true, target: 'main', commit: 'fed789', cleanup: { removed: false, code: 'WORKTREE_DIRTY' } };
-  await act(async () => segment().click());
-  await act(async () => item('merge').click());
-  await act(async () => footer()[1].click());
+  assert.equal(flash().textContent, 'Merged mixdog/fix-login into main');
+});
+
+test('a refused cleanup keeps the worktree but the merge still reads as done', async (t) => {
+  const { popup, flash, runMerge } = await mountWorktreeMerge(t, {
+    merged: true,
+    target: 'main',
+    commit: 'fed789',
+    cleanup: { removed: false, code: 'WORKTREE_DIRTY' },
+  });
+  await runMerge();
   assert.equal(popup(), null, 'never "Couldn\'t merge"');
-  assert.equal(
-    document.querySelector('.composer-island-flash').textContent,
-    'Merged mixdog/fix-login into main; the worktree was kept'
-  );
-  // The notice belongs to the merging session: another session in the same
-  // pane never shows it, and returning after it expired does not replay it.
-  await act(async () =>
-    root.render(
-      React.createElement(
-        ComposerDock,
-        dockProps({ workspace: worktreeWorkspace(), sessionId: 'other-session', reviewSessionId: 'other-session' })
-      )
-    )
-  );
-  assert.equal(document.querySelector('.composer-island-flash'), null);
+  assert.equal(flash().textContent, 'Merged mixdog/fix-login into main; the worktree was kept');
+});
+
+test('the merge notice belongs to the merging session: another session never shows it and a return after expiry does not replay it', async (t) => {
+  const { render, flash, runMerge } = await mountWorktreeMerge(t, { merged: true, target: 'main', commit: 'def456' });
+  await runMerge();
+  assert.ok(flash());
+  await render({ sessionId: 'other-session', reviewSessionId: 'other-session' });
+  assert.equal(flash(), null);
   await act(async () => t.mock.timers.tick(2_700));
-  await act(async () => root.render(React.createElement(ComposerDock, dockProps({ workspace: worktreeWorkspace() }))));
-  assert.equal(document.querySelector('.composer-island-flash'), null);
+  await render({});
+  assert.equal(flash(), null);
 });
 
 test('removing the worktree asks in a danger popup and a refusal shows in a popup', async (t) => {
@@ -2824,8 +2871,9 @@ test('on main the segment opens the New Task branch menu; Worktree provisions no
   assert.equal(menu(), null);
 });
 
-test('while work runs the menu opens without a warning and no switch starts', async (t) => {
-  const { root, document, window, publishPool } = mount(t);
+function mountBranchLock(t) {
+  const mounted = mount(t);
+  const { root, document, window } = mounted;
   const calls = [];
   window.mixdogDesktop.invokeCapability = async (request) => {
     calls.push(request);
@@ -2837,12 +2885,21 @@ test('while work runs the menu opens without a warning and no switch starts', as
     );
   const segment = () => document.querySelector('.composer-island-seg-branch');
   const menu = () => document.querySelector('.composer-island-branch-panel');
-  const locked = () => menu().querySelector('[data-kind="worktree"]').getAttribute('aria-disabled') === 'true';
-  const open = async () => {
-    if (menu()) await act(async () => segment().click());
-    await act(async () => segment().click());
+  return {
+    ...mounted,
+    calls,
+    render,
+    menu,
+    locked: () => menu().querySelector('[data-kind="worktree"]').getAttribute('aria-disabled') === 'true',
+    open: async () => {
+      if (menu()) await act(async () => segment().click());
+      await act(async () => segment().click());
+    },
   };
-  // A running turn.
+}
+
+test('while a turn runs the branch menu opens without a warning and no switch starts', async (t) => {
+  const { calls, render, menu, open } = mountBranchLock(t);
   await render({ reviewBusy: true });
   await open();
   assert.equal(menu().querySelector('.branch-menu-notice[data-kind="locked"]'), null);
@@ -2873,7 +2930,10 @@ test('while work runs the menu opens without a warning and no switch starts', as
     [],
     'nothing is scheduled or sent'
   );
-  // An unread message sent behind the turn, a running agent, a running shell: each locks.
+});
+
+test('an unread message behind the turn, a running agent and a running shell each lock the switch', async (t) => {
+  const { publishPool, render, open, locked } = mountBranchLock(t);
   await render({ pendingInput: true });
   await open();
   assert.ok(locked());
@@ -3076,7 +3136,7 @@ test('a shell whose finished record never comes leaves the segment after the gra
   assert.equal(document.querySelector('.composer-island-seg-shell'), null);
 });
 
-test('the branch segment opens an island tab: ✕, outside press and Escape collapse it; a row selects', async (t) => {
+async function mountBranchTab(t) {
   const { root, document, window } = mount(t);
   const calls = [];
   window.mixdogDesktop.invokeCapability = async (request) => {
@@ -3085,12 +3145,25 @@ test('the branch segment opens an island tab: ✕, outside press and Escape coll
     return { value: { revision: 5, workspace: projectWorkspace({ branch: 'pr-67', revision: 5 }) } };
   };
   await act(async () => root.render(React.createElement(ComposerDock, dockProps({ workspace: projectWorkspace() }))));
-  const island = () => document.querySelector('.composer-island');
   const segment = () => document.querySelector('.composer-island-seg-branch');
-  const panel = () => document.querySelector('.composer-island-branch-panel');
+  return {
+    document,
+    window,
+    calls,
+    segment,
+    island: () => document.querySelector('.composer-island'),
+    panel: () => document.querySelector('.composer-island-branch-panel'),
+    open: async () => {
+      await act(async () => segment().click());
+      await tick();
+    },
+  };
+}
+
+test('the branch tab lives in the island: search, branches with ✓ and Current, footer actions', async (t) => {
+  const { document, island, panel, open } = await mountBranchTab(t);
   // No floating popup anywhere: the menu lives in the island.
-  await act(async () => segment().click());
-  await tick();
+  await open();
   assert.equal(document.querySelector('.branch-menu'), null);
   assert.ok(island().contains(panel()));
   assert.equal(island().dataset.expanded, 'branch');
@@ -3114,23 +3187,36 @@ test('the branch segment opens an island tab: ✕, outside press and Escape coll
     panel().querySelector('[data-branch="ext"] svg[class*="lucide-folder-git"]'),
     'a worktree branch shows the folder icon'
   );
-  // ✕ closes and hands focus back.
+});
+
+test('the ✕ closes the branch tab and hands focus back', async (t) => {
+  const { document, island, segment, panel, open } = await mountBranchTab(t);
+  await open();
   await act(async () => panel().querySelector('.composer-island-close').click());
   assert.equal(panel(), null);
   assert.equal(island().dataset.expanded, undefined);
   assert.equal(document.activeElement, segment());
-  // An outside press closes.
-  await act(async () => segment().click());
+});
+
+test('an outside press closes the branch tab', async (t) => {
+  const { document, window, panel, open } = await mountBranchTab(t);
+  await open();
   await act(async () =>
     document.body.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 }))
   );
   assert.equal(panel(), null);
-  // Escape closes.
-  await act(async () => segment().click());
+});
+
+test('Escape closes the branch tab', async (t) => {
+  const { document, window, panel, open } = await mountBranchTab(t);
+  await open();
   await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
   assert.equal(panel(), null);
-  // A press inside the tab keeps it; a branch row switches and the tab collapses.
-  await act(async () => segment().click());
+});
+
+test('a press inside the branch tab keeps it; a branch row switches and the tab collapses', async (t) => {
+  const { window, calls, panel, open } = await mountBranchTab(t);
+  await open();
   await act(async () =>
     panel()
       .querySelector('.branch-menu-search')
@@ -3644,12 +3730,6 @@ function resolvedImports(url) {
   );
 }
 
-// A new session's island is
-// drawn at its full-label width until its fit lands in the same frame; the
-// pinned pet's publisher measured it in that window and sent the pre-fit span
-// (the whole card wide, over the bot), then the fitted one. Publishing the width
-// before the fit finished made the pinned bot jump up and down once on a
-// session switch.
 for (const width of [1100, 560, 480]) {
   test(`a session switch publishes the pinned pet only the island's fitted span (${width}px)`, async (t) => {
     const page = await petSwitchPage(t);
@@ -3674,9 +3754,6 @@ for (const width of [1100, 560, 480]) {
   });
 }
 
-// The island's first frame after a session switch is already fitted: the
-// incoming island starts from the room's fit, not from the full labels that a
-// later frame would shrink.
 for (const width of [440, 480]) {
   test(`a switched-to island's first committed state is the compact fit of the island it replaced (${width}px)`, async (t) => {
     const page = await petSwitchPage(t);

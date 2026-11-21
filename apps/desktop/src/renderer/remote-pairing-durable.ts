@@ -1,9 +1,4 @@
-// The durable copy of an approval. A phone OS may evict a web app's
-// localStorage on its own (storage pressure, a WebView data trim) while its
-// IndexedDB survives; losing the credential then meant a silent new claim and
-// one more approval prompt on the PC for the same device. An approval is
-// reported stored only once this copy is committed, and boot restores from it
-// when localStorage came back empty.
+import { defaultIdbFactory, openSingleStoreDatabase, type IdbFactory } from './remote-idb';
 
 const DATABASE = 'mixdog-remote-pairing';
 const STORE = 'approvals';
@@ -16,32 +11,14 @@ export interface DurablePairing {
   server: string;
 }
 
-type Factory = Pick<IDBFactory, 'open'>;
-
-const defaultFactory = (): Factory => {
-  const factory = (globalThis as { indexedDB?: IDBFactory }).indexedDB;
-  if (!factory) throw new Error('IndexedDB is unavailable.');
-  return factory;
-};
-
-const openDatabase = (factory: Factory): Promise<IDBDatabase> =>
-  new Promise((resolve, reject) => {
-    const request = factory.open(DATABASE, 1);
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore(STORE);
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-
 /** One transaction, settled only when it COMPLETES: a resolved request is not
  *  yet a committed write. */
 const transact = async <T>(
-  factory: Factory,
+  factory: IdbFactory,
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => IDBRequest<T>
 ): Promise<T> => {
-  const database = await openDatabase(factory);
+  const database = await openSingleStoreDatabase(factory, DATABASE, STORE);
   try {
     return await new Promise<T>((resolve, reject) => {
       const transaction = database.transaction(STORE, mode);
@@ -58,14 +35,14 @@ const transact = async <T>(
 export const saveDurablePairing = async (
   key: string,
   pairing: DurablePairing,
-  factory: Factory = defaultFactory()
+  factory: IdbFactory = defaultIdbFactory()
 ): Promise<void> => {
   await transact(factory, 'readwrite', (store) => store.put({ ...pairing }, key));
 };
 
 export const loadDurablePairing = async (
   key: string,
-  factory: Factory = defaultFactory()
+  factory: IdbFactory = defaultIdbFactory()
 ): Promise<DurablePairing | null> => {
   const value = (await transact(factory, 'readonly', (store) => store.get(key))) as Partial<DurablePairing> | undefined;
   if (!value) return null;
@@ -74,6 +51,6 @@ export const loadDurablePairing = async (
   return value as DurablePairing;
 };
 
-export const clearDurablePairing = async (key: string, factory: Factory = defaultFactory()): Promise<void> => {
+export const clearDurablePairing = async (key: string, factory: IdbFactory = defaultIdbFactory()): Promise<void> => {
   await transact(factory, 'readwrite', (store) => store.delete(key));
 };

@@ -1,8 +1,3 @@
-// Generate the file-path language resolver used by both the Monaco PANE and
-// scoped editor settings. The editor language contributions are the authority;
-// Monaco-native ids are retained, compatible ids are translated, and every
-// remaining language is explicitly classified instead of silently falling
-// through to plaintext.
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

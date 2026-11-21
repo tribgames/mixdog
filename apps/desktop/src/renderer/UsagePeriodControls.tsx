@@ -1,10 +1,4 @@
-/**
- * Period chips, the custom-range editor hanging off its chip, and the
- * previous/next arrows around the served period. Token usage and
- * subscription usage page through their periods the same way; each passes its
- * own chips and loads whatever a chip or an arrow asks for.
- */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { DateRangePicker, type DayRange } from './DateRangePicker';
 import { t } from './i18n';
@@ -23,6 +17,38 @@ export function usagePeriodOptions(): PeriodOption[] {
     { key: 'year', label: t('All') },
     { key: 'custom', label: t('Custom') },
   ];
+}
+
+/** The custom-range editor hangs off its chip as a popover, so it dismisses
+ *  like one. Its clock pickers portal their open menus to document.body: a
+ *  pick there is still inside the editor, and the first Escape closes only the
+ *  menu. */
+function useCustomEditorDismiss(open: boolean, host: RefObject<HTMLElement | null>, close: () => void) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const openMenus = () =>
+      Array.from(
+        host.current?.querySelectorAll('[role="combobox"][aria-expanded="true"][aria-controls]') || []
+      ).flatMap((trigger) => {
+        const menu = document.getElementById(trigger.getAttribute('aria-controls') || '');
+        return menu ? [menu] : [];
+      });
+    const dismiss = (event: globalThis.PointerEvent) => {
+      const target = event.target instanceof Node ? event.target : null;
+      if (target && host.current?.contains(target)) return;
+      if (target && openMenus().some((menu) => menu.contains(target))) return;
+      close();
+    };
+    const keydown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape' && !openMenus().length) close();
+    };
+    document.addEventListener('pointerdown', dismiss, true);
+    document.addEventListener('keydown', keydown, true);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss, true);
+      document.removeEventListener('keydown', keydown, true);
+    };
+  }, [open, host, close]);
 }
 
 export function UsagePeriodControls({
@@ -69,34 +95,7 @@ export function UsagePeriodControls({
   const [customEndTime, setCustomEndTime] = useState('');
   const [applied, setApplied] = useState<DayRange | null>(null);
   const customHost = useRef<HTMLDivElement>(null);
-  // The editor hangs off its chip as a popover, so it dismisses like one.
-  useEffect(() => {
-    if (!customOpen) return undefined;
-    // Its clock pickers portal their open menus to document.body: a pick there
-    // is still inside the editor, and the first Escape closes only the menu.
-    const openMenus = () =>
-      Array.from(
-        customHost.current?.querySelectorAll('[role="combobox"][aria-expanded="true"][aria-controls]') || []
-      ).flatMap((trigger) => {
-        const menu = document.getElementById(trigger.getAttribute('aria-controls') || '');
-        return menu ? [menu] : [];
-      });
-    const dismiss = (event: globalThis.PointerEvent) => {
-      const target = event.target instanceof Node ? event.target : null;
-      if (target && customHost.current?.contains(target)) return;
-      if (target && openMenus().some((menu) => menu.contains(target))) return;
-      setCustomOpen(false);
-    };
-    const keydown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape' && !openMenus().length) setCustomOpen(false);
-    };
-    document.addEventListener('pointerdown', dismiss, true);
-    document.addEventListener('keydown', keydown, true);
-    return () => {
-      document.removeEventListener('pointerdown', dismiss, true);
-      document.removeEventListener('keydown', keydown, true);
-    };
-  }, [customOpen]);
+  useCustomEditorDismiss(customOpen, customHost, () => setCustomOpen(false));
   const seedCustomRange = (range: DayRange) => {
     setCustomStart(range.startDay);
     setCustomEnd(range.endDay);

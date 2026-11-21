@@ -5,18 +5,6 @@ import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-launch.mjs';
 
-// Phone, Sessions list of 300 sessions: the reader flicks fast down the list.
-// The list reveals its rows a page at a time; the next page used to be
-// revealed only once the end came within 240px, so a fast fling crossed that
-// band in a few frames and ran into the end of the revealed rows before the
-// page committed: the momentum died there and the rows appeared under a list
-// at rest (Android: the list stalled and juddered mid-fling). The
-// first flick after returning from background hit it every time: the wake's
-// resync holds the main thread while the fling runs. No lead outruns a fling
-// on a busy main thread (the compositor runs the fling, each page waits for a
-// commit), so the paging sentinel now holds the unrevealed rows' height: the
-// scroll extent reaches the end of the whole list before its rows are revealed.
-
 const HARNESS = `
   import { useState } from 'react';
   import { createRoot } from 'react-dom/client';
@@ -39,10 +27,6 @@ const HARNESS = `
   createRoot(document.getElementById('root')).render(<Harness />);
 `;
 
-// Samples every frame: the offset, the revealed end, and whether rows are
-// still unrevealed (the paging sentinel is mounted). With a resume block
-// armed, the first finger lift starts a main-thread block (the resync's
-// catalog commit and decoding) while the fling runs.
 const PROBES = `
   window.arm = (blockMs) => {
     const scroller = document.querySelector('.session-sidebar-sessions .session-sidebar-scroll');
@@ -192,12 +176,6 @@ async function framesAtRest(page) {
   return page.evaluate(() => window.probe.frames);
 }
 
-/** Offsets where the list stood against an end its revealed rows had while
- *  sessions were still unrevealed: the fling ran into the paging edge. The
- *  next page often commits in the very frame the fling hits, so the edge is
- *  any revealed end seen so far, not only the current one. The whole list's
- *  end (its extent once every row is revealed) is no paging edge, though the
- *  extent reaches it while rows are still unrevealed. */
 function stuckAtRevealedEnd(frames) {
   const last = frames.at(-1);
   const listEnd = last.more ? undefined : last.max;

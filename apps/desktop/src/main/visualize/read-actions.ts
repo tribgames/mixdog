@@ -1,7 +1,3 @@
-/**
- * The agent's page actions on a displayed tab — `annotate`, `capture`,
- * `check`, `inspect`, `act` — and the panel's source view of a pane.
- */
 import { writeFile } from 'node:fs/promises';
 
 import { type ActStepOutcome, actOutcomeLines, actScriptStillRunning } from './act-steps';

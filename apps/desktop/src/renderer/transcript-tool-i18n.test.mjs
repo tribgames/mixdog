@@ -197,22 +197,26 @@ test('a completed task notification row reads verb, completed, short id with no 
   });
 });
 
-test('instructions written for the model never reach the row body, result or subject', () => {
-  const instructions = [
-    `Retrieve output with task read (task_id: ${JOB}) only if it has not already been received.`,
-    'auto-backgrounded after 15s; still running. Completion arrives automatically; call task wait (not task read polling) when the result is due.',
-    'shell admission wait exceeded 30000ms; queued as background task [task_id: shell_8d84b6b4] that starts when an execution slot frees. Completion arrives automatically; call task wait (not task read polling) when the result is due.',
-    'agent task: t1\nstatus: running\nagent: worker',
-    'agent result\nstatus: completed',
-  ];
+const instructions = [
+  `Retrieve output with task read (task_id: ${JOB}) only if it has not already been received.`,
+  'auto-backgrounded after 15s; still running. Completion arrives automatically; call task wait (not task read polling) when the result is due.',
+  'shell admission wait exceeded 30000ms; queued as background task [task_id: shell_8d84b6b4] that starts when an execution slot frees. Completion arrives automatically; call task wait (not task read polling) when the result is due.',
+  'agent task: t1\nstatus: running\nagent: worker',
+  'agent result\nstatus: completed',
+];
+
+test('instructions written for the model are stripped from the output text', () => {
   for (const text of instructions) assert.equal(toolActivityStripInstructions(text), '', text);
   assert.equal(toolActivityStripInstructions('agent task: t1\nstatus: running\n\nreal answer'), 'real answer');
   assert.equal(toolActivityStripInstructions('plain output\nsecond'), 'plain output\nsecond');
-  // "Job still running" is a task read's label, never a line of a body.
+});
+
+test('"Job still running" is a task read\'s label, never a line of a body', () => {
   assert.equal(toolActivityStripInstructions('Job still running; 3 new lines.', true), '');
   assert.equal(toolActivityStripInstructions('Job still running; 3 new lines.'), 'Job still running; 3 new lines.');
-  // Payload positions keep guidance-looking lines: an agent's fenced example
-  // and task stdout; only a trailing runtime paragraph is dropped.
+});
+
+test('payload positions keep guidance-looking lines and only a trailing runtime paragraph is dropped', () => {
   const fenced = 'Example output:\n```\nJob still running; 1 new line.\n```\nDone.';
   assert.equal(toolActivityStripInstructions(fenced), fenced);
   const stdout = 'build ok\nJob still running; 1 new line.\nnext step';
@@ -232,7 +236,9 @@ test('instructions written for the model never reach the row body, result or sub
   }
   const section = `[stdout]\nDocumented message:\n\n${retrieve}`;
   assert.equal(toolActivityStripInstructions(section), section);
-  // The producer's own wait cue is the last paragraph after the rendered task.
+});
+
+test("the producer's wait cue is dropped only from a task wait result", () => {
   const cue =
     'Wait ceiling reached; task still running. If periodic reports were requested, write the user-facing report now, then call task wait for the next interval; otherwise continue independent work or end the turn.';
   // Only a task wait result carries the cue; elsewhere it is payload.
@@ -240,6 +246,9 @@ test('instructions written for the model never reach the row body, result or sub
   assert.equal(toolActivityStripInstructions(`[stdout]\nbuilding\n\n${cue}`), `[stdout]\nbuilding\n\n${cue}`);
   const agentAnswer = `Example:\n\`\`\`\nlog\n\n${cue}`;
   assert.equal(toolActivityStripInstructions(agentAnswer), agentAnswer);
+});
+
+test('agent-header-looking prose is kept and a real agent result header is stripped', () => {
   const prose = 'Agent task succeeded after retry.\nDiagnosis: temporary timeout\nNo further action needed.';
   assert.equal(toolActivityStripInstructions(prose), prose);
   const lowerProse = 'agent task finished after retry\nstatus: ok\nnotes here';
@@ -249,6 +258,9 @@ test('instructions written for the model never reach the row body, result or sub
     'see below\nagent task: t1\nstatus: running'
   );
   assert.equal(toolActivityStripInstructions('agent result agent=worker tag=x\nstatus: completed\n\nanswer'), 'answer');
+});
+
+test('instructions written for the model never reach the row body, result or subject', () => {
   for (const text of instructions) {
     const presentation = desktopToolActivityItemPresentation(toolItem('task', { action: 'read', task_id: JOB }, text));
     const waiting = /^Job still running/.test(text)

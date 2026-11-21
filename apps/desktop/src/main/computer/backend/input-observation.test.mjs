@@ -7,9 +7,9 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 import { MIXDOG_HOST_CSHARP } from './native-source.ts';
 
-test('native input ledger uses event origin, retains physical intervention, and handles tick wrap', {
-  skip: process.platform !== 'win32' && 'Windows only',
-}, async () => {
+const windows = { skip: process.platform !== 'win32' && 'Windows only' };
+
+async function runNativeScript(body) {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-input-ledger-'));
   try {
     await writeFile(join(directory, 'native.cs'), MIXDOG_HOST_CSHARP);
@@ -21,6 +21,30 @@ Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Drawing
 Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
   [IO.File]::ReadAllText((Join-Path $env:AUDIT_DIRECTORY 'native.cs')))
+${body}
+[Console]::WriteLine('ledger passed')
+`
+    );
+    const { stdout } = await promisify(execFile)(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')],
+      {
+        windowsHide: true,
+        timeout: 30_000,
+        env: { ...process.env, AUDIT_DIRECTORY: directory },
+      }
+    );
+    assert.equal(stdout.trim(), 'ledger passed');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+test(
+  'the input ledger separates own from foreign events, keeps interventions, survives tick wrap and resyncs only after confirmed quiet',
+  windows,
+  () =>
+    runNativeScript(`
 $ledger = New-Object MixInputLedger 1000
 $ledger.Record($true, 1001)
 $ledger.Record($false, 1001)
@@ -73,6 +97,14 @@ if ($ledger.ForeignSequence -ne 4 -or $ledger.LatestTick -ne 11) { throw 'resync
 if (-not $ledger.Observe(11)) { throw 'resynced ledger is not consistent' }
 # Equality only: a wrapped tick is just another unequal tick.
 if ($ledger.Observe([uint32]::MaxValue) -or $ledger.ForeignSequence -ne 5) { throw 'wrapped unaccounted tick was not a gap' }
+`)
+);
+
+test(
+  'input reaches an action through its target process or the shared pointer, and unattributed input reaches all',
+  windows,
+  () =>
+    runNativeScript(`
 # Input reaches an action through its target's process, or through the shared
 # pointer while the action drives it; input nobody can attribute reaches all.
 $scoped = New-Object MixInputLedger 1
@@ -90,34 +122,37 @@ $scoped.Record($false, 5)
 if ($scoped.LastRelevant(77, $false) -ne 4) { throw 'unattributed input did not reach every target' }
 $scoped.Latch()
 if ($scoped.ForeignSequence -ne 5 -or $scoped.LastRelevant(55, $false) -ne 5) { throw 'a gap did not reach every target' }
+`)
+);
+
+test('only the activation key 0xB9 is ignored as typing', windows, () =>
+  runNativeScript(`
 if (-not [MixInputObservation]::IsUnassignedVirtualKey(0xB9)) { throw 'the activation key 0xB9 counts as typing' }
 foreach ($vk in 0x41, 0x0D, 0x10, 0xBA, 0xDB) {
   if ([MixInputObservation]::IsUnassignedVirtualKey($vk)) { throw "a real key was ignored: $vk" }
 }
+`)
+);
+
+test('background keyboard routing rejects UWP frame classes and accepts native Edit', windows, () =>
+  runNativeScript(`
 foreach ($name in @('ApplicationFrameWindow', 'Windows.UI.Core.CoreWindow', 'applicationframewindow')) {
   if ([MixWin32]::SupportsBackgroundKeyboardClass($name)) { throw "unsupported keyboard host accepted: $name" }
 }
 if (-not [MixWin32]::SupportsBackgroundKeyboardClass('Edit')) { throw 'native edit keyboard route blocked' }
+`)
+);
+
+test(
+  'physical cursor motion starts at the origin, travels through intermediate points and ends on the target',
+  windows,
+  () =>
+    runNativeScript(`
 $start = [MixWin32]::CursorMotionPoint(-1200, -300, 3100, 1050, 0, 20)
 $middle = [MixWin32]::CursorMotionPoint(-1200, -300, 3100, 1050, 10, 20)
 $end = [MixWin32]::CursorMotionPoint(-1200, -300, 3100, 1050, 20, 20)
 if ($start.x -ne -1200 -or $start.y -ne -300) { throw 'physical motion start mismatch' }
 if ($middle.x -le $start.x -or $middle.x -ge $end.x) { throw 'physical motion has no intermediate travel' }
 if ($end.x -ne 3100 -or $end.y -ne 1050) { throw 'physical motion endpoint mismatch' }
-[Console]::WriteLine('ledger passed')
-`
-    );
-    const { stdout } = await promisify(execFile)(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')],
-      {
-        windowsHide: true,
-        timeout: 30_000,
-        env: { ...process.env, AUDIT_DIRECTORY: directory },
-      }
-    );
-    assert.equal(stdout.trim(), 'ledger passed');
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+`)
+);

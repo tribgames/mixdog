@@ -5,6 +5,7 @@ import {
   Fragment,
   isValidElement,
   memo,
+  type ContextType,
   type ReactElement,
   type ReactNode,
   useCallback,
@@ -35,11 +36,6 @@ interface FadeProps {
 /** The phrase start each element was placed for. */
 const placedAt = new WeakMap<HTMLElement, number>();
 
-/** Times an element's fade: its delay is set when the element is created,
- *  from the reveal's start on the reply timeline, so an element re-created
- *  mid-fade (a re-parse moved it) resumes where the animation already is. It
- *  is placed again only for another start: re-timing a running animation
- *  would make it jump. */
 function useFadePlacement(at: number | undefined, ms: number | undefined) {
   const start = Number(at);
   const duration = Number(ms);
@@ -60,10 +56,6 @@ function StreamFadeWord({ 'data-fade-at': at, 'data-fade-ms': ms, children }: Fa
   return createElement('mx-fade', { ref: place, 'data-stream-fade': '' }, children);
 }
 
-/** List items, table rows, quotes, rules and inline code of a streamed reply:
- *  while one fades (`data-stream-fade-box`), its chrome fades with its first
- *  character. The component stays in place after the fade, so nothing
- *  remounts. */
 const fadeBoxes = Object.fromEntries(
   STREAM_FADE_BOX_TAGS.map((tag) => [
     tag,
@@ -74,29 +66,12 @@ const fadeBoxes = Object.fromEntries(
   ])
 );
 
-// A streamed token re-renders the owner while the same parse stays on screen;
-// only a newly landed AST rebuilds the element tree.
-export default memo(function MarkdownAstBody({
-  root,
-  copyControl,
-  fadeTimeline = null,
-  fadeOffset = 0,
-  fadeEnd,
-}: {
-  root: MarkdownAstRoot;
-  copyControl: MarkdownCopyControl;
-  /** A streamed reply's timeline: its text fades in (markdown-stream-fade). */
-  fadeTimeline?: StreamFadeTimeline | null;
-  /** Where this body's text starts in the reply. */
-  fadeOffset?: number;
-  /** Where the text `root` was parsed from ends in the reply (by default all
-   *  of it revealed so far). */
-  fadeEnd?: number;
-}) {
-  const mentionNames = useContext(MarkdownMentionNamesContext);
-  const parking = useContext(MarkdownBlockParkingContext);
-  const bodyId = useId();
-  const body = useMemo(() => (mentionNames ? highlightMentions(root, mentionNames) : root), [root, mentionNames]);
+function useBodyFade(
+  body: MarkdownAstRoot,
+  fadeTimeline: StreamFadeTimeline | null,
+  fadeOffset: number,
+  fadeEnd: number | undefined
+) {
   // Once the last fade it shows ended the body renders again, unwrapped: no
   // wrapper outlives its fade.
   const [faded, fadeEnded] = useState(0);
@@ -124,15 +99,14 @@ export default memo(function MarkdownAstBody({
     const timer = setTimeout(() => fadeEnded((count) => count + 1), Math.max(0, until - performance.now()));
     return () => clearTimeout(timer);
   }, [until]);
-  const shown = fresh && fresh.until > 0 ? fresh : null;
-  // A body that faded keeps the box components once its fades ended, so
-  // unwrapping never remounts its items and rows.
-  const boxed = useRef(false);
-  if (shown) boxed.current = true;
-  const base = markdownComponents(copyControl);
-  let components = base;
-  if (boxed.current) components = { ...base, ...fadeBoxes };
-  if (shown) for (const tag of shown.tags) (components as Record<string, unknown>)[tag] = StreamFadeWord;
+  return fresh && fresh.until > 0 ? fresh : null;
+}
+
+function useBlockParkingLifecycle(
+  body: MarkdownAstRoot,
+  parking: ContextType<typeof MarkdownBlockParkingContext>,
+  bodyId: string
+) {
   // A new tree is new blocks: a box measured for the former ones is dropped
   // before paint.
   const measured = useRef(body);
@@ -146,6 +120,41 @@ export default memo(function MarkdownAstBody({
   // And nothing is kept for its code blocks. They leave in the commit's layout
   // phase, which this cleanup comes after.
   useEffect(() => () => parking?.release(bodyId), [parking, bodyId]);
+}
+
+// A streamed token re-renders the owner while the same parse stays on screen;
+// only a newly landed AST rebuilds the element tree.
+export default memo(function MarkdownAstBody({
+  root,
+  copyControl,
+  fadeTimeline = null,
+  fadeOffset = 0,
+  fadeEnd,
+}: {
+  root: MarkdownAstRoot;
+  copyControl: MarkdownCopyControl;
+  /** A streamed reply's timeline: its text fades in (markdown-stream-fade). */
+  fadeTimeline?: StreamFadeTimeline | null;
+  /** Where this body's text starts in the reply. */
+  fadeOffset?: number;
+  /** Where the text `root` was parsed from ends in the reply (by default all
+   *  of it revealed so far). */
+  fadeEnd?: number;
+}) {
+  const mentionNames = useContext(MarkdownMentionNamesContext);
+  const parking = useContext(MarkdownBlockParkingContext);
+  const bodyId = useId();
+  const body = useMemo(() => (mentionNames ? highlightMentions(root, mentionNames) : root), [root, mentionNames]);
+  const shown = useBodyFade(body, fadeTimeline, fadeOffset, fadeEnd);
+  // A body that faded keeps the box components once its fades ended, so
+  // unwrapping never remounts its items and rows.
+  const boxed = useRef(false);
+  if (shown) boxed.current = true;
+  const base = markdownComponents(copyControl);
+  let components = base;
+  if (boxed.current) components = { ...base, ...fadeBoxes };
+  if (shown) for (const tag of shown.tags) (components as Record<string, unknown>)[tag] = StreamFadeWord;
+  useBlockParkingLifecycle(body, parking, bodyId);
   // Each code block is told its place in the body, under which what is parked
   // of its lines is kept while the block around it is out of the DOM
   // (markdown-code-lines).

@@ -4,7 +4,6 @@ import { useSyncExternalStore } from 'react';
  *  owner session, persisted locally so a dismissed row never reappears
  *  (records age out on the runtime side). */
 const STORAGE_PREFIX = 'mixdog.dismissedShellJobs.';
-const MAX_REMEMBERED = 200;
 const EMPTY: ReadonlySet<string> = new Set();
 
 const cache = new Map<string, ReadonlySet<string>>();
@@ -31,11 +30,45 @@ export function dismissedShellJobs(sessionId: string): ReadonlySet<string> {
   return set;
 }
 
-/** Hides the given shell row keys (`shell:<jobId>`) for this session for good. */
-export function dismissShellJobs(sessionId: string, keys: readonly string[]): void {
+/** The row keys the runtime lists for the owner now, per kind. A kind left
+ *  out (or `null`, not loaded yet) is never pruned. */
+export interface DismissedListing {
+  agents?: ReadonlySet<string> | null;
+  shells?: ReadonlySet<string> | null;
+}
+
+/** `agent:<id>@` of an agent key (`agent:<id>@<at>`): what every outcome of
+ *  that agent starts with. Empty for any other key. */
+function agentOf(key: string): string {
+  const at = key.lastIndexOf('@');
+  return key.startsWith('agent:') && at >= 0 ? key.slice(0, at + 1) : '';
+}
+
+/** Whether an earlier key can still hide a row. A shell key cannot once its
+ *  session lists the job no longer. An agent key cannot once another outcome
+ *  of that agent is known: a later one being dismissed now (`dismissed`; a
+ *  clear made from rows read earlier can carry an older one), or one the
+ *  listing holds. An agent the listing leaves out (its Lead's row is away) may
+ *  come back with the same outcome. */
+function stillHides(key: string, listing: DismissedListing, dismissed: readonly string[]): boolean {
+  if (key.startsWith('shell:')) return !listing.shells || listing.shells.has(key);
+  const agent = agentOf(key);
+  if (!agent) return true;
+  const settled = Number(key.slice(agent.length));
+  if (dismissed.some((other) => other.startsWith(agent) && Number(other.slice(agent.length)) > settled)) return false;
+  if (!listing.agents || listing.agents.has(key)) return true;
+  for (const listed of listing.agents) if (listed.startsWith(agent)) return false;
+  return true;
+}
+
+/** Hides the given row keys (`shell:<jobId>`, `agent:<id>@<at>`) for this
+ *  session for good. Earlier keys that can hide nothing any more are dropped
+ *  (`stillHides`); the set is bounded by the jobs and agents of the session,
+ *  not by a count. */
+export function dismissShellJobs(sessionId: string, keys: readonly string[], listing: DismissedListing = {}): void {
   if (!sessionId || keys.length === 0) return;
-  const next = new Set([...dismissedShellJobs(sessionId), ...keys]);
-  const kept = new Set([...next].slice(-MAX_REMEMBERED));
+  const earlier = [...dismissedShellJobs(sessionId)].filter((key) => stillHides(key, listing, keys));
+  const kept = new Set([...earlier, ...keys]);
   cache.set(sessionId, kept);
   try {
     globalThis.localStorage?.setItem(STORAGE_PREFIX + sessionId, JSON.stringify([...kept]));

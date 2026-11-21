@@ -95,7 +95,6 @@ async function mount(t, commit, overrides = {}) {
         status: renderedStatus,
         statusReady: true,
         statusError: '',
-        loading: false,
         active: true,
         readinessKey: 'manual-commit',
         onReadyChange() {},

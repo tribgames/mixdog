@@ -264,6 +264,36 @@ export function useImportListing(api: ImportApi | undefined) {
 
 export type ImportListing = ReturnType<typeof useImportListing>;
 
+function useRereadTrackedJob(
+  api: ImportApi | undefined,
+  trackedId: string,
+  mountedRef: { readonly current: boolean },
+  setJob: (update: (current: ConversationImportJob | null) => ConversationImportJob | null) => void
+) {
+  useEffect(() => {
+    if (!api || !trackedId) return undefined;
+    const reread = () => {
+      if (document.visibilityState === 'hidden') return;
+      void callImport<{ jobs?: ConversationImportJob[] }>(api, 'getConversationImportJobs', { jobId: trackedId })
+        .then((value) => {
+          const next = value?.jobs?.find((entry) => entry.jobId === trackedId);
+          if (!next) return;
+          importJobStore.observe(api, next);
+          if (mountedRef.current) setJob((current) => adoptImportJob(current, next));
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener('focus', reread);
+    window.addEventListener('mixdog:remote-reconnected', reread);
+    document.addEventListener('visibilitychange', reread);
+    return () => {
+      window.removeEventListener('focus', reread);
+      window.removeEventListener('mixdog:remote-reconnected', reread);
+      document.removeEventListener('visibilitychange', reread);
+    };
+  }, [api, trackedId, mountedRef, setJob]);
+}
+
 /** The tracked import job: starting, adoption from the store/runtime, polling, stopping and,
  *  for a single import, continuing into the imported session. */
 export function useImportJob(api: ImportApi | undefined, onClose: () => void) {
@@ -313,28 +343,7 @@ export function useImportJob(api: ImportApi | undefined, onClose: () => void) {
   // A progress event can be missed while the window was away or the link was down; a tracked job is read once when
   // the window returns or the link is restored. No timer.
   const trackedId = job && isConversationImportJobActive(job) ? job.jobId : '';
-  useEffect(() => {
-    if (!api || !trackedId) return undefined;
-    const reread = () => {
-      if (document.visibilityState === 'hidden') return;
-      void callImport<{ jobs?: ConversationImportJob[] }>(api, 'getConversationImportJobs', { jobId: trackedId })
-        .then((value) => {
-          const next = value?.jobs?.find((entry) => entry.jobId === trackedId);
-          if (!next) return;
-          importJobStore.observe(api, next);
-          if (mountedRef.current) setJob((current) => adoptImportJob(current, next));
-        })
-        .catch(() => undefined);
-    };
-    window.addEventListener('focus', reread);
-    window.addEventListener('mixdog:remote-reconnected', reread);
-    document.addEventListener('visibilitychange', reread);
-    return () => {
-      window.removeEventListener('focus', reread);
-      window.removeEventListener('mixdog:remote-reconnected', reread);
-      document.removeEventListener('visibilitychange', reread);
-    };
-  }, [api, trackedId, mountedRef]);
+  useRereadTrackedJob(api, trackedId, mountedRef, setJob);
 
   useEffect(() => {
     if (!api || !job || jobMode !== 'single' || isConversationImportJobActive(job)) return;

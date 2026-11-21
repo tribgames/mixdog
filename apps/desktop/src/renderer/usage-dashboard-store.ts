@@ -1,19 +1,3 @@
-// Process-wide subscription-usage cache.
-//
-// The rail flyout mounts SidebarUsage only while it is open, so the component
-// cannot own the request, its timers, or the snapshot: every popup open would
-// restart the cadence and re-fetch, and no warmup could run before the first
-// click. This module keeps ONE snapshot, ONE deduped getUsageDashboard request,
-// and ONE pushed-section subscription for the whole renderer. localStorage
-// stays a stale seed only: it paints instantly and is always revalidated.
-//
-// Ownership rules (a stale response must never win):
-//   * host    — the window the state belongs to; a different document rebinds.
-//   * epoch   — retired by a rebind, a reset, a mutation publish, a timeout, or
-//               the last cadence release. A response from a retired generation
-//               is dropped without publishing, persisting, or retrying.
-//   * request id — monotonic per request; only the owning request may release
-//               the pending slot, so an old finally cannot clear a newer one.
 import type { DesktopApi, SessionSnapshot } from '../shared/contract';
 import { readGlobalCapabilities } from './global-capability-reads';
 import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './remote-connection-state';
@@ -329,12 +313,8 @@ export function subscribeUsageDashboard(listener: Listener): () => void {
   };
 }
 
-/** Adopts a dashboard produced by a mutation (reset-credit consume). It counts
- *  as a live response — same validation, same cache write, same freshness
- *  stamp — and it RETIRES any in-flight refresh so a response that predates the
- *  mutation can never overwrite its result. Returns false when the payload is
- *  not a usable dashboard, which is what the caller reports as "not confirmed".
- */
+/** Adopts a dashboard produced by a mutation as a live response and retires any
+ *  in-flight refresh. Returns false when the payload is not a usable dashboard. */
 export function publishUsageDashboard(dashboard: unknown): boolean {
   const win = ensureHost();
   if (!win) return false;
@@ -357,13 +337,10 @@ export function subscribeAccountSwitches(listener: (provider: string) => void): 
   };
 }
 
-/** Account switch repaint: the newly selected account's own last-known quota
- *  windows replace that provider's meters at once, so the surface never keeps
- *  showing the PREVIOUS account's numbers while the confirming refresh is in
- *  flight. With no recorded usage, keep only provider identity and show a check
- *  in progress. Reset credits and other quota fields belong to the old account
- *  and must not survive either case. `refreshedAt` is NOT advanced: any supplied
- *  windows are last-known data, not a live result. */
+/** Replaces the provider's meters with the newly selected account's last-known
+ *  quota windows, or with a check in progress when none are recorded. Reset
+ *  credits and other quota fields of the old account are dropped; `refreshedAt`
+ *  does not advance. */
 export function applyAccountUsageWindows(provider: string, windows: unknown): boolean {
   const win = ensureHost();
   if (!win) return false;
@@ -514,10 +491,6 @@ async function runRefresh(
       readGlobalCapabilities(api, [
         {
           capability: 'getUsageDashboard',
-          // Refresh provider quotas without repeating the slower keychain/local
-          // setup scan on every cadence tick. `refreshProviders` narrows the LIVE
-          // sweep to the provider whose credentials just changed, so an account
-          // switch is not paced by an unrelated provider's quota call.
           args: [
             {
               refresh: true,
@@ -540,10 +513,8 @@ async function runRefresh(
   acceptRefresh(win, (result as unknown[])[0]);
 }
 
-/** Credentials changed (login, account switch): do not adopt a request started
- *  by the previous account — coalescing into it kept the previous account's
- *  meters until the next cadence tick. `providers` scopes the live sweep to the
- *  provider that changed. Best effort and independent of the auth outcome. */
+/** Credentials changed: refreshes without adopting a request the previous
+ *  account started. `providers` scopes the live sweep to the changed provider. */
 export function refreshUsageDashboardAfterAuth(
   api: UsageApi | undefined,
   providers?: readonly string[]
@@ -658,10 +629,6 @@ export function holdUsageDashboardCadence(api: UsageApi | undefined): () => void
     // The aggregate is pushed (section `usage`, key `dashboard`; desktop-services.md §15 P7): there is no
     // refresh cadence. A read happens only for a credential change (refreshUsageDashboardAfterAuth).
     releaseCadence = followUsageSection(win, cadenceApi);
-    // A phone that booted while its desktop was still redialing (a relay
-    // deploy) failed this read on the dropped connection; the bounded retry
-    // runs as soon as the connection is back instead of holding the boot cover
-    // for the full delay.
     releaseReconnectRetry = subscribeRemoteConnectionState(() => {
       if (retryTimer === null || host !== win || cadenceHolders === 0) return;
       if (currentRemoteConnectionState() !== 'connected' || win.document?.visibilityState === 'hidden') return;

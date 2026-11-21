@@ -1,7 +1,3 @@
-// Typing re-renders only what depends on the draft. The draft-independent
-// controls (+ menu, model controls, model line) stay put, and the send disc
-// renders only when its sendability flips. Renders are counted from the React
-// commit hook: a function component counts when its fiber performed work.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { installTestDom } from './test-support/test-dom.mjs';
@@ -129,12 +125,11 @@ const field = () => document.querySelector('textarea');
 const settle = (ms = 30) => act(async () => new Promise((resolve) => window.setTimeout(resolve, ms)));
 const click = (node) => act(async () => node.click());
 
-test('typing leaves the + menu, model controls and model line alone; the send disc follows sendability only', async () => {
+async function mountDraftComposer(id) {
   window.mixdogDesktop = capabilities();
   const submitted = [];
   let finishSubmit = () => {};
-  const baseProps = composerProps('render-count-test', {
-    // A draft's submit shows the in-flight state on the disc.
+  const baseProps = composerProps(id, {
     draftMode: true,
     promptHistoryList: ['recalled prompt'],
     submit: (content) => {
@@ -145,23 +140,31 @@ test('typing leaves the + menu, model controls and model line alone; the send di
     },
   });
   const root = createRoot(document.querySelector('main'));
-  const send = () => document.querySelector('.send-button');
-  const sendLabel = () => send().getAttribute('aria-label');
-  let input;
-  const setValue = (value) =>
-    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(input, value);
-  const type = (value) =>
-    act(async () => {
-      input.focus();
-      setValue(value);
-      input.setSelectionRange(value.length, value.length);
-      input.dispatchEvent(new window.Event('input', { bubbles: true }));
-    });
-  const snapshot = () => ({ controls: CONTROLS.map(count), send: count('SendButton') });
-  const composerRenders = () => count('Composer');
+  await act(async () => root.render(React.createElement(Composer, baseProps)));
+  const input = document.querySelector('textarea');
+  return {
+    root,
+    baseProps,
+    submitted,
+    input,
+    finishSubmit: () => finishSubmit(),
+    send: () => document.querySelector('.send-button'),
+    snapshot: () => ({ controls: CONTROLS.map(count), send: count('SendButton') }),
+    type: (value) =>
+      act(async () => {
+        input.focus();
+        Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(input, value);
+        input.setSelectionRange(value.length, value.length);
+        input.dispatchEvent(new window.Event('input', { bubbles: true }));
+      }),
+    unmount: () => act(async () => root.unmount()),
+  };
+}
+
+test('typing leaves the + menu, model controls and model line alone; the send disc follows sendability only', async () => {
+  const view = await mountDraftComposer('render-count-typing');
+  const { input, send, snapshot, type } = view;
   try {
-    await act(async () => root.render(React.createElement(Composer, baseProps)));
-    input = document.querySelector('textarea');
     assert.equal(send().disabled, true, 'empty draft cannot send');
     const settled = snapshot();
 
@@ -173,12 +176,12 @@ test('typing leaves the + menu, model controls and model line alone; the send di
 
     // Ordinary typing: nothing draft-independent renders, the disc stays.
     const typing = snapshot();
-    const composerBefore = composerRenders();
+    const composerBefore = count('Composer');
     for (const value of ['he', 'hel', 'hell', 'hello']) await type(value);
     assert.deepEqual(snapshot(), typing);
     assert.equal(send().disabled, false);
     // The counter itself works: the draft-owning composer renders per keystroke.
-    assert.equal(composerRenders() - composerBefore, 4);
+    assert.equal(count('Composer') - composerBefore, 4);
 
     // IME composition: mid-composition updates do not re-render them either.
     await act(async () => input.dispatchEvent(new window.CompositionEvent('compositionstart', { bubbles: true })));
@@ -199,36 +202,49 @@ test('typing leaves the + menu, model controls and model line alone; the send di
     assert.equal(send().disabled, false);
     assert.equal(count('SendButton'), typing.send + 2);
     assert.deepEqual(snapshot().controls, settled.controls);
+  } finally {
+    await view.unmount();
+  }
+});
 
-    // Submitting: the disc shows the pending state and re-enables after.
-    await type('send me');
+test('submitting shows the pending state on the send disc, clears the draft, and history recall brings the prompt back', async () => {
+  const view = await mountDraftComposer('render-count-submit');
+  const { input, send } = view;
+  const sendLabel = () => send().getAttribute('aria-label');
+  try {
+    await view.type('send me');
     await act(async () => {
       document
         .querySelector('form.composer')
         .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
     });
-    assert.equal(submitted.length, 1);
+    assert.equal(view.submitted.length, 1);
     assert.equal(sendLabel(), 'Sending message');
     assert.equal(input.value, '', 'a sent draft clears');
     assert.equal(send().disabled, true);
-    await act(async () => finishSubmit());
+    await act(async () => view.finishSubmit());
     assert.equal(sendLabel(), 'Send message');
 
-    // History recall and draft restoration reach the draft and the disc.
     await act(async () => {
       input.focus();
       input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
     });
     assert.equal(input.value, 'send me', 'the newest prompt comes back first');
     assert.equal(send().disabled, false);
+  } finally {
+    await view.unmount();
+  }
+});
 
-    // A model change still reaches the controls and the line.
-    const before = snapshot();
-    await act(async () => root.render(React.createElement(Composer, { ...baseProps, model: 'other-model' })));
+test('a model change still reaches the model controls and the model line', async () => {
+  const view = await mountDraftComposer('render-count-model');
+  try {
+    const before = view.snapshot();
+    await act(async () => view.root.render(React.createElement(Composer, { ...view.baseProps, model: 'other-model' })));
     assert.ok(count('ComposerModelControls') > before.controls[1], 'model controls render for a model change');
     assert.ok(count('ComposerModelLine') > before.controls[2], 'model line renders for a model change');
   } finally {
-    await act(async () => root.unmount());
+    await view.unmount();
   }
 });
 

@@ -1,9 +1,3 @@
-// The composer island's Agents popover in a real Chrome, built from the real
-// ComposerDock and the app's whole stylesheet: at phone widths (360–430dp) and
-// in a long-label locale its header (title pill, state counts, close) never
-// overlaps or clips, the counts stay readable and close keeps a 44px tap
-// area, the rows ellipsize with their right column clear of the text, and the
-// usage footer fits inside the panel with "Clean up" at its row's end.
 // AGENT_PANEL_SHOT_TAG=before|after names the screenshots written under
 // %TEMP%/agent-panel-header/.
 import assert from 'node:assert/strict';

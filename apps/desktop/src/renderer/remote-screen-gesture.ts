@@ -1,10 +1,3 @@
-// The boundary between the touch layer and the PC screen's input. The touch
-// layer (remote-touch-gestures.ts with remote-viewport.ts) decides what a
-// finger means and where on the PC picture it lands (the direct or trackpad
-// strategy is the touch layer's, remote-screen-touch.ts); it reports abstract
-// actions at absolute points in VIDEO pixels. This adapter is the only place
-// they become `screen-pointer` / `screen-wheel` messages, and the only one
-// that knows which button a drag holds.
 import type { RemoteScreenButton, RemoteScreenInput } from '../shared/remote-webrtc';
 
 export type ScreenPoint = { x: number; y: number };

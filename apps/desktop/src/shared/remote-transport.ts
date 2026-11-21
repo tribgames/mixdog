@@ -1,18 +1,3 @@
-/**
- * Direct transport: the wire contract for carrying a paired session's live
- * traffic over an always-on WebRTC data channel, with the relay as fallback
- * carrier. docs/remote-transport.md is the spec; this module is its code:
- * capability, signaling, record framing, the authenticated cumulative ack,
- * the media adapter messages, the bounds, and the carrier-agnostic stream core
- * (sender: sequence, retain, ack, retransmit; receiver: reorder, dedup,
- * bounded buffer, chunk reassembly BEFORE decryption).
- *
- * Nothing here trusts a carrier. Record framing is unauthenticated on purpose
- * and only ever decides what to hand to E2EE decryption; a record counts as
- * accepted (and is acked) only after its E2EE box opened. Acks and signaling
- * are control-domain boxes (shared/remote-e2ee.ts `sealControl`), so a relay
- * can neither forge an ack nor replay one into another session or direction.
- */
 import {
   assertRemoteWebrtcSdpFingerprints,
   parseRemoteWebrtcCandidate,
@@ -533,49 +518,52 @@ export function readRemoteTransportControl(
   if (opened.stale) return null;
   const input = record(opened.value, 'control');
   let message: RemoteTransportControl;
-  if (input.t === 'ack') {
-    if (input.v !== REMOTE_TRANSPORT_VERSION) fail('version');
-    if (typeof input.through !== 'number' || !Number.isSafeInteger(input.through) || input.through < 0) fail('ack');
-    message = {
-      v: REMOTE_TRANSPORT_VERSION,
-      t: 'ack',
-      through: input.through,
-      ...(input.ranges === undefined ? {} : { ranges: ackRanges(input.ranges, input.through) }),
-    };
-  } else if (input.t === 'repair') {
-    if (input.v !== REMOTE_TRANSPORT_VERSION) fail('version');
-    const sequences = input.sequences;
-    if (
-      !Array.isArray(sequences) ||
-      sequences.length < 1 ||
-      sequences.length > REMOTE_TRANSPORT_MAX_RECORDS_IN_FLIGHT
-    ) {
-      fail('repair');
-    }
-    let floor = 0;
-    for (const sequence of sequences) {
-      if (positiveInteger(sequence, 'repair') <= floor) fail('repair order');
-      floor = sequence as number;
-    }
-    message = { v: REMOTE_TRANSPORT_VERSION, t: 'repair', sequences: [...(sequences as number[])] };
-  } else if (input.t === 'ping' || input.t === 'pong') {
-    if (input.v !== REMOTE_TRANSPORT_VERSION) fail('version');
-    let sent: number | undefined;
-    if (input.t === 'ping' && input.sent !== undefined) {
-      if (typeof input.sent !== 'number' || !Number.isSafeInteger(input.sent) || input.sent < 0) fail('ping sent');
-      sent = input.sent;
-    }
-    message = {
-      v: REMOTE_TRANSPORT_VERSION,
-      t: input.t,
-      id: positiveInteger(input.id, 'ping id'),
-      ...(sent === undefined ? {} : { sent }),
-    };
-  } else {
-    message = parseRemoteTransportSignal(input, from);
-  }
+  if (input.t === 'ack') message = parseAck(input);
+  else if (input.t === 'repair') message = parseRepair(input);
+  else if (input.t === 'ping' || input.t === 'pong') message = parsePing(input, input.t);
+  else message = parseRemoteTransportSignal(input, from);
   authenticated.set(message, opened.sequence);
   return message;
+}
+
+function parseAck(input: Fields): RemoteTransportAck {
+  if (input.v !== REMOTE_TRANSPORT_VERSION) fail('version');
+  if (typeof input.through !== 'number' || !Number.isSafeInteger(input.through) || input.through < 0) fail('ack');
+  return {
+    v: REMOTE_TRANSPORT_VERSION,
+    t: 'ack',
+    through: input.through,
+    ...(input.ranges === undefined ? {} : { ranges: ackRanges(input.ranges, input.through) }),
+  };
+}
+
+function parseRepair(input: Fields): RemoteTransportRepair {
+  if (input.v !== REMOTE_TRANSPORT_VERSION) fail('version');
+  const sequences = input.sequences;
+  if (!Array.isArray(sequences) || sequences.length < 1 || sequences.length > REMOTE_TRANSPORT_MAX_RECORDS_IN_FLIGHT) {
+    fail('repair');
+  }
+  let floor = 0;
+  for (const sequence of sequences) {
+    if (positiveInteger(sequence, 'repair') <= floor) fail('repair order');
+    floor = sequence as number;
+  }
+  return { v: REMOTE_TRANSPORT_VERSION, t: 'repair', sequences: [...(sequences as number[])] };
+}
+
+function parsePing(input: Fields, t: 'ping' | 'pong'): RemoteTransportPing {
+  if (input.v !== REMOTE_TRANSPORT_VERSION) fail('version');
+  let sent: number | undefined;
+  if (t === 'ping' && input.sent !== undefined) {
+    if (typeof input.sent !== 'number' || !Number.isSafeInteger(input.sent) || input.sent < 0) fail('ping sent');
+    sent = input.sent;
+  }
+  return {
+    v: REMOTE_TRANSPORT_VERSION,
+    t,
+    id: positiveInteger(input.id, 'ping id'),
+    ...(sent === undefined ? {} : { sent }),
+  };
 }
 
 export function remoteTransportPing(id: number, sent?: number): RemoteTransportPing {
@@ -1328,10 +1316,6 @@ export type RemoteTransportAcceptResult =
   /** The chunk's embedded box sequence is not the sequence it claims. */
   | 'mismatch';
 
-/** One possible reading of a slot. Geometry (`total`) is unauthenticated
- *  until the assembled box opens, so rival geometries are separate
- *  candidates; the buffer is allocated only after `total` bytes were
- *  reserved. A whole record is a complete candidate of one part. */
 interface Candidate {
   total: number;
   buffer: Uint8Array;
@@ -1366,6 +1350,36 @@ function headerNames(head: Uint8Array, sequence: number): boolean {
 }
 
 const complete = (candidate: Candidate): boolean => candidate.received === candidate.count;
+
+function leastAdvancedIncomplete(slot: Slot): Candidate | null {
+  let victim: Candidate | null = null;
+  for (const candidate of slot.candidates) {
+    if (complete(candidate)) continue;
+    if (
+      !victim ||
+      candidate.received < victim.received ||
+      (candidate.received === victim.received && candidate.progressAt < victim.progressAt)
+    ) {
+      victim = candidate;
+    }
+  }
+  return victim;
+}
+
+function newCandidate(
+  message: Exclude<RemoteTransportMessage, { kind: 'control' }>,
+  total: number,
+  now: number
+): Candidate {
+  if (message.kind === 'app') {
+    return { total, buffer: message.box, filled: null, count: 1, received: 1, progressAt: now };
+  }
+  const buffer = new Uint8Array(total);
+  buffer.set(message.data, message.index * REMOTE_TRANSPORT_CHUNK_BYTES);
+  const filled = new Uint8Array(message.count);
+  filled[message.index] = 1;
+  return { total, buffer, filled, count: message.count, received: 1, progressAt: now };
+}
 
 /** Reorders, dedups and reassembles application records BEFORE decryption,
  *  inside a fixed memory budget that is reserved before any allocation:
@@ -1481,43 +1495,15 @@ export class RemoteTransportReceiver {
     let slot = this.slots.get(sequence);
     if (message.kind === 'chunk') {
       const same = slot?.candidates.find((candidate) => candidate.filled && candidate.total === message.total);
-      const filled = same?.filled;
-      if (slot && same && filled) {
-        if (complete(same) || filled[message.index]) {
-          this.duplicates += 1;
-          return 'duplicate';
-        }
-        same.buffer.set(message.data, message.index * REMOTE_TRANSPORT_CHUNK_BYTES);
-        filled[message.index] = 1;
-        same.received += 1;
-        same.progressAt = now;
-        // Belt and braces for the header check above: a complete assembly is
-        // exposed only when its box names this slot.
-        if (complete(same) && !headerNames(same.buffer, sequence)) {
-          this.removeCandidate(sequence, slot, same);
-          this.discarded += 1;
-          return 'mismatch';
-        }
-        return 'buffered';
-      }
+      if (slot && same?.filled) return this.addChunk(sequence, slot, same, message, now);
     } else if (slot?.candidates.some((candidate) => !candidate.filled)) {
       this.duplicates += 1;
       return 'duplicate';
     }
     const total = message.kind === 'app' ? message.box.byteLength : message.total;
-    // A full slot makes room by evicting its least advanced incomplete rival.
     let victim: Candidate | null = null;
     if (slot && slot.candidates.length >= REMOTE_TRANSPORT_CANDIDATES_PER_SLOT) {
-      for (const candidate of slot.candidates) {
-        if (complete(candidate)) continue;
-        if (
-          !victim ||
-          candidate.received < victim.received ||
-          (candidate.received === victim.received && candidate.progressAt < victim.progressAt)
-        ) {
-          victim = candidate;
-        }
-      }
+      victim = leastAdvancedIncomplete(slot);
       if (!victim) {
         this.duplicates += 1;
         return 'duplicate';
@@ -1539,24 +1525,37 @@ export class RemoteTransportReceiver {
       this.evicted += 1;
       slot = this.slots.get(sequence);
     }
-    // Reserved: allocate.
-    let candidate: Candidate;
-    if (message.kind === 'app') {
-      candidate = { total, buffer: message.box, filled: null, count: 1, received: 1, progressAt: now };
-    } else {
-      const buffer = new Uint8Array(total);
-      buffer.set(message.data, message.index * REMOTE_TRANSPORT_CHUNK_BYTES);
-      const filled = new Uint8Array(message.count);
-      filled[message.index] = 1;
-      candidate = { total, buffer, filled, count: message.count, received: 1, progressAt: now };
-    }
     if (!slot) {
       slot = { candidates: [], bytes: 0 };
       this.slots.set(sequence, slot);
     }
-    slot.candidates.push(candidate);
+    slot.candidates.push(newCandidate(message, total, now));
     slot.bytes += charge;
     this.bytes += charge;
+    return 'buffered';
+  }
+
+  private addChunk(
+    sequence: number,
+    slot: Slot,
+    same: Candidate,
+    message: Extract<RemoteTransportMessage, { kind: 'chunk' }>,
+    now: number
+  ): RemoteTransportAcceptResult {
+    const filled = same.filled as Uint8Array;
+    if (complete(same) || filled[message.index]) {
+      this.duplicates += 1;
+      return 'duplicate';
+    }
+    same.buffer.set(message.data, message.index * REMOTE_TRANSPORT_CHUNK_BYTES);
+    filled[message.index] = 1;
+    same.received += 1;
+    same.progressAt = now;
+    if (complete(same) && !headerNames(same.buffer, sequence)) {
+      this.removeCandidate(sequence, slot, same);
+      this.discarded += 1;
+      return 'mismatch';
+    }
     return 'buffered';
   }
 

@@ -1,8 +1,3 @@
-/**
- * Exports of a tab: the agent's `export` (a file inside the project, under
- * one host deadline) and the panel's Export menu (project save or the OS
- * save dialog).
- */
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 

@@ -1,12 +1,3 @@
-/**
- * Real user gestures inside visualize panes, observed by main from the main
- * window's input (outside any page's control). Each mouse release or
- * Enter/Space press that lands in one pane mints one short-lived token for
- * that (session, tab, pane); a `data-choice` pick from the pane's page is
- * accepted only by consuming one, so one gesture carries at most one choice
- * and a page cannot pick while the user works elsewhere.
- */
-
 export interface VisualizeGestureTarget {
   sessionId: string;
   tabId: string;

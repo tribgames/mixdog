@@ -1,10 +1,3 @@
-// The phone's world, for replaying the protocol client: a virtual timer queue (due time, then registration order, one
-// callback at a time, microtasks drained between callbacks), a browser surface (window, document, localStorage, WebSocket, fetch), and the
-// desktop's end of the relay socket with a REAL E2EE handshake. The desktop's dialect (JSON-RPC) reduces what it received to a
-// "what the core knows" record.
-//
-// Nothing waits on wall-clock time: the product's timers run when the script advances the virtual clock, and every wait is on an event
-// the product itself produces (a socket created, a state change, a frame reduced).
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
@@ -35,37 +28,12 @@ export const SYNTHETIC_READ_REQUESTS = {
 };
 const SYNTHETIC_READ_NAMES = Object.fromEntries(Object.entries(SYNTHETIC_READ_REQUESTS).map(([name, method]) => [method, name]));
 
-export async function createPhoneWorld({ tree, dialect, random = () => 0.5, paired = true, registration = 200, hidden = false, mxt = false, installed = true }) {
-  const E2EE = await importFrom(tree, 'apps/desktop/src/shared/remote-e2ee.ts');
-  const Transport = await importFrom(tree, 'apps/desktop/src/shared/remote-transport.ts');
-  const Recovery = await importFrom(tree, 'apps/desktop/src/renderer/remote-pairing-recovery.ts');
-  const identity = await E2EE.generateRelayE2EEServerIdentity();
-  const material = E2EE.relayE2EEPairingMaterial(identity);
-  const deviceId = '0123456789abcdef0123456789abcdef';
-  const origin = 'https://relay.test';
-  const keys = Recovery.remotePairingKeys(origin, deviceId);
-  const store = new Map([
-    [keys.token, 'a'.repeat(64)],
-    [keys.e2eePublicKey, material.serverPublicKey],
-    [keys.e2eeSecret, material.pairingSecret],
-    [keys.browserId, 'browser-1'],
-    [keys.server, origin],
-    ...(installed ? [['mixdog.directBrowser', '1']] : []),
-    ...(paired ? [[keys.paired, '1']] : []),
-  ]);
-
-  const legs = new Map();
-  const accepted = new Set();
-  // The product's crypto and the desktop's end run on real asynchronous work (Web Crypto resolves on the thread pool), which no microtask
-  // count bounds. Every Web Crypto call is counted from its start to its settlement, and settled means: no call in flight, the desktop's
-  // frame queue empty, and a whole turn of the event loop (`setImmediate` runs after every microtask the last completion queued) in which
-  // neither started anything. There is no sleep and no wall-clock quantum: a completion is what ends the wait.
-  // Only the PAGE's sealing is held: the desktop's end (this world, in the same process, on the same Web Crypto) seals its own acks, pings and
-  // answers when its real asynchronous decryption of the page's records happens to finish, and a held line that took those in would order the
-  // page's records against them by thread-pool timing. The desktop's calls run inside `desktopSide`, which follows them across awaits.
+function createCryptoGate(legs) {
+  // Web Crypto resolves on the thread pool, which no microtask count bounds: every call is counted from start to settlement, and
+  // settled means no call in flight, every leg's frame queue empty, and a whole event-loop turn in which nothing started.
+  // Only the page's sealing is held: the desktop's end seals its own replies when its decryption happens to finish, and holding
+  // those would order the page's records by thread-pool timing. The desktop's calls run inside `desktopSide`.
   const desktopSide = new AsyncLocalStorage();
-  // Sealing held: a frame whose encryption has not finished has not left the page (the send phase of a call outlasting its transmission).
-  // Each held encryption waits in line and leaves on its own release (so frames of concurrent calls finish sealing at different times).
   let sealHeld = false;
   const sealLine = [];
   let cryptoInFlight = 0;
@@ -94,9 +62,6 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
           : counted(original, callArgs),
     });
   }
-  const holdSeal = () => {
-    sealHeld = true;
-  };
   const turn = () => new Promise((resolve) => setImmediate(resolve));
   const settle = async () => {
     for (;;) {
@@ -111,8 +76,27 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
       if (cryptoInFlight === 0 && [...legs.values()].every((leg, i) => leg.queue === queues[i])) return;
     }
   };
+  return {
+    desktopSide,
+    settle,
+    /** Sealing held: a frame whose encryption has not finished has not left the page. Each held encryption leaves on its own release. */
+    holdSeal() {
+      sealHeld = true;
+    },
+    /** Lets the first `count` held encryptions finish (all of them, and the hold ends, when no count is given). */
+    async releaseSeal(count) {
+      if (count === undefined) sealHeld = false;
+      // One at a time, each to quiescence: encryptions started together finish in thread-pool order.
+      for (const release of sealLine.splice(0, count ?? sealLine.length)) {
+        release();
+        await settle();
+      }
+      await settle();
+    },
+  };
+}
 
-  // ── time ──
+function createVirtualClock(settle) {
   const clock = { now: 1_000_000, seq: 0, timers: new Map() };
   const add = (fn, ms, every) => {
     const id = ++clock.seq;
@@ -154,8 +138,19 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
     clock.now = target;
     await settle();
   };
+  /** Moves the virtual clock to each next timer until `cond` holds: the wait is on the event, with no step size and no cap. */
+  const advanceUntil = async (cond) => {
+    await settle();
+    while (!cond()) {
+      const due = Math.min(...[...clock.timers.values()].map((timer) => timer.due));
+      if (!Number.isFinite(due)) throw new Error('advanceUntil: no timer is pending and the condition does not hold');
+      await advance(Math.max(0, due - clock.now));
+    }
+  };
+  return { clock, timerApi, advance, advanceUntil };
+}
 
-  // ── what happened ──
+function createEventLog(clock) {
   const events = [];
   const waiters = [];
   const log = (entry) => {
@@ -170,14 +165,15 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
       for (let i = from; i < events.length; i += 1) if (pred(events[i], i)) return resolve();
       waiters.push({ pred: (e, i) => i >= from && pred(e, i), resolve });
     });
-
   const until = (cond) =>
     new Promise((resolve) => {
       if (cond()) resolve();
       else waiters.push({ pred: () => cond(), resolve });
     });
+  return { events, log, waitFor, until };
+}
 
-  // ── browser surface ──
+function createPageSurface({ hidden, origin, deviceId, store, timerApi, log }) {
   const window = new EventTarget();
   const document = new EventTarget();
   Object.assign(document, {
@@ -210,6 +206,97 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
     setItem: (key, value) => void store.set(key, String(value)),
     removeItem: (key) => void store.delete(key),
   };
+  return { window, document, location, localStorage };
+}
+
+/** The PC's end of the MXT transport (the shared stream core): it seals and splits what the PC sends into records, and reads what
+ *  the phone put on the relay lane (records, and controls: ack, ping, close...). */
+class Desk {
+  constructor(leg) {
+    const { Transport } = leg.world;
+    this.leg = leg;
+    this.sender = new Transport.RemoteTransportSender();
+    this.receiver = new Transport.RemoteTransportReceiver();
+    this.assembler = new Transport.RemoteTransportMessageAssembler(new Transport.RemoteTransportAssemblyPool());
+    this.fragment = 0;
+    /** Records the PC has sealed on this leg, and the requests it was asked (each is answered with one). */
+    this.sent = 0;
+    this.requests = [];
+  }
+  async send(payload) {
+    const { Transport } = this.leg.world;
+    for (const part of Transport.splitRemoteTransportPayload(payload, ++this.fragment)) {
+      const box = await this.leg.server.encryptBinary(part);
+      this.sender.push(box);
+      this.sent += 1;
+      for (const raw of [Transport.encodeRemoteTransportRecord(box)].flat(Infinity)) this.leg.ws.onmessage({ data: raw.slice().buffer });
+    }
+  }
+  /** The PC acknowledges the phone's records received so far (what its own peer would send). */
+  async ack() {
+    const { Transport } = this.leg.world;
+    const due = this.receiver.ackDue(Number.MAX_SAFE_INTEGER);
+    if (!due) return;
+    this.receiver.ackSent(due.through);
+    await this.control(Transport.remoteTransportAck(due.through, due.ranges));
+  }
+  async control(message) {
+    const { Transport, E2EE } = this.leg.world;
+    const sealed = Transport.encodeRemoteTransportControl(await this.leg.server.sealControl(message, E2EE.RELAY_E2EE_RELAY_LANE));
+    for (const raw of [sealed].flat(Infinity)) this.leg.ws.onmessage({ data: raw.slice().buffer });
+  }
+  async read(raw) {
+    const { leg } = this;
+    const { Transport, E2EE, log } = leg.world;
+    const message = Transport.decodeRemoteTransportMessage(raw);
+    if (message.kind === 'control') {
+      const control = Transport.readRemoteTransportControl(await leg.server.openControl(message.box, E2EE.RELAY_E2EE_RELAY_LANE), 'client');
+      if (!control) return;
+      log({ ev: 'xcontrol', kind: control.t, control: JSON.parse(JSON.stringify(control, (_k, v) => (typeof v === 'bigint' ? String(v) : v))) });
+      if (control.t === 'ping') await this.control({ v: 1, t: 'pong', id: control.id });
+      return;
+    }
+    this.receiver.accept(message, 0);
+    for (let next = this.receiver.next(); next; next = this.receiver.next()) {
+      const value = await leg.server.decryptJson(next.box);
+      this.receiver.commit(next.sequence, 0);
+      log({ ev: 'xrecord', seq: Number(next.sequence) });
+      const result = this.assembler.accept(value, 0);
+      if (result.state === 'complete') {
+        if (result.payload.id !== undefined) this.requests.push(result.payload.method);
+        leg.dialect.onFrame(leg, result.payload, log);
+        log({ ev: 'core' });
+      }
+    }
+  }
+}
+
+export async function createPhoneWorld({ tree, dialect, random = () => 0.5, paired = true, registration = 200, hidden = false, mxt = false, installed = true }) {
+  const E2EE = await importFrom(tree, 'apps/desktop/src/shared/remote-e2ee.ts');
+  const Transport = await importFrom(tree, 'apps/desktop/src/shared/remote-transport.ts');
+  const Recovery = await importFrom(tree, 'apps/desktop/src/renderer/remote-pairing-recovery.ts');
+  const identity = await E2EE.generateRelayE2EEServerIdentity();
+  const material = E2EE.relayE2EEPairingMaterial(identity);
+  const deviceId = '0123456789abcdef0123456789abcdef';
+  const origin = 'https://relay.test';
+  const keys = Recovery.remotePairingKeys(origin, deviceId);
+  const store = new Map([
+    [keys.token, 'a'.repeat(64)],
+    [keys.e2eePublicKey, material.serverPublicKey],
+    [keys.e2eeSecret, material.pairingSecret],
+    [keys.browserId, 'browser-1'],
+    [keys.server, origin],
+    ...(installed ? [['mixdog.directBrowser', '1']] : []),
+    ...(paired ? [[keys.paired, '1']] : []),
+  ]);
+
+  const legs = new Map();
+  const accepted = new Set();
+  const { desktopSide, settle, holdSeal, releaseSeal } = createCryptoGate(legs);
+  const { clock, timerApi, advance, advanceUntil } = createVirtualClock(settle);
+  const { events, log, waitFor, until } = createEventLog(clock);
+
+  const { window, document, location, localStorage } = createPageSurface({ hidden, origin, deviceId, store, timerApi, log });
   class FakeWebSocket {
     static CONNECTING = 0;
     static OPEN = 1;
@@ -235,62 +322,6 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
       if (this.readyState >= 2) return;
       this.readyState = 3;
       log({ ev: 'close', socket: world.sockets.indexOf(this) + 1, code: code ?? null, reason: reason ?? null });
-    }
-  }
-  // The PC's end of the MXT transport (the shared stream core, as the transport peer's own tests use it): it seals and splits what the
-  // PC sends into records, and reads what the phone put on the relay lane (records, and controls: ack, ping, close...).
-  class Desk {
-    constructor(leg) {
-      this.leg = leg;
-      this.sender = new Transport.RemoteTransportSender();
-      this.receiver = new Transport.RemoteTransportReceiver();
-      this.assembler = new Transport.RemoteTransportMessageAssembler(new Transport.RemoteTransportAssemblyPool());
-      this.fragment = 0;
-      /** Records the PC has sealed on this leg, and the requests it was asked (each is answered with one). */
-      this.sent = 0;
-      this.requests = [];
-    }
-    async send(payload) {
-      for (const part of Transport.splitRemoteTransportPayload(payload, ++this.fragment)) {
-        const box = await this.leg.server.encryptBinary(part);
-        this.sender.push(box);
-        this.sent += 1;
-        for (const raw of [Transport.encodeRemoteTransportRecord(box)].flat(Infinity)) this.leg.ws.onmessage({ data: raw.slice().buffer });
-      }
-    }
-    /** The PC acknowledges the phone's records received so far (what its own peer would send). */
-    async ack() {
-      const due = this.receiver.ackDue(Number.MAX_SAFE_INTEGER);
-      if (!due) return;
-      this.receiver.ackSent(due.through);
-      await this.control(Transport.remoteTransportAck(due.through, due.ranges));
-    }
-    async control(message) {
-      const sealed = Transport.encodeRemoteTransportControl(await this.leg.server.sealControl(message, E2EE.RELAY_E2EE_RELAY_LANE));
-      for (const raw of [sealed].flat(Infinity)) this.leg.ws.onmessage({ data: raw.slice().buffer });
-    }
-    async read(raw) {
-      const { leg } = this;
-      const message = Transport.decodeRemoteTransportMessage(raw);
-      if (message.kind === 'control') {
-        const control = Transport.readRemoteTransportControl(await leg.server.openControl(message.box, E2EE.RELAY_E2EE_RELAY_LANE), 'client');
-        if (!control) return;
-        log({ ev: 'xcontrol', kind: control.t, control: JSON.parse(JSON.stringify(control, (_k, v) => (typeof v === 'bigint' ? String(v) : v))) });
-        if (control.t === 'ping') await this.control({ v: 1, t: 'pong', id: control.id });
-        return;
-      }
-      this.receiver.accept(message, 0);
-      for (let next = this.receiver.next(); next; next = this.receiver.next()) {
-        const value = await leg.server.decryptJson(next.box);
-        this.receiver.commit(next.sequence, 0);
-        log({ ev: 'xrecord', seq: Number(next.sequence) });
-        const result = this.assembler.accept(value, 0);
-        if (result.state === 'complete') {
-          if (result.payload.id !== undefined) this.requests.push(result.payload.method);
-          leg.dialect.onFrame(leg, result.payload, log);
-          log({ ev: 'core' });
-        }
-      }
     }
   }
   if (mxt) {
@@ -329,6 +360,7 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
   const world = {
     tree,
     E2EE,
+    Transport,
     keys,
     store,
     sockets: [],
@@ -354,26 +386,8 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
     log,
     advance,
     holdSeal,
-    /** Lets the first `count` held encryptions finish (all of them, and the hold ends, when no count is given). */
-    async releaseSeal(count) {
-      if (count === undefined) sealHeld = false;
-      // One at a time, each to quiescence: encryptions started together finish in thread-pool order, which would order what they unblock
-      // (a record leaving, a send completing, a ping) by timing instead of by the order they were held in.
-      for (const release of sealLine.splice(0, count ?? sealLine.length)) {
-        release();
-        await settle();
-      }
-      await settle();
-    },
-    /** Moves the virtual clock to each next timer until `cond` holds: the wait is on the event, with no step size and no cap. */
-    async advanceUntil(cond) {
-      await settle();
-      while (!cond()) {
-        const due = Math.min(...[...clock.timers.values()].map((timer) => timer.due));
-        if (!Number.isFinite(due)) throw new Error('advanceUntil: no timer is pending and the condition does not hold');
-        await advance(Math.max(0, due - clock.now));
-      }
-    },
+    releaseSeal,
+    advanceUntil,
     waitFor,
     until,
     mark: () => events.length,

@@ -1,34 +1,13 @@
-// The sessions group of window.mixdogDesktop (DIRECT_KEYS.sessions) composed in the renderer over this window's own core
-// connection: the lists and lifecycle of a session, chat (prompts, aborts, approvals, model routes), the transcript reads
-// and the two state lanes. It is what main's ipc-sessions.ts handlers, the DesktopServiceClient behind them and
-// ipc-state-bridge.ts did together, minus the input checks (the core has them) and minus the state wire (the preload's
-// delta decoding existed only to cross the process boundary: the lane's full snapshots arrive here directly).
-//
-// The lanes are the shared ones (shared/core-lanes) run against this window's RendererConnection: nothing is converted a
-// second way. A failure leaves through withDirectErrors, as the IPC wrapper returned it.
-import type {
-  DesktopApi,
-  DesktopAgentPoolRow,
-  DesktopSessionStateUpdate,
-  SessionSnapshot,
-  ToolApprovalDecision,
-} from '../../shared/contract';
+import type { DesktopApi, DesktopAgentPoolRow, SessionSnapshot, ToolApprovalDecision } from '../../shared/contract';
 import type { DirectKey } from '../../shared/desktop-api-split';
 import { createCapabilityLane, type CapabilityLane } from '../../shared/core-lanes/capability-route.ts';
 import { createServiceLane, type ServiceLane } from '../../shared/core-lanes/service-route.ts';
 import { createSessionLane, type SessionLane } from '../../shared/core-lanes/session-lane.ts';
-import { filterSessionIds, isSessionId, requiredSessionIds } from '../../shared/desktop-state';
 import { modelRouteWrite } from '../../shared/model-route-write';
-import {
-  createSessionReadWindow,
-  createSnapshotDeltaEncoder,
-  isNoDelta,
-  releaseHiddenSessionStateEntries,
-  shouldPublishSessionState,
-} from '../../main/state-delta';
-import { reportTranscriptRead } from '../../shared/transcript-read-diagnostics';
+import { createSnapshotDeltaEncoder, isNoDelta } from '../../main/state-delta';
 import type { DirectContext } from './context.ts';
 import { withDirectErrors } from './errors.ts';
+import { createSessionStates } from './session-states.ts';
 
 /** The shell snapshot this window holds (Node's `publishShell`): null until a start call published one. The start calls of the
  *  files group publish through `shell.publish`; `getSnapshot` and `subscribeState` read it. */
@@ -94,11 +73,6 @@ export function sessionLanesOf(ctx: DirectContext): SessionLanes {
 
 /** ipc-validation.ts TRANSCRIPT_WINDOW_MAX_ITEMS: a read past it is held there. */
 const TRANSCRIPT_WINDOW_MAX_ITEMS = 8_192;
-/** A read's frame travels the session feed while its reply travels the request, so the reply can land first and close the read
- *  window; the frame still carries the read's trace id and is admitted for this long. */
-const REQUESTED_READ_FRAME_GRACE_MS = 10_000;
-/** One in-flight resync per session; the next frame or this timeout ends it. */
-const SESSION_RECOVERY_COALESCE_MS = 3_000;
 /** The name a window's own actions carry when the core names none (session-device.ts `hostDeviceName`'s blank case). */
 const DEFAULT_DEVICE_NAME = 'Main PC';
 
@@ -112,94 +86,10 @@ type SessionsApi = Pick<DesktopApi, DirectKey<'sessions'>>;
 
 export function createSessionsApi(ctx: DirectContext): SessionsApi {
   const { connection } = ctx;
-  const { capability, service, session, shell, onAttached } = sessionLanesOf(ctx);
+  const lanes = sessionLanesOf(ctx);
+  const { capability, service, session, shell } = lanes;
   const svc = <T>(method: string, args: unknown[] = []): Promise<T> => withDirectErrors(service.call<T>(method, args));
-
-  // ── the session states a window is shown (ipc-state-bridge.ts) ──
-  const visible = new Set<string>();
-  const reads = createSessionReadWindow();
-  const readTraces = new Map<string, { sessionId: string; timer: ReturnType<typeof setTimeout> }>();
-  const recoveries = new Map<string, ReturnType<typeof setTimeout>>();
-  const latest = new Map<string, Omit<DesktopSessionStateUpdate, 'readTraceId'>>();
-  const stateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
-  let visibleVersion = 0;
-
-  const takeRecovery = (sessionId: string): boolean => {
-    const timer = recoveries.get(sessionId);
-    if (timer === undefined) return false;
-    clearTimeout(timer);
-    recoveries.delete(sessionId);
-    return true;
-  };
-  /** True once for the frame answering a read this window requested. */
-  const takeReadTrace = (sessionId: string, traceId: string | undefined): boolean => {
-    if (!sessionId || !traceId) return false;
-    const pending = readTraces.get(traceId);
-    if (!pending || pending.sessionId !== sessionId) return false;
-    clearTimeout(pending.timer);
-    readTraces.delete(traceId);
-    return true;
-  };
-  const rememberReadTrace = (traceId: string, sessionId: string): void => {
-    const previous = readTraces.get(traceId);
-    if (previous) clearTimeout(previous.timer);
-    readTraces.set(traceId, {
-      sessionId,
-      timer: setTimeout(() => readTraces.delete(traceId), REQUESTED_READ_FRAME_GRACE_MS),
-    });
-  };
-  const requestRecovery = (sessionId: string): void => {
-    if (recoveries.has(sessionId)) return;
-    recoveries.set(
-      sessionId,
-      setTimeout(() => recoveries.delete(sessionId), SESSION_RECOVERY_COALESCE_MS)
-    );
-    session.requestSessionStateResync(sessionId);
-  };
-  const emit = (update: DesktopSessionStateUpdate): void => {
-    for (const listener of [...stateListeners]) listener(update);
-  };
-  // Pane transports publish only the sessions a pane shows, plus the answer to a read this window asked for; a null frame is
-  // always forwarded (it releases what a consumer holds).
-  const receive = (update: DesktopSessionStateUpdate): void => {
-    const sessionId = String(update.sessionId || '');
-    const answersRecovery = sessionId ? takeRecovery(sessionId) : false;
-    const answersRead = takeReadTrace(sessionId, update.readTraceId) || answersRecovery;
-    if (!sessionId || (!answersRead && !shouldPublishSessionState(sessionId, update.snapshot, visible, reads))) {
-      reportTranscriptRead(sessionId, update.readTraceId, 'ipc-hidden');
-      return;
-    }
-    if (update.snapshot && !answersRead && service.isReleasingThread(sessionId)) return;
-    if (update.snapshot === null) {
-      latest.delete(sessionId);
-      emit(update);
-      return;
-    }
-    // The lane publishes a thread only when what its state is made of changed (session-lane.ts), so nothing here
-    // re-encodes the state to find that out; the lane store keeps every unchanged row and field of a state it is handed.
-    const { readTraceId, ...baseline } = update;
-    latest.set(sessionId, baseline);
-    reportTranscriptRead(sessionId, readTraceId, 'ipc-send');
-    emit(update);
-  };
-  session.subscribeSessionStates(receive);
-  onAttached((id) => {
-    if (!visible.has(id) || latest.get(id)?.frameSource === 'live') return;
-    // Current-cursor restore emits no new fold. The lane defers if a snapshot or missed events still owe a fold.
-    const client = connection.protocolClient();
-    const subscription = client?.threadSubscription(id);
-    if (subscription?.followed) {
-      session.requestSessionStateResync(id);
-    }
-  });
-  // A thread nothing in this window shows or reads is not projected at all.
-  session.setInterest(
-    (sessionId) =>
-      visible.has(sessionId) ||
-      reads.has(sessionId) ||
-      recoveries.has(sessionId) ||
-      [...readTraces.values()].some((pending) => pending.sessionId === sessionId)
-  );
+  const states = createSessionStates(connection, lanes);
 
   return {
     // ── the lists ──
@@ -317,29 +207,11 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
           ? Math.min(transcriptItemLimit, TRANSCRIPT_WINDOW_MAX_ITEMS)
           : undefined;
       const traceId = typeof readTraceId === 'string' && readTraceId ? readTraceId : undefined;
-      if (traceId) rememberReadTrace(traceId, id);
-      // Reads live beside the visibility filter: the frame a read publishes must pass it even when no pane shows the session yet.
-      return reads.run(id, () => withDirectErrors(session.prefetchSession(id, limit, traceId)));
+      return states.read(id, traceId, () => withDirectErrors(session.prefetchSession(id, limit, traceId)));
     },
     readTranscriptHistory: async (sessionId, request) =>
       withDirectErrors((await session.chat()).readTranscriptHistory(trimmed(sessionId), request, true)),
-    async setVisibleSessions(sessionIds) {
-      const ids = requiredSessionIds(sessionIds);
-      visible.clear();
-      for (const id of ids) visible.add(id);
-      const released = releaseHiddenSessionStateEntries(visible, [latest], (sessionId) =>
-        emit({ sessionId, snapshot: null } as unknown as DesktopSessionStateUpdate)
-      );
-      if (released.length > 0) {
-        console.info(
-          `[mixdog-lane] baseline released count=${released.length} visible=${ids.length} ids=${released
-            .slice(0, 6)
-            .map((sessionId) => sessionId.slice(-8))
-            .join(',')}`
-        );
-      }
-      return (await svc<unknown>('setVisibleSessions', [filterSessionIds(ids), ++visibleVersion])) === true;
-    },
+    setVisibleSessions: (sessionIds) => states.setVisible(sessionIds),
 
     // ── the states ──
     getSnapshot: async () => shell.get(),
@@ -350,32 +222,8 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
         if (!isNoDelta(encoder.encode(snapshot))) listener(snapshot);
       });
     },
-    subscribeSessionState(listener) {
-      stateListeners.add(listener);
-      return () => void stateListeners.delete(listener);
-    },
+    subscribeSessionState: (listener) => states.subscribe(listener),
     sessionStreamPosition: async (sessionId) => connection.protocolClient()?.feedPosition(trimmed(sessionId)) ?? null,
-    resyncSessionState(sessionId, options) {
-      const id = String(sessionId || '');
-      if (!isSessionId(id) || session.transcriptPending(id)) return;
-      const held = latest.get(id);
-      if (options?.cachedOnly) {
-        if (visible.has(id) && held?.frameSource === 'live') receive(held);
-        return;
-      }
-      // `fresh`: the existing fold projected anew, with no transcript fetched (the held frame may show a request the client
-      // no longer holds). Without a fold nothing is published; one bounded read is attempted, which no caller waits on.
-      if (options?.fresh) {
-        const before = latest.get(id);
-        session.requestSessionStateResync(id);
-        if (latest.get(id) !== before) return Promise.resolve(true);
-        return Promise.race([
-          session.prefetchSession(id).catch(() => false),
-          new Promise<boolean>((resolve) => setTimeout(resolve, SESSION_RECOVERY_COALESCE_MS, false)),
-        ]);
-      }
-      if (held) receive(held);
-      else requestRecovery(id);
-    },
+    resyncSessionState: (sessionId, options) => states.resync(sessionId, options),
   };
 }

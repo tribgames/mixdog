@@ -3,7 +3,14 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 
-test('a call diff draws the changes pane rows; a re-render keeps rows and selection while copy and changed patches stay current', async (t) => {
+const patchFor = (prefix) =>
+  'diff --git a/sample.ts b/sample.ts\n--- a/sample.ts\n+++ b/sample.ts\n@@ -1,20 +1,20 @@\n' +
+  Array.from({ length: 20 }, (_, index) => `-const before${index} = ${index};`).join('\n') +
+  '\n' +
+  Array.from({ length: 20 }, (_, index) => `+const ${prefix}${index} = ${index + 1};`).join('\n') +
+  '\n';
+
+async function mountDiff(t) {
   const { root, document, window } = installTestDom(t, {
     rootId: 'root',
     jsdom: { pretendToBeVisual: true },
@@ -19,16 +26,13 @@ test('a call diff draws the changes pane rows; a re-render keeps rows and select
     },
   });
   const { CodeDiff } = await import('./transcript-diff');
-  const patchFor = (prefix) =>
-    'diff --git a/sample.ts b/sample.ts\n--- a/sample.ts\n+++ b/sample.ts\n@@ -1,20 +1,20 @@\n' +
-    Array.from({ length: 20 }, (_, index) => `-const before${index} = ${index};`).join('\n') +
-    '\n' +
-    Array.from({ length: 20 }, (_, index) => `+const ${prefix}${index} = ${index + 1};`).join('\n') +
-    '\n';
-  const patch = patchFor('after');
-  await act(async () => root.render(React.createElement(CodeDiff, { patch })));
-  // The same renderer as the session changes pane: one number column, a sign
-  // column, then code.
+  const render = (patch) => act(async () => root.render(React.createElement(CodeDiff, { patch })));
+  return { document, window, copied, render };
+}
+
+test('a call diff draws the changes pane rows: a number column, a sign column, then code', async (t) => {
+  const { document, render } = await mountDiff(t);
+  await render(patchFor('after'));
   const diff = document.querySelector('.code-diff .inline-diff');
   assert.ok(diff);
   assert.match(diff.textContent, /before19/);
@@ -44,6 +48,14 @@ test('a call diff draws the changes pane rows; a re-render keeps rows and select
     ['del', '1', '\u2212']
   );
   assert.deepEqual([rows[20].dataset.kind, rows[20].querySelector('.inline-diff-mk').textContent], ['add', '+']);
+});
+
+test('re-rendering the same patch keeps the rows and the selection', async (t) => {
+  const { document, window, render } = await mountDiff(t);
+  const patch = patchFor('after');
+  await render(patch);
+  const diff = document.querySelector('.code-diff .inline-diff');
+  const rows = [...diff.querySelectorAll('.inline-diff-row')];
   const text = diff.textContent;
   const selection = window.getSelection();
   const range = document.createRange();
@@ -53,15 +65,21 @@ test('a call diff draws the changes pane rows; a re-render keeps rows and select
   const selectedText = selection.toString();
   assert.ok(selectedText);
   for (let pass = 0; pass < 3; pass += 1) {
-    await act(async () => root.render(React.createElement(CodeDiff, { patch: `${patch}` })));
+    await render(`${patch}`);
     assert.equal(document.querySelector('.code-diff .inline-diff'), diff);
     assert.equal(diff.textContent, text);
     assert.equal(selection.toString(), selectedText);
   }
+});
+
+test('the copy control and the rows follow a changed patch', async (t) => {
+  const { document, copied, render } = await mountDiff(t);
+  const patch = patchFor('after');
+  await render(patch);
   await act(async () => document.querySelector('.diff-copy').click());
   assert.equal(copied.at(-1).trim(), patch.trim());
   const updated = patchFor('revised');
-  await act(async () => root.render(React.createElement(CodeDiff, { patch: updated })));
+  await render(updated);
   assert.match(document.querySelector('.code-diff .inline-diff').textContent, /revised19/);
   assert.doesNotMatch(document.querySelector('.code-diff .inline-diff').textContent, /after19/);
   await act(async () => document.querySelector('.diff-copy').click());

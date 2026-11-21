@@ -240,7 +240,7 @@
   height: 1px;
   margin: 4px 8px;
   border: 0;
-  background: var(--border, rgba(255, 255, 255, 0.08));
+  background: var(--mx-border-muted);
 }
 .route-sheet-row {
   height: 36px;
@@ -1314,7 +1314,7 @@
   top: calc(100% + 6px);
   right: 0;
   /* One compact fixed width. */
-  width: var(--session-status-card-width, 220px);
+  width: 220px;
   max-width: calc(100vw - 24px);
   display: grid;
   grid-template-columns: 1fr;
@@ -1398,5 +1398,5 @@
 .model-option-row .model-row-unavailable {
   margin-left: auto;
   color: var(--mx-warning);
-  font-size: var(--mx-font-small, 12px);
+  font-size: 12px;
 }

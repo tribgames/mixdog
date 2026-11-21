@@ -9,8 +9,4 @@ export function clampDesktopPanelWidth(value: number, minWidth: number, maxWidth
   return Math.min(maxWidth, Math.max(minWidth, Math.round(Number.isFinite(value) ? value : minWidth)));
 }
 
-/* The native desktop remains fully responsive when its real window narrows.
-   Remote browsers use DESKTOP_WINDOW_DEFAULT_WIDTH as a virtual projection
-   viewport, so phone screens scale this desktop composition instead of
-   activating the native window's narrow layout bands. */
 export const DESKTOP_WINDOW_MIN_WIDTH = 400;

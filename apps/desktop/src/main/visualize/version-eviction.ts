@@ -1,7 +1,3 @@
-/**
- * The version budget of one session: per-tab and per-session caps, oldest
- * first, never dropping a tab's newest version or a pinned (shown) one.
- */
 import type { VisualizeVersion } from './versions';
 
 type Kept = Pick<VisualizeVersion, 'n' | 'at' | 'bytes'>;

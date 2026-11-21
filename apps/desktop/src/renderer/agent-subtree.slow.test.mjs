@@ -6,13 +6,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// The Leads rows sit under the bot rows with no visual foreignness: the same
-// pixel face (a grey pup) in the same avatar box, the provider as a small
-// badge where Mixy's star sits, the same title, 2-line muted preview, time and
-// spinner / "!" in the same places, and the same row height. Real CSS and
-// components in headless Chrome at the default and the narrow pane widths.
-// MIXDOG_QA_DIR keeps the screenshots (harmony-*.png).
-
 const lazyChunkBoundary = {
   name: 'lazy-chunk-boundary',
   setup(pluginBuild) {

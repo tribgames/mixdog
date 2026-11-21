@@ -20,6 +20,8 @@ import {
   judgeFocusLock,
 } from './scenario-focus-input';
 import { foregroundHwnd, nativeHwnd, imeConversionMode } from './scenario-fixtures';
+import { windowIdByTitle } from './window-listing';
+import { FOCUS_LOCK_TARGET_TITLE } from './scenario-fixture-html';
 import type { ScenarioGroup } from './scenario-context';
 import {
   FOCUS_LOCK_EXCURSION_MS,
@@ -28,7 +30,6 @@ import {
   FOCUS_LOCK_QUIET_TIMEOUT_MS,
   FOCUS_LOCK_SETTLE_MS,
   FOCUS_LOCK_STEPS,
-  focusLockTargetLine,
   bringSentinelForward,
   focusSentinelField,
   handBackForeground,
@@ -845,10 +846,10 @@ export const inputScenarios: ScenarioGroup = {
           await waitForFocusLockTarget(target.statePath);
           const listed = await eventually(
             async () => (await command({ action: 'list_windows' }, sessionId)).text,
-            (text) => Boolean(focusLockTargetLine(text)),
+            (text) => Boolean(windowIdByTitle(text, FOCUS_LOCK_TARGET_TITLE)),
             30_000
           );
-          const targetWindowId = focusLockTargetLine(listed).match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '';
+          const targetWindowId = windowIdByTitle(listed, FOCUS_LOCK_TARGET_TITLE);
           assert.ok(targetWindowId, listed);
           const targetHwnd = Number.parseInt(targetWindowId.slice('hwnd:0x'.length), 16);
           const home = await openFocusLockSentinel(windows);
@@ -899,10 +900,6 @@ export const inputScenarios: ScenarioGroup = {
           progress('S48 taking the foreground for its sentinel window; it is handed back within a few seconds');
           try {
             await bringSentinelForward(stepCommand('bring the sentinel forward'), homeSession, home);
-            // The control: with the sentinel in front and no agent action (so
-            // no lock) running, the target's own self-activation must win, or
-            // a target that merely failed to activate would pass below. Only
-            // the OS watch proves it; the fixture's focused flag does not.
             const control = await targetControlActivation(target.statePath, watch, targetHwnd);
             if (!control.took) {
               throw new Error(
@@ -1017,14 +1014,6 @@ export const inputScenarios: ScenarioGroup = {
             seen.armed_at > 0 && seen.armed_at <= (runs[0]?.sentAt ?? 0),
             `the sentinel never held both the foreground and the keyboard focus before the first action: ${JSON.stringify(seen.changes)}`
           );
-          // A Chromium target's UIA provider can raise it during the call, which
-          // no lock refuses; the contract is that every such excursion is the
-          // action's, ends with the sentinel holding both foreground and focus
-          // again, within a bound, and nothing is left stolen. Whether the
-          // target took the foreground is the OS watch's call, not the
-          // fixture's focus flags (judgeFocusLock). The target's state is read
-          // once the keys typed into the sentinel had time to land, so a key
-          // that reached the target instead has too.
           const typed = await eventually(
             async () => [...(await sentinelText(home))].filter((character) => character === FOCUS_LOCK_KEY).length,
             (count) => count >= seen.typed.length,

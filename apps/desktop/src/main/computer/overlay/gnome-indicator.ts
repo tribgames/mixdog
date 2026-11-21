@@ -1,11 +1,4 @@
-/**
- * The "Computer in use" pill on GNOME Wayland. A client window cannot opt out
- * of keyboard focus there, so an Electron overlay would take focus from the
- * window an agent is typing into; the shell extension draws the pill instead
- * (it cannot take focus or input) and this keeps it in step with the overlay
- * presentation. The extension hides the pill unless refreshed, so it is re-sent
- * while visible and a dead app cannot leave it behind.
- */
+/** On GNOME Wayland a client window cannot opt out of keyboard focus, so the shell extension draws the pill; it hides the pill unless refreshed. */
 import { gnomeSetIndicator, type GnomeIndicatorSpec } from '../host/gnome-helper';
 import type { ComputerUseOverlayPresentation } from './model';
 

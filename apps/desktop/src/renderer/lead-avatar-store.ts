@@ -5,10 +5,6 @@ import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 
 const LEGACY_STORAGE_KEY = 'mixdog.leadAvatar';
 
-/** The one pixel face every Lead row on the bot page wears. The HOST stores it
- *  (getLeadAppearance / setLeadAppearance), so the desktop and every paired
- *  phone show the same face; a change reaches the others through the existing
- *  settings-changed event. Missing or invalid → the neutral grey pup. */
 const DEFAULT_LEAD_AVATAR: MascotAvatarValue = Object.freeze({
   kind: 'mascot',
   species: 'shepherd',

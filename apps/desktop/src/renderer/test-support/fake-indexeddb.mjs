@@ -1,7 +1,3 @@
-// A named-database IndexedDB for renderer tests: get / put / delete on object
-// stores, values structured-cloned like the real one (so a CryptoKey survives),
-// requests that settle on later tasks, and readwrite transactions that run one
-// after another, as the real ones do on a store.
 const later = (fn) => setTimeout(fn, 0);
 
 export function fakeIndexedDB() {

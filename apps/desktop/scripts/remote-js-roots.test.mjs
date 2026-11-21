@@ -135,7 +135,7 @@ test('the packages the authoring contract lets a script require are roots though
   assert.deepEqual([...deriveRemoteRoots({ packageRootDir: root }).roots.keys()].sort(), ['@scope/img', 'pptxgenjs']);
 });
 
-test('a reached dependency missing from the lockfile or the install fails; only inapplicable ones may be absent', () => {
+test('a reached dependency missing from the lockfile fails; an optional peer may be absent', () => {
   const missingOptional = {
     ...lock,
     packages: {
@@ -170,7 +170,9 @@ test('a reached dependency missing from the lockfile or the install fails; only 
     },
   };
   assert.doesNotThrow(() => trimManifest({ manifest, lock: optionalPeer, roots: ['a'] }));
+});
 
+test('an installed tree missing a reached dependency fails; only inapplicable optional ones may be absent', () => {
   const pkg = makeTempDirSync('installed-tree');
   write(pkg, 'package.json', JSON.stringify({ dependencies: { a: '1' } }));
   write(

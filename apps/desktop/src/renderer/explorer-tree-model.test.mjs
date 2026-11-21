@@ -1,7 +1,3 @@
-// Explorer tree-shape cover: the pure directory-map transitions the Files pane
-// runs on every listing, refresh and auto-reveal. The rules pinned here are the
-// ones a rendered tree cannot show directly — which map identity survives a
-// no-op, and which directory a reveal touches next.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 

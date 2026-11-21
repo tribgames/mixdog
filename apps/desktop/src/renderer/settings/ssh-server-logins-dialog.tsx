@@ -1,8 +1,3 @@
-// "Manage server logins": the provider logins stored on a server whose models
-// run with the server's own accounts. Every action runs on the server's
-// daemon through main; a subscription login opens in this PC's browser and
-// its redirect reaches the server through a forwarded callback port, or is
-// pasted here.
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 
 import type {
@@ -12,20 +7,16 @@ import type {
   DesktopSshServerLogins,
 } from '../../shared/contract-ssh';
 import {
-  sshServerLoginBegin,
-  sshServerLoginCancel,
-  sshServerLoginComplete,
   sshServerLoginLogout,
   sshServerLoginRemoveCustom,
   sshServerLoginSaveKey,
-  sshServerLoginStatus,
   sshServerLogins,
-  subscribeSshServerLoginUpdated,
 } from '../connections-core-api';
 import { t } from '../i18n';
 import { ConfirmDialog, ConnDialog } from './connection-dialogs';
 import { followSettingsReadConnection, startSettingsReadRecovery } from './read-recovery';
-import { isConnectFirstError, isUnknownSshLoginFlow, sshErrorText } from './ssh-error-text';
+import { isConnectFirstError, sshErrorText } from './ssh-error-text';
+import { useSshServerLoginFlow } from './use-ssh-server-login-flow';
 
 const NO_SERVER_LOGINS: DesktopSshServerLogins = {
   connected: false,
@@ -242,35 +233,10 @@ function KeyForm({
 
 export function SshServerLoginsDialog({ host, onClose }: { host: DesktopSshHost; onClose(): void }) {
   const { logins, refresh } = useServerLogins(host.id);
-  const [flow, setFlow] = useState<DesktopSshServerLoginFlow | null>(null);
-  const [flowName, setFlowName] = useState('');
   const [keyFor, setKeyFor] = useState<DesktopSshServerLogin | null>(null);
   const [removing, setRemoving] = useState<DesktopSshServerLogin | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [pasteError, setPasteError] = useState('');
-  const flowRef = useRef<DesktopSshServerLoginFlow | null>(null);
-  const mounted = useRef(true);
-
-  const cancelFlow = (flowId: string): void => {
-    void Promise.resolve(sshServerLoginCancel(host.id, flowId)).catch(() => undefined);
-  };
-  const cancelPending = (): void => {
-    const pending = flowRef.current;
-    if (pending?.state !== 'pending') return;
-    flowRef.current = null;
-    cancelFlow(pending.flowId);
-  };
-  // A login still pending when the dialog goes is cancelled: its forward
-  // closes. One whose start answers only after that is cancelled then.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once, at unmount.
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      cancelPending();
-    };
-  }, []);
 
   /** A failed call says why. A server that disconnected meanwhile is not an
    *  error to read: the list is read again and shows the connect-first note,
@@ -283,79 +249,13 @@ export function SshServerLoginsDialog({ host, onClose }: { host: DesktopSshHost;
     }
     setError(sshErrorText(reason, host.name));
   };
-
-  /** A status answer: done refreshes the list, a failure says why. */
-  const finish = (next: DesktopSshServerLoginFlow): void => {
-    flowRef.current = null;
-    setFlow(null);
-    setPasteError('');
-    if (next.state === 'complete') refresh();
-    else if (next.state !== 'cancelled') setError(next.error || t('The sign-in did not finish.'));
-  };
-
-  /** A status or paste answer: only the active login's, in a mounted dialog. */
-  const settle = (next: DesktopSshServerLoginFlow): void => {
-    if (!mounted.current || flowRef.current?.flowId !== next.flowId) return;
-    if (next.state === 'pending') {
-      const pending = { ...flowRef.current, forwarded: next.forwarded };
-      flowRef.current = pending;
-      setFlow(pending);
-      return;
-    }
-    finish(next);
-  };
-
-  const pendingId = flow?.state === 'pending' ? flow.flowId : '';
-  // biome-ignore lint/correctness/useExhaustiveDependencies: follows the pending login only.
-  useEffect(() => {
-    if (!pendingId) return undefined;
-    let live = true;
-    let pushed = 0;
-    const stopPush = subscribeSshServerLoginUpdated((update) => {
-      if (live && update.id === host.id && update.flow.flowId === pendingId) {
-        pushed += 1;
-        settle(update.flow);
-      }
-    });
-    const recovery = startSettingsReadRecovery(
-      async (signal) => {
-        const seen = pushed;
-        try {
-          const next = await sshServerLoginStatus(host.id, pendingId);
-          // A pending push can supersede another pending view, but not a
-          // terminal result for the same operation.
-          if (live && !signal.aborted && next?.flowId === pendingId && (next.state !== 'pending' || seen === pushed))
-            settle(next);
-        } catch (reason) {
-          if (!live || signal.aborted || flowRef.current?.flowId !== pendingId) return;
-          if (isConnectFirstError(reason)) {
-            cancelPending();
-            setFlow(null);
-            setPasteError('');
-            report(reason);
-          } else if (isUnknownSshLoginFlow(reason)) {
-            // The server no longer owns this flow. There is nothing to cancel.
-            flowRef.current = null;
-            setFlow(null);
-            setPasteError('');
-            report(reason);
-          }
-        }
-      },
-      3_000,
-      true,
-      true
-    );
-    const stopLink = followSettingsReadConnection(window.mixdogDesktop, recovery);
-    window.addEventListener('focus', recovery.replace);
-    return () => {
-      live = false;
-      stopPush?.();
-      stopLink?.();
-      recovery.stop();
-      window.removeEventListener('focus', recovery.replace);
-    };
-  }, [host.id, pendingId]);
+  const { flow, flowName, pasteError, begin, paste } = useSshServerLoginFlow({
+    hostId: host.id,
+    hostName: host.name,
+    refresh,
+    setError,
+    report,
+  });
 
   const act = (action: () => Promise<unknown>, after?: () => void): void => {
     setBusy(true);
@@ -374,45 +274,13 @@ export function SshServerLoginsDialog({ host, onClose }: { host: DesktopSshHost;
       setKeyFor(provider);
       return;
     }
-    cancelPending();
-    setFlow(null);
     setKeyFor(null);
     setBusy(true);
     setError('');
-    setPasteError('');
-    void Promise.resolve(sshServerLoginBegin(host.id, provider.id))
-      .then((started) => {
-        if (!started) return;
-        if (!mounted.current) {
-          if (started.state === 'pending') cancelFlow(started.flowId);
-          return;
-        }
-        setFlowName(provider.name);
-        if (started.state === 'pending') {
-          flowRef.current = started;
-          setFlow(started);
-        } else finish(started);
-      })
+    void begin(provider)
       .catch(report)
       .finally(() => setBusy(false));
   };
-
-  const paste = (address: string, form: HTMLFormElement): void => {
-    const pending = flowRef.current;
-    if (!pending) return;
-    setPasteError('');
-    void Promise.resolve(sshServerLoginComplete(host.id, pending.flowId, address))
-      .then((next) => {
-        if (next?.flowId !== pending.flowId || !mounted.current || flowRef.current?.flowId !== pending.flowId) return;
-        form.reset();
-        settle(next);
-      })
-      .catch((reason: unknown) => {
-        if (mounted.current && flowRef.current?.flowId === pending.flowId)
-          setPasteError(sshErrorText(reason, host.name));
-      });
-  };
-
   let body = <p className="conn-note">{t('Loading…')}</p>;
   if (logins && !logins.providers) {
     body = <p className="conn-note">{t('Connect to {{name}} to manage its logins.', { name: host.name })}</p>;

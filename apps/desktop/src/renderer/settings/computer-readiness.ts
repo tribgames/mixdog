@@ -1,8 +1,3 @@
-// Computer Use readiness as list rows: one pure mapping from what the main
-// process reads (Linux capabilities, macOS grants, Windows PC access) to what
-// the detail dialog shows. Windows needs no grant for Computer Use itself; its
-// one row is the optional PC access the phone uses on admin prompts and the
-// lock screen.
 import type {
   DesktopComputerCapability,
   DesktopComputerPermissionPane,

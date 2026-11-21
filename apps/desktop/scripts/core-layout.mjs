@@ -25,11 +25,8 @@ export const JS_RUNTIME_MANIFEST = 'js-runtime.json';
 /** Where the desktop's real-file modules live, relative to `resources/`. */
 export const UNPACKED_NODE_MODULES = 'runtime.asar.unpacked/node_modules';
 export const PACKAGE_DIR = 'mixdog';
-/** The packaged Office templates: the one source is the Office engine crate's assets, and the engine reads
- *  `assets/templates` beside the running executable (mixdog-office-design `Environment::process`). `mixdogd`
- *  runs the engine in `mixdogd ext-worker` (the same executable), so the folder sits beside `mixdogd` in every
- *  layout: `resources/core/`, `<isoRoot>/core/`, the dev binary's folder, the remote version directory (the
- *  bundle's `payload/` entries move beside the binary) and `native-bin/<platform>-<arch>/`. */
+/** The Office engine reads `assets/templates` beside the running executable (mixdog-office-design `Environment::process`),
+ *  and `mixdogd ext-worker` is that executable, so the folder sits beside `mixdogd` in every layout. */
 export const OFFICE_TEMPLATES_DIR = 'assets/templates';
 export const OFFICE_TEMPLATES_SOURCE = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -59,10 +56,8 @@ export const officeTemplateProblems = (executableDir) =>
   );
 export const ORT_PACKAGE = 'onnxruntime-node';
 
-/** Packages the desktop's interpreter loads that no entry point names: the Linux app runs the JS on Electron's own
- *  binary, whose system GLib breaks sharp's native addon, so `src/runtime/shared/sharp-electron-linux.mjs` routes
- *  sharp to its WebAssembly build by name (the remote's plain Node keeps the native addon). They are roots of a
- *  desktop install beside the ones the entry points reach. */
+/** Roots no entry point names: on Linux Electron's system GLib breaks sharp's native addon, so
+ *  `src/runtime/shared/sharp-electron-linux.mjs` loads its WebAssembly build by name. */
 export const desktopExtraRoots = (platform) => (platform === 'linux' ? ['@img/sharp-wasm32'] : []);
 
 /** What `mixdogd` reads from the package root as plain files. Directories must hold at least one file. The

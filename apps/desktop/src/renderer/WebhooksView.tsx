@@ -56,6 +56,35 @@ export function webhookSourceLabel(parser: string): string {
   return parserOptions().find((option) => option.value === parser)?.label ?? parser;
 }
 
+function webhookRowDetail({
+  byBot,
+  botName,
+  executorName,
+  row,
+  paused,
+  secretMissing,
+}: {
+  byBot: boolean;
+  botName: string;
+  executorName: string;
+  row: { eventAt: number | null; parser: string };
+  paused: string;
+  secretMissing: boolean;
+}): string {
+  let event = t('No events');
+  if (row.eventAt !== null) {
+    event = byBot
+      ? t('{{source}} events · Latest {{time}}', {
+          source: webhookSourceLabel(row.parser),
+          time: relativeTime(row.eventAt),
+        })
+      : relativeTime(row.eventAt);
+  }
+  return [byBot ? '' : botName, executorName, event, paused, secretMissing ? t('secret missing') : '']
+    .filter(Boolean)
+    .join(' · ');
+}
+
 interface WebhookDraft {
   name: string;
   description: string;
@@ -75,10 +104,7 @@ function webhookDraft(webhook: RecordValue | undefined, defaultAgent: string): W
   return {
     name: String(source.name || ''),
     description: String(source.description || ''),
-    // Stored rows carry no parser default (webhooks.endpoints.parser is
-    // nullable); the store's own reader substitutes 'github' for a missing
-    // value, so the editor must open a legacy row as the same parser the list
-    // shows — and save it back unchanged.
+    // webhooks.endpoints.parser is nullable and the store's reader treats a missing value as 'github'.
     parser: String(source.parser || 'github'),
     agent: automationAgentOf(webhook, defaultAgent),
     executor: executorAgentOf(webhook),
@@ -93,11 +119,6 @@ function endpointUrl(publicBase: string, name: string): string {
   return publicBase ? `${publicBase.replace(/\/+$/, '')}/webhook/${encodeURIComponent(name)}` : '';
 }
 
-// Client-side secret mint for NEW webhooks: showing the value (with copy)
-// inside the editor beats the old one-shot post-save reveal. Same shape as
-// the store's randomBytes(24) hex.
-// Only a cryptographic source may mint a signing secret: without one the
-// caller surfaces the failure instead of issuing a guessable secret.
 function generateSigningSecret(): string {
   const bytes = new Uint8Array(24);
   if (typeof globalThis.crypto?.getRandomValues !== 'function') {
@@ -717,26 +738,15 @@ export function WebhooksPane({
               const bot = bots.label(owner);
               // webhookRoutineRows keeps the routine tab's state (last run, auto-pause).
               const row = webhookRoutineRows([webhook], owner)[0];
-              const paused = routinePausedText(webhook, row.pausedAfter);
-              const event =
-                row.eventAt !== null
-                  ? sort === 'bot'
-                    ? t('{{source}} events · Latest {{time}}', {
-                        source: webhookSourceLabel(row.parser),
-                        time: relativeTime(row.eventAt),
-                      })
-                    : relativeTime(row.eventAt)
-                  : t('No events');
               const executor = executorAgentOf(webhook);
-              const detail = [
-                sort === 'bot' ? '' : bot.name,
-                executor ? executors.label(executor) : '',
-                event,
-                paused,
-                webhook.secretSet !== true ? t('secret missing') : '',
-              ]
-                .filter(Boolean)
-                .join(' · ');
+              const detail = webhookRowDetail({
+                byBot: sort === 'bot',
+                botName: bot.name,
+                executorName: executor ? executors.label(executor) : '',
+                row,
+                paused: routinePausedText(webhook, row.pausedAfter),
+                secretMissing: webhook.secretSet !== true,
+              });
               return (
                 <RoutineItem
                   key={name}

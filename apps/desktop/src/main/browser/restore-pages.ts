@@ -1,9 +1,3 @@
-/**
- * Which saved pages a session restore recreates. The host's own blank
- * stand-in and a page the URL policy no longer admits have nothing to come
- * back to and are dropped; a blank tab a person made is theirs and returns
- * as a blank tab.
- */
 import { type BrowserUrlPolicy, normalizePageUrl } from './url-policy';
 
 export function restorablePages<T extends { url: string; standIn?: boolean }>(

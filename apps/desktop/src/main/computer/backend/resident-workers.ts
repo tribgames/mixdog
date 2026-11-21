@@ -1,7 +1,3 @@
-/**
- * The resident worker processes the pool has started and not yet seen exit:
- * what counts against capacity, and what a shutdown waits on.
- */
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 
 export function createResidentWorkers() {

@@ -1,35 +1,5 @@
-// "PC access" (접근 권한): the secure-desktop service as Computer Use setup on
-// Windows grants it. Each moment maps onto one installer operation
-// (secure-desktop/install-request.ts):
-// - the readiness row's Approve (the person is at the PC): one UAC `install`
-//   enrolling every paired phone's delivered key (remote-controller-keys.ts)
-//   and applying the pending revokes; the install also turns on app
-//   delegation. When installed and a phone's delegated enroll was refused in a
-//   way only elevation fixes, Approve new phone enrolls every missing phone
-//   under one UAC instead, the pending revokes in the same key-set write;
-// - a phone delivers its key (pairing): a delegated `enroll`, unelevated and
-//   with no PC prompt (the service shows its own notification);
-// - a phone is unpaired on this PC: one transaction in the same queue as
-//   every enrollment records its key as a pending revoke (durably), runs the
-//   unpair, then a delegated `revoke`; the record goes only once a revoke is
-//   confirmed;
-// - every pairing removal in the service (unpair from any caller, rotate,
-//   recovery) first owes the removed phones' keys there (remote-client-
-//   cache.ts `oweAccess`); this app takes them over into its pending record
-//   before any enrollment, approval or revoke, then settles them there.
-// The rule: a revocation is never lost, and a pending revocation blocks every
-// new enrollment; only a phone paired now is ever enrolled. When a record is
-// damaged, full, or an unpaired phone's key could not be read, the
-// revocations are "unknown": nothing is enrolled until an elevated install,
-// which writes the full key set from the current pairings, resolves it.
-// The phone's Windows password (`approveWithCredential`, docs/remote-screen.md
-// "PC access from the phone") is Approve's twin for when nobody is at the PC:
-// the same decisions in the same queue, authorized by a batch logon instead of
-// a UAC prompt.
-// Whether a key is enrolled is the bridge's `check --controller-key`:
-// `installed` while that key is enrolled in a current install, `not-enrolled`
-// (exit 7) when the current install lacks it.
 // docs/remote-screen.md "PC access: install and enroll moments".
+// The bridge's `check --controller-key` answers `not-enrolled` (exit 7) when the current install lacks the key.
 import { constants as fsConstants } from 'node:fs';
 import { copyFile, readFile } from 'node:fs/promises';
 import { writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
@@ -117,10 +87,6 @@ const NEEDS_ELEVATION = new Set(['delegation-disabled', 'delegation-denied']);
 const CANCELLED = 'the phone’s session ended before the request ran';
 const CREDENTIAL_BUSY = 'another phone password request is already running on the PC';
 
-/** The row's answer for an installer outcome; anything the UAC path should
- *  not produce reads as failed, naming it in the (English, log-only) detail.
- *  The installer's exit code goes along, which the row shows (the elevated
- *  installer's own JSON `error` cannot reach this process through UAC). */
 function approvalOf({ outcome, detail, exitCode }: SecureDesktopKeyChangeResult): DesktopPcAccessApproval {
   if (APPROVED.has(outcome)) return { outcome: 'done' };
   const exit = exitCode === undefined ? {} : { exitCode };
@@ -239,15 +205,6 @@ function createRevocationLedger(deps: PcAccessDeps) {
   return { pairedKeys, missingKeys, drainDelegated, absorb, revokeOwedNow };
 }
 
-/**
- * The one authorized install-or-enroll, for Approve (UAC, no `credential`)
- * and for a phone's Windows password (`credential`, with the `phone` that
- * sent it): the same state decisions and the same revocation rules, so the
- * credential path bypasses none of them. Every recorded revoke (and any an
- * unknown record lost) is applied in the same call, and the pending record
- * is cleared only once that call succeeded. Call inside the access queue.
- * `needsElevation` is cleared of the keys a successful call enrolled.
- */
 async function authorizeInstall(
   {
     deps,
@@ -441,12 +398,6 @@ function parsePending(text: string): PcAccessPendingState | null {
   }
 }
 
-/**
- * A damaged or unreadable record: its revocations are unknown. A copy is kept
- * aside (`<file>.damaged-<marker>`), then the file is replaced by the unknown
- * state. Copying first (not renaming) leaves no moment without a file: if
- * either step fails the damaged file stays and reads as unknown again.
- */
 async function setAside(file: string, why: string): Promise<PcAccessPendingState> {
   const state: PcAccessPendingState = { keys: [], unknown: Date.now() };
   console.error(`[mixdog-pc-access] pending revocations ${why}; enrollment waits for PC access to be approved again`);

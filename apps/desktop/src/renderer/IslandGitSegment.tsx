@@ -1,9 +1,3 @@
-// The composer island's git segment, last in the pill: one button that
-// expands the island into its Git tab, which lists Create PR · Commit · push
-// · Commit, each with its own Run that sends that request at once, plus
-// Source Control. Nothing is pre-selected: the tab is three actions, not a
-// setting. Shown in a git checkout while the files segment has files or the
-// branch has commits ahead of its upstream; never shown outside a repository.
 import { ArrowUp, GitCommitHorizontal, GitPullRequest, List, Play } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 

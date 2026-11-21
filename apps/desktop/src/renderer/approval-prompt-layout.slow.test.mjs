@@ -1,9 +1,3 @@
-// Layout invariants of the docked approval card in a real Chrome: the card
-// sits in the composer island above the composer and never breaks — equal
-// button columns exactly as wide as the preview, never wider than the
-// composer, no horizontal overflow for long names, chains, URLs, paths, many
-// files or long translated labels, a stacked row in a narrow pane, and the
-// phone sheet's 44px stacked buttons with the primary on top.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test, { after } from 'node:test';
@@ -318,11 +312,6 @@ async function buildScript() {
   return bundle.outputFiles.find((file) => file.path.endsWith('.js')).text;
 }
 
-// One tab for the file. Every test still gets a fresh document and a fresh
-// evaluation of the bundle (setContent + addScriptTag), so every module-level
-// singleton (lastDecisionAt, the docked-surface registry, the pet reserve, the
-// lazy review module) and all DOM state starts as in a new tab; only the
-// browser launch, the esbuild build and the tab creation are shared.
 let sharedTab = null;
 
 async function page(_t, { phone = false } = {}) {

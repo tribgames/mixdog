@@ -187,6 +187,44 @@ function ResetCreditPanel({
   );
 }
 
+/** "Resets in X" for an account the runtime holds under a limit; empty when it
+ *  has none (a credit-enabled account at 100% reports no limit). The reset is
+ *  the block's end, else the soonest still-pending reset of an exhausted window. */
+function accountLimitText(account: UsageAccount): string {
+  if (!account.limited) return '';
+  const now = Date.now();
+  const pending = [
+    account.blockedUntil,
+    ...account.windows.filter((window) => (usedPercent(window) ?? 0) >= 100).map((window) => timestamp(window.resetAt)),
+  ].filter((at): at is number => at !== null && at > now);
+  if (!pending.length) return '';
+  return resetText(account.blockedUntil && account.blockedUntil > now ? account.blockedUntil : Math.min(...pending));
+}
+
+/** Optimistic per-provider credit switch: shown until the refreshed dashboard answers. */
+function useCreditSwitch(api: UsageApi | undefined) {
+  const [creditSwitch, setCreditSwitch] = useState<Record<string, boolean>>({});
+  const toggleCredits = async (provider: string, next: boolean) => {
+    if (typeof api?.invokeCapability !== 'function') return;
+    setCreditSwitch((current) => ({ ...current, [provider]: next }));
+    try {
+      await api.invokeCapability({
+        capability: 'updateProviderAccounts',
+        args: [provider, { useCredits: next }],
+      });
+      invalidateSidebarReferenceForMutation('updateProviderAccounts');
+      await refreshUsageDashboard(api, { force: true });
+    } catch (cause) {
+      console.error('Provider credits toggle failed:', cause);
+    }
+    setCreditSwitch((current) => {
+      const { [provider]: _settled, ...rest } = current;
+      return rest;
+    });
+  };
+  return { creditSwitch, toggleCredits };
+}
+
 export function SidebarUsage({
   api = window.mixdogDesktop,
   sidebarOpen = true,
@@ -239,10 +277,6 @@ export function SidebarUsage({
     resetAts,
     refreshedAt: snapshot.refreshedAt,
   });
-  // A seedless first paint announces LOADING until the store reports a live
-  // result or a final unavailable state. Painting "Not connected" while the
-  // very first request is still outstanding claimed an answer nobody has yet.
-  // Cached rows always win: revalidation never downgrades them to Loading.
   const awaitingFirstUsage = !rowsPresent && (snapshot.status === 'idle' || snapshot.status === 'loading');
   const accountPools = useUsageAccountPools(
     api,
@@ -323,22 +357,6 @@ export function SidebarUsage({
       );
     });
 
-  // "Resets in X" for an account the runtime holds under a limit; empty when it
-  // has none (a credit-enabled account at 100% reports no limit). The reset is
-  // the block's end, else the soonest still-pending reset of an exhausted window.
-  const accountLimitText = (account: UsageAccount): string => {
-    if (!account.limited) return '';
-    const now = Date.now();
-    const pending = [
-      account.blockedUntil,
-      ...account.windows
-        .filter((window) => (usedPercent(window) ?? 0) >= 100)
-        .map((window) => timestamp(window.resetAt)),
-    ].filter((at): at is number => at !== null && at > now);
-    if (!pending.length) return '';
-    return resetText(account.blockedUntil && account.blockedUntil > now ? account.blockedUntil : Math.min(...pending));
-  };
-
   const reset = useCodexResetCredit(api, dashboard, sidebarOpen);
   const clearReset = reset.clear;
   // Opening revalidates a stale snapshot only (fresh data inside the TTL paints
@@ -353,27 +371,7 @@ export function SidebarUsage({
       clearReset();
     }
   }, [api, sidebarOpen, statsAvailable, clearReset]);
-  const [creditSwitch, setCreditSwitch] = useState<Record<string, boolean>>({});
-  const toggleCredits = async (provider: string, next: boolean) => {
-    if (typeof api?.invokeCapability !== 'function') return;
-    setCreditSwitch((current) => ({ ...current, [provider]: next }));
-    const settle = () =>
-      setCreditSwitch((current) => {
-        const { [provider]: _settled, ...rest } = current;
-        return rest;
-      });
-    try {
-      await api.invokeCapability({
-        capability: 'updateProviderAccounts',
-        args: [provider, { useCredits: next }],
-      });
-      invalidateSidebarReferenceForMutation('updateProviderAccounts');
-      await refreshUsageDashboard(api, { force: true });
-    } catch (cause) {
-      console.error('Provider credits toggle failed:', cause);
-    }
-    settle();
-  };
+  const { creditSwitch, toggleCredits } = useCreditSwitch(api);
   return (
     <section className="sidebar-usage" aria-label={t('Usage')}>
       {/* Same title-row grammar as the rail panels (Sessions/Projects…):

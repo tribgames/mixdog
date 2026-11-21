@@ -182,10 +182,6 @@ export function ReadyEditorPane(props: EditorPaneProps) {
   const [readyKey, setReadyKey] = useState('');
   const [expiredKey, setExpiredKey] = useState('');
   const [revealed, setRevealed] = useState(false);
-  // The phone paints the file's text first: Monaco's mount is a long task on
-  // its CPU, so it waits until the cover's read answered, then mounts one
-  // frame after the cover shows (PhoneDeferredMount). The cover's expiry runs
-  // from that mount.
   const phone = useMobileRemoteSurface();
   const editorHeld = phone && !textCover.settled;
   useEffect(() => {
@@ -225,10 +221,6 @@ export function ReadyEditorPane(props: EditorPaneProps) {
   );
 }
 
-// Studio readiness includes the lane catalog, which is a provider network
-// read. A slow, rate-limited or offline provider must not hold an opaque cover
-// over a gallery and composer that are already interactive — the pane surfaces
-// a catalog error and a Retry of its own.
 const STUDIO_COVER_MAX_MS = 1_500;
 
 export function ReadyStudioPane(props: React.ComponentProps<typeof StudioPaneComponent>) {
@@ -271,10 +263,6 @@ export function ReadyTerminalPane(props: React.ComponentProps<typeof TerminalPan
     reportBootSurfaceReady('terminal', metricKey, 'shell');
   }, [metricKey]);
   const [readyKey, setReadyKey] = useState('');
-  // A terminal whose PTY host never answers must still expose its shell and
-  // its failure notice. TerminalPane's own reveal fallback dies with the mount
-  // effect, so without this expiry the gate can hold "Loading terminal…"
-  // indefinitely over a perfectly live xterm.
   const [expiredKey, setExpiredKey] = useState('');
   useEffect(() => {
     const timer = window.setTimeout(() => setExpiredKey(metricKey), TERMINAL_COVER_MAX_MS);

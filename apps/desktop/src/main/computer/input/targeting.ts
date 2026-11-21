@@ -1,8 +1,3 @@
-/**
- * Turning a caller's words into one exact window. An app label resolves only
- * when it names a single window; two matches are refused with their candidates
- * rather than guessed, because acting on the wrong window is not recoverable.
- */
 import type { InstalledApps } from '../host/window-reads';
 import type { ComputerWindowRecord } from '../shared/window-transition';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';

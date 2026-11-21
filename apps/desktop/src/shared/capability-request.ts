@@ -62,11 +62,6 @@ export function validateTurnCapabilityArgs(capability: string, args: readonly un
   // A /btw side question: one non-empty question text.
   if (capability === 'askSide') requiredString(args[0], 'side question', MAX_PROMPT_LENGTH);
   if (capability === 'getTurnReviewDiff' && args[0] !== undefined) {
-    // The turn review bar asks for `{ refresh, known, summary, poll }`: whether
-    // to re-read the worktree before diffing, the tag of the review it already
-    // shows, whether a collapsed bar can go without the patch text, and
-    // whether its interval timer (`poll: 'background'`) sent the read.
-    // Anything else is not a review option.
     const options = optionalPlainRecord(args[0]);
     if (
       !options ||

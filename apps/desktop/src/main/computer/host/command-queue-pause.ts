@@ -1,10 +1,3 @@
-/**
- * The gate a queued command waits at while the user holds the desktop. A
- * user-initiated pause parks the request until the desktop is handed back or
- * the pause budget runs out; any other takeover refuses automation outright.
- * Cancelling a session bumps its abort epoch and wakes every waiter so a
- * parked request fails instead of running against a dead session.
- */
 import type { ComputerUseCoordinator } from '../session/coordinator';
 import type { ExecutionState } from './execution-state';
 

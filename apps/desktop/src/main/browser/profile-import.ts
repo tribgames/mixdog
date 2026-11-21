@@ -5,6 +5,7 @@ import { basename, join, resolve, sep } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { app, safeStorage, type Session } from 'electron';
+import { errorMessage } from '../error-message';
 import type { BrowserCookieJar } from './cookie-jar';
 import { CookieSignOutScopes, signOutCookieMatcher } from './cookie-sign-out-scopes';
 import { clearPendingPauses, readVaultFile } from './credential-vault-file';
@@ -153,10 +154,6 @@ export interface NativeCookieRoute {
   returnKey: boolean;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function cleanError(error: unknown): string {
   return errorMessage(error)
     .replace(/[A-Za-z]:\\[^\r\n"]+/g, '[local path]')
@@ -204,6 +201,23 @@ function exactTemporaryJob(root: string, jobId: string): string {
   const target = resolve(base, `job-${jobId}`);
   if (!target.startsWith(`${base}${sep}`)) throw new Error('Import job escaped its temporary root.');
   return target;
+}
+
+function chromeProfiles(userData: string, localState: ChromeLocalState): BrowserImportProfile[] {
+  return Object.entries(localState.profile?.info_cache || {})
+    .filter(([profileId]) => {
+      try {
+        return existsSync(exactProfileDirectory(userData, profileId));
+      } catch {
+        return false;
+      }
+    })
+    .map(([profileId, value]) => ({
+      id: profileId,
+      name: String(value?.name || profileId).trim() || profileId,
+      ...(String(value?.user_name || '').trim() ? { accountEmail: String(value?.user_name || '').trim() } : {}),
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 export class BrowserProfileImportService {
@@ -327,21 +341,7 @@ export class BrowserProfileImportService {
     const userData = this.chromeUserData();
     const localStatePath = join(userData, 'Local State');
     if (!chromeExecutable || !existsSync(localStatePath)) return [];
-    const localState = JSON.parse(await readFile(localStatePath, 'utf8')) as ChromeLocalState;
-    const profiles = Object.entries(localState.profile?.info_cache || {})
-      .filter(([profileId]) => {
-        try {
-          return existsSync(exactProfileDirectory(userData, profileId));
-        } catch {
-          return false;
-        }
-      })
-      .map(([profileId, value]) => ({
-        id: profileId,
-        name: String(value?.name || profileId).trim() || profileId,
-        ...(String(value?.user_name || '').trim() ? { accountEmail: String(value?.user_name || '').trim() } : {}),
-      }))
-      .sort((left, right) => left.name.localeCompare(right.name));
+    const profiles = chromeProfiles(userData, JSON.parse(await readFile(localStatePath, 'utf8')) as ChromeLocalState);
     if (!profiles.length) return [];
     const [passwordImporter, cookieImporter] = await Promise.all([
       this.nativeImporter('passwords'),
@@ -690,10 +690,6 @@ export class BrowserProfileImportService {
     return imported;
   }
 
-  /** The native cookie report, using the saved Chrome key whenever one still
-   *  fits so no UAC prompt appears. A key Chrome rotated, or one that decrypts
-   *  nothing, is discarded: a manual import then elevates once (and saves the
-   *  new key), while an automatic one stops and asks for that manual import. */
   private async readCookieReport(profileId: string, automatic: boolean): Promise<unknown> {
     const read = (route: NativeCookieRoute): Promise<unknown> =>
       this.options.readNativeCookies
@@ -739,10 +735,6 @@ export class BrowserProfileImportService {
     }
   }
 
-  /** Whether the importer build can take a saved key. Only a definitive answer
-   *  is cached per binary: a build that answers, or one that rejects the
-   *  `capabilities` command with an exit code (older builds). A timeout or a
-   *  failure to start is transient: it fails this import and the next one probes again. */
   private async importerReusesKeys(importer: NativeBrowserImporter): Promise<boolean> {
     const known = this.keyReuseSupport.get(importer.sha256);
     if (known !== undefined) return known;

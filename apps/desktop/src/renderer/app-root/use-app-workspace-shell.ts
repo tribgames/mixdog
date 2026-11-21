@@ -30,11 +30,6 @@ export function useAppWorkspaceShell() {
   });
   const [extensionsSection, setExtensionsSection] = useState<ExtensionsSection>('plugins');
   const projectCatalog = useAppProjectCatalog(snapshot);
-  // Persisted panes restore synchronously. Session addresses are reconciled
-  // incrementally after first paint and remain guarded by exact daemon reads.
-  // File editors are normal tabs in the focused pane. The focused leaf is the
-  // single source of truth for the Files highlight and tab shortcuts; a
-  // separate global editor key made a file take over the whole main panel.
   const { focusedPaneSelection, startupNavigationSelection, startFresh } = useStartupPaneSelection(paneWorkspace);
   const startupFocusedPaneSelection = focusedPaneSelection;
   const editorState = useAppEditorState({ paneWorkspace, startupFocusedPaneSelection, bottomPanel });

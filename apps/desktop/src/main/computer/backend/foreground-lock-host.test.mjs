@@ -8,11 +8,6 @@ import {
   nativeLeaseThread,
 } from './foreground-lock-host.ts';
 
-// The lease state machine (deadline, unlock retries, answer and outcome states,
-// quarantine) is the Rust module's and is tested there
-// (native/mixdog-window/src/foreground_lease.rs). These tests run the host's
-// line protocol and its loader over a stand-in for the module's functions.
-
 /** The module's lease functions, scripted: what they answer, what they were asked. */
 function fakeModule() {
   let lease = 0;

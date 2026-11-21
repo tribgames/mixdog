@@ -1,7 +1,3 @@
-// The browser-mode shim's shared state. Every piece of transport state lives on
-// one context object so the modules that own a responsibility (pairing, sync,
-// dispatch, liveness, socket, calls) can be read and tested apart while still
-// seeing the same connection.
 import type {
   DesktopAgentPoolRow,
   DesktopBrowserImportProgress,
@@ -41,12 +37,8 @@ import {
   remotePairingKeys,
   type RemotePairingKeys,
 } from './remote-pairing-recovery';
-import {
-  createRemotePageCache,
-  createRemoteTransportMediaClient,
-  type RemotePageCache,
-  type RemoteTransportMediaClient,
-} from './remote-file-preview';
+import { createRemotePageCache, type RemotePageCache } from './remote-file-preview';
+import { createRemoteTransportMediaClient, type RemoteTransportMediaClient } from './remote-transport-media-client';
 import { createRemoteSessionInbox } from './remote-session-inbox';
 import type { RemoteTransportPeer } from './remote-transport-peer';
 import { createRelayPayloadLimits, showRemoteToast, type PendingCall } from './remote-shim-payload-limit';
@@ -80,26 +72,8 @@ export interface RemoteShimState {
   openingSocket: WebSocket | null;
   openingStartedAt: number;
   retireConnection: ((code?: number, reason?: string) => void) | null;
-  // Last visible-session registration. The relay gates per-session transcript
-  // frames on a PER CLIENT set, and a reconnect starts a fresh client record
-  // with an empty one, so the shim replays this on every reopen.
-  //
-  // It also OUTLIVES the page. On a cold launch nothing names a session until
-  // React has mounted and restored its panes, and only then can the desktop
-  // start reading that transcript — a serial chain the user watches as an
-  // empty conversation for seconds. The set from the last visit names it while
-  // the bundle is still parsing, so the read overlaps the boot.
   lastVisibleSessionIds: string[];
-  // A view-synchronizing peer names the restored set in its FIRST sync,
-  // whatever the panes registered meanwhile. A phone never restores its panes,
-  // so its first React commit registers a fresh New-task pane — before the
-  // socket is even open — and that registration must not replace this set, or
-  // the first sync names nothing and the transcript waits for a second one.
   restoredVisibleSessionIds: string[];
-  // The sessions this page actually paints (use-visible-sessions'
-  // useScreenSessions), apart from the delivery set above that also carries
-  // background observations. The desktop decides notification presence from
-  // it alone; every new leg is told again once it is ready.
   lastScreenSessionIds: string[];
   /** The sessions whose visualize panel the page shows (reported with the screen). */
   visualizePanelIds: string[];
@@ -178,15 +152,6 @@ export interface RemoteShimState {
   mediaSid: string | null;
   legacyVisibleSessionsQueue: Promise<unknown>;
   pendingReconnectNotification: boolean;
-  // Delta-lane resumption (shared/remote-view-resume.ts). The desktop issues a
-  // token with each completed view sync; it stays valid while every decoder
-  // holds a revision that desktop's encoders emitted and still retain — their
-  // latest one, or an older one kept in their bounded revision history (a
-  // frame lost in flight, updates missed while away). The desktop rewinds to
-  // that revision and sends deltas; an unknown or evicted revision gets a full
-  // snapshot instead. A close carries the token (and the decoders) over to the
-  // next connection's first sync; a local decoder gap, resync or reset clears
-  // it, and the epoch voids a sync already in flight.
   viewResumeToken: string | null;
   carriedResumeToken: string | null;
   deltaEpoch: number;
@@ -197,10 +162,7 @@ export interface RemoteShimState {
   // full transcript per flip, while a real gap still recovers immediately.
   lastResyncAt: number;
   trailingResyncTimer: number | null;
-  // NAT/carrier middleboxes silently drop idle WebSockets; the browser
-  // cannot send protocol pings, so an app-level ping/pong detects the
-  // half-dead socket and recycles it, and a foreground/online wake probe
-  // reconnects immediately instead of on the next (hanging) tap.
+  // NAT/carrier middleboxes silently drop idle WebSockets and the browser cannot send protocol pings: an app-level ping/pong detects it.
   heartbeatSentAt: number;
   awaitingPong: boolean;
   wakePongTimer: number | null;
@@ -253,12 +215,6 @@ export interface RemoteShimCollaborators {
   browserApprovalSessionListeners: Set<(sessionIds: string[]) => void>;
   /** The last browser-approval session list the PC sent (each handshake sends one). */
   browserApprovalSessionIds: string[];
-  // Push lanes this browser actually reads. Terminal output, diagnostics and
-  // folder events are produced by DESKTOP activity — a build, a save — and
-  // would reach every paired phone regardless of what it had open (a phone
-  // left connected would receive entire build logs it never displayed).
-  // Registering the lanes stops them at the source. A reconnect replays this
-  // exactly like the visible-session set.
   activeLanes: Set<string>;
   viewBaselines: ReturnType<typeof createRemoteViewBaselineCache>;
   sessionsDecoder: ReturnType<typeof createKeyedListDeltaDecoder<DesktopSessionSummary>>;
@@ -266,10 +222,6 @@ export interface RemoteShimCollaborators {
   rosterCache: ReturnType<typeof createRemoteRosterCache<DesktopSessionSummary>>;
   /** Visualize pages built over this pairing (memory-only). */
   visualizePages: RemotePageCache;
-  // State pushes ride the same identity-prefix items delta the desktop IPC
-  // uses (state-delta.ts): reassemble full snapshots here, and ask the
-  // desktop for a resync when a patch does not match our base revision
-  // (mid-stream join through the relay, missed frame).
   stateDecoder: ReturnType<typeof createSnapshotDeltaDecoder>;
   sessionStateDecoders: Map<string, ReturnType<typeof createSnapshotDeltaDecoder>>;
   compactFrames: ReturnType<typeof createCompactTranscriptExpander>;
@@ -353,11 +305,7 @@ const restoreVisibleSessionIds = (): string[] => {
 /** Read the persisted identity and pairing, then build the context. The
  *  services are absent until the install* functions run. */
 export const createRemoteShimContext = (): RemoteShimContext => {
-  // The relay serves this container under /d/<deviceId>/, which is the ONE
-  // thing an installed web app knows about the desktop it belongs to: an empty
-  // storage container inherits nothing, but the URL its install captured says
-  // whom to ask for approval. The cookie fallback covers a navigation that
-  // landed outside the route.
+  // The relay serves this container under /d/<deviceId>/; the cookie covers a navigation outside the route.
   let serverBase = '';
   let deviceId = '';
   let keys = remotePairingKeys(location.origin, '');

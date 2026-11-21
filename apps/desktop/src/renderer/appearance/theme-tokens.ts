@@ -67,10 +67,6 @@ const ROLE_TOKENS: Record<ThemeRole, TokenRule[]> = {
   'terminal-text': [{ token: '--mx-terminal-fg' }],
 };
 
-/* Specificity, not source order, decides: (0,3,0) beats the light block's
-   (0,2,0) wherever the injected sheet lands, and the skin's own root rules
-   win through the :not() exclusions (a skin keeps its plates and the guarded
-   inks; its contrast guards run on top of the theme). */
 const BASE = ':root[data-mixdog-user-theme][data-mixdog-theme]';
 const SELECTORS: Record<Owner | 'base', string> = {
   base: BASE,

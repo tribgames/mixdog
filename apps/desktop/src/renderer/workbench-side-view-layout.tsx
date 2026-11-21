@@ -8,6 +8,7 @@ import {
   useState,
   type DragEvent as ReactDragEvent,
   type ReactNode,
+  type RefObject,
 } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { drawerCommitIsInstant, usePhoneDrawerInert } from './session-sidebar-drawer-inert';
@@ -80,6 +81,30 @@ function dragPayload(event: ReactDragEvent<HTMLElement>): WorkbenchSideDragPaylo
   if (isViewId(group)) return { type: 'group', id: group };
   const view = event.dataTransfer.getData(WORKBENCH_SIDE_VIEW_MIME);
   return isViewId(view) ? { type: 'view', id: view } : activeWorkbenchSideDrag;
+}
+
+/** Seats the dragged group or view, then ends the drag. */
+function dropSidePayload(
+  payload: WorkbenchSideDragPayload,
+  side: WorkbenchSide,
+  targetRoot: WorkbenchSideViewId | null,
+  placement: WorkbenchSideViewPlacement,
+  onMoveGroup: (
+    sourceRoot: WorkbenchSideViewId,
+    targetSide: WorkbenchSide,
+    targetRoot: WorkbenchSideViewId | null,
+    placement: WorkbenchSideViewPlacement
+  ) => void,
+  onMoveView: (
+    sourceId: WorkbenchSideViewId,
+    targetSide: WorkbenchSide,
+    targetRoot: WorkbenchSideViewId | null,
+    placement: WorkbenchSideViewPlacement
+  ) => void
+): void {
+  if (payload.type === 'group') onMoveGroup(payload.id, side, targetRoot, placement);
+  else onMoveView(payload.id, side, targetRoot, placement);
+  activeWorkbenchSideDrag = null;
 }
 
 export function setWorkbenchSideIconDragImage(event: ReactDragEvent<HTMLButtonElement>): void {
@@ -259,12 +284,7 @@ export function WorkbenchSideIconBar({
         if (!payload) return;
         event.preventDefault();
         const target = targetAt(event.clientX, event.clientY, barDropHint(drop));
-        if (payload.type === 'group') {
-          onMoveGroup(payload.id, side, target?.root ?? null, target?.placement ?? 'after');
-        } else {
-          onMoveView(payload.id, side, target?.root ?? null, target?.placement ?? 'after');
-        }
-        activeWorkbenchSideDrag = null;
+        dropSidePayload(payload, side, target?.root ?? null, target?.placement ?? 'after', onMoveGroup, onMoveView);
         setDrop(null);
       }}
     >
@@ -328,11 +348,6 @@ interface WorkbenchSideSectionProps {
   children(active: boolean, titleDragProps: WorkbenchSideTitleDragProps): ReactNode;
 }
 
-/** A view that stays hidden keeps its last render. Every App commit hands each
- *  section a fresh render callback, so without this a session switch
- *  re-rendered every retained destination behind the shown one (five hidden
- *  session sidebars, the hidden dock's Changes pane) with props they cannot
- *  show. It renders again with the current props the moment it is shown. */
 function sameHiddenSection(previous: WorkbenchSideSectionProps, next: WorkbenchSideSectionProps): boolean {
   return (
     !previous.active &&
@@ -474,15 +489,11 @@ interface WorkbenchSidePanelProps {
   open: boolean;
   /** Narrow-band sheets slide; a responsive fold applies its state instantly. */
   motion?: 'animated' | 'instant';
-  /** Closed, but its container's exit slide still carries it (the phone dock
-   *  sheet, useSheetExit): it stays displayed (`data-closing`) and its shown
-   *  views keep rendering as shown, while hidden/inert/aria-hidden follow
-   *  `open` at once. */
+  /** Closed but still displayed (`data-closing`) while its container's exit slide runs;
+   *  hidden/inert/aria-hidden follow `open` at once. */
   exiting?: boolean;
-  /** Pane-embedded panel (per-pane right dock): keeps the horizontal tabs
-   *  header for view switching, is exempt from the window sheet-band CSS,
-   *  and skips idle pre-retain — one hidden mount per pane would multiply
-   *  across the split tree. */
+  /** Pane-embedded panel: keeps the horizontal tabs header, skips the window
+   *  sheet-band CSS and the idle pre-retain of every view. */
   embedded?: boolean;
   /** Width preference override; pane docks share one key across panes. */
   widthStorageKey?: string;
@@ -516,9 +527,7 @@ interface WorkbenchSidePanelProps {
   onMoveView: Parameters<typeof WorkbenchSideIconBar>[0]['onMoveView'];
   renderView(id: WorkbenchSideViewId, active: boolean, titleDragProps: WorkbenchSideTitleDragProps): ReactNode;
   /** Hidden views keep their last render until shown; a change of this key
-   *  renders them once more while hidden (a pane dock whose body mounts for
-   *  prewarm). A function keys each view on its own, so only the views it
-   *  changed for render again. */
+   *  renders them once more. A function keys each view on its own. */
   hiddenKey?: string | ((id: WorkbenchSideViewId) => string);
   /** Pinned under the shown destination, the same for every view. */
   footer?: ReactNode;
@@ -568,6 +577,179 @@ function measurePaneDrop(
   };
 }
 
+/** While the phone drawer frame's transform transition runs after the panel
+ *  closed, marks it `data-closing` so its content slides out with the sheet.
+ *  The mark clears when the transition ends or cancels, and on a reopen. */
+function useDrawerClosingMark(panelRef: RefObject<HTMLElement | null>, open: boolean): void {
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return undefined;
+    if (open) {
+      delete panel.dataset.closing;
+      return undefined;
+    }
+    const frame = panel.closest('.sidebar-drawer-frame');
+    if (!frame || drawerCommitIsInstant(frame)) return undefined;
+    const sliding = frame
+      .getAnimations()
+      .some((a) => a instanceof CSSTransition && a.transitionProperty === 'transform' && a.playState === 'running');
+    if (!sliding) return undefined;
+    panel.dataset.closing = 'true';
+    const settle = (event: Event) => {
+      if (event.target !== frame || (event as TransitionEvent).propertyName !== 'transform') return;
+      delete panel.dataset.closing;
+    };
+    frame.addEventListener('transitionend', settle);
+    frame.addEventListener('transitioncancel', settle);
+    return () => {
+      frame.removeEventListener('transitionend', settle);
+      frame.removeEventListener('transitioncancel', settle);
+      delete panel.dataset.closing;
+    };
+  }, [panelRef, open]);
+}
+
+/** One sash drag over combined views: previews each size set, stores the final
+ *  one on release. Returns the cancel function (also the pointer-cancel and
+ *  blur path); `release` runs once the gesture ends, with that function. */
+function trackSplitResize({
+  startY,
+  totalPx,
+  startSizes,
+  index,
+  storageKey,
+  preview,
+  release,
+}: {
+  startY: number;
+  totalPx: number;
+  startSizes: number[];
+  index: number;
+  storageKey: string;
+  preview(sizes: number[]): void;
+  release(cancel: () => void): void;
+}): () => void {
+  let pending = startSizes;
+  const move = (moveEvent: PointerEvent) => {
+    pending = resizeSideSplitSizes(startSizes, index, moveEvent.clientY - startY, totalPx);
+    preview(pending);
+  };
+  let cleaned = false;
+  const cleanup = (commit: boolean) => {
+    if (cleaned) return;
+    cleaned = true;
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', stop);
+    window.removeEventListener('pointercancel', cancel);
+    window.removeEventListener('blur', cancel);
+    if (commit) {
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(pending));
+      } catch {
+        /* split ratio remains active for this renderer */
+      }
+    }
+    release(cancel);
+  };
+  const stop = () => cleanup(true);
+  const cancel = () => cleanup(false);
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', stop);
+  window.addEventListener('pointercancel', cancel);
+  window.addEventListener('blur', cancel);
+  return cancel;
+}
+
+function useRetainedRoots(
+  groups: readonly WorkbenchSideViewGroup[],
+  activeRoot: WorkbenchSideViewId | null,
+  embedded: boolean
+): readonly WorkbenchSideViewId[] {
+  const [retainedRoots, setRetainedRoots] = useState<readonly WorkbenchSideViewId[]>([]);
+  useEffect(() => {
+    setRetainedRoots((current) => keepSameRoots(current, nextRetainedWorkbenchSideRoots(groups, current, activeRoot)));
+  }, [activeRoot, groups]);
+  useEffect(() => {
+    if (embedded) return undefined;
+    const timer = window.setTimeout(() => {
+      setRetainedRoots((current) =>
+        keepSameRoots(
+          current,
+          groups.map((group) => group[0]).filter((rootId): rootId is WorkbenchSideViewId => Boolean(rootId))
+        )
+      );
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [embedded, groups]);
+  return retainedRoots;
+}
+
+function useSidePanelWidth({
+  side,
+  widthStorageKey,
+  widthRange,
+  widthOverride,
+  onWidthDrag,
+}: Pick<WorkbenchSidePanelProps, 'side' | 'widthStorageKey' | 'widthRange' | 'widthOverride' | 'onWidthDrag'>) {
+  const widthKey = widthStorageKey ?? SIDE_PANEL_WIDTH_KEY[side];
+  const widthMin = widthRange?.min ?? SIDE_PANEL_MIN_WIDTH[side];
+  const widthMax = widthRange?.max ?? SIDE_PANEL_MAX_WIDTH[side];
+  const widthInitial = widthRange?.initial ?? SIDE_PANEL_DEFAULT_WIDTH[side];
+  const [width, setWidth] = useState(() => {
+    try {
+      const stored = Number(window.localStorage.getItem(widthKey));
+      return Number.isFinite(stored) && stored > 0 ? Math.max(widthMin, Math.min(widthMax, stored)) : widthInitial;
+    } catch {
+      return widthInitial;
+    }
+  });
+  const effectiveWidth = widthOverride ?? width;
+  const resizeStart = useRef<{ x: number; width: number } | null>(null);
+  const dragPending = useRef<number | null>(null);
+  const resizeGesture = useResizeGesture((commit) => {
+    const start = resizeStart.current;
+    if (!start) return;
+    resizeStart.current = null;
+    if (!commit) {
+      if (onWidthDrag) {
+        if (dragPending.current !== null) onWidthDrag(start.width, 'cancel');
+      } else setWidth(start.width);
+      dragPending.current = null;
+      return;
+    }
+    if (onWidthDrag) {
+      onWidthDrag(dragPending.current ?? effectiveWidth, 'commit');
+      dragPending.current = null;
+      return;
+    }
+    try {
+      window.localStorage.setItem(widthKey, String(width));
+    } catch {
+      // A width that cannot persist only resets on the next launch.
+    }
+  });
+  const resizeHandleProps = {
+    onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      resizeGesture.begin(event);
+      resizeStart.current = { x: event.clientX, width: effectiveWidth };
+      dragPending.current = null;
+    },
+    onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => {
+      const start = resizeStart.current;
+      if (!start || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+      const delta = side === 'left' ? event.clientX - start.x : start.x - event.clientX;
+      const next = Math.max(widthMin, Math.min(widthMax, Math.round(start.width + delta)));
+      if (onWidthDrag) {
+        dragPending.current = next;
+        onWidthDrag(next, 'preview');
+      } else setWidth(next);
+    },
+    ...resizeGesture.handlers,
+  };
+  return { effectiveWidth, widthMin, widthMax, resizeHandleProps };
+}
+
 export function WorkbenchSidePanel({
   side,
   open,
@@ -595,148 +777,42 @@ export function WorkbenchSidePanel({
   const selectedGroup = groups.find((group) => activeRoot !== null && group.includes(activeRoot)) ?? groups[0] ?? [];
   const root = selectedGroup[0] ?? null;
   const movable = side === 'left';
-  const [retainedRoots, setRetainedRoots] = useState<readonly WorkbenchSideViewId[]>([]);
-  useEffect(() => {
-    setRetainedRoots((current) => keepSameRoots(current, nextRetainedWorkbenchSideRoots(groups, current, activeRoot)));
-  }, [activeRoot, groups]);
-  // Idle pre-retain: shortly
-  // after the panel settles, EVERY destination hidden-mounts, so the first
-  // visit to each menu swaps attributes on a live tree instead of mounting
-  // from scratch and flashing an empty frame. Pane-embedded docks skip this:
-  // visited views still retain, but a full hidden mount per pane is too heavy.
-  useEffect(() => {
-    if (embedded) return undefined;
-    const timer = window.setTimeout(() => {
-      setRetainedRoots((current) =>
-        keepSameRoots(
-          current,
-          groups.map((group) => group[0]).filter((rootId): rootId is WorkbenchSideViewId => Boolean(rootId))
-        )
-      );
-    }, 400);
-    return () => window.clearTimeout(timer);
-  }, [embedded, groups]);
+  const retainedRoots = useRetainedRoots(groups, activeRoot, embedded);
   const retainedGroups = groups.filter((group) => group[0] !== root && retainedRoots.includes(group[0]));
   const splitKey = sideSplitKey(side, selectedGroup);
   const [splitSizesByKey, setSplitSizesByKey] = useState<Record<string, number[]>>({});
   const splitSizes = splitSizesByKey[splitKey] ?? readSideSplitSizes(splitKey, selectedGroup.length);
-  const widthKey = widthStorageKey ?? SIDE_PANEL_WIDTH_KEY[side];
-  const widthMin = widthRange?.min ?? SIDE_PANEL_MIN_WIDTH[side];
-  const widthMax = widthRange?.max ?? SIDE_PANEL_MAX_WIDTH[side];
-  const widthInitial = widthRange?.initial ?? SIDE_PANEL_DEFAULT_WIDTH[side];
-  const [width, setWidth] = useState(() => {
-    try {
-      const stored = Number(window.localStorage.getItem(widthKey));
-      return Number.isFinite(stored) && stored > 0 ? Math.max(widthMin, Math.min(widthMax, stored)) : widthInitial;
-    } catch {
-      return widthInitial;
-    }
-  });
-  const effectiveWidth = widthOverride ?? width;
-  const resizeStart = useRef<{ x: number; width: number } | null>(null);
-  const dragPending = useRef<number | null>(null);
-  const resizeGesture = useResizeGesture((commit) => {
-    const start = resizeStart.current;
-    if (!start) return;
-    resizeStart.current = null;
-    if (!commit) {
-      // Cancelled: back to the last committed width.
-      if (onWidthDrag) {
-        if (dragPending.current !== null) onWidthDrag(start.width, 'cancel');
-      } else setWidth(start.width);
-      dragPending.current = null;
-      return;
-    }
-    if (onWidthDrag) {
-      onWidthDrag(dragPending.current ?? effectiveWidth, 'commit');
-      dragPending.current = null;
-      return;
-    }
-    try {
-      window.localStorage.setItem(widthKey, String(width));
-    } catch {
-      // A width that cannot persist only resets on the next launch.
-    }
+  const { effectiveWidth, widthMin, widthMax, resizeHandleProps } = useSidePanelWidth({
+    side,
+    widthStorageKey,
+    widthRange,
+    widthOverride,
+    onWidthDrag,
   });
   const panelBodyRef = useRef<HTMLDivElement | null>(null);
   const [paneDrop, setPaneDrop] = useState<PaneDrop | null>(null);
   const splitCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => splitCleanupRef.current?.(), []);
-  // A panel inside the phone drawer frame closes semantically at once
-  // (hidden/inert/aria-hidden) but stays displayed (`data-closing`) while the
-  // frame's own transform transition runs, so the content slides out with the
-  // sheet. The mark clears when that transition ends or is cancelled, on a
-  // reopen, and is never set when no transform transition is running (instant
-  // close, reduced motion, a close that already finished).
   const panelRef = useRef<HTMLElement | null>(null);
-  // On the phone the drawer panel takes `inert` when that slide ends, not at
-  // its start (session-sidebar-drawer-inert.ts); the CSS keeps a closing panel
-  // from taking pointer events meanwhile.
   const drawerPhone = usePhoneSurfaceMarked() && !embedded;
   usePhoneDrawerInert(panelRef, open, drawerPhone, Boolean(root) && groups.length > 0);
-  useLayoutEffect(() => {
-    const panel = panelRef.current;
-    if (!panel) return undefined;
-    if (open) {
-      delete panel.dataset.closing;
-      return undefined;
-    }
-    const frame = panel.closest('.sidebar-drawer-frame');
-    if (!frame || drawerCommitIsInstant(frame)) return undefined;
-    const sliding = frame
-      .getAnimations()
-      .some((a) => a instanceof CSSTransition && a.transitionProperty === 'transform' && a.playState === 'running');
-    if (!sliding) return undefined;
-    panel.dataset.closing = 'true';
-    const settle = (event: Event) => {
-      if (event.target !== frame || (event as TransitionEvent).propertyName !== 'transform') return;
-      delete panel.dataset.closing;
-    };
-    frame.addEventListener('transitionend', settle);
-    frame.addEventListener('transitioncancel', settle);
-    return () => {
-      frame.removeEventListener('transitionend', settle);
-      frame.removeEventListener('transitioncancel', settle);
-      delete panel.dataset.closing;
-    };
-  }, [open]);
+  useDrawerClosingMark(panelRef, open);
   const startSplitResize = (index: number, event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const body = panelBodyRef.current;
     if (!body) return;
     splitCleanupRef.current?.();
-    const startY = event.clientY;
-    const totalPx = Math.max(1, body.clientHeight);
-    const startSizes = [...splitSizes];
-    let pending = startSizes;
-    const move = (moveEvent: PointerEvent) => {
-      pending = resizeSideSplitSizes(startSizes, index, moveEvent.clientY - startY, totalPx);
-      setSplitSizesByKey((current) => ({ ...current, [splitKey]: pending }));
-    };
-    let cleaned = false;
-    const cleanup = (commit: boolean) => {
-      if (cleaned) return;
-      cleaned = true;
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', stop);
-      window.removeEventListener('pointercancel', cancel);
-      window.removeEventListener('blur', cancel);
-      if (commit) {
-        try {
-          window.localStorage.setItem(splitKey, JSON.stringify(pending));
-        } catch {
-          /* split ratio remains active for this renderer */
-        }
-      }
-      if (splitCleanupRef.current === cancel) splitCleanupRef.current = null;
-    };
-    const stop = () => cleanup(true);
-    const cancel = () => cleanup(false);
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', stop);
-    window.addEventListener('pointercancel', cancel);
-    window.addEventListener('blur', cancel);
-    splitCleanupRef.current = cancel;
+    splitCleanupRef.current = trackSplitResize({
+      startY: event.clientY,
+      totalPx: Math.max(1, body.clientHeight),
+      startSizes: [...splitSizes],
+      index,
+      storageKey: splitKey,
+      preview: (sizes) => setSplitSizesByKey((current) => ({ ...current, [splitKey]: sizes })),
+      release: (cancel) => {
+        if (splitCleanupRef.current === cancel) splitCleanupRef.current = null;
+      },
+    });
     event.preventDefault();
   };
   if (!root || groups.length === 0) return null;
@@ -765,23 +841,7 @@ export function WorkbenchSidePanel({
           className="workbench-side-panel-resize"
           role="separator"
           aria-orientation="vertical"
-          onPointerDown={(event) => {
-            if (event.button !== 0) return;
-            resizeGesture.begin(event);
-            resizeStart.current = { x: event.clientX, width: effectiveWidth };
-            dragPending.current = null;
-          }}
-          onPointerMove={(event) => {
-            const start = resizeStart.current;
-            if (!start || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-            const delta = side === 'left' ? event.clientX - start.x : start.x - event.clientX;
-            const next = Math.max(widthMin, Math.min(widthMax, Math.round(start.width + delta)));
-            if (onWidthDrag) {
-              dragPending.current = next;
-              onWidthDrag(next, 'preview');
-            } else setWidth(next);
-          }}
-          {...resizeGesture.handlers}
+          {...resizeHandleProps}
         />
       )}
       <div className="workbench-side-panel-content">
@@ -845,12 +905,7 @@ export function WorkbenchSidePanel({
                   return;
                 }
                 event.preventDefault();
-                if (payload.type === 'group') {
-                  onMoveGroup(payload.id, side, paneDrop.targetRoot, paneDrop.placement);
-                } else {
-                  onMoveView(payload.id, side, paneDrop.targetRoot, paneDrop.placement);
-                }
-                activeWorkbenchSideDrag = null;
+                dropSidePayload(payload, side, paneDrop.targetRoot, paneDrop.placement, onMoveGroup, onMoveView);
                 setPaneDrop(null);
               }}
             >

@@ -1,9 +1,3 @@
-/**
- * How a snapshot reads to the agent: the untrusted-content framing, the ref
- * lines, and the degraded-observation notes. It is decided by the payload plus
- * a narrow view of the page's diagnostics, so the wording can change without
- * touching the host that produced it.
- */
 import type { BrowserSnapshotElement, BrowserSnapshotPayload } from './accessibility';
 import { type DismissedBrowserDialog, describeDismissedDialog } from './dialog-report';
 import { pageFaultsFirst } from './network';
@@ -142,10 +136,6 @@ export function formatSnapshot(
     );
   }
   if (documentStatus?.mimeType === 'application/pdf') {
-    // The user sees the document in Chromium's built-in viewer, but the
-    // viewer is the browser's own component: the page itself has no text or
-    // controls. Say what the document is instead of reporting an empty page
-    // the caller would try to click around in.
     lines.push(
       "This document is a PDF shown in the browser's built-in viewer: its text and controls are not part of the page. " +
         'Read the file from this URL with a tool that reads files, not the page.'
@@ -191,11 +181,6 @@ export function formatSnapshot(
   return lines.join('\n');
 }
 
-// A capped or filtered baseline never reported the rest of the page, so an
-// element missing from it may be untouched rather than new. Listing both
-// kinds as "changed" would make one filled field read as a page-wide change, so
-// what this action demonstrably altered is kept apart from what the caller
-// simply had not seen yet. Nothing is hidden either way.
 function briefLines(
   brief: ReturnType<typeof diffSnapshotElements>,
   baseline: NonNullable<SnapshotExtras['briefAgainst']>
@@ -272,19 +257,26 @@ function diagnosticsLines(diagnostics: SnapshotDiagnosticsView | undefined, extr
       );
     }
   }
-  // Count before taking: newErrors() marks what it hands over, so the total
-  // has to be read first for the report to say what it left behind.
+  lines.push(...consoleErrorLines(diagnostics));
+  lines.push(...networkFailureLines(diagnostics));
+  return lines;
+}
+
+function consoleErrorLines(diagnostics: SnapshotDiagnosticsView | undefined): string[] {
   const errorTotal = diagnostics?.console.newErrors
     ? diagnostics.console.pendingErrorCount?.()
     : diagnostics?.console.errorCount?.();
   const consoleErrors = diagnostics?.console.newErrors
     ? diagnostics.console.newErrors(3)
     : diagnostics?.console.recentErrors(3) || [];
-  if (consoleErrors.length) {
-    const label = diagnostics?.console.newErrors ? 'New console errors' : 'Recent console errors';
-    const capped = cappedNote(consoleErrors.length, errorTotal, 'console');
-    lines.push('', `${label}${capped}: ${collapseRepeats(consoleErrors.map(redactBrowserText)).join(' | ')}`);
-  }
+  if (!consoleErrors.length) return [];
+  const label = diagnostics?.console.newErrors ? 'New console errors' : 'Recent console errors';
+  const capped = cappedNote(consoleErrors.length, errorTotal, 'console');
+  return ['', `${label}${capped}: ${collapseRepeats(consoleErrors.map(redactBrowserText)).join(' | ')}`];
+}
+
+function networkFailureLines(diagnostics: SnapshotDiagnosticsView | undefined): string[] {
+  const lines: string[] = [];
   const failures = diagnostics?.networkFailures || [];
   const reported = diagnostics?.reportedNetworkFailures;
   const freshFailures = reported ? failures.filter((entry) => !reported.has(entry)) : failures;
@@ -296,7 +288,6 @@ function diagnosticsLines(diagnostics: SnapshotDiagnosticsView | undefined, extr
     lines.push('', `${label}${capped}: ${collapseRepeats(shown.map(redactBrowserText)).join(' | ')}`);
   }
   if (reported) {
-    // The failure list is capped, so forget entries it no longer holds.
     for (const entry of freshFailures) reported.add(entry);
     for (const entry of reported) if (!failures.includes(entry)) reported.delete(entry);
   }

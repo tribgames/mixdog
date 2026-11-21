@@ -237,10 +237,6 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
   );
 }
 
-/** The Display page: display language, time format, link preview, side panels
- *  and the Markdown view. On a remote surface it is a "This device" page (the
- *  values live in this device's storage), so the PC's Markdown setting stays
- *  in General there. */
 export function DisplayPanel({ pending }: PanelContext) {
   const remoteSurface = isRemoteHostRenderer();
   const hostApi = desktopBridge<Partial<DesktopApi>>();

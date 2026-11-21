@@ -270,6 +270,34 @@ export function useComposerSubmission({
   // pane and its session.
   const routeRef = useRef('');
   routeRef.current = `${identityScope}\u0000${recoveryScope}\u0000${sessionId ?? ''}`;
+  const sendSlash = useCallback(
+    async (text: string, submittedDraft: string, submittedAttachments: ComposerAttachment[]) => {
+      if (commandBusy) {
+        setAttachmentError('Wait for the current command to finish. Your command is still in the editor.');
+        return;
+      }
+      setDraft((current) => (current === submittedDraft ? '' : current));
+      removeAttachments(new Set(submittedAttachments.map((attachment) => attachment.id)));
+      historyNavigation.current = { index: -1, seed: '' };
+      const accepted = await executeSlash(text);
+      if (!accepted) {
+        setDraft((current) => (current ? current : submittedDraft));
+        mergeRestoredAttachments(submittedAttachments, submittedDraft);
+      } else {
+        rememberPrompt(text);
+      }
+    },
+    [
+      commandBusy,
+      executeSlash,
+      historyNavigation,
+      mergeRestoredAttachments,
+      rememberPrompt,
+      removeAttachments,
+      setAttachmentError,
+      setDraft,
+    ]
+  );
   const send = useCallback(
     async (slashOverride = '', source: DesktopRendererComposerActionDiagnostic['source'] = 'form-submit') => {
       const origin = routeRef.current;
@@ -287,10 +315,6 @@ export function useComposerSubmission({
       // message (never with a slash command), and alone make one sendable.
       const feedback = visualizeFeedbackFor(slashCommand ? undefined : sessionId);
       const hasFeedback = visualizeFeedbackPending(feedback);
-      // Draft materialization and slash commands own the submit indicator;
-      // only slash commands still serialize. Blocking a draft's follow-up here
-      // just dropped it — the submit router joins the session the first submit
-      // is minting instead of creating a second one.
       const showsSubmitProgress = Boolean(draftMode || slashCommand);
       if (
         (!hasFeedback && !hasSendablePromptContent({ text, attachments: submittedAttachments })) ||
@@ -322,20 +346,7 @@ export function useComposerSubmission({
       try {
         clearNotice();
         if (slashCommand) {
-          if (commandBusy) {
-            setAttachmentError('Wait for the current command to finish. Your command is still in the editor.');
-            return;
-          }
-          setDraft((current) => (current === submittedDraft ? '' : current));
-          removeAttachments(new Set(submittedAttachments.map((attachment) => attachment.id)));
-          historyNavigation.current = { index: -1, seed: '' };
-          const accepted = await executeSlash(text);
-          if (!accepted) {
-            setDraft((current) => (current ? current : submittedDraft));
-            mergeRestoredAttachments(submittedAttachments, submittedDraft);
-          } else {
-            rememberPrompt(text);
-          }
+          await sendSlash(text, submittedDraft, submittedAttachments);
           return;
         }
         setAttachmentError('');
@@ -456,19 +467,17 @@ export function useComposerSubmission({
     [
       attachmentsRef,
       clearNotice,
-      commandBusy,
       composingRef,
       draftMode,
       draftRef,
-      executeSlash,
       historyNavigation,
-      mergeRestoredAttachments,
       mountedRef,
       pendingLoads,
       queued,
       recoveryScope,
       rememberPrompt,
       removeAttachments,
+      sendSlash,
       setAttachmentError,
       setDraft,
       setSubmissionRecoveryVersion,

@@ -1,8 +1,3 @@
-/**
- * What a takeover does to the window process, as the core's server requests report it (takeover-feed.ts): the gate holds the session's Browser Use (and the screen for a screen takeover), a
- * login takeover opens its sign-in window, a browser takeover opens the handed-over page once human control is ready,
- * and a settled, expired or replaced takeover forgets the page it handed over.
- */
 export interface TakeoverStateUpdate {
   sessionId?: unknown;
   snapshot?: unknown;

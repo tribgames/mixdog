@@ -1,14 +1,8 @@
-// Time-limited TURN credentials for the coturn instance that runs beside this
-// relay (deploy/coturn). coturn runs with `use-auth-secret`, which accepts
-//
+// Time-limited TURN credentials for the coturn beside this relay (deploy/coturn), run with `use-auth-secret`
+// (turnserver.conf "TURN REST API flag"; draft-uberti-behave-turn-rest-00 §2.2, §4.2):
 //   username   = "<expiry unix seconds>:<user id>"
 //   credential = base64(HMAC-SHA1(shared secret, username))
-//
-// (coturn's turnserver.conf "TURN REST API flag"; draft-uberti-behave-turn-rest-00
-// §2.2 and §4.2). The secret exists only on the VPS: coturn reads it from its
-// config, this relay from the environment. A credential cannot be forged
-// without it, and coturn rejects it once the expiry has passed, so there is
-// nothing to revoke and nothing to store.
+// The secret lives only on the VPS; coturn rejects a credential after its expiry, so nothing is stored or revoked.
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
@@ -16,11 +10,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 export const TURN_DEFAULT_PORT = 3478;
 /** coturn's `tls-listening-port` default (turnserver.conf). */
 export const TURN_DEFAULT_TLS_PORT = 5349;
-/** draft-uberti-behave-turn-rest-00 §2.2: "A value of one day (86400 seconds)
- *  is recommended." The draft also notes expiry does not touch allocations that
- *  already exist, only new ones (an ICE restart), which is why a client that
- *  starts a session is given at least coturn's allocation lifetime (see the
- *  desktop's remote-ice-servers.ts) rather than a nearly expired credential. */
+/** draft-uberti-behave-turn-rest-00 §2.2: one day (86400 s) is recommended. Expiry does not touch existing allocations, only new ones (an ICE restart). */
 export const TURN_CREDENTIAL_TTL_SECONDS = 86_400;
 /** RFC 2104 §3: keys shorter than the hash output length (20 bytes for SHA-1)
  *  are strongly discouraged. */
@@ -33,19 +23,12 @@ export function turnPassword(secret, username) {
   return createHmac('sha1', secret).update(username).digest('base64');
 }
 
-/** The user id part of a username: stable per device, so coturn's per-user
- *  quota and its log lines can tell devices apart, and opaque, so the device's
- *  routing id (which opens its phone route) never travels in a STUN message.
- *  The full HMAC-SHA-256 digest (64 hex characters): RFC 8489 §14.3 allows a
- *  USERNAME of fewer than 509 bytes, and "<10-digit expiry>:<digest>" is 75. */
+/** The user id part of a username: stable and opaque per device, so the routing id never travels in STUN. The full HMAC-SHA-256 digest fits RFC 8489 §14.3's USERNAME limit (< 509 bytes; "<10-digit expiry>:<digest>" is 75). */
 export function turnUserId(secret, deviceId) {
   return createHmac('sha256', secret).update(`turn-user\0${deviceId}`).digest('hex');
 }
 
-/** A credential for `userId` that stops working `ttlSeconds` after `nowMs`.
- *  The expiry is a whole second, floor(now) + ttl, so the credential really
- *  lives `remainingMs` — up to 999 ms less than `ttlSeconds`; that is the figure
- *  a cache must count down from. */
+/** A credential for `userId` that stops working `ttlSeconds` after `nowMs`. The expiry is floor(now) + ttl, so `remainingMs` is up to 999 ms under `ttlSeconds`. */
 export function issueTurnCredential({ secret, userId, nowMs, ttlSeconds = TURN_CREDENTIAL_TTL_SECONDS }) {
   const expiresAt = Math.floor(nowMs / 1000) + ttlSeconds;
   const username = `${expiresAt}:${userId}`;

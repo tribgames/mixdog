@@ -1,7 +1,3 @@
-/**
- * Follows the primary display's scale factor and refreshes page surfaces when
- * it changes; returns the function that stops following.
- */
 import type { Screen } from 'electron';
 
 export function followBrowserDisplayScale(

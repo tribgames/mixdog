@@ -1,8 +1,3 @@
-/**
- * The inactive-window ledgers of the pool's workers. WS_EX_NOACTIVATE bits a
- * worker added to other windows are journaled in a per-worker ledger so they
- * can be cleared however the worker ends.
- */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';

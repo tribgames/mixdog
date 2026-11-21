@@ -170,7 +170,7 @@ test('right mode keeps the side column and its width edge', async () => {
   }
 });
 
-test('a max drag with the Problems panel open keeps the chat at its floor, and opening Problems re-clamps', async () => {
+async function renderBottomDock() {
   const { dom: jsdom, restore } = dom();
   const { window: win } = jsdom;
   // jsdom has no layout: rows report the height their test attribute or
@@ -236,40 +236,73 @@ test('a max drag with the Problems panel open keeps the chat at its floor, and o
   const chatHeight = (problemsOpen) =>
     CELL - STRIP - (problemsOpen ? PROBLEMS : 0) - heightOf(document.querySelector('.pane-side-dock'));
   const root = createRoot(document.getElementById('root'));
+  await act(async () => root.render(render(false)));
+  const edge = document.querySelector('.pane-side-dock-height-resize');
+  return {
+    CELL,
+    STRIP,
+    PROBLEMS,
+    chatHeight,
+    storedHeight: () => Number(win.localStorage.getItem(HEIGHT_KEY)),
+    showProblems: (open) => act(async () => root.render(render(open))),
+    async dragTopEdgeFarPastTheWindow() {
+      await act(async () => {
+        edge.dispatchEvent(new win.MouseEvent('pointerdown', { bubbles: true, button: 0, clientY: 600 }));
+        edge.dispatchEvent(new win.MouseEvent('pointermove', { bubbles: true, clientY: -5000 }));
+        edge.dispatchEvent(new win.MouseEvent('pointerup', { bubbles: true, clientY: -5000 }));
+      });
+    },
+    async cleanup() {
+      await act(async () => root.unmount());
+      restore();
+    },
+  };
+}
+
+test('a max drag keeps the chat at its floor and stores the clamped height', async () => {
+  const dock = await renderBottomDock();
   try {
-    await act(async () => root.render(render(false)));
-    // Drag the top edge far past the top of the window.
-    const edge = document.querySelector('.pane-side-dock-height-resize');
-    await act(async () => {
-      edge.dispatchEvent(new win.MouseEvent('pointerdown', { bubbles: true, button: 0, clientY: 600 }));
-      edge.dispatchEvent(new win.MouseEvent('pointermove', { bubbles: true, clientY: -5000 }));
-      edge.dispatchEvent(new win.MouseEvent('pointerup', { bubbles: true, clientY: -5000 }));
-    });
-    assert.equal(chatHeight(false), PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR);
-    assert.equal(win.localStorage.getItem(HEIGHT_KEY), String(CELL - STRIP - PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR));
-
-    // Problems opens under the chat: the maxed dock yields its height.
-    await act(async () => root.render(render(true)));
-    assert.ok(document.querySelector('.bottom-panel'));
-    assert.equal(chatHeight(true), PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR);
-
-    // A max drag with Problems open stops at the same floor.
-    await act(async () => {
-      edge.dispatchEvent(new win.MouseEvent('pointerdown', { bubbles: true, button: 0, clientY: 600 }));
-      edge.dispatchEvent(new win.MouseEvent('pointermove', { bubbles: true, clientY: -5000 }));
-      edge.dispatchEvent(new win.MouseEvent('pointerup', { bubbles: true, clientY: -5000 }));
-    });
-    assert.ok(chatHeight(true) >= PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR);
-    assert.equal(
-      win.localStorage.getItem(HEIGHT_KEY),
-      String(CELL - STRIP - PROBLEMS - PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR)
-    );
-
-    // Closing Problems hands the room back to the stored preference.
-    await act(async () => root.render(render(false)));
-    assert.equal(chatHeight(false), CELL - STRIP - (CELL - STRIP - PROBLEMS - PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR));
+    await dock.dragTopEdgeFarPastTheWindow();
+    assert.equal(dock.chatHeight(false), PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR);
+    assert.equal(dock.storedHeight(), dock.CELL - dock.STRIP - PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR);
   } finally {
-    await act(async () => root.unmount());
-    restore();
+    await dock.cleanup();
+  }
+});
+
+test('opening Problems under a maxed dock re-clamps it to the chat floor', async () => {
+  const dock = await renderBottomDock();
+  try {
+    await dock.dragTopEdgeFarPastTheWindow();
+    await dock.showProblems(true);
+    assert.ok(document.querySelector('.bottom-panel'));
+    assert.equal(dock.chatHeight(true), PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR);
+  } finally {
+    await dock.cleanup();
+  }
+});
+
+test('a max drag with Problems open stops at the chat floor', async () => {
+  const dock = await renderBottomDock();
+  try {
+    await dock.showProblems(true);
+    await dock.dragTopEdgeFarPastTheWindow();
+    assert.ok(dock.chatHeight(true) >= PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR);
+    assert.equal(dock.storedHeight(), dock.CELL - dock.STRIP - dock.PROBLEMS - PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR);
+  } finally {
+    await dock.cleanup();
+  }
+});
+
+test('closing Problems hands the room back to the stored preference', async () => {
+  const dock = await renderBottomDock();
+  try {
+    await dock.showProblems(true);
+    await dock.dragTopEdgeFarPastTheWindow();
+    await dock.showProblems(false);
+    const stored = dock.CELL - dock.STRIP - dock.PROBLEMS - PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR;
+    assert.equal(dock.chatHeight(false), dock.CELL - dock.STRIP - stored);
+  } finally {
+    await dock.cleanup();
   }
 });

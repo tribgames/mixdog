@@ -124,10 +124,6 @@ export const AgentPoolRow = memo(function AgentPoolRow({
   onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }): React.ReactElement {
-  // One lifecycle mapping owns this row. Cancellation is settled first, so a
-  // stopped agent can never borrow the running timer or the "Completed" notice
-  // (an agent cancelled mid-turn still carries stage `running`, and one
-  // cancelled while waiting still carries stage `queued`).
   const state = stateOverride ?? desktopAgentActivityState(agent, { unread, waitingForTasks });
   const role = agentRoleLabel(agent.agent || agent.tag);
   const sessionId = String(agent.sessionId || '').trim();
@@ -166,8 +162,6 @@ export const AgentPoolRow = memo(function AgentPoolRow({
         else onOpenSession?.(sessionId, tabTitle, ownerSessionId);
       }}
     >
-      {/* The brand of the model the agent runs on marks the row, as in the
-      Workflows panel (user: 에이전트 창은 이번 적용 안 된 거?). */}
       <AgentProviderMark agent={{ provider: agent.provider || (lead ? fallbackProvider : undefined) || null }} />
       <span className="schedules-row-copy">
         <span className="agent-pool-heading">
@@ -189,11 +183,6 @@ export function unreadBadgeLabel(count: number): string {
   return count > 99 ? '99+' : String(Math.max(1, Math.floor(count)));
 }
 
-/** The row's single trailing status (see AgentChatIndicator). Attention has
- *  no pill: the preview line already says what the agent waits for; a
- *  contact row (`attentionMark`) also shows a mark in its status cell. The
- *  attention and failure marks are filled "!" pills, amber and red, the
- *  unread count's shape (design/mockups/bot-list-messenger, option A). */
 export function AgentChatStatus({
   indicator,
   id,
@@ -256,11 +245,6 @@ export function AgentChatStatus({
 
 const AGENT_TREE_KEYS = new Set(['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End']);
 
-/** One owner group rendered as a real ARIA tree: roving tab focus, Arrow
- *  Up/Down through the painted rows, Arrow Right/Left to open, close and climb
- *  the hierarchy, Home/End to its ends. Every `aria-expanded` here reports the
- *  state the surface actually paints — including a row whose subtree is folded
- *  away with its group. */
 export function AgentActivityTree({
   group,
   label,

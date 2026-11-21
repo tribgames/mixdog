@@ -26,11 +26,6 @@ function modelControlsWidth(controls: Element | null | undefined): number {
   return total + Math.max(0, (modelLabel?.scrollWidth ?? 0) - (modelLabel?.clientWidth ?? 0));
 }
 
-/** The one-line layout's items at their natural width, wherever the card or the
- *  line holds them now: the worded usage readout (its data-full-width) or, before
- *  the first message, the pickers in its place (they shrink, so their content
- *  width), the route label with its workflow name, and the model with its
- *  effort label (a label an ellipsis cut counts in full). */
 function oneLineItemsWidth(form: HTMLElement, line: HTMLElement): number {
   const readout = line.querySelector<HTMLElement>(':scope > .composer-usage-readout');
   const pickers = line.querySelector(':scope > .composer-model-line-context');
@@ -54,8 +49,6 @@ const LINE_PADDING = 16;
  *  widths in either layout, so the answer does not depend on the layout shown. */
 export function useOneLineOverflow(form: RefObject<HTMLElement | null>, active: boolean): boolean {
   const [overflow, setOverflow] = useState(false);
-  // `overflow` re-binds the observers: the line under the card comes and goes
-  // with it, and its content changes are watched too.
   // biome-ignore lint/correctness/useExhaustiveDependencies: overflow re-binds the observers on purpose, see above
   useLayoutEffect(() => {
     const element = form.current;

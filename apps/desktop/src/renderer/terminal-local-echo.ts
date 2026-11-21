@@ -1,11 +1,3 @@
-// Predictive local echo for the REMOTE terminal (relay RTT hides every
-// keystroke for a full round trip). Terminal typeahead:
-// each predicted keystroke is queued with the exact echo bytes it expects,
-// rendered locally only after the shell has proven it echoes canonically, and
-// rolled back the moment reality disagrees. Shells that repaint their line on
-// every key (PSReadLine over ConPTY, TUI apps, password prompts) never pass
-// validation, so predictions stay invisible there and nothing can corrupt.
-
 interface PendingPrediction {
   kind: 'char' | 'erase';
   /** The typed character ("char") or the character being erased ("erase"). */

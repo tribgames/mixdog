@@ -1,7 +1,3 @@
-/** Renderer view of what the in-app browser saw of a page (title, site icon,
- *  thumbnail). Each address is asked for once, then again only when the
- *  browser reports a change on its site. Nothing here touches the network;
- *  a page card's preview is read by the main process. */
 import { useCallback, useSyncExternalStore } from 'react';
 import type { DesktopBrowserPageIdentity } from '../shared/contract';
 

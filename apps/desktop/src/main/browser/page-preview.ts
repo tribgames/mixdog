@@ -1,10 +1,3 @@
-/** A page card's fallback when the browser holds no screenshot of its page
- *  (recorded before a restart was saved, or never painted): the page's own
- *  markup, read once through the browser session the way the page would
- *  load (its cookies and HTTP cache first). Only the head is read; the image
- *  is the one the page declares for link previews. Requests are deferred,
- *  deduplicated per page and run two at a time. Electron-free so the limits
- *  can be tested directly. */
 import type { DesktopBrowserPageIdentity } from '../../shared/contract';
 import { isHttpUrl } from './favicon-fetch';
 import { pageIdentityKey, TITLE_MAX_CHARS, type BrowserPageIdentityPatch } from './page-identity';

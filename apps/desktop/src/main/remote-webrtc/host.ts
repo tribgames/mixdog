@@ -1,10 +1,3 @@
-/**
- * Window-process WebRTC host: one viewer state machine per paired client ×
- * source, the sources' newest pictures fed to the sender renderer (one in
- * flight per source, superseded ones dropped), and the sender's events routed
- * back to their viewer. Phone signals arrive validated by the service; they
- * are validated again here, as every input crossing a process is.
- */
 import { randomBytes } from 'node:crypto';
 
 import {
@@ -222,9 +215,6 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
       open: ({ connectionId, iceServers, receiveCodecs }) => {
         connections.set(connectionId, entry);
         source.start();
-        // A captured source's track (its capture, or the drawn one while it
-        // draws) is set up once per sender renderer, before its first
-        // connection there.
         const feed = feeds.get(sourceKey);
         if (feed && feed.track === 'none' && (feed.drawn || source.capturePlan)) requestTrack(sourceKey, feed);
         deps.sender.send({
@@ -281,9 +271,6 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
 
   function onSenderEvent(event: RemoteWebrtcSenderEvent | null): void {
     if (!event) {
-      // The sender renderer is gone, and every track it held with it: each
-      // source's track is set up again (its selected path) before its next
-      // connection opens; every live connection falls back.
       for (const feed of feeds.values()) {
         feed.latest ??= feed.inFlight?.picture ?? null;
         feed.inFlight = null;

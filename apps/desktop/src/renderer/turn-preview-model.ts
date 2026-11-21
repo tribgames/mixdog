@@ -1,8 +1,3 @@
-// Turn previews: at a turn's end its card (transcript-visualize-card.tsx)
-// fills with the files the turn changed that the visualize panel can show,
-// beside the tabs the agent's own `visualize` opens made, so an artifact never
-// goes missing when the agent did not open it. Pure but for the small
-// registries at the end (the live turn end, the files each card shows).
 import { type VisualizePaneKind, visualizeKindForPath } from '../shared/visualize';
 import { linkedLocalPaths } from './markdown-plugins';
 import { isAbsolutePath } from './session-diff-model';
@@ -57,13 +52,6 @@ function previewTarget(root: string, path: string): string {
   return base ? `${base}/${path}` : path;
 }
 
-/** The turn's changed files that become preview tiles: on disk as the turn
- *  left them (not deleted, not undone), inside the root, of a kind the panel
- *  shows (`visualizeKindForPath`), and linked by a reply or opened before. The record lists only what
- *  the agent's own file tools wrote (edit, apply_patch, office, tidy; never a
- *  shell command's side effects), so a Git-ignored entry there is still the
- *  turn's artifact, and not already a tile of the agent's
- *  own opens (`opened`: their targets). One per file, confident ones first. */
 export function turnPreviewFiles(
   files: readonly TurnChangesFile[],
   root: string,
@@ -127,22 +115,10 @@ export function turnPreviewPage<T>(
   return { items: items.slice(at * size, at * size + size), page: at, pages };
 }
 
-// ── The live turn end ────────────────────────────────────────────────────
-// A turn's end opens its confident previews once, only for the very turn this
-// renderer saw running: the conversation marks that turn (session + turn key)
-// while it runs, and the trailing card of that same turn, drawn once it
-// stopped, claims the mark for its checkpoint. Any other turn (a later
-// checkpoint, a transcript loaded from history) finds no mark; a reconnect
-// or the conversation leaving the session drops the session's marks, so an
-// ended turn met again there opens nothing; a re-render has none left.
 const liveTurns = new Set<string>();
 const pendingOpens = new Set<string>();
 const previewKey = (sessionId: string, id: string) => `${sessionId}\0${id}`;
 
-/** The key turn `turnKey` carried while it ran. A turn's rows are keyed by
- *  their prompt (`turn:<id>`) until its turndone names a checkpoint, which
- *  re-keys them all (`checkpoint:<id>`, `attempt:<id>`): the running mark and
- *  the ended card must meet on the first row's own id, which never changes. */
 export function runningTurnKeyOf(
   items: readonly { kind?: string; id?: unknown }[],
   turnKeys: readonly string[],

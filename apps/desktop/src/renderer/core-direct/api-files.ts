@@ -1,10 +1,3 @@
-// The "Projects, files, editor, LSP" half of DesktopApi (DIRECT_KEYS.files) composed in the renderer over this window's
-// core connection. Each key sends what main's IPC handler sent for the same call (ipc-projects.ts, ipc-project-files.ts,
-// ipc-file-dialogs.ts): the shared service lane for the project methods and the operation lane for the file operations, so
-// the method names, params and replies are the ones the IPC path had. The input checks are the core's now; what stays is what
-// changed the call: a Project path becomes its folder first (the core trusts a window's folder), a path that is no Project
-// answers as its own folder (a standalone root), and a one-file access token goes to the core with the project path and the
-// relative path so the core redeems it.
 import type { DesktopApi, SessionSnapshot } from '../../shared/contract.ts';
 import type { DesktopHostExtras, DirectKey } from '../../shared/desktop-api-split.ts';
 import { createOperationLane } from '../../shared/core-lanes/desktop-operation-route.ts';
@@ -137,10 +130,6 @@ export function createFilesApi(ctx: DirectContext, options: FilesApiOptions = {}
     return result;
   };
 
-  // A converted document's PDF is served by range in every window: the host's `previewConvertedDocument` converts it (main owns the
-  // conversion, so an evicted PDF is converted again) and answers with a `mixdog-media://preview/<token>` URL (on this PC, or ranged
-  // reads over the window's connection in a server window), so the viewer shows the first page without the file being read here.
-  // A file previewed as it is (an image, audio, video or PDF) is the host's `previewProjectFile` in every window.
   const hostPreview = (): FilesApiOptions['host'] =>
     options.host ?? (globalThis as { mixdogDesktopHost?: FilesApiOptions['host'] }).mixdogDesktopHost;
 

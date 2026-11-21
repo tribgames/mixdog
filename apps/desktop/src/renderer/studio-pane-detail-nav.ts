@@ -1,11 +1,6 @@
 import { type RefObject, useEffect, useRef } from 'react';
 import type { MediaAsset } from './studio-support';
 
-// Plain arrow keys page through the gallery while the detail viewer is open,
-// unless the key belongs to a text field, select, or playing video. Escape
-// closes the viewer only when it is the viewer's: focus inside it, or on the
-// page itself while this pane is the focused one. The composer, dialogs, menus
-// and other panes keep their own Escape (a menu inside the viewer stops it first).
 export function useStudioDetailKeyboardNav(
   selected: MediaAsset | null,
   visibleAssets: readonly MediaAsset[],

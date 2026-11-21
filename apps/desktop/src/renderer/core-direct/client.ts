@@ -1,7 +1,3 @@
-// The renderer's own protocol client: the client library's `connect` over a MessagePort to this window's core, with the
-// identity the main process's connection had (open-core.ts) and no host role (no `host`, no `modelProxy`).
-// A main window has one client (slot `primary`). A server window has two: `primary` is its server's core and `pc` is this
-// PC's core (role `server:<id>`); `pcCoreClient()` answers with the one that is this PC's.
 import {
   connect,
   DEFAULT_FIRST_CONNECT_DEADLINE_MS,

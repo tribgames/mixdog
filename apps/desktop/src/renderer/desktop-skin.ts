@@ -30,6 +30,7 @@ import { syncSkinBootSnapshot } from './skin-boot-snapshot';
 import { deleteCustomSkinMedia, putCustomSkinMedia, readCustomSkinMedia } from './skin-media-store';
 import { type SkinMotion, syncSkinMotion } from './skin-motion';
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { safeLocalStorage } from './local-storage';
 
 export type SkinId = 'none' | 'custom' | (string & {});
 export type { SkinPlate };
@@ -100,17 +101,9 @@ type CustomMeta = {
   rev?: number;
 };
 
-function storage(): Storage | null {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
 function readStored(): StoredSkin {
   try {
-    const parsed = JSON.parse(storage()?.getItem(SKIN_KEY) || 'null') as Partial<StoredSkin> | null;
+    const parsed = JSON.parse(safeLocalStorage()?.getItem(SKIN_KEY) || 'null') as Partial<StoredSkin> | null;
     if (parsed && typeof parsed.id === 'string' && typeof parsed.accent === 'string') {
       return { id: parsed.id, accent: parsed.accent, cast: parsed.cast };
     }
@@ -121,7 +114,7 @@ function readStored(): StoredSkin {
 }
 
 function customImage(): string | null {
-  return storage()?.getItem(CUSTOM_IMAGE_KEY) || null;
+  return safeLocalStorage()?.getItem(CUSTOM_IMAGE_KEY) || null;
 }
 
 function skinImage(id: SkinId): string | null {
@@ -129,12 +122,9 @@ function skinImage(id: SkinId): string | null {
   return BUILTIN_SKINS.find((skin) => skin.id === id)?.image ?? null;
 }
 
-/** Transparency of one plate family, 0-100 (higher shows more of the
-    picture): its own key, else the old single value (which both sliders
-    inherit; or the older soft / normal / strong), else the default. The old
-    keys stay for older builds. */
+/** Transparency of one plate family, 0-100: its own key, else the old single value, else the default. The old keys stay for older builds. */
 function readTransparency(key: string, fallback: number): number {
-  const store = storage();
+  const store = safeLocalStorage();
   for (const stored of [store?.getItem(key), store?.getItem(SKIN_TRANSPARENCY_KEY)]) {
     if (stored && Number.isFinite(Number(stored))) return clampTransparency(Number(stored));
   }
@@ -158,7 +148,7 @@ function applyAndAnnounce(): void {
 }
 
 function storeTransparency(entries: Array<[string, number]>): void {
-  for (const [key, value] of entries) storage()?.setItem(key, String(clampTransparency(value)));
+  for (const [key, value] of entries) safeLocalStorage()?.setItem(key, String(clampTransparency(value)));
   applyAndAnnounce();
 }
 
@@ -185,36 +175,36 @@ export function defaultSkinPlate(id: SkinId): SkinPlate {
 
 /** The plate in effect: this device's override, else the skin's manifest default. */
 export function getSkinPlate(): SkinPlate {
-  const stored = storage()?.getItem(SKIN_PLATE_KEY);
+  const stored = safeLocalStorage()?.getItem(SKIN_PLATE_KEY);
   if (stored === 'light' || stored === 'dark' || stored === 'tint') return stored;
   return defaultSkinPlate(getSkinId());
 }
 
 /** This device's accent override (a #rrggbb colour), or null for "from the picture". */
 export function getSkinAccent(): string | null {
-  const stored = storage()?.getItem(SKIN_ACCENT_KEY);
+  const stored = safeLocalStorage()?.getItem(SKIN_ACCENT_KEY);
   return stored && /^#[0-9a-f]{6}$/i.test(stored) ? stored.toLowerCase() : null;
 }
 
 /** The override still goes through the contrast guard (fitAccent) when painted. */
 export function setSkinAccent(accent: string | null): void {
-  if (accent) storage()?.setItem(SKIN_ACCENT_KEY, accent.toLowerCase());
-  else storage()?.removeItem(SKIN_ACCENT_KEY);
+  if (accent) safeLocalStorage()?.setItem(SKIN_ACCENT_KEY, accent.toLowerCase());
+  else safeLocalStorage()?.removeItem(SKIN_ACCENT_KEY);
   applyAndAnnounce();
 }
 
 export function setSkinPlate(plate: SkinPlate): void {
-  storage()?.setItem(SKIN_PLATE_KEY, plate);
+  safeLocalStorage()?.setItem(SKIN_PLATE_KEY, plate);
   applyAndAnnounce();
 }
 
 export function getSkinPhoto(): boolean {
-  return storage()?.getItem(SKIN_PHOTO_KEY) !== 'off';
+  return safeLocalStorage()?.getItem(SKIN_PHOTO_KEY) !== 'off';
 }
 
 /** Off keeps the palette (plates, accent) and hides only the picture. */
 export function setSkinPhoto(on: boolean): void {
-  storage()?.setItem(SKIN_PHOTO_KEY, on ? 'on' : 'off');
+  safeLocalStorage()?.setItem(SKIN_PHOTO_KEY, on ? 'on' : 'off');
   applyAndAnnounce();
 }
 
@@ -230,7 +220,7 @@ export function resetSkin(): void {
     SKIN_PHOTO_KEY,
     SKIN_ACCENT_KEY,
   ]) {
-    storage()?.removeItem(key);
+    safeLocalStorage()?.removeItem(key);
   }
   save({ id: 'none', accent: FALLBACK_ACCENT });
 }
@@ -273,7 +263,7 @@ const SKIN_PROPS = [
 
 function customMeta(): CustomMeta | null {
   try {
-    const parsed = JSON.parse(storage()?.getItem(CUSTOM_META_KEY) || 'null') as Partial<CustomMeta> | null;
+    const parsed = JSON.parse(safeLocalStorage()?.getItem(CUSTOM_META_KEY) || 'null') as Partial<CustomMeta> | null;
     if (parsed && typeof parsed.accent === 'string' && parsed.cast && typeof parsed.focal === 'string') {
       return {
         accent: parsed.accent,
@@ -379,10 +369,7 @@ export function currentSkinTheme(): SkinTheme {
 
 let themeObserver: MutationObserver | null = null;
 
-/** The moving layer of a skin, or null for a still one (or with the photo
-    off). A built-in's loop plays in the desktop app only: a phone or browser
-    on the relay would pull every loop over it, so it keeps the picture. The
-    custom media is this device's own file, so it plays everywhere. */
+/** The moving layer of a skin, or null for a still one. A built-in's loop plays in the desktop app only: a relay browser would download every loop. */
 function skinMotion(id: SkinId): SkinMotion | null {
   if (!getSkinPhoto()) return null;
   const builtin = BUILTIN_SKINS.find((skin) => skin.id === id);
@@ -536,19 +523,19 @@ function migrateLegacyCustomMeta(): void {
   const stored = readStored();
   if (stored.id !== 'custom' || !customImage() || customMeta()) return;
   const meta: CustomMeta = { accent: stored.accent, cast: stored.cast ?? castOfColor(stored.accent), focal: 'center' };
-  storage()?.setItem(CUSTOM_META_KEY, JSON.stringify(meta));
+  safeLocalStorage()?.setItem(CUSTOM_META_KEY, JSON.stringify(meta));
 }
 
 function save(next: StoredSkin): void {
   migrateLegacyCustomMeta();
-  storage()?.setItem(SKIN_KEY, JSON.stringify(next));
+  safeLocalStorage()?.setItem(SKIN_KEY, JSON.stringify(next));
   applyAndAnnounce();
 }
 
 /** Choose a skin. It brings its own plate (a plate chosen for the previous
     picture would not suit it); strength, accent override and toggles stay. */
 export function setSkin(id: SkinId): void {
-  storage()?.removeItem(SKIN_PLATE_KEY);
+  safeLocalStorage()?.removeItem(SKIN_PLATE_KEY);
   save({ id: skinImage(id) ? id : 'none', accent: FALLBACK_ACCENT });
 }
 
@@ -652,7 +639,7 @@ export async function commitCustomSkin(
 ): Promise<void> {
   if (prepared.media) await putCustomSkinMedia(prepared.media.blob);
   else if (customMeta()?.motion) await deleteCustomSkinMedia();
-  storage()?.setItem(CUSTOM_IMAGE_KEY, prepared.dataUrl);
+  safeLocalStorage()?.setItem(CUSTOM_IMAGE_KEY, prepared.dataUrl);
   const meta: CustomMeta = {
     accent: prepared.accent,
     cast: prepared.cast,
@@ -663,6 +650,6 @@ export async function commitCustomSkin(
     meta.motion = prepared.media.kind;
     meta.rev = Date.now();
   }
-  storage()?.setItem(CUSTOM_META_KEY, JSON.stringify(meta));
+  safeLocalStorage()?.setItem(CUSTOM_META_KEY, JSON.stringify(meta));
   setSkin('custom');
 }

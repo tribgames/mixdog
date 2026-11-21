@@ -1,10 +1,3 @@
-/**
- * Reading the accessibility tree of every CDP target a page has attached —
- * the main target plus its cross-origin frames — together with the layout
- * bounds and file-input facts only the DOM snapshot knows. Reads settle
- * independently so one broken frame degrades the observation instead of
- * failing it; the caller learns how much was left out.
- */
 import type { WebContents } from 'electron';
 
 import type { AccessibilityNode, AccessibilityTargetSnapshot, FileInputFacts } from './accessibility';

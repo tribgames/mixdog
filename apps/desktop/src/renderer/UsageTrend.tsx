@@ -73,6 +73,19 @@ function TrendBar({
   );
 }
 
+/** Presets retain their advertised units. Custom ranges choose the finest
+ *  calendar unit that fits; all-history also caps very long yearly series. */
+function trendGroupingFor(view: StatsView, startDay: string, endDay: string): TrendGrouping {
+  const calendarGrouping =
+    startDay && endDay && (view === 'custom' || view === 'year')
+      ? resolveUsageTrendGrouping(startDay, endDay)
+      : { grain: 'day' as Grain, step: 1, firstYear: 0, lastYear: 0 };
+  let presetGrain: TrendGrouping['grain'] = calendarGrouping.grain;
+  if (view === '7d') presetGrain = 'day';
+  else if (view !== 'custom') presetGrain = view;
+  return { ...calendarGrouping, grain: presetGrain };
+}
+
 export function UsageTrend({
   daily,
   hourly,
@@ -96,16 +109,7 @@ export function UsageTrend({
   const [metric, setMetric] = useState<Metric>('tokens');
   const startDay = String(period.startDay || daily[0]?.day || '');
   const endDay = String(period.endDay || daily.at(-1)?.day || '');
-  const calendarGrouping =
-    startDay && endDay && (view === 'custom' || view === 'year')
-      ? resolveUsageTrendGrouping(startDay, endDay)
-      : { grain: 'day' as Grain, step: 1, firstYear: 0, lastYear: 0 };
-  // Presets retain their advertised units. Custom ranges choose the finest
-  // calendar unit that fits; all-history also caps very long yearly series.
-  let presetGrain: TrendGrouping['grain'] = calendarGrouping.grain;
-  if (view === '7d') presetGrain = 'day';
-  else if (view !== 'custom') presetGrain = view;
-  const grouping: TrendGrouping = { ...calendarGrouping, grain: presetGrain };
+  const grouping = trendGroupingFor(view, startDay, endDay);
   const { grain } = grouping;
   const series = groupTrend(view === 'hour' ? hourly : daily, grouping);
   const detail = useTrendDetail([metric, view, daily, hourly]);

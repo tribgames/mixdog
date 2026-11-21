@@ -137,10 +137,6 @@ function presentationCopy(presentation: SourceControlErrorPresentation): {
   }
 }
 
-/** The toast a Git failure becomes: the classified headline leads (the app's
- *  error notices read their one visible line from the first line), and the
- *  cleaned Git output rides behind it as the toast's own "Show details"
- *  body. Lives here so both surfaces classify a failure exactly once. */
 export function sourceControlErrorToastText(reason: unknown): string {
   const presentation = describeSourceControlError(reason);
   const copy = presentationCopy(presentation);

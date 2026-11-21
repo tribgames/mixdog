@@ -16,14 +16,6 @@ window.HTMLElement.prototype.attachEvent = function attachEvent(_name, handler) 
 };
 window.HTMLElement.prototype.detachEvent = () => {};
 
-/**
- * One controlled clock for the pane: window and global timeouts and
- * intervals, animation frames and Date.now. Time moves only through
- * `advance` (the tests' `wait`), which runs every timer due on the way in
- * time order and lets promise work settle after each, so no timing boundary
- * (touch indicator, long-press, double tap, resize debounce) depends on how
- * fast the machine runs the test.
- */
 const FRAME_MS = 16;
 
 function createTestClock() {
@@ -184,7 +176,7 @@ async function mount(props = { sessionId: 's', active: true }) {
     root,
     rerender: (next) => act(async () => root.render(React.createElement(RemoteBrowserPane, next))),
     unmount: async () => {
-      mounted.delete(pane);
+      if (!mounted.delete(pane)) return;
       await act(async () => root.unmount());
       host.remove();
     },
@@ -221,11 +213,83 @@ const pointerEvent = (type, init) => {
   return event;
 };
 const pointers = (state) => state.controls.map(({ input }) => input).filter((input) => input.type === 'pointer');
+const wheelsSent = (state) => state.controls.map(({ input }) => input).filter((input) => input.type === 'wheel');
+const pointerPhases = (state) => pointers(state).map((input) => [input.phase, input.button, input.x]);
+const touchOn = (content) => (type, id, x, y) =>
+  content.dispatchEvent(pointerEvent(type, { pointerType: 'touch', pointerId: id, clientX: x, clientY: y }));
+const touchList = (content, type, points) => {
+  const list = new window.TouchEvent(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(list, 'touches', {
+    value: points.map(([clientX, clientY]) => ({ clientX, clientY, target: content })),
+  });
+  content.dispatchEvent(list);
+};
 
-test('stream starts on activation, renews, stops when hidden/inactive, and acks displayed frames', async () => {
+function phoneUserAgent() {
+  const agent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
+  Object.defineProperty(window.navigator, 'userAgent', {
+    configurable: true,
+    value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+  });
+  return () => {
+    if (agent) Object.defineProperty(window.navigator, 'userAgent', agent);
+    else delete window.navigator.userAgent;
+  };
+}
+
+async function withPane(body, { phone = false } = {}) {
+  const screen = phone ? surface() : null;
   const state = fakeApi();
   const pane = await mount();
   try {
+    await body({ state, pane, screen });
+  } finally {
+    await pane.unmount();
+    screen?.restore();
+  }
+}
+
+async function typingBar(state) {
+  await showFrame(state);
+  const textarea = document.querySelector('.browser-remote-keyboard textarea');
+  const send = document.querySelector('.browser-remote-keyboard button.send-button');
+  const props = textarea[Object.keys(textarea).find((name) => name.startsWith('__reactProps$'))];
+  const fire = (event) => act(async () => textarea.dispatchEvent(event));
+  await act(async () => textarea.focus());
+  await flush();
+  state.controls.length = 0;
+  return {
+    textarea,
+    send,
+    props,
+    fire,
+    keydown: (init) => fire(new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })),
+    input: () => fire(new window.Event('input', { bubbles: true })),
+    sent: () => state.controls.map(({ input }) => input),
+  };
+}
+
+async function openNewTab(text) {
+  await act(async () => document.querySelector('button[aria-label="New tab"]').click());
+  const address = document.querySelector('input[aria-label="Address bar"]');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(address, text);
+    address.dispatchEvent(new window.Event('input', { bubbles: true }));
+    // React's input polyfill reads value changes off propertychange when no native input event arrives.
+    address.propertyChange({ propertyName: 'value', target: address });
+  });
+  await act(async () => address.form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+  await flush();
+}
+
+const tabIds = () => [...document.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute('data-page-id'));
+const selectedTabId = () =>
+  [...document.querySelectorAll('[role="tab"]')]
+    .find((tab) => tab.getAttribute('aria-selected') === 'true')
+    ?.getAttribute('data-page-id');
+
+test('stream starts on activation and acks displayed frames, keeping the image across a metadata-only frame', async () => {
+  await withPane(async ({ state }) => {
     assert.equal(state.streams.length, 1);
     assert.equal(state.streams[0][0], 's');
     assert.ok(state.streams[0][1].maxWidth > 0 && state.streams[0][1].maxHeight > 0);
@@ -241,25 +305,40 @@ test('stream starts on activation, renews, stops when hidden/inactive, and acks 
     assert.match(src, /^data:image\/jpeg;base64,AA==/);
     assert.deepEqual(state.acks, [['s', 1]]);
 
-    // A metadata-only frame keeps the last image and is acknowledged too.
     await act(async () => state.listener(streamFrame({ seq: 2, image: undefined, title: 'Next' })));
     await flush();
     assert.equal(document.querySelector('.browser-remote-content img').getAttribute('src'), src);
     assert.deepEqual(state.acks.at(-1), ['s', 2]);
+  });
+});
 
+test('stream renews on its interval', async () => {
+  await withPane(async ({ state }) => {
     await act(async () => state.renew());
     assert.equal(state.streams.length, 2);
     assert.ok(state.streams[1][1]);
+  });
+});
 
+test('stream stops while the page is hidden and resumes when visible', async () => {
+  await withPane(async ({ state }) => {
     const hidden = (value) => {
       Object.defineProperty(document, 'visibilityState', { value, configurable: true });
       document.dispatchEvent(new window.Event('visibilitychange'));
     };
-    await act(async () => hidden('hidden'));
-    assert.deepEqual(state.streams.at(-1), ['s', null]);
-    await act(async () => hidden('visible'));
-    assert.ok(state.streams.at(-1)[1]);
+    try {
+      await act(async () => hidden('hidden'));
+      assert.deepEqual(state.streams.at(-1), ['s', null]);
+      await act(async () => hidden('visible'));
+      assert.ok(state.streams.at(-1)[1]);
+    } finally {
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    }
+  });
+});
 
+test('stream stops when the pane is inactive or unmounted and restarts on activation', async () => {
+  await withPane(async ({ state, pane }) => {
     await pane.rerender({ sessionId: 's', active: false });
     assert.deepEqual(state.streams.at(-1), ['s', null]);
     const count = state.streams.length;
@@ -267,16 +346,11 @@ test('stream starts on activation, renews, stops when hidden/inactive, and acks 
     assert.equal(state.streams.length, count + 1);
     await pane.unmount();
     assert.deepEqual(state.streams.at(-1), ['s', null]);
-  } finally {
-    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
-    await pane.unmount().catch(() => {});
-  }
+  });
 });
 
-test('mouse maps to hover, press/release, wheel, and keyboard/IME through the shared input hook', async () => {
-  const state = fakeApi();
-  const pane = await mount();
-  try {
+test('mouse maps to hover and press/release for the shown document', async () => {
+  await withPane(async ({ state }) => {
     const content = await showFrame(state);
     await act(async () => {
       content.dispatchEvent(pointerEvent('pointermove', { clientX: 50, clientY: 25, buttons: 0 }));
@@ -296,21 +370,26 @@ test('mouse maps to hover, press/release, wheel, and keyboard/IME through the sh
     assert.equal(mouse[1].x, 50);
     assert.equal(mouse[1].y, 25);
     assert.ok(state.controls.every(({ input }) => input.documentId === 'd1'));
+  });
+});
 
+test('the mouse wheel maps to page wheel input', async () => {
+  await withPane(async ({ state }) => {
+    const content = await showFrame(state);
     await act(async () => {
-      const wheel = new window.WheelEvent('wheel', {
-        bubbles: true,
-        cancelable: true,
-        clientX: 50,
-        clientY: 25,
-        deltaY: 40,
-      });
-      content.dispatchEvent(wheel);
+      content.dispatchEvent(
+        new window.WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: 50, clientY: 25, deltaY: 40 })
+      );
     });
     await flush();
     assert.equal(state.controls.at(-1).input.type, 'wheel');
     assert.equal(state.controls.at(-1).input.deltaY, 40);
+  });
+});
 
+test('typing in the keyboard field and Backspace reach the page as text and key input', async () => {
+  await withPane(async ({ state }) => {
+    await showFrame(state);
     const textarea = document.querySelector('.browser-remote-keyboard textarea');
     textarea.value = 'A';
     await act(async () => textarea.dispatchEvent(new window.Event('input', { bubbles: true })));
@@ -323,20 +402,12 @@ test('mouse maps to hover, press/release, wheel, and keyboard/IME through the sh
     });
     await flush();
     assert.deepEqual(state.controls.at(-1).input, { type: 'key', key: 'Backspace', documentId: 'd1' });
-  } finally {
-    await pane.unmount();
-  }
+  });
 });
 
-test('touch maps tap, long-press, drag, and two-finger pan to mouse input', async () => {
-  const state = fakeApi();
-  const pane = await mount();
-  try {
-    const content = await showFrame(state);
-    const touch = (type, id, x, y) =>
-      content.dispatchEvent(pointerEvent(type, { pointerType: 'touch', pointerId: id, clientX: x, clientY: y }));
-
-    // Tap: move + press + release, left button, with an immediate local dot.
+test('touch tap is a left click with an immediate local dot that lasts its indicator time', async () => {
+  await withPane(async ({ state }) => {
+    const touch = touchOn(await showFrame(state));
     const downAt = clock.now;
     await act(async () => {
       touch('pointerdown', 1, 50, 25);
@@ -352,15 +423,16 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
         ['mouseReleased', 'left'],
       ]
     );
-    // The dot lasts its indicator time, then goes.
     await act(async () => wait(downAt + TOUCH_INDICATOR_MS - 1 - clock.now));
     assert.ok(document.querySelector('.browser-remote-touch-dot'));
     await act(async () => wait(1));
     assert.equal(document.querySelector('.browser-remote-touch-dot'), null);
+  });
+});
 
-    // Long-press without movement: right click, once held for the long-press time.
-    state.controls.length = 0;
-    await act(async () => wait(DOUBLE_TAP_TIMEOUT_MS));
+test('touch long-press without movement is a right click once held for the long-press time', async () => {
+  await withPane(async ({ state }) => {
+    const touch = touchOn(await showFrame(state));
     await act(async () => touch('pointerdown', 2, 60, 30));
     await act(async () => wait(TOUCH_LONG_PRESS_MS - 1));
     assert.equal(pointers(state).length, 0, 'not yet a long-press');
@@ -375,9 +447,12 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
         ['mouseReleased', 'right'],
       ]
     );
+  });
+});
 
-    // One-finger drag: press at the start, streamed left-button moves, release last.
-    state.controls.length = 0;
+test('touch one-finger drag presses at the start, streams left-button moves and releases last', async () => {
+  await withPane(async ({ state }) => {
+    const touch = touchOn(await showFrame(state));
     await act(async () => touch('pointerdown', 3, 10, 40));
     await act(async () => touch('pointermove', 3, 40, 40));
     await act(async () => wait(10));
@@ -394,29 +469,24 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
     assert.ok(
       drag.slice(2, -1).every((input) => input.phase === 'mouseMoved' && input.button === 'left' && input.buttons === 1)
     );
+  });
+});
 
-    // Two-finger pan scrolls instead of clicking: with touch lists (touchstart
-    // and touchmove alongside the pointer reports) each motion goes out once.
-    const touchList = (type, points) => {
-      const list = new window.TouchEvent(type, { bubbles: true, cancelable: true });
-      Object.defineProperty(list, 'touches', {
-        value: points.map(([clientX, clientY]) => ({ clientX, clientY, target: content })),
-      });
-      content.dispatchEvent(list);
-    };
-    const wheelsSent = () => state.controls.map(({ input }) => input).filter((input) => input.type === 'wheel');
-    state.controls.length = 0;
+test('touch two-finger pan with touch lists scrolls once per motion instead of clicking', async () => {
+  await withPane(async ({ state }) => {
+    const content = await showFrame(state);
+    const touch = touchOn(content);
     await act(async () => {
       touch('pointerdown', 4, 50, 50);
-      touchList('touchstart', [[50, 50]]);
+      touchList(content, 'touchstart', [[50, 50]]);
       touch('pointerdown', 5, 150, 50);
-      touchList('touchstart', [
+      touchList(content, 'touchstart', [
         [50, 50],
         [150, 50],
       ]);
       touch('pointermove', 4, 50, 30);
       touch('pointermove', 5, 150, 30);
-      touchList('touchmove', [
+      touchList(content, 'touchmove', [
         [50, 30],
         [150, 30],
       ]);
@@ -425,17 +495,18 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
     });
     await flush();
     assert.equal(pointers(state).length, 0);
-    assert.ok(wheelsSent().length > 0);
+    assert.ok(wheelsSent(state).length > 0);
     assert.equal(
-      wheelsSent().reduce((sum, wheel) => sum + wheel.deltaY, 0),
+      wheelsSent(state).reduce((sum, wheel) => sum + wheel.deltaY, 0),
       20,
       'not dispatched twice'
     );
+  });
+});
 
-    // Pointer reports only (no touch events): the scroll still works, and
-    // nothing zooms.
-    state.controls.length = 0;
-    await act(async () => wait(DOUBLE_TAP_TIMEOUT_MS));
+test('touch two-finger pan from pointer reports alone still scrolls and never zooms', async () => {
+  await withPane(async ({ state }) => {
+    const touch = touchOn(await showFrame(state));
     await act(async () => {
       touch('pointerdown', 6, 50, 50);
       touch('pointerdown', 7, 150, 50);
@@ -449,27 +520,15 @@ test('touch maps tap, long-press, drag, and two-finger pan to mouse input', asyn
     await flush();
     assert.equal(pointers(state).length, 0);
     assert.equal(
-      wheelsSent().reduce((sum, wheel) => sum + wheel.deltaY, 0),
+      wheelsSent(state).reduce((sum, wheel) => sum + wheel.deltaY, 0),
       30
     );
     assert.equal(document.querySelector('.browser-remote-content img').style.transform, '', 'no local zoom');
-  } finally {
-    await pane.unmount();
-  }
+  });
 });
 
-/**
- * A 390×700 picture stage and a visual viewport the test drives; with
- * `phone`, an iPhone's agent (the phone layout). Installed before mounting.
- */
 function surface({ phone = true } = {}) {
-  const agent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
-  if (phone) {
-    Object.defineProperty(window.navigator, 'userAgent', {
-      configurable: true,
-      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
-    });
-  }
+  const restoreAgent = phone ? phoneUserAgent() : null;
   const stage = { width: 390, height: 700 };
   const proto = window.HTMLElement.prototype;
   for (const [name, key] of [
@@ -501,8 +560,7 @@ function surface({ phone = true } = {}) {
       delete proto.clientHeight;
       delete window.visualViewport;
       delete window.navigator.virtualKeyboard;
-      if (agent) Object.defineProperty(window.navigator, 'userAgent', agent);
-      else delete window.navigator.userAgent;
+      restoreAgent?.();
     },
   };
 }
@@ -530,58 +588,64 @@ test('desktop pane: the picture stays contained in its box, as before', async ()
   }
 });
 
-test('phone: the view fills one axis, keeps its scale under the keyboard, and refits on a real resize', async () => {
-  const screen = surface();
-  const state = fakeApi();
-  const pane = await mount();
-  try {
-    await showFrame(state);
-    // A 200×100 page on a 390×700 stage fills the height (7×) from the left edge.
-    assert.equal(pictureOf().style.width, '200px');
-    assert.match(pictureOf().style.transform, /translate\(0px, 0px\) scale\(7\)/);
-    const bar = document.querySelector('.browser-remote-keyboard');
-    assert.equal(bar.dataset.open, 'true', 'always shown');
-    assert.equal(bar, document.querySelector('.browser-remote-pane').lastElementChild, 'docked under the page');
-    // The composer look: one send button, no separate X.
-    assert.ok(bar.classList.contains('is-composer'));
-    assert.equal(bar.querySelectorAll('button').length, 1);
-    assert.equal(bar.querySelector('svg.lucide-x'), null, 'no X button');
-    const send = bar.querySelector('button.send-button');
-    await act(async () => send.click());
-    await flush();
-    assert.deepEqual(
-      state.controls.at(-1).input,
-      { type: 'key', key: 'Enter', documentId: 'd1' },
-      'send presses Enter'
-    );
+test('phone: the view fills one axis and the docked composer bar sends Enter', async () => {
+  await withPane(
+    async ({ state }) => {
+      await showFrame(state);
+      assert.equal(pictureOf().style.width, '200px');
+      assert.match(pictureOf().style.transform, /translate\(0px, 0px\) scale\(7\)/);
+      const bar = document.querySelector('.browser-remote-keyboard');
+      assert.equal(bar.dataset.open, 'true', 'always shown');
+      assert.equal(bar, document.querySelector('.browser-remote-pane').lastElementChild, 'docked under the page');
+      assert.ok(bar.classList.contains('is-composer'));
+      assert.equal(bar.querySelectorAll('button').length, 1);
+      assert.equal(bar.querySelector('svg.lucide-x'), null, 'no X button');
+      await act(async () => bar.querySelector('button.send-button').click());
+      await flush();
+      assert.deepEqual(
+        state.controls.at(-1).input,
+        { type: 'key', key: 'Enter', documentId: 'd1' },
+        'send presses Enter'
+      );
+    },
+    { phone: true }
+  );
+});
 
-    // The bar takes focus and the keyboard comes up: the same view, inset.
-    await act(async () => bar.querySelector('textarea').focus());
-    screen.visual.height = 450;
-    screen.stage.height = 380;
-    await screen.resize();
-    assert.match(pictureOf().style.transform, /scale\(7\)/, 'no refit for the keyboard');
-    // Blurred, the keyboard slides away: the inset holds while the visual
-    // viewport grows back, and goes on the resize that reaches its height
-    // without a keyboard. A stage still that short is then a new layout.
-    await act(async () => bar.querySelector('textarea').blur());
-    assert.match(pictureOf().style.transform, /scale\(7\)/, 'not at the blur');
-    screen.visual.height = 600;
-    await screen.resize();
-    assert.match(pictureOf().style.transform, /scale\(7\)/, 'not while it slides away');
-    screen.visual.height = 800;
-    await screen.resize();
-    assert.match(pictureOf().style.transform, /scale\(3\.8\)/, 'refit: 380 / 100');
+test('phone: the soft keyboard insets the view without a refit, and the view refits once it has slid away', async () => {
+  await withPane(
+    async ({ state, screen }) => {
+      await showFrame(state);
+      const textarea = document.querySelector('.browser-remote-keyboard textarea');
+      await act(async () => textarea.focus());
+      screen.visual.height = 450;
+      screen.stage.height = 380;
+      await screen.resize();
+      assert.match(pictureOf().style.transform, /scale\(7\)/, 'no refit for the keyboard');
+      await act(async () => textarea.blur());
+      assert.match(pictureOf().style.transform, /scale\(7\)/, 'not at the blur');
+      screen.visual.height = 600;
+      await screen.resize();
+      assert.match(pictureOf().style.transform, /scale\(7\)/, 'not while it slides away');
+      screen.visual.height = 800;
+      await screen.resize();
+      assert.match(pictureOf().style.transform, /scale\(3\.8\)/, 'refit: 380 / 100');
+    },
+    { phone: true }
+  );
+});
 
-    // A split-screen resize with nothing focused refits, never an inset.
-    screen.visual.height = 600;
-    screen.stage.height = 500;
-    await screen.resize();
-    assert.match(pictureOf().style.transform, /scale\(5\)/);
-  } finally {
-    await pane.unmount();
-    screen.restore();
-  }
+test('phone: a split-screen resize with nothing focused refits, never an inset', async () => {
+  await withPane(
+    async ({ state, screen }) => {
+      await showFrame(state);
+      screen.visual.height = 600;
+      screen.stage.height = 500;
+      await screen.resize();
+      assert.match(pictureOf().style.transform, /scale\(5\)/);
+    },
+    { phone: true }
+  );
 });
 
 test('phone: typing, a composing Korean syllable included, stays in the bar; send delivers it whole, once, with no Enter', async () => {
@@ -627,143 +691,155 @@ test('phone: typing, a composing Korean syllable included, stays in the bar; sen
   }
 });
 
-test('phone: Gboard and Samsung line breaks send once with the full text; special keys and chords reach the page', async () => {
-  const screen = surface();
-  const state = fakeApi();
-  const pane = await mount();
-  try {
-    await showFrame(state);
-    const textarea = document.querySelector('.browser-remote-keyboard textarea');
-    const props = textarea[Object.keys(textarea).find((name) => name.startsWith('__reactProps$'))];
-    const fire = (event) => act(async () => textarea.dispatchEvent(event));
-    const keydown = (init) => fire(new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
-    await act(async () => textarea.focus());
-    await flush();
-    const before = state.controls.length;
-    const sentInputs = () => state.controls.slice(before).map(({ input }) => input);
-    // Gboard: keydown 229, compositionend, beforeinput insertLineBreak.
-    await act(async () => props.onCompositionStart({ data: '', currentTarget: textarea, nativeEvent: {} }));
-    await keydown({ key: 'Process', keyCode: 229 });
-    textarea.value += '한';
-    await act(async () => props.onCompositionEnd({ data: '한', currentTarget: textarea, nativeEvent: {} }));
-    const lineBreak = new window.Event('beforeinput', { bubbles: true, cancelable: true });
-    lineBreak.inputType = 'insertLineBreak';
-    await fire(lineBreak);
-    await flush();
-    assert.equal(lineBreak.defaultPrevented, true);
-    assert.deepEqual(sentInputs(), [{ type: 'text', text: '한', documentId: 'd1' }]);
-    // Samsung: the newline arrives in the input event.
-    state.controls.length = 0;
-    textarea.value += 'ls\n';
-    await fire(new window.Event('input', { bubbles: true }));
-    await flush();
-    assert.deepEqual(
-      state.controls.map(({ input }) => input),
-      [{ type: 'text', text: 'ls', documentId: 'd1' }]
-    );
-    // Special keys and chords go to the page at once while the bar is empty.
-    state.controls.length = 0;
-    await keydown({ key: 'Escape', code: 'Escape' });
-    await keydown({ key: 'Tab', code: 'Tab' });
-    await keydown({ key: 'ArrowLeft', code: 'ArrowLeft' });
-    await keydown({ key: 'c', code: 'KeyC', ctrlKey: true });
-    await flush();
-    assert.deepEqual(
-      state.controls.map(({ input }) => [input.type, input.key]),
-      [
-        ['key', 'Escape'],
-        ['key', 'Tab'],
-        ['key', 'ArrowLeft'],
-        ['key', 'Control+c'],
-      ]
-    );
-    // With text buffered the arrows edit it; a chord still goes; paste stays in the bar.
-    state.controls.length = 0;
-    textarea.value += 'abc';
-    await fire(new window.Event('input', { bubbles: true }));
-    await keydown({ key: 'ArrowLeft', code: 'ArrowLeft' });
-    assert.deepEqual(state.controls, []);
-    await keydown({ key: 'Escape', code: 'Escape' });
-    const paste = new window.KeyboardEvent('keydown', {
-      key: 'v',
-      code: 'KeyV',
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true,
-    });
-    await fire(paste);
-    await flush();
-    assert.equal(paste.defaultPrevented, false);
-    assert.deepEqual(
-      state.controls.map(({ input }) => input.key),
-      ['Escape']
-    );
-    // A multi-line paste stays text until send.
-    state.controls.length = 0;
-    await fire(new window.Event('paste', { bubbles: true }));
-    textarea.value += 'x\ny\n';
-    await fire(new window.Event('input', { bubbles: true }));
-    await flush();
-    assert.deepEqual(state.controls, []);
-    assert.match(textarea.value, /abcx\ny\n$/);
-  } finally {
-    await pane.unmount();
-    screen.restore();
-  }
+test('phone: a Gboard line break after a composition sends the text once', async () => {
+  await withPane(
+    async ({ state }) => {
+      const bar = await typingBar(state);
+      await act(async () => bar.props.onCompositionStart({ data: '', currentTarget: bar.textarea, nativeEvent: {} }));
+      await bar.keydown({ key: 'Process', keyCode: 229 });
+      bar.textarea.value += '한';
+      await act(async () => bar.props.onCompositionEnd({ data: '한', currentTarget: bar.textarea, nativeEvent: {} }));
+      const lineBreak = new window.Event('beforeinput', { bubbles: true, cancelable: true });
+      lineBreak.inputType = 'insertLineBreak';
+      await bar.fire(lineBreak);
+      await flush();
+      assert.equal(lineBreak.defaultPrevented, true);
+      assert.deepEqual(bar.sent(), [{ type: 'text', text: '한', documentId: 'd1' }]);
+    },
+    { phone: true }
+  );
 });
 
-test('phone: the soft keyboard’s Enter sends the bar’s text; an empty bar sends Enter, and Backspace a Backspace', async () => {
-  const screen = surface();
-  const state = fakeApi();
-  const pane = await mount();
-  try {
-    await showFrame(state);
-    const textarea = document.querySelector('.browser-remote-keyboard textarea');
-    const send = document.querySelector('.browser-remote-keyboard button.send-button');
-    const key = (name) =>
-      act(async () => {
-        textarea.dispatchEvent(new window.KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }));
+test('phone: a Samsung newline in the input event sends the text once', async () => {
+  await withPane(
+    async ({ state }) => {
+      const bar = await typingBar(state);
+      bar.textarea.value += 'ls\n';
+      await bar.input();
+      await flush();
+      assert.deepEqual(bar.sent(), [{ type: 'text', text: 'ls', documentId: 'd1' }]);
+    },
+    { phone: true }
+  );
+});
+
+test('phone: special keys and chords go to the page at once while the bar is empty', async () => {
+  await withPane(
+    async ({ state }) => {
+      const bar = await typingBar(state);
+      await bar.keydown({ key: 'Escape', code: 'Escape' });
+      await bar.keydown({ key: 'Tab', code: 'Tab' });
+      await bar.keydown({ key: 'ArrowLeft', code: 'ArrowLeft' });
+      await bar.keydown({ key: 'c', code: 'KeyC', ctrlKey: true });
+      await flush();
+      assert.deepEqual(
+        bar.sent().map((input) => [input.type, input.key]),
+        [
+          ['key', 'Escape'],
+          ['key', 'Tab'],
+          ['key', 'ArrowLeft'],
+          ['key', 'Control+c'],
+        ]
+      );
+    },
+    { phone: true }
+  );
+});
+
+test('phone: with text buffered the arrows edit it, a chord still goes, and paste stays in the bar', async () => {
+  await withPane(
+    async ({ state }) => {
+      const bar = await typingBar(state);
+      bar.textarea.value += 'abc';
+      await bar.input();
+      await bar.keydown({ key: 'ArrowLeft', code: 'ArrowLeft' });
+      assert.deepEqual(bar.sent(), []);
+      await bar.keydown({ key: 'Escape', code: 'Escape' });
+      const paste = new window.KeyboardEvent('keydown', {
+        key: 'v',
+        code: 'KeyV',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
       });
-    await act(async () => textarea.focus());
-    await flush();
-    const before = state.controls.length;
-    textarea.value += 'ls -la';
-    await act(async () => textarea.dispatchEvent(new window.Event('input', { bubbles: true })));
-    await key('Backspace');
-    await flush();
-    assert.equal(state.controls.length, before, 'Backspace edits a bar that has text');
-    await key('Enter');
-    await flush();
-    assert.deepEqual(
-      state.controls.slice(before).map(({ input }) => input),
-      [{ type: 'text', text: 'ls -la', documentId: 'd1' }]
-    );
-    // Empty bar: Enter, send and Backspace are keys for the page, once each.
-    state.controls.length = 0;
-    await key('Enter');
-    await act(async () => send.click());
-    await key('Backspace');
-    await flush();
-    assert.deepEqual(
-      state.controls.map(({ input }) => [input.type, input.key]),
-      [
-        ['key', 'Enter'],
-        ['key', 'Enter'],
-        ['key', 'Backspace'],
-      ]
-    );
-    // Pasting goes into the bar like typing: nothing is sent until send.
-    state.controls.length = 0;
-    const paste = new window.Event('paste', { bubbles: true, cancelable: true });
-    Object.defineProperty(paste, 'clipboardData', { value: { getData: () => 'pasted' } });
-    await act(async () => textarea.dispatchEvent(paste));
-    await flush();
-    assert.equal(paste.defaultPrevented, false);
-    assert.deepEqual(state.controls, []);
-  } finally {
-    await pane.unmount();
-    screen.restore();
-  }
+      await bar.fire(paste);
+      await flush();
+      assert.equal(paste.defaultPrevented, false);
+      assert.deepEqual(
+        bar.sent().map((input) => input.key),
+        ['Escape']
+      );
+    },
+    { phone: true }
+  );
+});
+
+test('phone: a multi-line paste stays text in the bar until send', async () => {
+  await withPane(
+    async ({ state }) => {
+      const bar = await typingBar(state);
+      await bar.fire(new window.Event('paste', { bubbles: true }));
+      bar.textarea.value += 'x\ny\n';
+      await bar.input();
+      await flush();
+      assert.deepEqual(bar.sent(), []);
+      assert.match(bar.textarea.value, /x\ny\n$/);
+    },
+    { phone: true }
+  );
+});
+
+test('phone: the soft keyboard’s Enter sends the bar’s text, and Backspace edits a bar that has text', async () => {
+  await withPane(
+    async ({ state }) => {
+      const bar = await typingBar(state);
+      bar.textarea.value += 'ls -la';
+      await bar.input();
+      await bar.keydown({ key: 'Backspace' });
+      await flush();
+      assert.deepEqual(bar.sent(), [], 'Backspace edits a bar that has text');
+      await bar.keydown({ key: 'Enter' });
+      await flush();
+      assert.deepEqual(bar.sent(), [{ type: 'text', text: 'ls -la', documentId: 'd1' }]);
+    },
+    { phone: true }
+  );
+});
+
+test('phone: an empty bar sends Enter, send and Backspace as keys for the page, once each', async () => {
+  await withPane(
+    async ({ state }) => {
+      const bar = await typingBar(state);
+      await bar.keydown({ key: 'Enter' });
+      await act(async () => bar.send.click());
+      await bar.keydown({ key: 'Backspace' });
+      await flush();
+      assert.deepEqual(
+        bar.sent().map((input) => [input.type, input.key]),
+        [
+          ['key', 'Enter'],
+          ['key', 'Enter'],
+          ['key', 'Backspace'],
+        ]
+      );
+    },
+    { phone: true }
+  );
+});
+
+test('phone: pasting goes into the bar like typing, and nothing is sent until send', async () => {
+  await withPane(
+    async ({ state }) => {
+      const bar = await typingBar(state);
+      const paste = new window.Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(paste, 'clipboardData', { value: { getData: () => 'pasted' } });
+      await bar.fire(paste);
+      await flush();
+      assert.equal(paste.defaultPrevented, false);
+      assert.deepEqual(bar.sent(), []);
+    },
+    { phone: true }
+  );
 });
 
 test('phone: a keyboard the VirtualKeyboard API reports over the page insets the view without a resize', async () => {
@@ -805,221 +881,247 @@ test('phone: a keyboard the VirtualKeyboard API reports over the page insets the
   }
 });
 
-test('phone touch: sized rings, long-press drag, one-finger view pan, two-finger right click, edge taps and swipes', async () => {
-  const screen = surface();
-  const state = fakeApi();
-  const pane = await mount();
-  try {
-    const content = await showFrame(state);
-    const touch = (type, id, x, y) =>
-      content.dispatchEvent(pointerEvent(type, { pointerType: 'touch', pointerId: id, clientX: x, clientY: y }));
-    const dot = () => document.querySelector('.browser-remote-touch-dot');
-    const phases = () => pointers(state).map((input) => [input.phase, input.button, input.x]);
+const dot = () => document.querySelector('.browser-remote-touch-dot');
 
-    // A tap: left click; the ring only once it was sent, sized for a tap.
-    await act(async () => touch('pointerdown', 1, 50, 25));
-    assert.equal(dot(), null);
-    await act(async () => touch('pointerup', 1, 50, 25));
-    await flush();
-    assert.deepEqual(phases(), [
-      ['mouseMoved', 'none', 50],
-      ['mousePressed', 'left', 50],
-      ['mouseReleased', 'left', 50],
-    ]);
-    assert.equal(dot().style.width, '50px');
-
-    // A long-press holds the left button; a move drags it; lifting releases.
-    state.controls.length = 0;
-    await act(async () => wait(DOUBLE_TAP_TIMEOUT_MS));
-    await act(async () => touch('pointerdown', 2, 60, 30));
-    await act(async () => wait(TOUCH_LONG_PRESS_MS));
-    assert.equal(dot().style.width, '110px', 'a press’s ring');
-    await act(async () => touch('pointermove', 2, 90, 40));
-    await act(async () => touch('pointerup', 2, 90, 40));
-    await flush();
-    assert.deepEqual(phases(), [
-      ['mouseMoved', 'none', 60],
-      ['mousePressed', 'left', 60],
-      ['mouseMoved', 'left', 90],
-      ['mouseReleased', 'left', 90],
-    ]);
-
-    // One finger moves the view, never the page.
-    state.controls.length = 0;
-    await act(async () => touch('pointerdown', 3, 100, 300));
-    await act(async () => touch('pointermove', 3, 80, 300));
-    await act(async () => touch('pointermove', 3, 50, 300));
-    await act(async () => touch('pointerup', 3, 50, 300));
-    await flush();
-    assert.equal(pointers(state).length, 0);
-    assert.match(pictureOf().style.transform, /translate\(-50px, 0px\) scale\(7\)/);
-
-    // Two fingers tapped: a right click where the first went down.
-    await act(async () => {
-      touch('pointerdown', 4, 70, 30);
-      touch('pointerdown', 5, 120, 30);
-      touch('pointerup', 4, 70, 30);
-      touch('pointerup', 5, 120, 30);
-    });
-    await flush();
-    assert.deepEqual(phases(), [
-      ['mouseMoved', 'none', 70],
-      ['mousePressed', 'right', 70],
-      ['mouseReleased', 'right', 70],
-    ]);
-
-    // At the screen's edge a tap is delivered; a swipe inward is the system's.
-    state.controls.length = 0;
-    await act(async () => wait(DOUBLE_TAP_TIMEOUT_MS));
-    await act(async () => {
-      touch('pointerdown', 6, 5, 40);
-      touch('pointerup', 6, 5, 40);
-    });
-    await flush();
-    assert.deepEqual(phases(), [
-      ['mouseMoved', 'none', 5],
-      ['mousePressed', 'left', 5],
-      ['mouseReleased', 'left', 5],
-    ]);
-    state.controls.length = 0;
-    await act(async () => {
-      touch('pointerdown', 7, 5, 40);
-      touch('pointermove', 7, 30, 40);
-      touch('pointermove', 7, 60, 40);
-      touch('pointerup', 7, 60, 40);
-    });
-    await flush();
-    assert.equal(pointers(state).length, 0);
-    assert.match(pictureOf().style.transform, /translate\(-50px, 0px\)/, 'the view did not move');
-  } finally {
-    await pane.unmount();
-    screen.restore();
-  }
+test('phone touch: a tap is a left click whose ring appears once it was sent', async () => {
+  await withPane(
+    async ({ state }) => {
+      const touch = touchOn(await showFrame(state));
+      await act(async () => touch('pointerdown', 1, 50, 25));
+      assert.equal(dot(), null);
+      await act(async () => touch('pointerup', 1, 50, 25));
+      await flush();
+      assert.deepEqual(pointerPhases(state), [
+        ['mouseMoved', 'none', 50],
+        ['mousePressed', 'left', 50],
+        ['mouseReleased', 'left', 50],
+      ]);
+      assert.equal(dot().style.width, '50px');
+    },
+    { phone: true }
+  );
 });
 
-test('phone: a long-press drag whose touch stream is lost releases the PC’s button', async () => {
-  const screen = surface();
-  const state = fakeApi();
-  const pane = await mount();
-  const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
-  try {
-    const content = await showFrame(state);
-    const touch = (type, id, x, y) =>
-      content.dispatchEvent(pointerEvent(type, { pointerType: 'touch', pointerId: id, clientX: x, clientY: y }));
-    const held = async (id) => {
-      state.controls.length = 0;
-      await act(async () => wait(DOUBLE_TAP_TIMEOUT_MS));
-      await act(async () => touch('pointerdown', id, 60, 30));
+test('phone touch: a long-press holds the left button, a move drags it and lifting releases', async () => {
+  await withPane(
+    async ({ state }) => {
+      const touch = touchOn(await showFrame(state));
+      await act(async () => touch('pointerdown', 2, 60, 30));
       await act(async () => wait(TOUCH_LONG_PRESS_MS));
-      await act(async () => touch('pointermove', id, 90, 40));
+      assert.equal(dot().style.width, '110px', 'a press’s ring');
+      await act(async () => touch('pointermove', 2, 90, 40));
+      await act(async () => touch('pointerup', 2, 90, 40));
       await flush();
-      assert.deepEqual(
-        pointers(state).map((input) => [input.phase, input.buttons]),
-        [
-          ['mouseMoved', 0],
-          ['mousePressed', 1],
-          ['mouseMoved', 1],
-        ],
-        'held and dragging'
-      );
-    };
-    const released = () => pointers(state).filter((input) => input.phase === 'mouseReleased');
-    const lose = [
-      ['the window loses focus', () => window.dispatchEvent(new window.Event('blur'))],
-      ['the pointer capture is lost', (id) => touch('lostpointercapture', id, 90, 40)],
-      [
-        'the page is hidden',
-        () => {
-          Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
-          document.dispatchEvent(new window.Event('visibilitychange'));
+      assert.deepEqual(pointerPhases(state), [
+        ['mouseMoved', 'none', 60],
+        ['mousePressed', 'left', 60],
+        ['mouseMoved', 'left', 90],
+        ['mouseReleased', 'left', 90],
+      ]);
+    },
+    { phone: true }
+  );
+});
+
+test('phone touch: one finger moves the view, never the page', async () => {
+  await withPane(
+    async ({ state }) => {
+      const touch = touchOn(await showFrame(state));
+      await act(async () => touch('pointerdown', 3, 100, 300));
+      await act(async () => touch('pointermove', 3, 80, 300));
+      await act(async () => touch('pointermove', 3, 50, 300));
+      await act(async () => touch('pointerup', 3, 50, 300));
+      await flush();
+      assert.equal(pointers(state).length, 0);
+      assert.match(pictureOf().style.transform, /translate\(-50px, 0px\) scale\(7\)/);
+    },
+    { phone: true }
+  );
+});
+
+test('phone touch: two fingers tapped are a right click where the first went down', async () => {
+  await withPane(
+    async ({ state }) => {
+      const touch = touchOn(await showFrame(state));
+      await act(async () => {
+        touch('pointerdown', 4, 70, 30);
+        touch('pointerdown', 5, 120, 30);
+        touch('pointerup', 4, 70, 30);
+        touch('pointerup', 5, 120, 30);
+      });
+      await flush();
+      assert.deepEqual(pointerPhases(state), [
+        ['mouseMoved', 'none', 70],
+        ['mousePressed', 'right', 70],
+        ['mouseReleased', 'right', 70],
+      ]);
+    },
+    { phone: true }
+  );
+});
+
+test('phone touch: a tap at the screen’s edge is delivered to the page', async () => {
+  await withPane(
+    async ({ state }) => {
+      const touch = touchOn(await showFrame(state));
+      await act(async () => {
+        touch('pointerdown', 6, 5, 40);
+        touch('pointerup', 6, 5, 40);
+      });
+      await flush();
+      assert.deepEqual(pointerPhases(state), [
+        ['mouseMoved', 'none', 5],
+        ['mousePressed', 'left', 5],
+        ['mouseReleased', 'left', 5],
+      ]);
+    },
+    { phone: true }
+  );
+});
+
+test('phone touch: a swipe inward from the screen’s edge is the system’s and reaches neither page nor view', async () => {
+  await withPane(
+    async ({ state }) => {
+      const touch = touchOn(await showFrame(state));
+      await act(async () => {
+        touch('pointerdown', 7, 5, 40);
+        touch('pointermove', 7, 30, 40);
+        touch('pointermove', 7, 60, 40);
+        touch('pointerup', 7, 60, 40);
+      });
+      await flush();
+      assert.equal(pointers(state).length, 0);
+      assert.match(pictureOf().style.transform, /translate\(0px, 0px\) scale\(7\)/, 'the view did not move');
+    },
+    { phone: true }
+  );
+});
+
+for (const [what, loseStream] of [
+  ['the window loses focus', () => window.dispatchEvent(new window.Event('blur'))],
+  ['the pointer capture is lost', (touch, id) => touch('lostpointercapture', id, 90, 40)],
+  [
+    'the page is hidden',
+    () => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+      document.dispatchEvent(new window.Event('visibilitychange'));
+    },
+  ],
+]) {
+  test(`phone: a long-press drag whose touch stream is lost releases the PC’s button (${what})`, async () => {
+    const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    try {
+      await withPane(
+        async ({ state }) => {
+          const touch = touchOn(await showFrame(state));
+          const released = () => pointers(state).filter((input) => input.phase === 'mouseReleased');
+          await act(async () => touch('pointerdown', 11, 60, 30));
+          await act(async () => wait(TOUCH_LONG_PRESS_MS));
+          await act(async () => touch('pointermove', 11, 90, 40));
+          await flush();
+          assert.deepEqual(
+            pointers(state).map((input) => [input.phase, input.buttons]),
+            [
+              ['mouseMoved', 0],
+              ['mousePressed', 1],
+              ['mouseMoved', 1],
+            ],
+            'held and dragging'
+          );
+          await act(async () => loseStream(touch, 11));
+          assert.deepEqual(
+            released().map((input) => [input.button, input.buttons, input.x]),
+            [['left', 0, 90]],
+            'released where it was dragged'
+          );
+          await act(async () => touch('pointermove', 11, 120, 40));
+          await act(async () => touch('pointerup', 11, 120, 40));
+          await flush();
+          assert.equal(released().length, 1, 'released once');
+          assert.equal(pointers(state).at(-1).phase, 'mouseReleased');
         },
-      ],
-    ];
-    let id = 10;
-    for (const [what, loseStream] of lose) {
-      id += 1;
-      await held(id);
-      await act(async () => loseStream(id));
-      assert.deepEqual(
-        released().map((input) => [input.button, input.buttons, input.x]),
-        [['left', 0, 90]],
-        `${what}: released where it was dragged`
+        { phone: true }
       );
-      // The finger's late events change nothing.
-      await act(async () => touch('pointermove', id, 120, 40));
-      await act(async () => touch('pointerup', id, 120, 40));
-      await flush();
-      assert.equal(released().length, 1, `${what}: released once`);
-      assert.equal(pointers(state).at(-1).phase, 'mouseReleased');
+    } finally {
       if (visibility) Object.defineProperty(document, 'visibilityState', visibility);
       else delete document.visibilityState;
     }
-  } finally {
-    if (visibility) Object.defineProperty(document, 'visibilityState', visibility);
-    else delete document.visibilityState;
-    await pane.unmount();
-    screen.restore();
-  }
-});
+  });
+}
 
-test('during a takeover a tap on the page raises the soft keyboard and typing reaches the page', async () => {
-  const { holdBrowserTakeover } = await import('./browser-takeover-input.ts');
-  const state = fakeApi();
-  const pane = await mount();
-  try {
+function withTakeover(body) {
+  return withPane(async ({ state }) => {
+    const { holdBrowserTakeover } = await import('./browser-takeover-input.ts');
     const content = await showFrame(state);
-    // The streamed page is tab p3 of the session (metadata-only frame: the picture stays).
     await act(async () => state.listener(streamFrame({ seq: 2, documentId: 'p3:0', image: undefined })));
     await flush();
     const textarea = document.querySelector('.browser-remote-keyboard textarea');
-    const tap = async (id) => {
-      const touch = (type) =>
-        content.dispatchEvent(pointerEvent(type, { pointerType: 'touch', pointerId: id, clientX: 50, clientY: 25 }));
-      await act(async () => touch('pointerdown'));
-      await act(async () => touch('pointerup'));
+    const touch = touchOn(content);
+    let nextId = 0;
+    const tap = async () => {
+      nextId += 1;
+      await act(async () => touch('pointerdown', nextId, 50, 25));
+      await act(async () => touch('pointerup', nextId, 50, 25));
     };
+    const releases = [];
+    const hold = (session, tab) => {
+      let release = holdBrowserTakeover(session, tab);
+      const once = () => {
+        release?.();
+        release = null;
+      };
+      releases.push(once);
+      return once;
+    };
+    try {
+      await body({ state, textarea, tap, hold });
+    } finally {
+      for (const release of releases) release();
+    }
+  });
+}
 
-    // No takeover: a tap only clicks; the keyboard stays an explicit choice.
-    await tap(1);
+test('without this page’s takeover a tap only clicks and leaves the keyboard alone', async () => {
+  await withTakeover(async ({ textarea, tap, hold }) => {
+    await tap();
     assert.notEqual(document.activeElement, textarea);
-
-    // A takeover of another session changes nothing here.
-    const other = holdBrowserTakeover('other', 'p3');
-    await tap(2);
+    const other = hold('other', 'p3');
+    await tap();
     assert.notEqual(document.activeElement, textarea);
     other();
-
-    // Another tab of this session is the takeover's page, not the one shown.
-    const elsewhere = holdBrowserTakeover('s', 'p9');
-    await tap(6);
+    hold('s', 'p9');
+    await tap();
     assert.notEqual(document.activeElement, textarea);
-    elsewhere();
+  });
+});
 
-    // This page's takeover: the tap clicks the page, then focuses the keyboard field.
-    // The same approval mounted twice holds twice; each ends on its own.
-    const release = holdBrowserTakeover('s', 'p3');
-    const copy = holdBrowserTakeover('s', 'p3');
+test('during this page’s takeover a tap clicks the page, then raises the keyboard field, again on the next tap', async () => {
+  await withTakeover(async ({ state, textarea, tap, hold }) => {
+    hold('s', 'p3');
+    const copy = hold('s', 'p3');
     copy();
     await flush();
-    state.controls.length = 0;
-    await tap(3);
+    await tap();
     await flush();
     assert.deepEqual(
       pointers(state).map((input) => input.phase),
       ['mouseMoved', 'mousePressed', 'mouseReleased']
     );
     assert.equal(document.activeElement, textarea);
-    // A dismissed keyboard leaves the field focused: the next tap re-raises it,
-    // even inside the double-tap window (a fitted picture's taps both click).
     let focused = 0;
     textarea.addEventListener('focus', () => focused++);
     state.controls.length = 0;
     await act(async () => wait(DOUBLE_TAP_TIMEOUT_MS - FRAME_MS));
-    await tap(4);
+    await tap();
     assert.equal(focused, 1);
     assert.equal(pointers(state).filter((input) => input.phase === 'mousePressed').length, 1);
+  });
+});
 
-    // What is typed (a password included) goes to the page and nowhere else.
+test('during a takeover what is typed, a password included, goes to the page and nowhere else', async () => {
+  await withTakeover(async ({ state, textarea, hold }) => {
+    hold('s', 'p3');
+    await flush();
     textarea.value = 'hunter2';
     await act(async () => textarea.dispatchEvent(new window.Event('input', { bubbles: true })));
     await flush();
@@ -1028,22 +1130,26 @@ test('during a takeover a tap on the page raises the soft keyboard and typing re
       input: { type: 'text', text: 'hunter2', documentId: 'p3:0' },
     });
     assert.equal(textarea.value, '');
+  });
+});
 
-    // The takeover over, taps leave the keyboard alone again.
+test('once the takeover is over taps leave the keyboard alone again', async () => {
+  await withTakeover(async ({ textarea, tap, hold }) => {
+    const release = hold('s', 'p3');
+    await flush();
     release();
     await flush();
-    textarea.blur();
-    await tap(5);
+    await tap();
     assert.notEqual(document.activeElement, textarea);
+  });
+});
 
-    // A handoff that named no tab covers the page as streamed.
-    const unnamed = holdBrowserTakeover('s', '');
-    await tap(7);
+test('a takeover handoff that names no tab covers the page as streamed', async () => {
+  await withTakeover(async ({ textarea, tap, hold }) => {
+    hold('s', '');
+    await tap();
     assert.equal(document.activeElement, textarea);
-    unnamed();
-  } finally {
-    await pane.unmount();
-  }
+  });
 });
 
 test('touches on the frame are cancelled so the platform cannot claim them; controls over it keep theirs', async () => {
@@ -1222,7 +1328,7 @@ test('a page-changed control error is not shown, and a reconnect restarts the st
   }
 });
 
-test('a browserParity host adds a tab strip whose selection moves the stream and whose + opens a tab', async () => {
+async function withTabStrip(body) {
   const state = fakeApi();
   const tabsSeen = { watch: [], opened: [], closed: [], push: null };
   const list = [
@@ -1251,51 +1357,56 @@ test('a browserParity host adds a tab strip whose selection moves the stream and
   const pane = await mount({ sessionId: 'main-browser-a', active: true });
   try {
     await flush();
-    assert.deepEqual(tabsSeen.watch, [true]);
-    const selectors = [...document.querySelectorAll('[role="tab"]')];
-    assert.deepEqual(
-      selectors.map((tab) => tab.getAttribute('data-page-id')),
-      ['main-browser-a', 'main-browser-b']
-    );
-    assert.equal(state.streams.at(-1)[0], 'main-browser-a');
-
-    // Picking the sibling retargets this client's stream, and the old one stops.
-    await act(async () => selectors[1].click());
-    await flush();
-    assert.equal(state.streams.at(-1)[0], 'main-browser-b');
-    assert.ok(state.streams.some(([id, options]) => id === 'main-browser-a' && options === null));
-
-    // A pushed list replaces the strip.
-    await act(async () => tabsSeen.push([list[1]]));
-    assert.equal(document.querySelectorAll('[role="tab"]').length, 1);
-    await act(async () => tabsSeen.push(list));
-
-    // "+" waits for an address, then opens and follows the new tab.
-    await act(async () => document.querySelector('button[aria-label="New tab"]').click());
-    const address = document.querySelector('input[aria-label="Address bar"]');
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(address, 'example.com');
-      address.dispatchEvent(new window.Event('input', { bubbles: true }));
-      // Without a native input event here, React's polyfill reads value changes off propertychange.
-      address.propertyChange({ propertyName: 'value', target: address });
-    });
-    await act(async () => address.form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
-    await flush();
-    assert.equal(tabsSeen.opened.length, 1);
-    assert.match(tabsSeen.opened[0], /example\.com/);
-    assert.equal(state.streams.at(-1)[0], 'main-browser-c');
-
-    // Closing the streamed tab leaves it first, then releases it.
-    await act(async () => document.querySelector('button[aria-label^="Close tab: "]:last-of-type').click());
-    await flush();
-    assert.equal(tabsSeen.closed.length, 1);
+    await body({ state, tabsSeen, list });
   } finally {
     await pane.unmount();
   }
+  return tabsSeen;
+}
+
+test('a browserParity host adds a tab strip that watches the host’s tabs until the pane unmounts', async () => {
+  const tabsSeen = await withTabStrip(async ({ state, tabsSeen }) => {
+    assert.deepEqual(tabsSeen.watch, [true]);
+    assert.deepEqual(tabIds(), ['main-browser-a', 'main-browser-b']);
+    assert.equal(state.streams.at(-1)[0], 'main-browser-a');
+  });
   assert.deepEqual(tabsSeen.watch, [true, false]);
 });
 
-test('phone: a conversation browser offers no new tab and keeps its page across hide/reopen; the main browser still creates tabs', async () => {
+test('a browserParity host’s tab selection retargets this client’s stream and stops the old one', async () => {
+  await withTabStrip(async ({ state }) => {
+    await act(async () => document.querySelectorAll('[role="tab"]')[1].click());
+    await flush();
+    assert.equal(state.streams.at(-1)[0], 'main-browser-b');
+    assert.ok(state.streams.some(([id, options]) => id === 'main-browser-a' && options === null));
+  });
+});
+
+test('a pushed tab list replaces the strip', async () => {
+  await withTabStrip(async ({ tabsSeen, list }) => {
+    await act(async () => tabsSeen.push([list[1]]));
+    assert.deepEqual(tabIds(), ['main-browser-b']);
+  });
+});
+
+test('“+” waits for an address, then opens and follows the new tab', async () => {
+  await withTabStrip(async ({ state, tabsSeen }) => {
+    await openNewTab('example.com');
+    assert.equal(tabsSeen.opened.length, 1);
+    assert.match(tabsSeen.opened[0], /example\.com/);
+    assert.equal(state.streams.at(-1)[0], 'main-browser-c');
+  });
+});
+
+test('closing a tab on a browserParity host asks the host to close it', async () => {
+  await withTabStrip(async ({ tabsSeen }) => {
+    await act(async () => document.querySelector('button[aria-label="Close tab: Beta"]').click());
+    await flush();
+    assert.deepEqual(tabsSeen.closed, ['main-browser-b']);
+  });
+});
+
+async function withPhoneTabs(sessionId, body) {
   const state = fakeApi();
   const opened = [];
   const seen = tabHost([
@@ -1308,134 +1419,131 @@ test('phone: a conversation browser offers no new tab and keeps its page across 
       return { id: 'main-browser-new', title: 'New', url, loading: true };
     },
   });
-  const agent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
-  Object.defineProperty(window.navigator, 'userAgent', {
-    configurable: true,
-    value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
-  });
-  const pane = await mount({ sessionId: 's', active: true });
+  const restoreAgent = phoneUserAgent();
+  const pane = await mount({ sessionId, active: true });
   try {
+    await body({ state, opened, seen, pane });
+  } finally {
+    restoreAgent();
+    await pane.unmount();
+  }
+}
+
+test('phone: a conversation browser offers no new tab and keeps its page across hide/reopen', async () => {
+  await withPhoneTabs('s', async ({ state, opened, seen, pane }) => {
     await showFrame(state);
     await flush();
-    const ids = () => [...document.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute('data-page-id'));
-    const selectedId = () =>
-      [...document.querySelectorAll('[role="tab"]')]
-        .find((tab) => tab.getAttribute('aria-selected') === 'true')
-        ?.getAttribute('data-page-id');
-    assert.deepEqual(ids(), ['s']);
+    assert.deepEqual(tabIds(), ['s']);
     assert.equal(document.querySelector('button[aria-label="New tab"]'), null);
-    assert.equal(selectedId(), 's');
+    assert.equal(selectedTabId(), 's');
 
     await pane.rerender({ sessionId: 's', active: false });
     await pane.rerender({ sessionId: 's', active: true });
     await flush();
-    assert.deepEqual(ids(), ['s']);
-    assert.equal(selectedId(), 's');
+    assert.deepEqual(tabIds(), ['s']);
+    assert.equal(selectedTabId(), 's');
     assert.equal(state.streams.at(-1)[0], 's');
     assert.equal(opened.length, 0);
     assert.deepEqual(seen.watch, []);
-
-    // The main-workspace browser on the phone keeps its "+".
-    await pane.rerender({ sessionId: 'main-browser-a', active: true });
-    await flush();
-    await act(async () => document.querySelector('button[aria-label="New tab"]').click());
-    const address = document.querySelector('input[aria-label="Address bar"]');
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(address, 'example.com');
-      address.dispatchEvent(new window.Event('input', { bubbles: true }));
-      address.propertyChange({ propertyName: 'value', target: address });
-    });
-    await act(async () => address.form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
-    await flush();
-    assert.equal(opened.length, 1);
-    assert.equal(selectedId(), 'main-browser-new');
-  } finally {
-    if (agent) Object.defineProperty(window.navigator, 'userAgent', agent);
-    else delete window.navigator.userAgent;
-    await pane.unmount();
-  }
+  });
 });
 
-test('phone: a host with session tabs mirrors the conversation strip and sends new/select/close', async () => {
+test('phone: the main browser still creates tabs', async () => {
+  await withPhoneTabs('main-browser-a', async ({ opened }) => {
+    await flush();
+    await openNewTab('example.com');
+    assert.equal(opened.length, 1);
+    assert.equal(selectedTabId(), 'main-browser-new');
+  });
+});
+
+const strip = (...tabs) =>
+  tabs.map(([id, active]) => ({
+    id,
+    title: `T ${id}`,
+    url: `https://${id}.test/`,
+    active,
+    loading: false,
+    kind: 'page',
+  }));
+
+async function withSessionTabs(body) {
   const state = fakeApi();
   const { PANE_DOCK_CLOSE_EVENT } = await import('./pane-dock-chrome.tsx');
   window.mixdogDesktop.remoteBrowserSessionTabs = true;
   const closes = [];
   const onClose = (event) => closes.push(event.detail.surface);
   window.addEventListener(PANE_DOCK_CLOSE_EVENT, onClose);
-  const strip = (...ids) =>
-    ids.map(([id, active]) => ({
-      id,
-      title: `T ${id}`,
-      url: `https://${id}.test/`,
-      active,
-      loading: false,
-      kind: 'page',
-    }));
-  const agent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
-  Object.defineProperty(window.navigator, 'userAgent', {
-    configurable: true,
-    value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
-  });
+  const restoreAgent = phoneUserAgent();
   const pane = await mount({ sessionId: 's', active: true });
-  const ids = () => [...document.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute('data-page-id'));
-  const selected = () =>
-    [...document.querySelectorAll('[role="tab"]')]
-      .find((tab) => tab.getAttribute('aria-selected') === 'true')
-      ?.getAttribute('data-page-id');
+  const showTabs = async (seq, ...tabs) => {
+    await act(async () => state.listener(streamFrame({ seq, tabs: strip(...tabs) })));
+    await flush();
+  };
   const sent = () => state.controls.map(({ sessionId, input }) => [sessionId, input.type, input.tabId]);
+  const closeTab = (title) =>
+    act(async () => document.querySelector(`button[aria-label="Close tab: ${title}"]`).click());
   try {
-    await act(async () => state.listener(streamFrame({ tabs: strip(['p1', true]) })));
-    await flush();
-    assert.deepEqual(ids(), ['p1']);
-
-    // "+" asks the host for a tab in this conversation's own browser.
-    await act(async () => document.querySelector('button[aria-label="New tab"]').click());
-    assert.deepEqual(sent(), [['s', 'new-tab', undefined]]);
-    await act(async () =>
-      state.listener(streamFrame({ seq: 2, documentId: 'd2', tabs: strip(['p1', false], ['p2', true]) }))
-    );
-    await flush();
-    assert.deepEqual(ids(), ['p1', 'p2']);
-    assert.equal(selected(), 'p2');
-
-    // Tapping a tab selects it on the host; the strip follows the host's frame.
-    await act(async () => document.querySelector('[role="tab"][data-page-id="p1"]').click());
-    assert.deepEqual(sent().at(-1), ['s', 'select-tab', 'p1']);
-    await act(async () =>
-      state.listener(streamFrame({ seq: 3, documentId: 'd3', tabs: strip(['p1', true], ['p2', false]) }))
-    );
-    await flush();
-    assert.equal(selected(), 'p1');
-
-    // Hide and reopen: the strip comes back from the stream, the page stays reachable.
-    await pane.rerender({ sessionId: 's', active: false });
-    await pane.rerender({ sessionId: 's', active: true });
-    await act(async () =>
-      state.listener(streamFrame({ seq: 4, documentId: 'd3', tabs: strip(['p1', true], ['p2', false]) }))
-    );
-    await flush();
-    assert.deepEqual(ids(), ['p1', 'p2']);
-    assert.equal(selected(), 'p1');
-
-    // × closes on the host; closing the last tab also closes the panel.
-    state.closeReply = ({ tabId }) => ({ remainingTabs: tabId === 'p2' ? 1 : 0 });
-    await act(async () => document.querySelector('button[aria-label="Close tab: T p2"]').click());
-    assert.deepEqual(sent().at(-1), ['s', 'close-tab', 'p2']);
-    assert.deepEqual(closes, []);
-    await act(async () => state.listener(streamFrame({ seq: 5, documentId: 'd3', tabs: strip(['p1', true]) })));
-    await flush();
-    assert.deepEqual(ids(), ['p1']);
-    await act(async () => document.querySelector('button[aria-label="Close tab: T p1"]').click());
-    assert.deepEqual(sent().at(-1), ['s', 'close-tab', 'p1']);
-    assert.deepEqual(closes, ['browser']);
+    await body({ state, pane, closes, showTabs, sent, closeTab });
   } finally {
     window.removeEventListener(PANE_DOCK_CLOSE_EVENT, onClose);
     delete window.mixdogDesktop.remoteBrowserSessionTabs;
-    if (agent) Object.defineProperty(window.navigator, 'userAgent', agent);
-    else delete window.navigator.userAgent;
+    restoreAgent();
     await pane.unmount();
   }
+}
+
+test('phone: “+” asks the host for a tab in this conversation’s own browser and the strip follows the host', async () => {
+  await withSessionTabs(async ({ showTabs, sent }) => {
+    await showTabs(1, ['p1', true]);
+    assert.deepEqual(tabIds(), ['p1']);
+    await act(async () => document.querySelector('button[aria-label="New tab"]').click());
+    assert.deepEqual(sent(), [['s', 'new-tab', undefined]]);
+    await showTabs(2, ['p1', false], ['p2', true]);
+    assert.deepEqual(tabIds(), ['p1', 'p2']);
+    assert.equal(selectedTabId(), 'p2');
+  });
+});
+
+test('phone: tapping a session tab selects it on the host and the strip follows the host’s frame', async () => {
+  await withSessionTabs(async ({ showTabs, sent }) => {
+    await showTabs(1, ['p1', false], ['p2', true]);
+    await act(async () => document.querySelector('[role="tab"][data-page-id="p1"]').click());
+    assert.deepEqual(sent().at(-1), ['s', 'select-tab', 'p1']);
+    await showTabs(2, ['p1', true], ['p2', false]);
+    assert.equal(selectedTabId(), 'p1');
+  });
+});
+
+test('phone: hide and reopen bring the session strip back from the stream', async () => {
+  await withSessionTabs(async ({ pane, showTabs }) => {
+    await showTabs(1, ['p1', true], ['p2', false]);
+    await pane.rerender({ sessionId: 's', active: false });
+    await pane.rerender({ sessionId: 's', active: true });
+    await showTabs(2, ['p1', true], ['p2', false]);
+    assert.deepEqual(tabIds(), ['p1', 'p2']);
+    assert.equal(selectedTabId(), 'p1');
+  });
+});
+
+test('phone: × closes a session tab on the host and leaves the panel open', async () => {
+  await withSessionTabs(async ({ state, showTabs, sent, closes, closeTab }) => {
+    await showTabs(1, ['p1', true], ['p2', false]);
+    state.closeReply = () => ({ remainingTabs: 1 });
+    await closeTab('T p2');
+    assert.deepEqual(sent().at(-1), ['s', 'close-tab', 'p2']);
+    assert.deepEqual(closes, []);
+  });
+});
+
+test('phone: closing the last session tab also closes the panel', async () => {
+  await withSessionTabs(async ({ state, showTabs, sent, closes, closeTab }) => {
+    await showTabs(1, ['p1', true]);
+    state.closeReply = () => ({ remainingTabs: 0 });
+    await closeTab('T p1');
+    assert.deepEqual(sent().at(-1), ['s', 'close-tab', 'p1']);
+    assert.deepEqual(closes, ['browser']);
+  });
 });
 
 for (const race of [
@@ -1456,41 +1564,13 @@ for (const race of [
   },
 ]) {
   test(`phone: closing a conversation tab is decided by the host's remaining count (${race.name})`, async () => {
-    const state = fakeApi();
-    const { PANE_DOCK_CLOSE_EVENT } = await import('./pane-dock-chrome.tsx');
-    window.mixdogDesktop.remoteBrowserSessionTabs = true;
-    const closes = [];
-    const onClose = (event) => closes.push(event.detail.surface);
-    window.addEventListener(PANE_DOCK_CLOSE_EVENT, onClose);
-    const agent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
-    Object.defineProperty(window.navigator, 'userAgent', {
-      configurable: true,
-      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
-    });
-    const pane = await mount({ sessionId: 's', active: true });
-    try {
-      const tabs = race.strip.map(([id, active]) => ({
-        id,
-        title: `T ${id}`,
-        url: `https://${id}.test/`,
-        active,
-        loading: false,
-        kind: 'page',
-      }));
-      await act(async () => state.listener(streamFrame({ tabs })));
-      await flush();
-      // The strip still shows what it showed when the user tapped ×.
+    await withSessionTabs(async ({ state, showTabs, closes, closeTab }) => {
+      await showTabs(1, ...race.strip);
       state.closeReply = () => ({ remainingTabs: race.remaining });
-      await act(async () => document.querySelector('button[aria-label="Close tab: T p1"]').click());
+      await closeTab('T p1');
       await flush();
       assert.deepEqual(closes, race.closes);
-    } finally {
-      window.removeEventListener(PANE_DOCK_CLOSE_EVENT, onClose);
-      delete window.mixdogDesktop.remoteBrowserSessionTabs;
-      if (agent) Object.defineProperty(window.navigator, 'userAgent', agent);
-      else delete window.navigator.userAgent;
-      await pane.unmount();
-    }
+    });
   });
 }
 

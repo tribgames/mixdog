@@ -1,8 +1,3 @@
-/**
- * What a screenshot leaves behind: the frame record later commands address
- * by id, and the reply built from it. Every field a click or zoom will need
- * to map image pixels back to the screen is fixed here, once.
- */
 import type { CaptureAttempt } from '../shared/capture-attempts';
 import type { CaptureFrame, PixelUnavailable, ScreenshotCapture } from '../shared/types';
 import type { createCaptureSources } from './capture-sources';

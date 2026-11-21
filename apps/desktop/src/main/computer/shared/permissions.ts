@@ -1,11 +1,6 @@
 import type { LinuxComputerReadiness } from '../../../shared/core-src/runtime/computer-bridge/linux-readiness.mjs';
 
-/**
- * The operating-system grants Computer Use runs under. Windows needs none:
- * capture and input are bounded by window integrity instead. macOS gates
- * pixels behind Screen Recording and input plus the accessibility tree behind
- * Accessibility, and both are granted to the app, outside Mixdog's control.
- */
+// macOS gates pixels behind Screen Recording and input plus the accessibility tree behind Accessibility; Windows needs no grant.
 export interface ComputerPermissions {
   screen_capture: string;
   accessibility: string;

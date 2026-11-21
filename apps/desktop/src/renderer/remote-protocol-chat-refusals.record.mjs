@@ -85,15 +85,17 @@ try {
     })
   );
   socket.send(JSON.stringify({ method: 'initialized' }));
-  // One idle thread with an answered turn: the phone's Stop and Send go to it.
+  // One thread: the phone's Stop goes to it before any turn ran, its Sends after one was answered.
   const threadId = ok(await op('thread/start', { kind: 'project', projectPath: project, draft: { route } })).thread.id;
   ok(await op('thread/resume', { threadId, window: { lastItems: 200 } }));
+  // A turn's end is told before its settlement is over, and a Stop that lands in between is answered as a stop of that
+  // settlement: only a thread no turn ran on is idle at a moment the protocol names.
+  await phoneRequest('abortSession-idle', 'abortSession', [threadId, {}]);
   ok(
     await op('turn/start', { threadId, input: { prompt: 'hello', options: { clientSubmissionId: 'refusals-first' } } })
   );
   await until(() => notified.has(threadId), 'the first turn of the thread to complete');
 
-  await phoneRequest('abortSession-idle', 'abortSession', [threadId, {}]);
   await phoneRequest('submitToSession-empty', 'submitToSession', [threadId, '', { id: 'refusals-empty' }]);
   await phoneRequest('submitToSession-blank', 'submitToSession', [threadId, '   ', { id: 'refusals-blank' }]);
   await phoneRequest('submitNewTask-empty', 'submitNewTask', ['', { id: 'refusals-new-empty' }, {}]);

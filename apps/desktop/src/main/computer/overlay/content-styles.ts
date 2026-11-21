@@ -27,10 +27,6 @@ transition:background 140ms ease,color 140ms ease; }
 #resume[hidden] { display:none; }
 #stop:hover { background:#ff453a;color:#fff; }
 #resume:hover { background:var(--accent);color:#fff; }
-/* A press answers immediately, before the host does. Without it, a press the
-   host later rejects is indistinguishable from one that never reached this
-   window at all. Scale only the artwork: shrinking the button itself moves
-   its hit target out from under an edge press before the release arrives. */
 #stop:active svg,#resume:active svg { transform:scale(.9); }
 #stop[aria-busy="true"],#resume[aria-busy="true"] { opacity:.6; }
 #stop:focus-visible,#resume:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }

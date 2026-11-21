@@ -13,13 +13,9 @@ import { SCHEDULE_CODE_PARAMS, SCHEDULE_CODES, scheduleErrorCode } from './sched
 /** The codes a page translates, so the only ones whose message carries a trailer. */
 const TRAILER_CODES: ReadonlySet<string> = new Set([...ROOM_CODES, ...SCHEDULE_CODES]);
 
-/** The display params each code declares public: only these codes forward
- *  params, and only these names. Everything else (a file error's path, any
- *  other `details`) stays on its own side of the boundary. A param is shown
- *  to the user and travels in clear, so declare only values already public
- *  to that user (a room member's display name, a schedule's name); nothing
- *  here screens a value for secrets beyond the relay's redaction of the
- *  call's own secrets. */
+/** The display params each code declares public; only these codes forward
+ *  params, and only these names. Params travel in clear and nothing here
+ *  screens them for secrets, so declare only values already public to the user. */
 const CODE_PARAMS: Readonly<Record<string, readonly 'name'[]>> = { ...ROOM_CODE_PARAMS, ...SCHEDULE_CODE_PARAMS };
 const MAX_PARAM_LENGTH = 200;
 

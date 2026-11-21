@@ -149,11 +149,6 @@ test('purge drops renderer caches', async () => {
   assert.ok(scripts[0].includes('mixdog:idle-reclaim'));
 });
 
-// Regression guard. Forcing a V8 purge through the debugger (CDP
-// Memory.forciblyPurgeJavaScriptMemory) killed the renderer with
-// ACCESS_VIOLATION every single time it fired, reloading the window under the
-// user. The reclaim must never reach for the debugger again, so a target whose
-// debugger traps on contact has to come through untouched.
 test('purge never touches the debugger', async () => {
   const trap = () => {
     throw new Error('the reclaim must not use the debugger');

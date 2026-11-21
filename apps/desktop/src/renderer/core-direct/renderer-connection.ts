@@ -1,7 +1,3 @@
-// The renderer side of main/protocol/connection.ts for one window: the shared lanes (shared/core-lanes) run against a
-// RendererConnection as they ran against the main process connection. One connection, one window: a watch id needs no
-// window prefix, the section mirror is the client's own store, and nothing is relayed. Every call is mapped by
-// withDirectErrors. Nothing polls: state arrives as sections, liveness is the client library's own ticker.
 import type { ProtocolClient, SessionFold } from '../../../../../packages/protocol-client/src/index.ts';
 import type {
   DesktopProtocolStatus,

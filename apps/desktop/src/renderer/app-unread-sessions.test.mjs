@@ -100,7 +100,7 @@ test('a turn that completes behind another app stays unread until focus returns'
   }
 });
 
-test("a bot's task session takes its own dot beside the bot's chat; reading the chat clears both, reading the task only the task", async () => {
+async function mountTaskBesideChat() {
   const dom = installDom({ focused: false });
   const api = {};
   const task = {
@@ -124,27 +124,31 @@ test("a bot's task session takes its own dot beside the bot's chat; reading the 
     { ...task, working: false, messageCount: count },
     { ...home, working: false, messageCount: count },
   ];
+  await act(async () => dom.root.render(React.createElement(Harness)));
+  await act(async () => api.reconcileUnreadSessions([task, home]));
+  await act(async () => api.reconcileUnreadSessions(turn(3)));
+  assert.equal(marks(), 'task-a,home-1', 'both finished behind another app');
+  return { dom, api, marks, turn };
+}
+
+test("reading a bot's chat clears the dot of the task session that reports to it", async () => {
+  const { dom, api, marks, turn } = await mountTaskBesideChat();
   try {
-    await act(async () => dom.root.render(React.createElement(Harness)));
-    await act(async () => api.reconcileUnreadSessions([task, home]));
-    await act(async () => api.reconcileUnreadSessions(turn(3)));
-    assert.equal(marks(), 'task-a,home-1', 'both finished behind another app');
     dom.state.focused = true;
     await act(async () => api.consumeUnread('home-1', turn(3)));
-    assert.equal(marks(), '', 'the chat the task reports to was read: the task with it');
+    assert.equal(marks(), '');
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
 
-    dom.state.focused = false;
-    await act(async () =>
-      api.reconcileUnreadSessions([
-        { ...task, messageCount: 3 },
-        { ...home, messageCount: 3 },
-      ])
-    );
-    await act(async () => api.reconcileUnreadSessions(turn(5)));
-    assert.equal(marks(), 'task-a,home-1');
+test("reading a bot's task session alone leaves the bot's chat its dot", async () => {
+  const { dom, api, marks, turn } = await mountTaskBesideChat();
+  try {
     dom.state.focused = true;
-    await act(async () => api.consumeUnread('task-a', turn(5)));
-    assert.equal(marks(), 'home-1', 'the task alone read: its chat keeps its dot');
+    await act(async () => api.consumeUnread('task-a', turn(3)));
+    assert.equal(marks(), 'home-1');
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();

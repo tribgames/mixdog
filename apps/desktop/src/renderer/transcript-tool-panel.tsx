@@ -16,7 +16,12 @@ import { parseStreamingMarkdownAst, readCachedStreamingMarkdownAst } from './mar
 import { LocalPathMention } from './MarkdownLink';
 import { CopyControl } from './transcript-primitives';
 import { createToolPanelView, TOOL_WINDOW_ROWS, ToolPanelViewContext, ToolWindow } from './tool-panel-window';
-import type { ToolFileEntry, ToolOutputRow, ToolOutputSection } from './transcript-tool-sections';
+import {
+  toolPathParts,
+  type ToolFileEntry,
+  type ToolOutputRow,
+  type ToolOutputSection,
+} from './transcript-tool-sections';
 
 const TOOL_CODE_HIGHLIGHT_MAX_CHARS = 60_000;
 const TOOL_CODE_HIGHLIGHT_MAX_ROWS = 2_000;
@@ -145,11 +150,6 @@ export function useHighlightedRows(rows: readonly ToolOutputRow[], language: str
   }, [runs, roots]);
 }
 
-/** Code as numbered rows: the gutter is its own column, so a wrapped line
- *  keeps its number on the first visual row and selection copies code only.
- *  `digits` widens the gutter to match sibling sections. The rows mount by
- *  windows (tool-panel-window); `before` rows of the panel stand above this
- *  code. */
 export function ToolCode({
   rows,
   language = '',
@@ -290,12 +290,6 @@ export function toolCodeRowsPlain(text: string): ToolOutputRow[] {
   return text.split('\n').map((line) => ({ line: null, text: line }));
 }
 
-function pathParts(path: string): { name: string; dir: string } {
-  const clean = path.replace(/[\\/]+$/, '');
-  const cutAt = Math.max(clean.lastIndexOf('/'), clean.lastIndexOf('\\'));
-  return { name: clean.slice(cutAt + 1), dir: cutAt > 0 ? clean.slice(0, cutAt) : '' };
-}
-
 /** A file named the way a row names it: the name first, its folder after. */
 function ToolFileName({ path, line, name, dir }: { path: string; line?: number; name: string; dir: string }) {
   return (
@@ -327,7 +321,7 @@ export function ToolSections({ sections }: { sections: readonly ToolOutputSectio
               <header className="tool-section-header">
                 <span className="tool-section-title" title={section.path || section.title}>
                   {section.path ? (
-                    <ToolFileName path={section.path} line={section.line} {...pathParts(section.path)} />
+                    <ToolFileName {...toolPathParts(section.path)} path={section.path} line={section.line} />
                   ) : (
                     section.title
                   )}

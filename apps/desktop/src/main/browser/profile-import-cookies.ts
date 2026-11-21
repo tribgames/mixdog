@@ -149,6 +149,27 @@ function cookieKey(cookie: { domain?: unknown; name?: unknown; path?: unknown; p
   return JSON.stringify([cookie.domain, cookie.name, cookie.path || '/', key?.topLevelSite, key?.hasCrossSiteAncestor]);
 }
 
+/** The old importer widened host-only cookies to .host. Electron's URL/name
+ *  removal can also remove other matching paths or parents: the exact live
+ *  cookies are kept in memory and restored. */
+async function removeWidenedHostCookie(
+  jar: BrowserCookieJar,
+  target: { url: string; name: string; partitionKey: ReturnType<typeof cookiePartitionKey> },
+  widenedKey: string
+): Promise<void> {
+  const { url, name, partitionKey } = target;
+  const matching = await jar.get({ url, name, partitionKey: partitionKey ?? null });
+  try {
+    await jar.remove(url, name, partitionKey);
+    for (const entry of matching) {
+      if (cookieKey(entry) !== widenedKey) await jar.set(storedCookieSetDetails(entry));
+    }
+  } catch (error) {
+    for (const entry of matching) await jar.set(storedCookieSetDetails(entry));
+    throw error;
+  }
+}
+
 export function importBrowserCookies(
   partition: { cookies: BrowserCookieJar },
   cookies: BrowserImportCookie[],
@@ -218,23 +239,7 @@ export async function importBrowserCookies(
       if (!stillSelected && !domain.startsWith('.')) {
         const wrongDomainKey = cookieKey({ domain: `.${host}`, name, path, partitionKey });
         if (!sourceKeys.has(wrongDomainKey) && existingKeys.has(wrongDomainKey)) {
-          // The old importer widened host-only cookies to .host. Electron's
-          // URL/name removal can also remove other matching paths or parents:
-          // preserve those exact live cookies in memory and restore them.
-          const matching = await partition.cookies.get({ url, name, partitionKey: partitionKey ?? null });
-          try {
-            await partition.cookies.remove(url, name, partitionKey);
-            for (const entry of matching) {
-              if (cookieKey(entry) !== wrongDomainKey) {
-                await partition.cookies.set(storedCookieSetDetails(entry));
-              }
-            }
-          } catch (error) {
-            for (const entry of matching) {
-              await partition.cookies.set(storedCookieSetDetails(entry));
-            }
-            throw error;
-          }
+          await removeWidenedHostCookie(partition.cookies, { url, name, partitionKey }, wrongDomainKey);
         }
       }
       await partition.cookies.set({

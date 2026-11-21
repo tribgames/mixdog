@@ -9,13 +9,6 @@ import { record } from './record-utils';
 import { listPresetsShared } from './sidebar-reference-cache';
 import { asRecord } from './text-format';
 
-// v2: entries store ONLY explicitly staged fields (null = inherit live from
-// the last cached settings). v1 entries materialized inherited values, which
-// froze stale models onto restored/parked drafts.
-// v3: projectPath follows the same rule — null inherits live, "" is an
-// explicit No project. v2 wrote "" for BOTH, so a phone whose first paint
-// preceded the relay project catalog froze an empty project into its draft and
-// never recovered it.
 const DRAFT_PANE_PREFS_KEY = 'mixdog.desktop-draft-pane-prefs.v3';
 const LEGACY_DRAFT_PANE_PREFS_KEY = 'mixdog.desktop-draft-pane-prefs.v2';
 const ABANDONED_DRAFT_PANE_PREFS_KEY = 'mixdog.desktop-draft-pane-prefs.v1';

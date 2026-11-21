@@ -548,21 +548,10 @@ test('a saved server skips the address and connects straight away', async (t) =>
   assert.equal(closed.length, 1);
 });
 
-test('Settings → Connection: SSH servers group, toolbar button, and the per-row actions', async (t) => {
-  const dom = installTestDom(t, DOM);
+async function mountSavedServers(t) {
   const state = { hosts: [{ ...SAVED, open: true }] };
   const calls = [];
-  const info = {
-    relayBrowserUrl: '',
-    relayBrowserQrSvg: '',
-    relayAppQrSvg: '',
-    relayConnectUrl: '',
-    clients: [],
-    enabled: true,
-  };
-  const api = {
-    getRemoteAccessInfo: () => Promise.resolve(info),
-    sshConnect: () => Promise.resolve({ ok: true, host: SAVED }),
+  const panel = await mountPanel(t, {
     sshListHosts: () => Promise.resolve(state.hosts),
     sshOpenHost: (id) => {
       calls.push(['open', id]);
@@ -578,34 +567,38 @@ test('Settings → Connection: SSH servers group, toolbar button, and the per-ro
       state.hosts = state.hosts.filter((host) => host.id !== id);
       return Promise.resolve({ ok: true, hosts: state.hosts });
     },
-    sshConfigHosts: () => Promise.resolve([]),
-    subscribeSshProgress: () => () => undefined,
-  };
-  setCachedConnectionInfo(api, info);
-  useConnectionsCore(api);
-  t.after(() => updateClaimQueue(() => []));
-  await act(async () => dom.root.render(React.createElement(ConnectionPanel, { api })));
-  await settle();
-  const { document } = dom;
+  });
+  const sshGroup = () =>
+    [...panel.document.querySelectorAll('.conn-group')].find((g) =>
+      g.querySelector('h4')?.textContent.startsWith('SSH servers')
+    );
+  const row = () => sshGroup().querySelector('.conn-row');
+  const rowButton = (name) => [...row().querySelectorAll('button')].find((b) => b.textContent === name);
+  return { ...panel, calls, sshGroup, row, rowButton };
+}
+
+test('Settings → Connection: a saved SSH server shows in its group with status, meta and row actions', async (t) => {
+  const { document, sshGroup, row } = await mountSavedServers(t);
   assert.ok(buttonNamed(document, 'Connect SSH server'), 'toolbar button');
-  const group = [...document.querySelectorAll('.conn-group')].find((g) =>
-    g.querySelector('h4')?.textContent.startsWith('SSH servers')
-  );
-  assert.equal(group.querySelector('h4 span').textContent, '1');
-  const row = () => group.querySelector('.conn-row');
+  assert.equal(sshGroup().querySelector('h4 span').textContent, '1');
   assert.equal(row().querySelector('b').textContent, 'vps');
   assert.equal(row().querySelector('.conn-status').textContent, 'Online');
   assert.match(row().querySelector('.conn-row-meta').textContent, /^root@vps\.example\.com · Last connected /);
-  const rowButton = (name) => [...row().querySelectorAll('button')].find((b) => b.textContent === name);
   assert.deepEqual(
     [...row().querySelectorAll('button')].map((b) => b.textContent),
     ['Open', 'Rename', 'Settings', 'Clean up the server…', 'Forget']
   );
+});
 
+test('Settings → Connection: an open server window is focused directly', async (t) => {
+  const { calls, rowButton } = await mountSavedServers(t);
   await click(rowButton('Open'));
   await settle();
-  assert.deepEqual(calls, [['open', 'h1']], 'an open window is focused directly');
+  assert.deepEqual(calls, [['open', 'h1']]);
+});
 
+test('Settings → Connection: renaming a server saves the new name into the row', async (t) => {
+  const { document, calls, row, rowButton } = await mountSavedServers(t);
   await click(rowButton('Rename'));
   const dialog = document.querySelector('.conn-dialog');
   assert.equal(dialog.querySelector('input').value, 'vps');
@@ -614,23 +607,21 @@ test('Settings → Connection: SSH servers group, toolbar button, and the per-ro
   await settle();
   assert.deepEqual(calls.at(-1), ['rename', 'h1', 'My VPS']);
   assert.equal(row().querySelector('b').textContent, 'My VPS');
+});
 
+test('Settings → Connection: forgetting a server removes only its saved entry and the group', async (t) => {
+  const { document, calls, sshGroup, rowButton } = await mountSavedServers(t);
   await click(rowButton('Forget'));
   const confirm = document.querySelector('.conn-dialog');
   assert.match(
     confirm.querySelector('header p').textContent,
-    /Only the saved entry for My VPS is removed\. The server itself is not changed\./
+    /Only the saved entry for vps is removed\. The server itself is not changed\./
   );
   await click(confirm.querySelector('.conn-btn--danger'));
   await settle();
   assert.deepEqual(calls.at(-1), ['forget', 'h1']);
   assert.equal(document.querySelector('.conn-dialog'), null, 'nothing more is asked or told');
-  assert.equal(
-    [...document.querySelectorAll('.conn-group')].some((g) =>
-      g.querySelector('h4')?.textContent.startsWith('SSH servers')
-    ),
-    false
-  );
+  assert.equal(sshGroup(), undefined);
 });
 
 test('a closed saved server opens the connect dialog on that server instead of connecting silently', async (t) => {

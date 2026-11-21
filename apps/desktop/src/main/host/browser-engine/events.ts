@@ -1,18 +1,7 @@
 /**
- * The page's CDP events, forwarded to the core as `host/browser/events`.
- *
- * The router hands over the allowlisted events of a page in arrival order;
- * they queue per page and leave in batches, each under 200 KiB serialized and
- * numbered with the page's next `seq` (the same counter the page facts use,
- * so the core sees a gap whenever a notification was lost). Every string of
- * an event has the secrets known to the page masked first: request bodies and
- * headers included, not only console text. `flush(pageId)` sends what is
- * queued at once; the registry calls it before a response so the core reads
- * the events first, and the facts publisher calls it before each facts
- * notification so the two stay in order on the one writer.
- *
- * `Mixdog.internalConsole` and `Mixdog.requestRefused` are not CDP: the host
- * logged or refused something itself and says so in the same stream.
+ * `host/browser/events` protocol: batches under 200 KiB serialized, numbered with the page's
+ * next `seq` (shared with the page facts, so the core sees a gap when a notification is lost).
+ * `Mixdog.internalConsole` and `Mixdog.requestRefused` are not CDP events.
  */
 import type { WebContents } from 'electron';
 
@@ -22,7 +11,7 @@ import type {
   PageFacts,
 } from '../../../../../../packages/protocol/src/index.ts';
 import type { EngineEventSink } from '../../browser/cdp-event-router';
-import type { HostConnection } from '../connection';
+import { type HostConnection, isPlainObject } from '../connection';
 import type { EngineContext } from './context';
 
 export const HOST_BROWSER_EVENTS = 'host/browser/events';
@@ -89,10 +78,6 @@ interface Queue {
   cancel?: () => void;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 /** `value` with `fn` applied to every string in it (keys stay). */
 function mapStrings(value: unknown, fn: (text: string) => string): unknown {
   if (typeof value === 'string') return fn(value);
@@ -115,12 +100,6 @@ export function createEngineEvents(connection: HostConnection, options: EngineEv
   const schedule = options.schedule ?? defaultSchedule;
   const now = options.now ?? Date.now;
 
-  /**
-   * One batch of the page; false when the page is gone. A page that closed takes no further `seq` and has no reader, so what
-   * was queued for it after it closed is dropped (the host's own `CDP initialization failed` entry of a page that was
-   * discarded while its debugger was coming up arrives that late). The flush runs from a timer as well as before a reply: it
-   * never throws.
-   */
   function send(pageId: string, events: BrowserEngineEvent[]): boolean {
     let seq: number;
     try {

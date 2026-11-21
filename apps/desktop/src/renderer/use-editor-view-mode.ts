@@ -1,7 +1,3 @@
-// Preview | Rich | Source for files that open as text but also have a rendered
-// view (SVG, Markdown, CSV/TSV; Rich is Markdown only). The hidden editor and
-// its unsaved edits stay mounted; the snapshot is the text the rendered view
-// shows.
 import { useEffect, useMemo, useState, type RefObject } from 'react';
 import { t } from './i18n';
 import type { DesktopEditorSettings } from '../shared/contract';
@@ -41,9 +37,6 @@ export function useEditorViewMode({
   const [viewSnapshot, setViewSnapshot] = useState<string | null>(null);
   // The refusal belongs to the text it was reported for.
   const [reported, setReported] = useState<{ key: string; reason: string; text: string } | null>(null);
-  // Rich only mounts for text the Rich editor can round-trip; anything else
-  // shows Preview with the reason. Evaluated when Rich is requested (and after
-  // a reload), against the model's current text.
   // biome-ignore lint/correctness/useExhaustiveDependencies: contentRevision signals a model text replacement; the text itself is read through modelRef.
   const richBlock = useMemo(() => {
     if (requested !== 'rich') return '';

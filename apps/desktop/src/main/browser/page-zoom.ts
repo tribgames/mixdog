@@ -1,19 +1,6 @@
-/**
- * Every Browser Use page keeps a zoom of its own. Chromium keeps one zoom
- * level per site for the whole partition, persists it, and applies it to
- * every page of that site, so the pane's zoom (the fit factor of a narrow
- * pane, or the user's own) reached every page of the site, hidden agent pages
- * included: a 1280x900 page window then laid out 3245x2281 CSS px at a
- * devicePixelRatio of 0.39 — inner larger than outer and than the screen, a
- * state sites read as automation.
- *
- * The page preload (preload/browser-page.ts) asks at each document start,
- * once the document is committed. The answer sets the site's shared level
- * back to 100% (which also clears a level persisted before this) and names the
- * page's own zoom: the one last set on that page, else 100%. The preload makes
- * it the page's own level (Chromium's temporary zoom level), and from then on
- * a zoom set on the page changes that page alone.
- */
+/** Chromium keeps one persisted zoom level per site for the partition, so the
+ *  pane's zoom reached hidden agent pages too (a 1280x900 window laid out
+ *  3245x2281 CSS px at devicePixelRatio 0.39). */
 import type { IpcMain, IpcMainEvent, Session, WebContents } from 'electron';
 
 /** The preload's question; preload/browser-page.ts names it too. */

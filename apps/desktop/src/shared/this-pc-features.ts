@@ -1,8 +1,3 @@
-// What a server (ssh) window may not do, keyed by DesktopApi member. These features act on THIS PC (its screen and input, its
-// Browser Use pane, its phone pairing, its app updater and notification sound, its own files and OS shell) while the window's
-// sessions live on the server. A server window's own file lanes (path resolution, reads, previews, uploads, downloads and the
-// server trash) run on the server through its connection and are not gated; only what would implicitly hand a file to this
-// PC's shell stays refused.
 import type { DesktopApi } from './contract';
 
 const THIS_PC_FEATURES = [

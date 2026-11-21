@@ -1,9 +1,3 @@
-/**
- * Ordered relay input (shared/remote-webrtc.ts RemoteWebrtcRelayInputOrder):
- * per client × session, the stream, run, last seq and whether the run is
- * poisoned. Judged where relay page input executes, which is serialized in
- * decode order (general-lane writes), so a failure poisons everything behind it.
- */
 import type { RemoteWebrtcRelayInputOrder } from '../../shared/remote-webrtc';
 
 interface OrderState {

@@ -1,8 +1,3 @@
-/**
- * The loopback bridge the Node-hosted session runtime's `computer` tool talks to. It is published through a
- * heartbeated discovery file and forwards every command to the core's computer service; a dropped connection is
- * the caller's abort.
- */
 import { randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { listenOnFetchSafePort } from '../../../shared/core-src/runtime/shared/fetch-safe-listen.mjs';

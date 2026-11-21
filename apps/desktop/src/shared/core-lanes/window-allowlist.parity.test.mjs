@@ -1,7 +1,3 @@
-// Window scope parity: a window-scoped connection may call every protocol method except the host-role ones listed in
-// the core's window_methods.json. Every method the renderer can produce through the shared lanes (the static route
-// tables, every capability, the direct API) must be one the core lets a window call, or the window would lose a feature
-// it had through the desktop main process.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';

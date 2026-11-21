@@ -1,7 +1,3 @@
-// A group room's right-hand panel (the phone's member sheet): its members
-// (add, remove), this room's limits (round and message caps, tool-output
-// sharing); reset/leave/delete ride the dock header's ⋯ menu. Built from the
-// connection-settings rows and the settings switch, like the Routines tile.
 import { LogOut, Minus, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import { type ReactNode, useMemo, useRef, useState } from 'react';
 import {
@@ -66,10 +62,9 @@ function Stepper({
   );
 }
 
-function RoomPanelBody({ room, leafId, active }: { room: DesktopAgentRoomSummary; leafId?: string; active: boolean }) {
-  const { contacts, label } = useRoomContacts(true, room.memberNames);
+/** The room's mutations and its dock header menu (reset, leave, delete). */
+function useRoomPanelActions(room: DesktopAgentRoomSummary, leafId: string | undefined, active: boolean) {
   const [busy, setBusy] = useState(false);
-  const [adding, setAdding] = useState(false);
   const act = async (action: string, args: unknown[]): Promise<boolean> => {
     setBusy(true);
     try {
@@ -136,6 +131,13 @@ function RoomPanelBody({ room, leafId, active }: { room: DesktopAgentRoomSummary
     [busy, running, room.id]
   );
   usePublishDockPanelActions(leafId, active, headerActions);
+  return { busy, update };
+}
+
+function RoomPanelBody({ room, leafId, active }: { room: DesktopAgentRoomSummary; leafId?: string; active: boolean }) {
+  const { contacts, label } = useRoomContacts(true, room.memberNames);
+  const [adding, setAdding] = useState(false);
+  const { busy, update } = useRoomPanelActions(room, leafId, active);
   const members = room.members.map(label);
   const invitable = contacts.filter((contact) => !room.members.includes(contact.agentId));
   // A setting row, as on the Routines tab: the text takes the full width and

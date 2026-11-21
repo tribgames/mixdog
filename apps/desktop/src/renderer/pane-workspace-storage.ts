@@ -26,14 +26,6 @@ function fillEmptyPaneLeaves(layout: PaneNode): PaneNode {
   return first === layout.first && second === layout.second ? layout : { ...layout, first, second };
 }
 
-export function safeLocalStorage(): Storage | null {
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
 /** The main process's profile-file copy of the layout, read like storage so
  *  `readStoredPaneLayout` validates it the same way. Chromium can lose
  *  localStorage; the file survives. */

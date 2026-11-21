@@ -8,11 +8,6 @@ export type SidebarToolbarSection<Id extends string> = {
   icon: LucideIcon;
 };
 
-// Rail panels that host more than one resource kind (Extensions: Plugin |
-// Skill, Projects: Project | Workflow) switch between them with this one
-// toolbar so every such panel reads as the same product instead of a
-// hand-rolled tab strip. The
-// panel header's + belongs to the VISIBLE section.
 export function SidebarSectionToolbar<Id extends string>({
   label,
   sections,

@@ -89,38 +89,52 @@ export function transcriptArtifacts(items: readonly TranscriptItem[]): Transcrip
     if (category !== 'Media' && category !== 'Office') continue;
     for (const result of resultRecords(toolActivityResultValue(item))) {
       if (['running', 'failed', 'canceled', 'cancelled'].includes(String(result.status || ''))) continue;
-      if (
-        category === 'Media' &&
-        result.ok === true &&
-        typeof result.assetId === 'string' &&
-        result.assetId &&
-        (result.output || result.status === 'done')
-      ) {
-        const path = typeof result.output === 'string' ? result.output : '';
-        const args = asRecord(item.args);
-        const kind =
-          result.kind === 'video' || args?.kind === 'video' || /\.(mp4|webm|mov)$/i.test(path) ? 'video' : 'image';
-        const key = `media:${result.assetId}`;
-        const aspect = requestedAspect(args?.aspect);
-        artifacts.set(key, {
-          key,
-          kind,
-          assetId: result.assetId,
-          path,
-          name: path.split(/[\\/]/).pop() || result.assetId,
-          ...(aspect ? { aspect } : {}),
-        });
-      }
+      const media = category === 'Media' ? mediaArtifact(result, asRecord(item.args)) : null;
+      if (media) artifacts.set(media.key, media);
       if (category !== 'Office') continue;
-      const outputs = Array.isArray(result.artifacts) ? result.artifacts : [];
-      for (const output of outputs) {
-        const artifact = asRecord(output);
-        const path = typeof artifact?.path === 'string' ? artifact.path : '';
-        if (!DOCUMENT.test(path) || !['create', 'edit'].includes(String(artifact?.operation))) continue;
-        const key = `file:${path.replace(/\\/g, '/')}`;
-        artifacts.set(key, { key, kind: 'document', path, name: path.split(/[\\/]/).pop() || path });
-      }
+      for (const document of officeDocumentArtifacts(result)) artifacts.set(document.key, document);
     }
   }
   return [...artifacts.values()];
+}
+
+function mediaArtifact(
+  result: Record<string, unknown>,
+  args: Record<string, unknown> | null
+): TranscriptArtifact | null {
+  if (
+    result.ok !== true ||
+    typeof result.assetId !== 'string' ||
+    !result.assetId ||
+    !(result.output || result.status === 'done')
+  ) {
+    return null;
+  }
+  const path = typeof result.output === 'string' ? result.output : '';
+  const kind = result.kind === 'video' || args?.kind === 'video' || /\.(mp4|webm|mov)$/i.test(path) ? 'video' : 'image';
+  const aspect = requestedAspect(args?.aspect);
+  return {
+    key: `media:${result.assetId}`,
+    kind,
+    assetId: result.assetId,
+    path,
+    name: path.split(/[\\/]/).pop() || result.assetId,
+    ...(aspect ? { aspect } : {}),
+  };
+}
+
+function officeDocumentArtifacts(result: Record<string, unknown>): TranscriptArtifact[] {
+  const documents: TranscriptArtifact[] = [];
+  for (const output of Array.isArray(result.artifacts) ? result.artifacts : []) {
+    const artifact = asRecord(output);
+    const path = typeof artifact?.path === 'string' ? artifact.path : '';
+    if (!DOCUMENT.test(path) || !['create', 'edit'].includes(String(artifact?.operation))) continue;
+    documents.push({
+      key: `file:${path.replace(/\\/g, '/')}`,
+      kind: 'document',
+      path,
+      name: path.split(/[\\/]/).pop() || path,
+    });
+  }
+  return documents;
 }

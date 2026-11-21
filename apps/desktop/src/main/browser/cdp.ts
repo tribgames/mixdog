@@ -1,12 +1,3 @@
-/**
- * The host's one way of talking to a guest page: attach Electron's debugger
- * (cdp-debugger-attach), bring the CDP domains up (cdp-session-init), route
- * every event into the guest's state record (cdp-event-router), and send
- * bounded, cancellable commands (cdp-execution, cdp-calls; only the
- * best-effort releaseObject goes out unbounded). Every other module
- * reaches the page through the functions returned here rather than touching
- * the debugger.
- */
 import type { WebContents } from 'electron';
 
 import { bounded } from './cdp-bounded';

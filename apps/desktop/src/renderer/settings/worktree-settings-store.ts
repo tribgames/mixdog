@@ -5,6 +5,7 @@ import type { DesktopWorktreeSettings } from '../../shared/contract';
 import { windowSectionStore } from '../section-store';
 import { subscribeSetupChanges } from '../setup-change-refresh';
 import { invokeWorktree } from '../worktree-branch-model';
+import { errorMessage } from '../editor-pane-session-errors';
 
 type Patch = Partial<DesktopWorktreeSettings>;
 type Problems = { read: string | null; save: string | null };
@@ -59,10 +60,6 @@ function adopt(value: DesktopWorktreeSettings): void {
   for (const listener of [...readbackListeners]) listener();
 }
 
-function problemText(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
-}
-
 export function subscribeWorktreeSettings(listener: () => void): () => void {
   listeners.add(listener);
   return () => {
@@ -100,7 +97,7 @@ export function refreshWorktreeSettings(): Promise<void> {
       publish();
     })
     .catch((reason: unknown) => {
-      if (seen === confirmations) setProblem('read', problemText(reason));
+      if (seen === confirmations) setProblem('read', errorMessage(reason));
     })
     .finally(() => {
       read = null;
@@ -157,7 +154,7 @@ async function confirm(save: Patch): Promise<void> {
     adopt(value);
     setProblem('read', null);
   } catch (reason) {
-    setProblem('save', problemText(reason));
+    setProblem('save', errorMessage(reason));
     // A lost reply can hide an applied write. Never retry the write; read back instead.
     void refreshWorktreeSettings();
   }

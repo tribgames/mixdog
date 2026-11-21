@@ -1,13 +1,3 @@
-// Process-wide, IN-MEMORY stale-while-revalidate cache for the slow-changing
-// reference data the sidebar rail panels share (Schedules, Webhooks,
-// Workflows). Before this, each panel independently refetched the same
-// channel setup, model catalogs, projects, workflows and agents on every
-// mount and every re-entry, so a warm app still showed a loading cover.
-//
-// Scope is deliberately narrow: reference/read data only. Live session lanes,
-// git status, file trees, running/working state, editor content and webhook
-// secrets are NEVER cached here, and nothing is persisted — no localStorage,
-// no disk. A reload starts cold on purpose.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { isSshConnectionWindow } from './desktop-connection';
@@ -32,6 +22,7 @@ import type {
 } from '../shared/contract';
 import { canonicalJson } from '../shared/remote-view-resume';
 import { record, rows } from './record-utils';
+import { errorMessage } from './editor-pane-session-errors';
 import { awaitEntry, readHeldCapability, sectionSourceOf } from './section-capabilities';
 import { sectionStoreFor } from './section-store';
 import type { RecordValue } from './desktop-types';
@@ -78,11 +69,6 @@ export const WORKFLOW_REFERENCE_KEYS = [
   'quickProviderModels',
 ] as const satisfies readonly SidebarReferenceKey[];
 
-// TTLs reflect how fast each resource actually moves. Channel setup carries
-// the schedule/webhook rows a user edits inside the app, so it revalidates
-// quickly; catalogs that only change when a provider or pack changes hold
-// much longer. Mutations invalidate explicitly, so the TTL is a backstop for
-// out-of-app edits, not the primary freshness mechanism.
 const TTL_MS: Record<SidebarReferenceKey, number> = {
   channelSetup: 20_000,
   quickProviderModels: 24 * 60 * 60_000,
@@ -117,10 +103,6 @@ const DEFAULTS: SidebarReferenceValues = {
   webSearchModels: EMPTY_ROWS,
 };
 
-// Provider connect/forget/local-endpoint changes rewrite which models are
-// usable at all, so the setup snapshot and BOTH model catalogs go untrue
-// together. The stored web-search route is a user choice and only its own
-// mutation invalidates it.
 const PROVIDER_KEYS: readonly SidebarReferenceKey[] = ['providerSetup', 'quickProviderModels', 'webSearchModels'];
 const forcedKeys = new Set<SidebarReferenceKey>();
 
@@ -167,10 +149,6 @@ const MUTATION_KEYS: Partial<Record<string, readonly SidebarReferenceKey[]>> = {
   // capability call.
   completeOnboarding: ['webSearchRoute', 'agents', ...PROVIDER_KEYS],
 };
-
-function message(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
-}
 
 async function capability<T>(
   api: SidebarReferenceApi,
@@ -346,9 +324,6 @@ function hasSidebarReference(key: SidebarReferenceKey): boolean {
   return entries.has(key);
 }
 
-/** True while `api` is (or can become) the bound host. A completion callback
- *  created for a previous host answers false, which is what keeps a late
- *  mutation refresh from re-adopting the host the app already left. */
 function isSidebarReferenceHost(api: SidebarReferenceApi | undefined): boolean {
   return !hostBound || boundApi === api;
 }
@@ -368,10 +343,6 @@ function clearExpiryTimers(): void {
   expiryTimers.clear();
 }
 
-/** The one place a snapshot is stored. The daemon refills a partial catalog in
- *  the background and nothing announces it, so the entry carries its own retry
- *  time and wakes the mounted pickers when that passes: they revalidate
- *  without the user reopening anything. */
 function storeSidebarReference(key: SidebarReferenceKey, value: unknown): void {
   const now = clock();
   const expiresAt =
@@ -478,10 +449,6 @@ function invalidateKeys(keys: readonly SidebarReferenceKey[], notifyMain: boolea
       (boundApi ?? globalThis.window?.mixdogDesktop)?.notifyProviderModelsChanged?.(PROVIDER_MODELS_INSTANCE_ID);
     }
   }
-  // The composer's workflow picker shares its own list, also outside these
-  // entries, and it hides itself where a workspace has a single pack. A created
-  // or deleted pack therefore decides whether that control exists at all: it
-  // must never wait out the picker's TTL.
   if (keys.includes('workflows')) invalidateWorkflowOptions();
   // Tell the mounted panels. Settings/onboarding mutate reference data from an
   // overlay ABOVE the sidebar, so without this the panel underneath would keep
@@ -675,7 +642,7 @@ function ensureSidebarReference(api: SidebarReferenceApi, key: SidebarReferenceK
       if ((generations.get(key) ?? 0) !== generation) return;
       // Failure never clears the snapshot: the panel keeps its rows, and the
       // backoff is recorded even when the key never loaded at all.
-      failures.set(key, { failedAt: clock(), error: message(reason) });
+      failures.set(key, { failedAt: clock(), error: errorMessage(reason) });
     } finally {
       if (inflight.get(key) === token.promise) inflight.delete(key);
       notify(key);
@@ -812,10 +779,6 @@ export function useSidebarReferences<K extends SidebarReferenceKey>(
   const available = Boolean(api?.invokeCapability);
   const hydrate = hydrateHidden || active;
   const [revision, setRevision] = useState(0);
-  // Read-through status is HOST-SCOPED: settled and error both belong to the
-  // host they came from, so host B's first paint shows neither A's rows nor
-  // A's failure, and a dropped cache falls back to the cover (not an empty
-  // panel).
   const [status, setStatus] = useState<{
     host: SidebarReferenceApi | undefined;
     settled: boolean;
@@ -832,9 +795,6 @@ export function useSidebarReferences<K extends SidebarReferenceKey>(
     };
   }, []);
 
-  // Synchronous seed: whatever the cache already holds paints on first render.
-  // Adoption runs INSIDE this memo, before the read, so a host swap clears the
-  // previous host's data in the very same render that first observes the swap.
   // biome-ignore lint/correctness/useExhaustiveDependencies: revision is the cache-subscription trigger that makes the memo re-read the cache
   const values = useMemo(() => {
     adoptSidebarReferenceHost(api);
@@ -883,13 +843,6 @@ export function useSidebarReferences<K extends SidebarReferenceKey>(
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: revision (cache invalidation) and active (re-entry) are the triggers that re-check staleness
   useEffect(() => {
-    // Re-entry AND external invalidation (settings/onboarding mutating shared
-    // reference data from an overlay, a setup-tool push) revalidate silently
-    // while the mounted rows stay on screen. A hidden pre-mounted panel follows
-    // those pushes too, so its next opening is already fresh instead of
-    // swapping rows in front of the user. Event-driven only (no polling): only
-    // stale keys trigger work, so a fresh cache and a failure inside its
-    // backoff both settle immediately instead of looping.
     if (!hydrate || !available) return;
     if (!keys.some((key) => isSidebarReferenceStale(key))) return;
     void refresh();

@@ -4,11 +4,6 @@ export const BROWSER_INPUT_EXPIRED = 'Browser input expired; input was not sent.
 export const BROWSER_INPUT_BUSY = 'Browser input is busy; input was not sent.';
 export const BROWSER_DIALOG_BLOCKING = 'Browser dialog is blocking input.';
 
-/** A click or scroll the page could not take (it moved on, was still
- *  attaching, was busy, or showed its own dialog) is dropped silently, as an
- *  ordinary browser does: the next frame or the dialog card already shows the
- *  user what happened. Unsent typed text keeps its own recovery notice, and
- *  every other failure is still reported. */
 const SILENT_INPUT_REJECTION =
   /\b(?:stale|changed)\b|(?:Browser|Remote Browser Use) input (?:is busy|expired)|Browser dialog is blocking input|Browser page is not ready/i;
 export function browserInputNotice(message: string): string {

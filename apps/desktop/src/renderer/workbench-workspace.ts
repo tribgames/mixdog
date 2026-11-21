@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import type { DesktopWorkspace, DesktopWorkspaceFolder } from '../shared/contract';
+import { displayProjectFolder } from './project-folder-label';
 
 const WORKBENCH_WORKSPACE_KEY = 'mixdog.desktop-workbench-workspace.v1';
 
@@ -9,15 +10,6 @@ function pathKey(path: string): string {
     .replace(/[\\/]+/g, '/')
     .replace(/\/+$/, '')
     .toLocaleLowerCase();
-}
-
-function folderName(path: string): string {
-  return (
-    path
-      .replace(/[\\/]+$/, '')
-      .split(/[\\/]/)
-      .at(-1) || path
-  );
 }
 
 function normalizedWorkspace(value: unknown): DesktopWorkspace | null {
@@ -55,8 +47,8 @@ function workspaceKind(workspaceFile: string | undefined, folders: DesktopWorksp
 
 function workspaceName(rawName: unknown, workspaceFile: string | undefined, folders: DesktopWorkspaceFolder[]): string {
   if (typeof rawName === 'string' && rawName.trim()) return rawName.trim();
-  if (workspaceFile) return folderName(workspaceFile).replace(/\.code-workspace$/i, '');
-  if (folders.length === 1) return folders[0].name || folderName(folders[0].path);
+  if (workspaceFile) return displayProjectFolder(workspaceFile).replace(/\.code-workspace$/i, '');
+  if (folders.length === 1) return folders[0].name || displayProjectFolder(folders[0].path);
   return 'Project';
 }
 
@@ -69,15 +61,7 @@ function readStoredWorkspace(): DesktopWorkspace | null {
   }
 }
 
-/**
- * The multi-root Project model consumed by the shell (editor settings scope,
- * dock search roots). It is READ-ONLY here on purpose: this build ships no
- * Project open/add/remove/save/close surface, so the mutators — and the
- * write-back that only ever rewrote what it had just read — were removed
- * instead of being left consumerless. An explicit Project persisted by an
- * older build still restores; the entry points return together with the
- * multi-root UI that can address individual folders.
- */
+/** The read-only multi-root Project model: a stored explicit Project, else the fallback folder. */
 export function useWorkbenchWorkspace(fallbackFolder: string) {
   const [explicitWorkspace] = useState<DesktopWorkspace | null>(readStoredWorkspace);
 
@@ -87,7 +71,7 @@ export function useWorkbenchWorkspace(fallbackFolder: string) {
     return path
       ? {
           kind: 'folder',
-          name: folderName(path),
+          name: displayProjectFolder(path),
           folders: [{ path }],
         }
       : {

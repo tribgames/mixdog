@@ -41,10 +41,5 @@
   border-radius: 50%;
   border: 2px solid var(--mx-border-muted);
   border-top-color: var(--mx-text);
-  animation: github-device-code-spin 0.9s linear infinite;
-}
-@keyframes github-device-code-spin {
-  to {
-    transform: rotate(360deg);
-  }
+  animation: var(--mx-motion-spin);
 }

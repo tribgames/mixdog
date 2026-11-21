@@ -118,6 +118,46 @@ async function nodemailerSender(config, timeoutMs) {
   return send;
 }
 
+const isCount = (v) => Number.isFinite(v) && v >= 0;
+const isText = (v) => typeof v === 'string';
+
+/** Whether a record file read from disk is one this service wrote. */
+function validRecord(name, data) {
+  if (!data || name !== `${data.id}.json` || !isText(data.hash) || !isCount(data.sentAt)) return false;
+  if (!isCount(data.createdAt) || !isCount(data.attempts) || !isCount(data.nextAttemptAt)) return false;
+  if (data.sentAt) return true;
+  const p = data.payload;
+  if (!(Boolean(p) && FEEDBACK_KINDS.includes(p.kind) && isText(p.message) && isText(p.replyTo))) return false;
+  if (p.attachments === undefined) return true;
+  try {
+    return normalizeFeedbackAttachments(p.attachments).length === p.attachments.length;
+  } catch {
+    return false;
+  }
+}
+
+function mailOf(record, from, to) {
+  const { kind, message, replyTo, attachments } = record.payload;
+  return {
+    from,
+    to,
+    ...(replyTo ? { replyTo } : {}),
+    subject: `[Mixdog feedback] ${kind} ${record.id}`,
+    text: message,
+    ...(attachments?.length
+      ? {
+          attachments: attachments.map((a) => ({
+            filename: a.name,
+            content: Buffer.from(a.data, 'base64'),
+            contentType: a.mimeType,
+            contentDisposition: 'attachment',
+          })),
+        }
+      : {}),
+    messageId: `<${record.id}@feedback.mixdog>`,
+  };
+}
+
 /**
  * Options (all optional): env, sender(mail) (test injection; makes mail
  * "configured"), now(), setTimer(fn, ms), clearTimer(handle), plus any key of
@@ -161,22 +201,6 @@ export async function createFeedbackService({
     const tmp = `${target}.tmp`;
     await fs.writeFile(tmp, JSON.stringify(record), { mode: 0o600, flush: true });
     await fs.rename(tmp, target);
-  }
-
-  const num = (v) => Number.isFinite(v) && v >= 0;
-  const text = (v) => typeof v === 'string';
-  function validRecord(name, data) {
-    if (!data || name !== `${data.id}.json` || !text(data.hash) || !num(data.sentAt)) return false;
-    if (!num(data.createdAt) || !num(data.attempts) || !num(data.nextAttemptAt)) return false;
-    if (data.sentAt) return true;
-    const p = data.payload;
-    if (!(Boolean(p) && FEEDBACK_KINDS.includes(p.kind) && text(p.message) && text(p.replyTo))) return false;
-    if (p.attachments === undefined) return true; // legacy record
-    try {
-      return normalizeFeedbackAttachments(p.attachments).length === p.attachments.length;
-    } catch {
-      return false;
-    }
   }
 
   const recordBytes = (r) => (r.sentAt || !r.payload.attachments ? 0 : feedbackAttachmentBytes(r.payload.attachments));
@@ -259,25 +283,7 @@ export async function createFeedbackService({
     sending.add(record.id);
     const task = (async () => {
       try {
-        const { kind, message, replyTo, attachments } = record.payload;
-        await send({
-          from,
-          to,
-          ...(replyTo ? { replyTo } : {}),
-          subject: `[Mixdog feedback] ${kind} ${record.id}`,
-          text: message,
-          ...(attachments?.length
-            ? {
-                attachments: attachments.map((a) => ({
-                  filename: a.name,
-                  content: Buffer.from(a.data, 'base64'),
-                  contentType: a.mimeType,
-                  contentDisposition: 'attachment',
-                })),
-              }
-            : {}),
-          messageId: `<${record.id}@feedback.mixdog>`,
-        });
+        await send(mailOf(record, from, to));
         record.sentAt = now();
         delete record.payload;
       } catch (error) {

@@ -1,8 +1,3 @@
-/**
- * Shared Computer Use host types. Kept apart from the host implementation so
- * the observation and program modules can speak the same shapes without
- * depending on a live host.
- */
 import type { ChromeUiaElement } from '../../browser/chrome-uia';
 
 export interface ComputerCommand {

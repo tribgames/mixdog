@@ -1355,18 +1355,12 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.equal(f.local.length + f.popups.length, 0);
   });
 
-  test(`${pipeline}: right-clicking a local file link offers open, default app, reveal and copy path; web links get none`, async (t) => {
+  async function mountContextMenu(t) {
     const f = await mount(t, render, ['[deck](output/deck.pptx)', '[web](https://example.com/a)'].join('\n\n'));
     const calls = [];
     f.dom.window.mixdogDesktop.openFilePath = async (...args) => calls.push(['open', ...args]);
     f.dom.window.mixdogDesktop.revealFile = async (...args) => calls.push(['reveal', ...args]);
     const copied = [];
-    const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
-    const desktopNavigator = {
-      userAgent: 'Electron/41.0',
-      clipboard: { writeText: async (text) => copied.push(text) },
-    };
-    t.after(() => Object.defineProperty(globalThis, 'navigator', previousNavigator));
     const menuItems = () => [...f.dom.window.document.querySelectorAll('[role="menu"] [role="menuitem"]')];
     const labelsOf = () => menuItems().map((item) => item.textContent);
     const contextMenu = async (index) => {
@@ -1379,22 +1373,34 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       await act(async () => f.links()[index].dispatchEvent(event));
       return event;
     };
+    return { f, calls, copied, menuItems, labelsOf, contextMenu };
+  }
+
+  test(`${pipeline}: a paired browser's context menu on a web link has no dead save entry`, async (t) => {
+    const { f, labelsOf, contextMenu } = await mountContextMenu(t);
     f.dom.window.mixdogRemoteServer = 'https://relay.test';
     assert.equal((await contextMenu(1)).defaultPrevented, true);
-    // A paired browser cannot save a cross-origin link: no dead entry.
     assert.deepEqual(labelsOf(), ['System Browser', 'Copy link']);
-    await act(async () =>
-      f.dom.window.document.dispatchEvent(new f.dom.window.KeyboardEvent('keydown', { key: 'Escape' }))
-    );
-    // A remote browser has no OS bridge, so only the in-app actions appear,
-    // plus downloading the host file to this device.
+  });
+
+  test(`${pipeline}: a remote browser's context menu on a local file link has in-app actions plus download`, async (t) => {
+    const { f, labelsOf, contextMenu } = await mountContextMenu(t);
+    f.dom.window.mixdogRemoteServer = 'https://relay.test';
     assert.equal((await contextMenu(0)).defaultPrevented, true);
     assert.deepEqual(labelsOf(), ['Open', 'Download / Share', 'Copy path']);
-    await act(async () =>
-      f.dom.window.document.dispatchEvent(new f.dom.window.KeyboardEvent('keydown', { key: 'Escape' }))
-    );
-    delete f.dom.window.mixdogRemoteServer;
-    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: desktopNavigator });
+  });
+
+  test(`${pipeline}: right-clicking a local file link on desktop offers open, default app, reveal and copy path`, async (t) => {
+    const { f, calls, copied, menuItems, labelsOf, contextMenu } = await mountContextMenu(t);
+    const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    t.after(() => Object.defineProperty(globalThis, 'navigator', previousNavigator));
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: {
+        userAgent: 'Electron/41.0',
+        clipboard: { writeText: async (text) => copied.push(text) },
+      },
+    });
     await contextMenu(0);
     assert.deepEqual(labelsOf(), ['Open', 'Open in default app', 'Reveal in Explorer', 'Copy path']);
     await act(async () => menuItems()[1].click());

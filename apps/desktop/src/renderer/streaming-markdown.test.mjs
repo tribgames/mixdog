@@ -1,11 +1,3 @@
-/**
- * streaming-markdown.test.mjs — the live-tail block splitter.
- *
- * `markdownBlockStarts` replaced a full remark parse of the unfinished tail on
- * every streamed token. These tests pin it to remark-parse's top-level block
- * offsets and replay whole streams through the previous parse-based splitter
- * so the frozen chunks, their keys and the live tail stay identical.
- */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

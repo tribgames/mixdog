@@ -52,10 +52,6 @@ function agentRowChain(sessionId: string, pool: readonly DesktopAgentPoolRow[]):
   return chain;
 }
 
-/** The listed session a session's work belongs to: itself, or a sub-agent's
- *  owner; with the sub-agent's pool rows (nearest first, [] for itself). The
- *  roster also lists sub-agent sessions (`agentSession`): those are no top
- *  level, their pool rows name the session they work for. */
 function topSessionOf(sessionId: string, sources: RequesterSources) {
   const sessions = sources.sessions();
   const own = sessions.find((entry) => entry.id === sessionId);

@@ -1,9 +1,9 @@
+const listeners = new Map<string, Set<() => void>>();
+
 /** A revert (one file, or a whole turn's undo/reapply) changes a session's
  *  review files without a new checkpoint or history epoch. Every successful
  *  revert path publishes it here so any open review surface of that session
  *  re-reads what can still be reverted. */
-const listeners = new Map<string, Set<() => void>>();
-
 export function publishReviewInvalidation(sessionId: string): void {
   for (const listener of [...(listeners.get(sessionId) ?? [])]) listener();
 }

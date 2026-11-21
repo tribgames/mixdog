@@ -1,10 +1,3 @@
-// A message sent while the agent is busy waits as a queued bubble whose image
-// thumbnails carry their stored-original refs, but the session's transcript
-// does not name those attachments until the message is submitted, so the host
-// refuses to serve them by session + id ("This conversation has no such
-// attachment."). The queued bubble must open and save from the picture on
-// hand without that read; once the message is in the transcript, the host
-// file is used as before.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { installTestDom } from './test-support/test-dom.mjs';

@@ -1,7 +1,3 @@
-/**
- * A person's input on the pane's page: validated against the shown document,
- * then either applied at once or queued against agent commands on that page.
- */
 import { browserInputImmediate, browserInputPresentation } from '../../shared/browser-input-policy';
 import type { DesktopBrowserPageControl, DesktopBrowserTabControlResult } from '../../shared/contract';
 import { type Leases, userInputReason } from '../host/browser-engine/lease';

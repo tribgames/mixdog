@@ -1,8 +1,3 @@
-/**
- * What displays a page: a mounted panel (reported per guest), a natively
- * presented view, or a remote viewer streaming the session's current page.
- * Page power follows that classification.
- */
 import type { WebContents } from 'electron';
 import { createBrowserPagePower } from './page-power';
 import type { BrowserSessionRegistry } from './session-registry';
@@ -16,22 +11,25 @@ export function createBrowserDisplayTracking(sessions: DisplaySessions) {
   const panelActiveGuests = new Set<WebContents>();
   const nativeShownGuests = new Map<string, WebContents>();
   const remoteViewingSessions = new Set<string>();
-  const power = createBrowserPagePower<WebContents>({
-    isDisplayed: (guest) => {
-      if (panelActiveGuests.has(guest)) return true;
-      if ([...nativeShownGuests.values()].includes(guest)) return true;
-      const owner = sessions.sessionIdForGuest(guest);
-      return owner !== undefined && remoteViewingSessions.has(owner) && sessions.currentGuest(owner) === guest;
-    },
-  });
+  const shownBy = (guest: WebContents): 'panel' | 'native' | 'remote' | null => {
+    if (panelActiveGuests.has(guest)) return 'panel';
+    if ([...nativeShownGuests.values()].includes(guest)) return 'native';
+    const owner = sessions.sessionIdForGuest(guest);
+    return owner !== undefined && remoteViewingSessions.has(owner) && sessions.currentGuest(owner) === guest
+      ? 'remote'
+      : null;
+  };
+  const power = createBrowserPagePower<WebContents>({ isDisplayed: (guest) => shownBy(guest) !== null });
   const refreshSession = (sessionId: string) => {
     for (const guest of sessions.visibleGuests(sessionId)) power.refresh(guest);
     for (const page of sessions.backgroundPages(sessionId).values()) power.refresh(page.guest);
   };
   /** On this PC's screen: a mounted panel or a native view shows it (a
    *  phone streaming the page is not the desktop panel). */
-  const isShown = (guest: WebContents) =>
-    panelActiveGuests.has(guest) || [...nativeShownGuests.values()].includes(guest);
+  const isShown = (guest: WebContents) => {
+    const by = shownBy(guest);
+    return by === 'panel' || by === 'native';
+  };
   const shownWaiters = new Set<() => void>();
   const shownChanged = () => {
     for (const waiter of [...shownWaiters]) waiter();
@@ -59,14 +57,8 @@ export function createBrowserDisplayTracking(sessions: DisplaySessions) {
     },
     isShown,
     /** What currently counts the page as displayed, for diagnostics; null when nothing does. */
-    shownBy(guest: WebContents): 'panel' | 'native' | 'remote' | null {
-      if (panelActiveGuests.has(guest)) return 'panel';
-      if ([...nativeShownGuests.values()].includes(guest)) return 'native';
-      const owner = sessions.sessionIdForGuest(guest);
-      return owner !== undefined && remoteViewingSessions.has(owner) && sessions.currentGuest(owner) === guest
-        ? 'remote'
-        : null;
-    },
+    shownBy,
+
     /** Resolves true once a panel or native view shows `guest`, false at
      *  `timeoutMs` (or when `signal` aborts) if none did. */
     waitUntilShown(guest: WebContents, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {

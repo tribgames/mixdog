@@ -1,8 +1,3 @@
-/**
- * The surface a screenshot is about — one exact window, or one display — and
- * the physical-pixel geometry the caption maps image coordinates back to, so
- * a click x/y read off the image lands on the screen.
- */
 import { screen } from 'electron';
 
 import {
@@ -148,11 +143,6 @@ export function displayScreenshotTarget(command: ComputerCommand): ScreenshotTar
   };
 }
 
-/** Where the captured pixels actually are. A surface that reports its own
- *  bounds wins outright: native surfaces, app-owned pages and Windows
- *  composited thumbnails all know the rectangle they drew. Only a compositor
- *  whose source rectangle no worker reports (macOS, Linux) is matched by
- *  aspect ratio to either the outer window or its client area. */
 export function capturedGeometry(
   target: ScreenshotTarget,
   surface: { bounds?: Rect },

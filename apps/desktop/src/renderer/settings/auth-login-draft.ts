@@ -1,7 +1,3 @@
-// The 로그인 추가 / 로그인 수정 dialog's save payload. The key rule: editing a
-// login must not touch its stored authenticator key unless the user actually
-// changed it (typed a new one) or explicitly removed it — otherwise the empty
-// field would wipe a saved key on every edit.
 interface LoginDraft {
   /** Present when editing an existing login. */
   id?: string;

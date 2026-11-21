@@ -96,11 +96,6 @@ function sameReorderShape(left: Partial<SessionRowReorder>, right: Partial<Sessi
   return true;
 }
 
-/** The row's reorder props with one identity while its drag marks hold. Every
- *  sidebar render builds them with fresh handler closures, so each memoised
- *  row re-rendered on every session switch (all of Recent, twice). The kept
- *  object's handlers call the row's latest props, recorded on every render,
- *  so a drag still reads the current order. */
 function stableRowReorder(
   cache: RowReorderCache,
   rowKey: string,

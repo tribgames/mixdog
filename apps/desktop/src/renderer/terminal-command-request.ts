@@ -1,10 +1,3 @@
-// A shell command the transcript asks a session's terminal to run (a code
-// block's Run), and the reveal of a terminal the agent already ran a command in.
-// Like a browser page request, a Run crosses two owners: the app shell reveals
-// the session's terminal dock, and the terminal pane enters the command once its
-// PTY is attached. A command sent before that pane exists waits here. The
-// agent's runs need no pane: main starts the process and only reveals its tab.
-
 import {
   type DesktopTerminalRunRequest,
   TERMINAL_SHOWN_WAIT_MS,

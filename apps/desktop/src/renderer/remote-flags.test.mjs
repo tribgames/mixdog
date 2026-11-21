@@ -1,8 +1,3 @@
-// The flags the core offers a phone (initialize.capabilities.remote) come from one table, native/core/crates/mixdog-app-protocol/src/
-// remote_flags.json: a Node call a flag opens is served for a phone end to end when the table names the core method its adapter calls,
-// and a flag is on only when all of its calls are. This holds the table to the adapters the phone bundle holds (remote-shim-adapters.ts:
-// every `remote-protocol-<group>.ts` but the queue that exports `adapter`): a call the table serves has an adapter claiming it, and a call
-// an adapter claims is served by the table, so a flag is never on with a call that would fail and never off once all its calls land.
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';

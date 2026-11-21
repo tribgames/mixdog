@@ -1,9 +1,3 @@
-/**
- * The usage dialog (ℹ️ in the usage flyout) answers three questions: what was
- * SPENT (token usage), how a subscription's quota was used up (subscription
- * usage) and what each request did (request log). They are the dialog's own
- * tabs, in its header, above every control a body carries.
- */
 import { useLayoutEffect, useRef } from 'react';
 import { t } from './i18n';
 import { QuotaUsageBody } from './QuotaUsageBody';

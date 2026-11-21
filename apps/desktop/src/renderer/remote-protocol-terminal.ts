@@ -1,8 +1,3 @@
-// Terminal tabs and folder watching, as the phone's `window.mixdogDesktop` asked for them (Node's `termEnsure`, `termAttach`, `termProfiles`,
-// `termWrite`, `termResize`, `termDispose`, `termActivity`, `termFocus`, `folderWatch`, `folderUnwatch`) answered over the protocol, and the
-// pushes the page listens to (`termData`, `termSizeOwner`, `terminal/activity/updated`, `folderChanged`, `terminalRunRequested`).
-// Every answer, error text and event equals what Node's remote methods and relay pushes gave (b6f10295a: remote-methods.ts
-// `terminalRemoteMethods`, remote-relay-push-lanes.ts, run-dispatch.ts); the replay in apps/mobile compares them with the recordings.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import {
   foldsCaseOn,
@@ -29,7 +24,6 @@ import type { TerminalSizeOwner } from '../shared/terminal-size-owner';
 import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
 
 type Client = ProtocolClient<SessionFold>;
-/** The requests below are built by name from Node's argument lists; the typed table is the library's. */
 /** A domain error says its text in `data.message` (the workspace's `ENOENT: ...`): that text is what Node's call threw. */
 const rpc = async (client: Client, method: string, params: unknown): Promise<any> => {
   try {

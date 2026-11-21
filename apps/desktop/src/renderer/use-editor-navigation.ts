@@ -46,6 +46,45 @@ export interface EditorNavigationState {
   navigateEditorHistory(offset: -1 | 1): void;
 }
 
+/** The tab list with `fileSelection`'s tab added, or the existing tab for that
+ *  file re-keyed when a newer access token changes its identity. */
+function withFileTab(
+  tabs: WorkspaceTab[],
+  fileSelection: Extract<NavigationSelection, { kind: 'file' }>,
+  accessToken: string | undefined
+): WorkspaceTab[] {
+  const key = navigationKey(fileSelection);
+  const existingIndex = tabs.findIndex(
+    (tab) =>
+      tab.key === key ||
+      (tab.selection.kind === 'file' &&
+        tab.selection.project === fileSelection.project &&
+        tab.selection.rel === fileSelection.rel)
+  );
+  if (existingIndex < 0) {
+    return [
+      ...tabs,
+      {
+        key,
+        title: fileSelection.rel.split('/').at(-1) || fileSelection.rel,
+        selection: fileSelection,
+      },
+    ];
+  }
+  const existing = tabs[existingIndex];
+  if (existing.selection.kind !== 'file') return tabs;
+  const resolvedAccessToken = accessToken || existing.selection.accessToken;
+  const resolvedSelection: NavigationSelection = {
+    ...fileSelection,
+    ...(resolvedAccessToken ? { accessToken: resolvedAccessToken } : {}),
+  };
+  const resolvedKey = navigationKey(resolvedSelection);
+  if (existing.key === resolvedKey && existing.selection.accessToken === resolvedAccessToken) return tabs;
+  return tabs.map((tab, index) =>
+    index === existingIndex ? { ...tab, key: resolvedKey, selection: resolvedSelection } : tab
+  );
+}
+
 export function useEditorNavigation({
   setTabs,
   openSelectionInFocusedPane,
@@ -102,35 +141,7 @@ export function useEditorNavigation({
       };
       if (recordHistory) recordEditorNavigation(targetLocation);
       else latestEditorLocation.current = targetLocation;
-      setTabs((current) => {
-        const existingIndex = current.findIndex(
-          (tab) =>
-            tab.key === key ||
-            (tab.selection.kind === 'file' && tab.selection.project === cleanProject && tab.selection.rel === cleanRel)
-        );
-        if (existingIndex < 0) {
-          return [
-            ...current,
-            {
-              key,
-              title: cleanRel.split('/').at(-1) || cleanRel,
-              selection: fileSelection,
-            },
-          ];
-        }
-        const existing = current[existingIndex];
-        if (existing.selection.kind !== 'file') return current;
-        const resolvedAccessToken = accessToken || existing.selection.accessToken;
-        const resolvedSelection: NavigationSelection = {
-          ...fileSelection,
-          ...(resolvedAccessToken ? { accessToken: resolvedAccessToken } : {}),
-        };
-        const resolvedKey = navigationKey(resolvedSelection);
-        if (existing.key === resolvedKey && existing.selection.accessToken === resolvedAccessToken) return current;
-        return current.map((tab, index) =>
-          index === existingIndex ? { ...tab, key: resolvedKey, selection: resolvedSelection } : tab
-        );
-      });
+      setTabs((current) => withFileTab(current, fileSelection, accessToken));
       openSelectionInFocusedPane(fileSelection, '', { preview: openMode === 'preview' });
       if (typeof line === 'number' && line > 0) {
         setFileReveal({ key, line, nonce: Date.now() });

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import React, { act, useRef, useState } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 
-test('F2 renames the session row right after the first click opened its session', async () => {
+async function mountF2() {
   const { dom, restore } = installTestDom(null, {
     jsdom: { url: 'http://localhost/' },
     expose: ['navigator', 'CustomEvent', 'HTMLElement', 'Element'],
@@ -64,26 +64,51 @@ test('F2 renames the session row right after the first click opened its session'
       split ? React.createElement(Composer, { sessionId: other.id, paneActive: false }) : null
     );
   }
-  try {
-    await act(async () => root.render(React.createElement(App)));
-    const row = document.querySelector('[data-session-id="f2-session"]');
-    const main = row.querySelector('.session-row-main');
-    await act(async () => {
-      main.focus();
-      main.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, button: 0 }));
+  await act(async () => root.render(React.createElement(App)));
+  const row = document.querySelector('[data-session-id="f2-session"]');
+  const main = row.querySelector('.session-row-main');
+  await act(async () => {
+    main.focus();
+    main.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, button: 0 }));
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+  const composer = document.querySelector('form.composer textarea');
+  assert.ok(composer, 'the click opened the session');
+  assert.equal(document.activeElement, composer, 'the composer keeps its auto-focus after the click');
+  const input = row.querySelector('.session-title-input');
+  const press = (target, init) =>
+    act(async () => {
+      target.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'F2', bubbles: true, ...init }));
     });
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    const composer = document.querySelector('form.composer textarea');
-    assert.ok(composer, 'the click opened the session');
-    assert.equal(document.activeElement, composer, 'the composer keeps its auto-focus after the click');
-    const input = row.querySelector('.session-title-input');
-    const press = (target, init) =>
-      act(async () => {
-        target.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'F2', bubbles: true, ...init }));
-      });
+  return {
+    document,
+    composer,
+    input,
+    press,
+    showSplit: () => act(async () => showSplit()),
+    close: async () => {
+      await act(async () => root.unmount());
+      restore();
+    },
+  };
+}
 
+test('F2 renames the session row right after the first click opened its session', async () => {
+  const { document, composer, input, press, close } = await mountF2();
+  try {
+    await press(composer);
+    assert.equal(input.disabled, false);
+    assert.equal(document.activeElement, input);
+  } finally {
+    await close();
+  }
+});
+
+test('IME composition, modified F2 and F2 in another text field do not rename', async () => {
+  const { document, composer, input, press, close } = await mountF2();
+  try {
     await press(composer, { isComposing: true });
     await press(composer, { ctrlKey: true });
     await press(composer, { shiftKey: true });
@@ -94,11 +119,16 @@ test('F2 renames the session row right after the first click opened its session'
     await press(field);
     assert.equal(input.disabled, true, 'F2 in another text field does not rename');
     field.remove();
+  } finally {
+    await close();
+  }
+});
 
-    // Split pane: keyboard focus is in B's composer while A stays selected.
-    await act(async () => showSplit());
-    const otherRow = document.querySelector('[data-session-id="f2-other"]');
-    const otherInput = otherRow.querySelector('.session-title-input');
+test('in a split pane F2 renames the session whose composer holds keyboard focus', async () => {
+  const { document, composer, input, press, showSplit, close } = await mountF2();
+  try {
+    await showSplit();
+    const otherInput = document.querySelector('[data-session-id="f2-other"] .session-title-input');
     const otherComposer = document.querySelector('form[data-composer-session-id="f2-other"] textarea');
     otherComposer.focus();
     await press(otherComposer);
@@ -113,7 +143,6 @@ test('F2 renames the session row right after the first click opened its session'
     assert.equal(input.disabled, false);
     assert.equal(document.activeElement, input);
   } finally {
-    await act(async () => root.unmount());
-    restore();
+    await close();
   }
 });

@@ -1,7 +1,4 @@
-// #384: the custom-picture dialog in a real Chrome against the app's own
-// stylesheets. A tall picture scrolls inside the dialog's body; the footer's
-// "Use as skin" stays inside the card and the window, and the picture keeps
-// its own proportions (the subject point is read from where it is clicked).
+// #384
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';

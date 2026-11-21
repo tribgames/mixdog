@@ -1,15 +1,15 @@
 {
   "manifest": {
     "binary": "mixdogd.exe",
-    "binarySha256": "755b5cba48ac9fdc8d79e68d98c71dc54443fc80d2958b236cf2da383275dfdf",
-    "binaryBuilt": "2026-11-20T11:01:44.670Z",
+    "binarySha256": "24b35e26e6763d5250fd9c7e658e3ad5a4b1b1ceef052cae5e577ae012249345",
+    "binaryBuilt": "2026-11-21T00:21:20.676Z",
     "builtFrom": {
-      "sources": 3707,
-      "sourceSha256": "a20b2155a0d537476c6a08d09c7ccc3d75ae0f7b51e06c9027ff31114cd05c9e"
+      "sources": 3748,
+      "sourceSha256": "c08e5ff9cc8c7842038dc5ef40d72c349b713310bce579ea019b2f2dfee484e2"
     },
     "recorder": {
       "remote-protocol-chat-live.record.mjs": "17193108423398fa664b3eeaa2bd0b389c39ceb4e6c7980aeccea49cc2e6e827",
-      "../../../../packages/protocol-client/src/client.ts": "7cec6d86942eb9012ce0fafa298ce60c39647379a79622aec43e602eee879344",
+      "../../../../packages/protocol-client/src/client.ts": "aaf58e4af5ee1f782a6e2451887add7eeaf78e63d45810b2fa8384dad85b6fbd",
       "remote-protocol-chat-abort-live.mjs": "ec034a7db6968adf45dc03d35db33ac674a22d20462b984d0721f83c456a169e",
       "remote-protocol-chat-record-core.mjs": "e20cdfa2f5c6125d05888c0c490a29d80d1cdfb69cfb24c5b9321477172c961e",
       "remote-protocol-chat-fixtures.mjs": "63fe3fc1b44431e45fa6524ae16221352d7de826cbcda8bea8f369f187336ee0",
@@ -26,25 +26,25 @@
     },
     "clientVersion": "1.5.0",
     "server": null,
-    "taskWorkspace": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+    "taskWorkspace": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
     "source": "running mixdogd serve, isolated env (the public harness remote-protocol-chat-harness/lib, pinned above), driven over the WebSocket JSON-RPC protocol"
   },
   "made": {
-    "sess_0": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
-    "sess_1": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
-    "sess_3": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
-    "sess_4": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
-    "sess_2": "sess_26472_1795172519574_1795172521164_758ccf172a7f4ceca3f06c5a5c8e250f",
-    "sess_5": "sess_26472_1795172519575_1795172521757_bc3b37ae669f4691818b5d64b4190640",
+    "sess_0": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
+    "sess_1": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
+    "sess_3": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
+    "sess_4": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
+    "sess_2": "sess_25640_1795220500385_1795220502479_bb615a0cd51c4b84a20b2c67e837eee3",
+    "sess_5": "sess_25640_1795220500386_1795220503114_d9af129d79cb4c9885c2bf4e6fa50294",
     "botOne": "bot-one",
     "botTwo": "bot-two",
     "botOneHome": "sess_home_bot-one",
-    "room": "mwovdbj4eccb1d56",
-    "roomLog": "sess_room_mwovdbj4eccb1d56"
+    "room": "mwpnxq806a18ed08",
+    "roomLog": "sess_room_mwpnxq806a18ed08"
   },
   "projects": {
-    "a": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-    "b": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b"
+    "a": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+    "b": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b"
   },
   "steps": [
     {
@@ -52,88 +52,88 @@
       "listed": {
         "data": [
           {
-            "id": "sess_26472_1795172519574_1795172521164_758ccf172a7f4ceca3f06c5a5c8e250f",
+            "id": "sess_25640_1795220500385_1795220502479_bb615a0cd51c4b84a20b2c67e837eee3",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1795172521328,
+            "updatedAt": 1795220502673,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "forkedFromId": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
-            "activityAt": 1795172521164,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "forkedFromId": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
+            "activityAt": 1795220502479,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172521164
+            "createdAt": 1795220502479
           },
           {
-            "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+            "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1795172521141,
+            "updatedAt": 1795220502450,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521141,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220502450,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520829
+            "createdAt": 1795220502122
           },
           {
-            "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+            "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1795172520803,
+            "updatedAt": 1795220502090,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172520803,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502090,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520329
+            "createdAt": 1795220501758
           },
           {
-            "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+            "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1795172520302,
+            "updatedAt": 1795220501726,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172520302,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220501726,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519995
+            "createdAt": 1795220501381
           },
           {
-            "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+            "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1795172519964,
+            "updatedAt": 1795220501351,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172519964,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220501351,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519570
+            "createdAt": 1795220500381
           }
         ]
       },
@@ -142,22 +142,22 @@
           "method": "thread/started",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+              "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
               "preview": "hello sess_0",
               "title": "",
-              "updatedAt": 1795172519693,
+              "updatedAt": 1795220500617,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172519570,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220500381,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_0",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519570
+              "createdAt": 1795220500381
             }
           }
         },
@@ -165,22 +165,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+              "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
               "preview": "hello sess_0",
               "title": "",
-              "updatedAt": 1795172519808,
+              "updatedAt": 1795220500900,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172519570,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220500381,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_0",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519570
+              "createdAt": 1795220500381
             }
           }
         },
@@ -188,22 +188,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+              "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
               "preview": "hello sess_0",
               "title": "hello sess_0",
-              "updatedAt": 1795172519808,
+              "updatedAt": 1795220500900,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172519570,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220500381,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_0",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519570
+              "createdAt": 1795220500381
             }
           }
         },
@@ -211,22 +211,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+              "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
               "preview": "hello sess_0",
               "title": "hello sess_0",
-              "updatedAt": 1795172519808,
+              "updatedAt": 1795220500900,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172519570,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220500381,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519570
+              "createdAt": 1795220500381
             }
           }
         },
@@ -234,20 +234,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+              "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
               "preview": "hello sess_0",
               "title": "hello sess_0",
-              "updatedAt": 1795172519808,
+              "updatedAt": 1795220500900,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172519570,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220500381,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519570
+              "createdAt": 1795220500381
             }
           }
         },
@@ -255,20 +255,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+              "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
               "preview": "hello sess_0",
               "title": "hello sess_0",
-              "updatedAt": 1795172519916,
+              "updatedAt": 1795220501294,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172519570,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220500381,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519570
+              "createdAt": 1795220500381
             }
           }
         },
@@ -276,20 +276,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+              "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
               "preview": "hello sess_0",
               "title": "hello sess_0",
-              "updatedAt": 1795172519964,
+              "updatedAt": 1795220501351,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172519964,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220501351,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519570
+              "createdAt": 1795220500381
             }
           }
         },
@@ -297,20 +297,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+              "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
               "preview": "hello sess_0",
               "title": "Title 0",
-              "updatedAt": 1795172519964,
+              "updatedAt": 1795220501351,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172519964,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220501351,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519570
+              "createdAt": 1795220500381
             }
           }
         },
@@ -318,22 +318,22 @@
           "method": "thread/started",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+              "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
               "preview": "hello sess_1",
               "title": "",
-              "updatedAt": 1795172520089,
+              "updatedAt": 1795220501480,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172519995,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501381,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_1",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519995
+              "createdAt": 1795220501381
             }
           }
         },
@@ -341,22 +341,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+              "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
               "preview": "hello sess_1",
               "title": "hello sess_1",
-              "updatedAt": 1795172520089,
+              "updatedAt": 1795220501480,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172519995,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501381,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_1",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519995
+              "createdAt": 1795220501381
             }
           }
         },
@@ -364,22 +364,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+              "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
               "preview": "hello sess_1",
               "title": "hello sess_1",
-              "updatedAt": 1795172520089,
+              "updatedAt": 1795220501480,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172519995,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501381,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519995
+              "createdAt": 1795220501381
             }
           }
         },
@@ -387,20 +387,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+              "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
               "preview": "hello sess_1",
               "title": "hello sess_1",
-              "updatedAt": 1795172520089,
+              "updatedAt": 1795220501480,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172519995,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501381,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519995
+              "createdAt": 1795220501381
             }
           }
         },
@@ -408,20 +408,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+              "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
               "preview": "hello sess_1",
               "title": "hello sess_1",
-              "updatedAt": 1795172520254,
+              "updatedAt": 1795220501679,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172519995,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501381,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519995
+              "createdAt": 1795220501381
             }
           }
         },
@@ -429,20 +429,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+              "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
               "preview": "hello sess_1",
               "title": "hello sess_1",
-              "updatedAt": 1795172520302,
+              "updatedAt": 1795220501726,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520302,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501726,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519995
+              "createdAt": 1795220501381
             }
           }
         },
@@ -450,20 +450,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+              "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
               "preview": "hello sess_1",
               "title": "Title 1",
-              "updatedAt": 1795172520302,
+              "updatedAt": 1795220501726,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520302,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501726,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519995
+              "createdAt": 1795220501381
             }
           }
         },
@@ -471,22 +471,22 @@
           "method": "thread/started",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+              "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
               "preview": "hello sess_3",
               "title": "",
-              "updatedAt": 1795172520424,
+              "updatedAt": 1795220501852,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520329,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501758,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_3",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172520329
+              "createdAt": 1795220501758
             }
           }
         },
@@ -494,22 +494,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+              "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
               "preview": "hello sess_3",
               "title": "hello sess_3",
-              "updatedAt": 1795172520424,
+              "updatedAt": 1795220501852,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520329,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501758,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_3",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172520329
+              "createdAt": 1795220501758
             }
           }
         },
@@ -517,22 +517,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+              "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
               "preview": "hello sess_3",
               "title": "hello sess_3",
-              "updatedAt": 1795172520424,
+              "updatedAt": 1795220501852,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520329,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501758,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172520329
+              "createdAt": 1795220501758
             }
           }
         },
@@ -540,20 +540,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+              "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
               "preview": "hello sess_3",
               "title": "hello sess_3",
-              "updatedAt": 1795172520424,
+              "updatedAt": 1795220501852,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520329,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501758,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172520329
+              "createdAt": 1795220501758
             }
           }
         },
@@ -561,20 +561,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+              "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
               "preview": "hello sess_3",
               "title": "hello sess_3",
-              "updatedAt": 1795172520756,
+              "updatedAt": 1795220502045,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520329,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501758,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172520329
+              "createdAt": 1795220501758
             }
           }
         },
@@ -582,20 +582,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+              "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
               "preview": "hello sess_3",
               "title": "hello sess_3",
-              "updatedAt": 1795172520803,
+              "updatedAt": 1795220502090,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520803,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220502090,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172520329
+              "createdAt": 1795220501758
             }
           }
         },
@@ -603,20 +603,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+              "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
               "preview": "hello sess_3",
               "title": "Title 3",
-              "updatedAt": 1795172520803,
+              "updatedAt": 1795220502090,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520803,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220502090,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172520329
+              "createdAt": 1795220501758
             }
           }
         },
@@ -624,22 +624,22 @@
           "method": "thread/started",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+              "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
               "preview": "hello sess_4",
               "title": "",
-              "updatedAt": 1795172520930,
+              "updatedAt": 1795220502217,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172520829,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220502122,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_4",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172520829
+              "createdAt": 1795220502122
             }
           }
         },
@@ -647,22 +647,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+              "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
               "preview": "hello sess_4",
               "title": "hello sess_4",
-              "updatedAt": 1795172520930,
+              "updatedAt": 1795220502217,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172520829,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220502122,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_4",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172520829
+              "createdAt": 1795220502122
             }
           }
         },
@@ -670,22 +670,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+              "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
               "preview": "hello sess_4",
               "title": "hello sess_4",
-              "updatedAt": 1795172520930,
+              "updatedAt": 1795220502217,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172520829,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220502122,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172520829
+              "createdAt": 1795220502122
             }
           }
         },
@@ -693,20 +693,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+              "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
               "preview": "hello sess_4",
               "title": "hello sess_4",
-              "updatedAt": 1795172520930,
+              "updatedAt": 1795220502217,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172520829,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220502122,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172520829
+              "createdAt": 1795220502122
             }
           }
         },
@@ -714,20 +714,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+              "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
               "preview": "hello sess_4",
               "title": "hello sess_4",
-              "updatedAt": 1795172521096,
+              "updatedAt": 1795220502396,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172520829,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220502122,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172520829
+              "createdAt": 1795220502122
             }
           }
         },
@@ -735,20 +735,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+              "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
               "preview": "hello sess_4",
               "title": "hello sess_4",
-              "updatedAt": 1795172521141,
+              "updatedAt": 1795220502450,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172521141,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220502450,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172520829
+              "createdAt": 1795220502122
             }
           }
         },
@@ -756,20 +756,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+              "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
               "preview": "hello sess_4",
               "title": "Title 4",
-              "updatedAt": 1795172521141,
+              "updatedAt": 1795220502450,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172521141,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220502450,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172520829
+              "createdAt": 1795220502122
             }
           }
         },
@@ -777,21 +777,21 @@
           "method": "thread/started",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519574_1795172521164_758ccf172a7f4ceca3f06c5a5c8e250f",
+              "id": "sess_25640_1795220500385_1795220502479_bb615a0cd51c4b84a20b2c67e837eee3",
               "preview": "hello sess_0",
               "title": "Title 0",
-              "updatedAt": 1795172521328,
+              "updatedAt": 1795220502673,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "forkedFromId": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
-              "activityAt": 1795172521164,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "forkedFromId": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
+              "activityAt": 1795220502479,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172521164
+              "createdAt": 1795220502479
             }
           }
         },
@@ -799,21 +799,21 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519574_1795172521164_758ccf172a7f4ceca3f06c5a5c8e250f",
+              "id": "sess_25640_1795220500385_1795220502479_bb615a0cd51c4b84a20b2c67e837eee3",
               "preview": "hello sess_0",
               "title": "Title 2",
-              "updatedAt": 1795172521328,
+              "updatedAt": 1795220502673,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "forkedFromId": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
-              "activityAt": 1795172521164,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "forkedFromId": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
+              "activityAt": 1795220502479,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172521164
+              "createdAt": 1795220502479
             }
           }
         },
@@ -821,22 +821,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519574_1795172521164_758ccf172a7f4ceca3f06c5a5c8e250f",
+              "id": "sess_25640_1795220500385_1795220502479_bb615a0cd51c4b84a20b2c67e837eee3",
               "preview": "hello sess_0",
               "title": "Title 2",
-              "updatedAt": 1795172521328,
+              "updatedAt": 1795220502673,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "forkedFromId": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
-              "activityAt": 1795172521164,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "forkedFromId": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
+              "activityAt": 1795220502479,
               "compactCount": 0,
               "favorite": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172521164
+              "createdAt": 1795220502479
             }
           }
         },
@@ -844,22 +844,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+              "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
               "preview": "hello sess_1",
               "title": "Title 1",
-              "updatedAt": 1795172520302,
+              "updatedAt": 1795220501726,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520302,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501726,
               "compactCount": 0,
               "readMessageCount": 0,
               "readRevision": 1,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519995
+              "createdAt": 1795220501381
             }
           }
         }
@@ -870,88 +870,88 @@
       "listed": {
         "data": [
           {
-            "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+            "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1795172521682,
+            "updatedAt": 1795220503036,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521682,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220503036,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519570
+            "createdAt": 1795220500381
           },
           {
-            "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+            "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1795172521515,
+            "updatedAt": 1795220502860,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172521515,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502860,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519995
+            "createdAt": 1795220501381
           },
           {
-            "id": "sess_26472_1795172519574_1795172521164_758ccf172a7f4ceca3f06c5a5c8e250f",
+            "id": "sess_25640_1795220500385_1795220502479_bb615a0cd51c4b84a20b2c67e837eee3",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1795172521328,
+            "updatedAt": 1795220502673,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "forkedFromId": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
-            "activityAt": 1795172521164,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "forkedFromId": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
+            "activityAt": 1795220502479,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172521164
+            "createdAt": 1795220502479
           },
           {
-            "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+            "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1795172521141,
+            "updatedAt": 1795220502450,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521141,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220502450,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520829
+            "createdAt": 1795220502122
           },
           {
-            "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+            "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1795172520803,
+            "updatedAt": 1795220502090,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172520803,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502090,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520329
+            "createdAt": 1795220501758
           }
         ]
       },
@@ -960,15 +960,15 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+              "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
               "preview": "hello sess_1",
               "title": "Title 1",
-              "updatedAt": 1795172520302,
+              "updatedAt": 1795220501726,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520302,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501726,
               "compactCount": 0,
               "readMessageCount": 0,
               "readRevision": 1,
@@ -977,7 +977,7 @@
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519995
+              "createdAt": 1795220501381
             }
           }
         },
@@ -985,15 +985,15 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+              "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
               "preview": "hello sess_1",
               "title": "Title 1",
-              "updatedAt": 1795172520302,
+              "updatedAt": 1795220501726,
               "messageCount": 3,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520302,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501726,
               "compactCount": 0,
               "readMessageCount": 0,
               "readRevision": 1,
@@ -1002,7 +1002,7 @@
               "lastMessagePreview": "again sess_1",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519995
+              "createdAt": 1795220501381
             }
           }
         },
@@ -1010,15 +1010,15 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+              "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
               "preview": "hello sess_1",
               "title": "Title 1",
-              "updatedAt": 1795172520302,
+              "updatedAt": 1795220501726,
               "messageCount": 3,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520302,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501726,
               "compactCount": 0,
               "readMessageCount": 0,
               "readRevision": 1,
@@ -1027,7 +1027,7 @@
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519995
+              "createdAt": 1795220501381
             }
           }
         },
@@ -1035,22 +1035,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+              "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
               "preview": "hello sess_1",
               "title": "Title 1",
-              "updatedAt": 1795172520302,
+              "updatedAt": 1795220501726,
               "messageCount": 4,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520302,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501726,
               "compactCount": 0,
               "readMessageCount": 0,
               "readRevision": 1,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519995
+              "createdAt": 1795220501381
             }
           }
         },
@@ -1058,22 +1058,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+              "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
               "preview": "hello sess_1",
               "title": "Title 1",
-              "updatedAt": 1795172521476,
+              "updatedAt": 1795220502822,
               "messageCount": 4,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520302,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220501726,
               "compactCount": 0,
               "readMessageCount": 0,
               "readRevision": 1,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519995
+              "createdAt": 1795220501381
             }
           }
         },
@@ -1081,22 +1081,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+              "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
               "preview": "hello sess_1",
               "title": "Title 1",
-              "updatedAt": 1795172521515,
+              "updatedAt": 1795220502860,
               "messageCount": 4,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172521515,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220502860,
               "compactCount": 0,
               "readMessageCount": 0,
               "readRevision": 1,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519995
+              "createdAt": 1795220501381
             }
           }
         },
@@ -1104,22 +1104,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+              "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
               "preview": "hello sess_0",
               "title": "Title 0",
-              "updatedAt": 1795172519964,
+              "updatedAt": 1795220501351,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172519964,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220501351,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519570
+              "createdAt": 1795220500381
             }
           }
         },
@@ -1127,22 +1127,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+              "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
               "preview": "hello sess_0",
               "title": "Title 0",
-              "updatedAt": 1795172519964,
+              "updatedAt": 1795220501351,
               "messageCount": 3,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172519964,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220501351,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "again sess_0",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519570
+              "createdAt": 1795220500381
             }
           }
         },
@@ -1150,22 +1150,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+              "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
               "preview": "hello sess_0",
               "title": "Title 0",
-              "updatedAt": 1795172519964,
+              "updatedAt": 1795220501351,
               "messageCount": 3,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172519964,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220501351,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519570
+              "createdAt": 1795220500381
             }
           }
         },
@@ -1173,20 +1173,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+              "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
               "preview": "hello sess_0",
               "title": "Title 0",
-              "updatedAt": 1795172519964,
+              "updatedAt": 1795220501351,
               "messageCount": 4,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172519964,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220501351,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519570
+              "createdAt": 1795220500381
             }
           }
         },
@@ -1194,20 +1194,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+              "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
               "preview": "hello sess_0",
               "title": "Title 0",
-              "updatedAt": 1795172521641,
+              "updatedAt": 1795220502986,
               "messageCount": 4,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172519964,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220501351,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519570
+              "createdAt": 1795220500381
             }
           }
         },
@@ -1215,20 +1215,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+              "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
               "preview": "hello sess_0",
               "title": "Title 0",
-              "updatedAt": 1795172521682,
+              "updatedAt": 1795220503036,
               "messageCount": 4,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-              "activityAt": 1795172521682,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+              "activityAt": 1795220503036,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172519570
+              "createdAt": 1795220500381
             }
           }
         }
@@ -1239,89 +1239,89 @@
       "listed": {
         "data": [
           {
-            "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+            "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1795172521682,
+            "updatedAt": 1795220503036,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521682,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220503036,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519570
+            "createdAt": 1795220500381
           },
           {
-            "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+            "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1795172521515,
+            "updatedAt": 1795220502860,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172521515,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502860,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519995
+            "createdAt": 1795220501381
           },
           {
-            "id": "sess_26472_1795172519574_1795172521164_758ccf172a7f4ceca3f06c5a5c8e250f",
+            "id": "sess_25640_1795220500385_1795220502479_bb615a0cd51c4b84a20b2c67e837eee3",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1795172521328,
+            "updatedAt": 1795220502673,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "forkedFromId": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
-            "activityAt": 1795172521164,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "forkedFromId": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
+            "activityAt": 1795220502479,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172521164
+            "createdAt": 1795220502479
           },
           {
-            "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+            "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1795172521141,
+            "updatedAt": 1795220502450,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521141,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220502450,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520829
+            "createdAt": 1795220502122
           },
           {
-            "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+            "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1795172520803,
+            "updatedAt": 1795220502090,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172520803,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502090,
             "compactCount": 0,
             "archived": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520329
+            "createdAt": 1795220501758
           }
         ]
       },
@@ -1329,7 +1329,7 @@
         {
           "method": "thread/archived",
           "params": {
-            "threadId": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90"
+            "threadId": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3"
           }
         }
       ]
@@ -1339,88 +1339,88 @@
       "listed": {
         "data": [
           {
-            "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+            "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1795172521682,
+            "updatedAt": 1795220503036,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521682,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220503036,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519570
+            "createdAt": 1795220500381
           },
           {
-            "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+            "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1795172521515,
+            "updatedAt": 1795220502860,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172521515,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502860,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519995
+            "createdAt": 1795220501381
           },
           {
-            "id": "sess_26472_1795172519574_1795172521164_758ccf172a7f4ceca3f06c5a5c8e250f",
+            "id": "sess_25640_1795220500385_1795220502479_bb615a0cd51c4b84a20b2c67e837eee3",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1795172521328,
+            "updatedAt": 1795220502673,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "forkedFromId": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
-            "activityAt": 1795172521164,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "forkedFromId": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
+            "activityAt": 1795220502479,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172521164
+            "createdAt": 1795220502479
           },
           {
-            "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+            "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1795172521141,
+            "updatedAt": 1795220502450,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521141,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220502450,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520829
+            "createdAt": 1795220502122
           },
           {
-            "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+            "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1795172520803,
+            "updatedAt": 1795220502090,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172520803,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502090,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520329
+            "createdAt": 1795220501758
           }
         ]
       },
@@ -1428,7 +1428,7 @@
         {
           "method": "thread/unarchived",
           "params": {
-            "threadId": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90"
+            "threadId": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3"
           }
         }
       ]
@@ -1438,89 +1438,89 @@
       "listed": {
         "data": [
           {
-            "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+            "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1795172521682,
+            "updatedAt": 1795220503036,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521682,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220503036,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519570
+            "createdAt": 1795220500381
           },
           {
-            "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+            "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1795172521515,
+            "updatedAt": 1795220502860,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172521515,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502860,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519995
+            "createdAt": 1795220501381
           },
           {
-            "id": "sess_26472_1795172519574_1795172521164_758ccf172a7f4ceca3f06c5a5c8e250f",
+            "id": "sess_25640_1795220500385_1795220502479_bb615a0cd51c4b84a20b2c67e837eee3",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1795172521328,
+            "updatedAt": 1795220502673,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "forkedFromId": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
-            "activityAt": 1795172521164,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "forkedFromId": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
+            "activityAt": 1795220502479,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172521164
+            "createdAt": 1795220502479
           },
           {
-            "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+            "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1795172521141,
+            "updatedAt": 1795220502450,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521141,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220502450,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520829
+            "createdAt": 1795220502122
           },
           {
-            "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+            "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1795172520803,
+            "updatedAt": 1795220502090,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172520803,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502090,
             "compactCount": 0,
             "archived": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520329
+            "createdAt": 1795220501758
           }
         ]
       },
@@ -1528,7 +1528,7 @@
         {
           "method": "thread/archived",
           "params": {
-            "threadId": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90"
+            "threadId": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3"
           }
         }
       ]
@@ -1538,89 +1538,89 @@
       "listed": {
         "data": [
           {
-            "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+            "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1795172521682,
+            "updatedAt": 1795220503036,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521682,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220503036,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519570
+            "createdAt": 1795220500381
           },
           {
-            "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+            "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1795172521515,
+            "updatedAt": 1795220502860,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172521515,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502860,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519995
+            "createdAt": 1795220501381
           },
           {
-            "id": "sess_26472_1795172519574_1795172521164_758ccf172a7f4ceca3f06c5a5c8e250f",
+            "id": "sess_25640_1795220500385_1795220502479_bb615a0cd51c4b84a20b2c67e837eee3",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1795172521328,
+            "updatedAt": 1795220502673,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "forkedFromId": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
-            "activityAt": 1795172521164,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "forkedFromId": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
+            "activityAt": 1795220502479,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172521164
+            "createdAt": 1795220502479
           },
           {
-            "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+            "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1795172521141,
+            "updatedAt": 1795220502450,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521141,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220502450,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520829
+            "createdAt": 1795220502122
           },
           {
-            "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+            "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1795172520803,
+            "updatedAt": 1795220502090,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172520803,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502090,
             "compactCount": 0,
             "archived": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520329
+            "createdAt": 1795220501758
           }
         ]
       },
@@ -1629,22 +1629,22 @@
           "method": "thread/started",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519575_1795172521757_bc3b37ae669f4691818b5d64b4190640",
+              "id": "sess_25640_1795220500386_1795220503114_d9af129d79cb4c9885c2bf4e6fa50294",
               "preview": "hello sess_5",
               "title": "",
-              "updatedAt": 1795172521848,
+              "updatedAt": 1795220503213,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172521757,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220503114,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_5",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172521757
+              "createdAt": 1795220503114
             }
           }
         },
@@ -1652,22 +1652,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519575_1795172521757_bc3b37ae669f4691818b5d64b4190640",
+              "id": "sess_25640_1795220500386_1795220503114_d9af129d79cb4c9885c2bf4e6fa50294",
               "preview": "hello sess_5",
               "title": "hello sess_5",
-              "updatedAt": 1795172521848,
+              "updatedAt": 1795220503213,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172521757,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220503114,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_5",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172521757
+              "createdAt": 1795220503114
             }
           }
         },
@@ -1675,22 +1675,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519575_1795172521757_bc3b37ae669f4691818b5d64b4190640",
+              "id": "sess_25640_1795220500386_1795220503114_d9af129d79cb4c9885c2bf4e6fa50294",
               "preview": "hello sess_5",
               "title": "hello sess_5",
-              "updatedAt": 1795172521848,
+              "updatedAt": 1795220503213,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172521757,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220503114,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172521757
+              "createdAt": 1795220503114
             }
           }
         },
@@ -1698,20 +1698,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519575_1795172521757_bc3b37ae669f4691818b5d64b4190640",
+              "id": "sess_25640_1795220500386_1795220503114_d9af129d79cb4c9885c2bf4e6fa50294",
               "preview": "hello sess_5",
               "title": "hello sess_5",
-              "updatedAt": 1795172521848,
+              "updatedAt": 1795220503213,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172521757,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220503114,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172521757
+              "createdAt": 1795220503114
             }
           }
         },
@@ -1719,20 +1719,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519575_1795172521757_bc3b37ae669f4691818b5d64b4190640",
+              "id": "sess_25640_1795220500386_1795220503114_d9af129d79cb4c9885c2bf4e6fa50294",
               "preview": "hello sess_5",
               "title": "hello sess_5",
-              "updatedAt": 1795172522022,
+              "updatedAt": 1795220503401,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172521757,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220503114,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172521757
+              "createdAt": 1795220503114
             }
           }
         },
@@ -1740,20 +1740,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519575_1795172521757_bc3b37ae669f4691818b5d64b4190640",
+              "id": "sess_25640_1795220500386_1795220503114_d9af129d79cb4c9885c2bf4e6fa50294",
               "preview": "hello sess_5",
               "title": "hello sess_5",
-              "updatedAt": 1795172522077,
+              "updatedAt": 1795220503456,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172522077,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220503456,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172521757
+              "createdAt": 1795220503114
             }
           }
         },
@@ -1761,20 +1761,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519575_1795172521757_bc3b37ae669f4691818b5d64b4190640",
+              "id": "sess_25640_1795220500386_1795220503114_d9af129d79cb4c9885c2bf4e6fa50294",
               "preview": "hello sess_5",
               "title": "Title 5",
-              "updatedAt": 1795172522077,
+              "updatedAt": 1795220503456,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172522077,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220503456,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172521757
+              "createdAt": 1795220503114
             }
           }
         },
@@ -1782,27 +1782,27 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519575_1795172521757_bc3b37ae669f4691818b5d64b4190640",
+              "id": "sess_25640_1795220500386_1795220503114_d9af129d79cb4c9885c2bf4e6fa50294",
               "preview": "hello sess_5",
               "title": "Title 5",
-              "updatedAt": 1795172522105,
+              "updatedAt": 1795220503485,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172522077,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220503456,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172521757
+              "createdAt": 1795220503114
             }
           }
         },
         {
           "method": "thread/deleted",
           "params": {
-            "threadId": "sess_26472_1795172519575_1795172521757_bc3b37ae669f4691818b5d64b4190640"
+            "threadId": "sess_25640_1795220500386_1795220503114_d9af129d79cb4c9885c2bf4e6fa50294"
           }
         }
       ]
@@ -1815,12 +1815,12 @@
             "id": "sess_home_bot-one",
             "preview": "hello Bot One",
             "title": "hello Bot One",
-            "updatedAt": 1795172522616,
+            "updatedAt": 1795220504027,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
             "classification": "task",
             "projectPath": null,
-            "activityAt": 1795172522616,
+            "activityAt": 1795220504027,
             "incomingTail": [
               2
             ],
@@ -1830,92 +1830,92 @@
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172522286
+            "createdAt": 1795220503702
           },
           {
-            "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+            "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1795172521682,
+            "updatedAt": 1795220503036,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521682,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220503036,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519570
+            "createdAt": 1795220500381
           },
           {
-            "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+            "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1795172521515,
+            "updatedAt": 1795220502860,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172521515,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502860,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519995
+            "createdAt": 1795220501381
           },
           {
-            "id": "sess_26472_1795172519574_1795172521164_758ccf172a7f4ceca3f06c5a5c8e250f",
+            "id": "sess_25640_1795220500385_1795220502479_bb615a0cd51c4b84a20b2c67e837eee3",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1795172521328,
+            "updatedAt": 1795220502673,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "forkedFromId": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
-            "activityAt": 1795172521164,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "forkedFromId": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
+            "activityAt": 1795220502479,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172521164
+            "createdAt": 1795220502479
           },
           {
-            "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+            "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1795172521141,
+            "updatedAt": 1795220502450,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521141,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220502450,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520829
+            "createdAt": 1795220502122
           },
           {
-            "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+            "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1795172520803,
+            "updatedAt": 1795220502090,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172520803,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502090,
             "compactCount": 0,
             "archived": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520329
+            "createdAt": 1795220501758
           }
         ]
       },
@@ -1927,12 +1927,12 @@
               "id": "sess_home_bot-one",
               "preview": "hello Bot One",
               "title": "",
-              "updatedAt": 1795172522423,
+              "updatedAt": 1795220503840,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1795172522341,
+              "activityAt": 1795220503757,
               "incomingTail": [],
               "compactCount": 0,
               "working": true,
@@ -1942,7 +1942,7 @@
               "lastMessagePreview": "hello Bot One",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172522286
+              "createdAt": 1795220503702
             }
           }
         },
@@ -1953,12 +1953,12 @@
               "id": "sess_home_bot-one",
               "preview": "hello Bot One",
               "title": "hello Bot One",
-              "updatedAt": 1795172522423,
+              "updatedAt": 1795220503840,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1795172522341,
+              "activityAt": 1795220503757,
               "incomingTail": [],
               "compactCount": 0,
               "working": true,
@@ -1968,7 +1968,7 @@
               "lastMessagePreview": "hello Bot One",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172522286
+              "createdAt": 1795220503702
             }
           }
         },
@@ -1979,12 +1979,12 @@
               "id": "sess_home_bot-one",
               "preview": "hello Bot One",
               "title": "hello Bot One",
-              "updatedAt": 1795172522423,
+              "updatedAt": 1795220503840,
               "messageCount": 1,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1795172522341,
+              "activityAt": 1795220503757,
               "incomingTail": [
                 2
               ],
@@ -1996,7 +1996,7 @@
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172522286
+              "createdAt": 1795220503702
             }
           }
         },
@@ -2007,12 +2007,12 @@
               "id": "sess_home_bot-one",
               "preview": "hello Bot One",
               "title": "hello Bot One",
-              "updatedAt": 1795172522423,
+              "updatedAt": 1795220503840,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1795172522341,
+              "activityAt": 1795220503757,
               "incomingTail": [
                 2
               ],
@@ -2022,7 +2022,7 @@
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172522286
+              "createdAt": 1795220503702
             }
           }
         },
@@ -2033,12 +2033,12 @@
               "id": "sess_home_bot-one",
               "preview": "hello Bot One",
               "title": "hello Bot One",
-              "updatedAt": 1795172522568,
+              "updatedAt": 1795220503975,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1795172522341,
+              "activityAt": 1795220503757,
               "incomingTail": [
                 2
               ],
@@ -2048,7 +2048,7 @@
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172522286
+              "createdAt": 1795220503702
             }
           }
         },
@@ -2059,12 +2059,12 @@
               "id": "sess_home_bot-one",
               "preview": "hello Bot One",
               "title": "hello Bot One",
-              "updatedAt": 1795172522616,
+              "updatedAt": 1795220504027,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1795172522616,
+              "activityAt": 1795220504027,
               "incomingTail": [
                 2
               ],
@@ -2074,7 +2074,7 @@
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172522286
+              "createdAt": 1795220503702
             }
           }
         }
@@ -2085,19 +2085,19 @@
       "listed": {
         "data": [
           {
-            "id": "sess_room_mwovdbj4eccb1d56",
+            "id": "sess_room_mwpnxq806a18ed08",
             "preview": "",
             "title": "Room One",
-            "updatedAt": 1795172522791,
+            "updatedAt": 1795220504195,
             "messageCount": 0,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
             "classification": "task",
             "projectPath": null,
-            "activityAt": 1795172522791,
+            "activityAt": 1795220504195,
             "incomingTail": [],
             "compactCount": 0,
             "agentRoom": {
-              "id": "mwovdbj4eccb1d56",
+              "id": "mwpnxq806a18ed08",
               "name": "Room One",
               "members": [
                 "bot-one",
@@ -2113,18 +2113,18 @@
             },
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172522656
+            "createdAt": 1795220504064
           },
           {
             "id": "sess_home_bot-one",
             "preview": "hello Bot One",
             "title": "hello Bot One",
-            "updatedAt": 1795172522616,
+            "updatedAt": 1795220504027,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
             "classification": "task",
             "projectPath": null,
-            "activityAt": 1795172522616,
+            "activityAt": 1795220504027,
             "incomingTail": [
               2
             ],
@@ -2134,92 +2134,92 @@
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172522286
+            "createdAt": 1795220503702
           },
           {
-            "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+            "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1795172521682,
+            "updatedAt": 1795220503036,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521682,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220503036,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519570
+            "createdAt": 1795220500381
           },
           {
-            "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+            "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1795172521515,
+            "updatedAt": 1795220502860,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172521515,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502860,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519995
+            "createdAt": 1795220501381
           },
           {
-            "id": "sess_26472_1795172519574_1795172521164_758ccf172a7f4ceca3f06c5a5c8e250f",
+            "id": "sess_25640_1795220500385_1795220502479_bb615a0cd51c4b84a20b2c67e837eee3",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1795172521328,
+            "updatedAt": 1795220502673,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "forkedFromId": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
-            "activityAt": 1795172521164,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "forkedFromId": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
+            "activityAt": 1795220502479,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172521164
+            "createdAt": 1795220502479
           },
           {
-            "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+            "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1795172521141,
+            "updatedAt": 1795220502450,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521141,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220502450,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520829
+            "createdAt": 1795220502122
           },
           {
-            "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+            "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1795172520803,
+            "updatedAt": 1795220502090,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172520803,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502090,
             "compactCount": 0,
             "archived": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520329
+            "createdAt": 1795220501758
           }
         ]
       },
@@ -2228,19 +2228,19 @@
           "method": "thread/started",
           "params": {
             "thread": {
-              "id": "sess_room_mwovdbj4eccb1d56",
+              "id": "sess_room_mwpnxq806a18ed08",
               "preview": "",
               "title": "Room One",
-              "updatedAt": 1795172522791,
+              "updatedAt": 1795220504195,
               "messageCount": 0,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1795172522791,
+              "activityAt": 1795220504195,
               "incomingTail": [],
               "compactCount": 0,
               "agentRoom": {
-                "id": "mwovdbj4eccb1d56",
+                "id": "mwpnxq806a18ed08",
                 "name": "Room One",
                 "members": [
                   "bot-one",
@@ -2256,7 +2256,7 @@
               },
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172522656
+              "createdAt": 1795220504064
             }
           }
         },
@@ -2264,21 +2264,21 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+              "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
               "preview": "hello sess_3",
               "title": "Title 3",
-              "updatedAt": 1795172520803,
+              "updatedAt": 1795220502090,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
               "classification": "project",
-              "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-              "activityAt": 1795172520803,
+              "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+              "activityAt": 1795220502090,
               "compactCount": 0,
               "archived": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172520329
+              "createdAt": 1795220501758
             }
           }
         }
@@ -2289,19 +2289,19 @@
       "listed": {
         "data": [
           {
-            "id": "sess_room_mwovdbj4eccb1d56",
+            "id": "sess_room_mwpnxq806a18ed08",
             "preview": "",
             "title": "Room One",
-            "updatedAt": 1795172522791,
+            "updatedAt": 1795220504195,
             "messageCount": 0,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
             "classification": "task",
             "projectPath": null,
-            "activityAt": 1795172522791,
+            "activityAt": 1795220504195,
             "incomingTail": [],
             "compactCount": 0,
             "agentRoom": {
-              "id": "mwovdbj4eccb1d56",
+              "id": "mwpnxq806a18ed08",
               "name": "Room One",
               "members": [
                 "bot-two"
@@ -2315,18 +2315,18 @@
             },
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172522656
+            "createdAt": 1795220504064
           },
           {
             "id": "sess_home_bot-one",
             "preview": "hello Bot One",
             "title": "Bot One",
-            "updatedAt": 1795172522616,
+            "updatedAt": 1795220504027,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
             "classification": "task",
             "projectPath": null,
-            "activityAt": 1795172522616,
+            "activityAt": 1795220504027,
             "incomingTail": [
               2
             ],
@@ -2338,92 +2338,92 @@
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172522286
+            "createdAt": 1795220503702
           },
           {
-            "id": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
+            "id": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1795172521682,
+            "updatedAt": 1795220503036,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521682,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220503036,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519570
+            "createdAt": 1795220500381
           },
           {
-            "id": "sess_26472_1795172519571_1795172519995_48372dc772604503898db88974d7fb99",
+            "id": "sess_25640_1795220500382_1795220501381_400b2f3260614038ad2ae2f260f0bb3d",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1795172521515,
+            "updatedAt": 1795220502860,
             "messageCount": 4,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172521515,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502860,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172519995
+            "createdAt": 1795220501381
           },
           {
-            "id": "sess_26472_1795172519574_1795172521164_758ccf172a7f4ceca3f06c5a5c8e250f",
+            "id": "sess_25640_1795220500385_1795220502479_bb615a0cd51c4b84a20b2c67e837eee3",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1795172521328,
+            "updatedAt": 1795220502673,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "forkedFromId": "sess_26472_1795172519570_1795172519570_52b034d183d44b0dbbf27c23ed4eeb84",
-            "activityAt": 1795172521164,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "forkedFromId": "sess_25640_1795220500381_1795220500381_6c6e40cba7ea46d3af7309f9b2a15fb6",
+            "activityAt": 1795220502479,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172521164
+            "createdAt": 1795220502479
           },
           {
-            "id": "sess_26472_1795172519573_1795172520829_aff0976511664451bdaddeaa32367d29",
+            "id": "sess_25640_1795220500384_1795220502122_db65bab7b65f4995bd73f3b8711c60f1",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1795172521141,
+            "updatedAt": 1795220502450,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\b",
-            "activityAt": 1795172521141,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\b",
+            "activityAt": 1795220502450,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520829
+            "createdAt": 1795220502122
           },
           {
-            "id": "sess_26472_1795172519572_1795172520329_367bb8ec4ca549df8900ce4a310e7d90",
+            "id": "sess_25640_1795220500383_1795220501758_a1137480e9d34ee6ac56b91831f109e3",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1795172520803,
+            "updatedAt": 1795220502090,
             "messageCount": 2,
-            "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
+            "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
             "classification": "project",
-            "projectPath": "C:\\mixdog-chat-record\\live-90fdhZ\\ws\\a",
-            "activityAt": 1795172520803,
+            "projectPath": "C:\\mixdog-chat-record\\live-YzuKLJ\\ws\\a",
+            "activityAt": 1795220502090,
             "compactCount": 0,
             "archived": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1795172520329
+            "createdAt": 1795220501758
           }
         ]
       },
@@ -2435,12 +2435,12 @@
               "id": "sess_home_bot-one",
               "preview": "hello Bot One",
               "title": "Bot One",
-              "updatedAt": 1795172522616,
+              "updatedAt": 1795220504027,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1795172522616,
+              "activityAt": 1795220504027,
               "incomingTail": [
                 2
               ],
@@ -2450,7 +2450,7 @@
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172522286
+              "createdAt": 1795220503702
             }
           }
         },
@@ -2461,12 +2461,12 @@
               "id": "sess_home_bot-one",
               "preview": "hello Bot One",
               "title": "Bot One",
-              "updatedAt": 1795172522616,
+              "updatedAt": 1795220504027,
               "messageCount": 2,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1795172522616,
+              "activityAt": 1795220504027,
               "incomingTail": [
                 2
               ],
@@ -2478,7 +2478,7 @@
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172522286
+              "createdAt": 1795220503702
             }
           }
         },
@@ -2486,19 +2486,19 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_room_mwovdbj4eccb1d56",
+              "id": "sess_room_mwpnxq806a18ed08",
               "preview": "",
               "title": "Room One",
-              "updatedAt": 1795172522791,
+              "updatedAt": 1795220504195,
               "messageCount": 0,
-              "cwd": "C:\\mixdog-chat-record\\live-90fdhZ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+              "cwd": "C:\\mixdog-chat-record\\live-YzuKLJ\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1795172522791,
+              "activityAt": 1795220504195,
               "incomingTail": [],
               "compactCount": 0,
               "agentRoom": {
-                "id": "mwovdbj4eccb1d56",
+                "id": "mwpnxq806a18ed08",
                 "name": "Room One",
                 "members": [
                   "bot-two"
@@ -2512,7 +2512,7 @@
               },
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1795172522656
+              "createdAt": 1795220504064
             }
           }
         }

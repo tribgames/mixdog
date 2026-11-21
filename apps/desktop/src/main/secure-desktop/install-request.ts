@@ -361,11 +361,6 @@ export function createSecureDesktopInstaller(
   let inFlightKey: string | null = null;
   /** The launched elevation until it is known to have finished. */
   let outstanding: Promise<number> | null = null;
-  /** The single in-flight explicit key op (install/enroll/revoke). Rate limit:
-   *  at most one admin action runs at a time across all phones, and there is no
-   *  automatic retry — a second concurrent call is answered `in-progress`, not
-   *  queued, so a failure never spins. Repeated password guesses are bounded by
-   *  Windows' own account-lockout policy, not a Mixdog timer. */
   let keyOpInFlight: Promise<SecureDesktopKeyChangeResult> | null = null;
 
   async function runKeyChange(
@@ -399,9 +394,6 @@ export function createSecureDesktopInstaller(
   }
 
   async function run(controllerKey: string): Promise<SecureDesktopInstallResult> {
-    // A launched elevation or an explicit key op has not settled: never launch
-    // another. A determinate installed state answers this request, and only
-    // this one; the latch is released solely when the launched process settles.
     if (outstanding || keyOpInFlight) {
       const state = await port.check(controllerKey);
       if (state === 'installed') return { outcome: 'installed', state };

@@ -19,10 +19,7 @@ import {
   setDesktopTitleBarTheme,
 } from './window-options';
 
-// The capture flow owns window lifetime. Without this listener Electron's
-// default quit-on-last-window-close fires the moment a failing step reaches
-// the finally-block destroy, exiting 0 before the error artifact is written
-// and leaving the outer harness to time out with no diagnostic.
+// Electron's default quit-on-last-window-close would exit 0 at a failing step's destroy, before the error artifact is written.
 app.on('window-all-closed', () => {});
 
 // Electron's default-app launcher removes the application entry from argv on
@@ -242,10 +239,6 @@ async function ensureCaptureTaskWorkspace(window: BrowserWindow): Promise<void> 
 
 type CaptureGeometrySample = Record<string, { left: number; top: number; width: number; height: number } | null>;
 
-/** Startup-geometry stability: sample the chrome rects right after show and
- *  again after the settle window. Any delta is the "tab pops once at launch"
- *  class of first-paint jolt (env(titlebar-area) resolution, font swap, async
- *  layout) — captured as numbers so it can be pinned down. */
 async function readCaptureStartupGeometry(window: BrowserWindow): Promise<{
   early: CaptureGeometrySample;
   settled: CaptureGeometrySample;
@@ -295,13 +288,15 @@ async function readCaptureStartupGeometry(window: BrowserWindow): Promise<{
   };
 }
 
-/** Panels default MINIMIZED; the capture contract measures the EXPANDED rail,
- *  so open the session sidebar before any geometry pass. */
-async function expandCaptureSessionSidebar(window: BrowserWindow): Promise<void> {
+async function clickCaptureSessionsToggle(window: BrowserWindow): Promise<void> {
   await window.webContents.executeJavaScript(`(() => {
       document.querySelector(${JSON.stringify(COLLAPSED_SESSIONS_TOGGLE)})?.click();
       return true;
     })()`);
+}
+
+async function expandCaptureSessionSidebar(window: BrowserWindow): Promise<void> {
+  await clickCaptureSessionsToggle(window);
   await waitForRenderer(window, "!document.querySelector('.app-shell.sidebar-collapsed')", 'expanded session sidebar');
 }
 
@@ -318,10 +313,7 @@ async function runCaptureMobilePass(window: BrowserWindow): Promise<{
   window.setMinimumSize(320, 600);
   window.setSize(720, 650);
   await new Promise((resolve) => setTimeout(resolve, 250));
-  await window.webContents.executeJavaScript(`(() => {
-      document.querySelector(${JSON.stringify(COLLAPSED_SESSIONS_TOGGLE)})?.click();
-      return true;
-    })()`);
+  await clickCaptureSessionsToggle(window);
   await new Promise((resolve) => setTimeout(resolve, 250));
   const mobileViewport = (await window.webContents.executeJavaScript(
     '({ width: innerWidth, height: innerHeight })'
@@ -399,12 +391,8 @@ async function openCaptureSettings(window: BrowserWindow): Promise<void> {
   );
 }
 
-// The theme trigger can be transiently disabled (engine/settings busy) and
-// a click during that window is silently dropped — retry open+check as one
-// unit instead of a single click followed by a bare wait.
-// Hydration (settings capability preload) can take 20s+ while the
-// isolated engine cold-boots; the Theme trigger stays disabled until it
-// settles. Keep retrying well past that window.
+// A click on the disabled Theme trigger is dropped, and it stays disabled until settings hydration finishes (20 s+ on
+// a cold-booting core): retry open+check as one unit for 30 s.
 async function openThemeMenuUntilOption(window: BrowserWindow, optionText: string): Promise<void> {
   const deadline = Date.now() + 30_000;
   for (;;) {
@@ -426,6 +414,18 @@ async function openThemeMenuUntilOption(window: BrowserWindow, optionText: strin
   }
 }
 
+async function selectCaptureTheme(window: BrowserWindow, optionText: string): Promise<void> {
+  await openThemeMenuUntilOption(window, optionText);
+  const selected = await window.webContents.executeJavaScript(`(() => {
+      const option = Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'))
+        .find((entry) => (entry.textContent || '').trim() === ${JSON.stringify(optionText)});
+      if (!(option instanceof HTMLButtonElement)) return false;
+      option.click();
+      return true;
+    })()`);
+  if (!selected) throw new Error(`${optionText} theme option is missing.`);
+}
+
 /** Light-theme pass: switch through the real Theme menu, assert the light
  *  tokens, keep the full light frame as a standing artifact, and restore the
  *  dark shell the main capture is taken in. */
@@ -434,15 +434,7 @@ async function runCaptureLightThemePass(window: BrowserWindow): Promise<{
   lightShellTopEdge: ReturnType<typeof measureShellTopEdge>;
   lightPng: Buffer;
 }> {
-  await openThemeMenuUntilOption(window, 'White');
-  const selectedWhite = await window.webContents.executeJavaScript(`(() => {
-      const option = Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'))
-        .find((entry) => (entry.textContent || '').trim() === 'White');
-      if (!(option instanceof HTMLButtonElement)) return false;
-      option.click();
-      return true;
-    })()`);
-  if (!selectedWhite) throw new Error('White theme option is missing.');
+  await selectCaptureTheme(window, 'White');
   await waitForRenderer(window, `document.documentElement.dataset.mixdogTheme === 'light'`, 'Light theme');
   await waitForRenderer(
     window,
@@ -467,10 +459,7 @@ async function runCaptureLightThemePass(window: BrowserWindow): Promise<{
   await new Promise((resolve) => setTimeout(resolve, 100));
   // The earlier mobile pass may have auto-collapsed the sidebar (<=760px
   // navigation close). Reopen it so the light frame shows the full rail.
-  await window.webContents.executeJavaScript(`(() => {
-      document.querySelector(${JSON.stringify(COLLAPSED_SESSIONS_TOGGLE)})?.click();
-      return true;
-    })()`);
+  await clickCaptureSessionsToggle(window);
   await new Promise((resolve) => setTimeout(resolve, 150));
   // Keep the full light-theme frame as a standing artifact so the dark and light
   // themes can be compared visually, not just via token assertions.
@@ -480,15 +469,7 @@ async function runCaptureLightThemePass(window: BrowserWindow): Promise<{
   await window.webContents.executeJavaScript(
     "document.querySelector('.mixdog-settings-layer')?.style.removeProperty('display')"
   );
-  await openThemeMenuUntilOption(window, 'Dark');
-  const restoredBasic = await window.webContents.executeJavaScript(`(() => {
-      const option = Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'))
-        .find((entry) => (entry.textContent || '').trim() === 'Dark');
-      if (!(option instanceof HTMLButtonElement)) return false;
-      option.click();
-      return true;
-    })()`);
-  if (!restoredBasic) throw new Error('Dark theme option is missing.');
+  await selectCaptureTheme(window, 'Dark');
   await waitForRenderer(window, `document.documentElement.dataset.mixdogTheme === 'basic'`, 'restored Basic theme');
   return { lightTheme, lightShellTopEdge, lightPng };
 }
@@ -598,9 +579,7 @@ async function runCaptureDesktopPass(window: BrowserWindow): Promise<{
   await new Promise((resolve) => setTimeout(resolve, 150));
   window.setMinimumSize(DESKTOP_WINDOW_OPTIONS.minWidth, DESKTOP_WINDOW_OPTIONS.minHeight);
   window.setSize(targetSize.width, targetSize.height);
-  await window.webContents.executeJavaScript(
-    `document.querySelector(${JSON.stringify(COLLAPSED_SESSIONS_TOGGLE)})?.click()`
-  );
+  await clickCaptureSessionsToggle(window);
   await new Promise((resolve) => setTimeout(resolve, 500));
   const finalBounds = window.getBounds();
   const liveDesktop = await readDesktopAssertions(window);
@@ -625,10 +604,6 @@ async function runCaptureDesktopPass(window: BrowserWindow): Promise<{
   return { finalBounds, liveDesktop };
 }
 
-/** Dictation smoke (post-PNG so the evidence stays clean): drives the FULL
- *  composer chain on an installed voice runtime (the install consent lives in
- *  Extensions) — fake mic → MediaRecorder → base64 → IPC → stubbed
- *  transcription → draft append. */
 async function runCaptureDictationSmoke(window: BrowserWindow): Promise<{
   transcriptApplied: boolean;
   micIdle: boolean;
@@ -673,13 +648,8 @@ async function runCaptureDictationSmoke(window: BrowserWindow): Promise<{
   };
 }
 
-/** Tool-presentation E2E: a real turn on the capture core. The scripted model endpoint answers the submitted prompt
- *  with calls (two commands, one passing and one failing, and an edit with a diff), prose, and a command that is still
- *  running, so the REAL transcript renderer (tool activity groups, running status, diff review bar) is exercised and
- *  captured. The prompt goes through the real composer. The artifacts ship next to the main PNG for visual review;
- *  counts are asserted by capture-ui. NOTE: the diff body must not contain an `import ... from "..."` line —
- *  electron-vite's CJS shim pass lexes the bundled chunk for import statements and splices the chunk mid-string,
- *  corrupting the build. */
+/** The diff body must not contain an `import ... from "..."` line: electron-vite's CJS shim pass lexes the bundled
+ *  chunk for import statements and splices it mid-string, corrupting the build. */
 async function runCaptureToolShowcase(window: BrowserWindow, core: CaptureCore) {
   core.queueShowcase();
   await submitShowcaseTask(window);
@@ -722,10 +692,6 @@ async function submitShowcaseTask(window: BrowserWindow): Promise<void> {
 async function readToolShowcase(window: BrowserWindow) {
   return (await withCaptureTimeout(
     window.webContents.executeJavaScript(`(async () => {
-      // Desktop transcripts fold the tool calls on each side of prose into one
-      // activity group (transcript-tool-ui.tsx): collapsed by default, titled
-      // by a category summary, a Running status while a call is pending, and
-      // no body until opened.
       const started = Date.now();
       while (Date.now() - started < 60000) {
         if (document.querySelectorAll('.tool-activity').length >= 2 && document.querySelector('.turn-review-bar')) break;
@@ -812,10 +778,6 @@ async function restoreShowcase(window: BrowserWindow): Promise<void> {
   );
 }
 
-/** Sidebar geometry in the artifact is reported from the live DOM rects the
- *  renderer measured, and the sampled colors come from the captured image.
- *  There is no second, pixel-scanned measurement to cross-check it against:
- *  that scan belonged to the removed desktopCapturer path. */
 function measureSidebar(
   liveDesktop: Awaited<ReturnType<typeof runCaptureDesktopPass>>['liveDesktop'],
   pixel: ReturnType<typeof imageReader>

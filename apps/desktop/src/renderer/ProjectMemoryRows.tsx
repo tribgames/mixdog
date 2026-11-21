@@ -21,6 +21,22 @@ function writeMemory(
   });
 }
 
+type MemoryWriteIo = {
+  onMemoryControl: MemoryControl;
+  refreshMemories(afterWrite?: boolean): Promise<void>;
+  setEditError(value: string): void;
+  setMemoryBusy(value: boolean): void;
+};
+
+function submitMemoryWrite(io: MemoryWriteIo, input: Record<string, unknown>, onWritten?: () => void): void {
+  io.setMemoryBusy(true);
+  io.setEditError('');
+  void writeMemory(io.onMemoryControl, input, () => io.refreshMemories(true))
+    .then(onWritten)
+    .catch((reason) => io.setEditError(errorMessage(reason)))
+    .finally(() => io.setMemoryBusy(false));
+}
+
 /** Scope picker shared by the add row and every saved row: Common plus one
  *  option per project. */
 function memoryScopeSelect({
@@ -112,10 +128,8 @@ export function memoryAddRow({
             disabled={memoryBusy || !target || !addMemoryDraft.trim()}
             onClick={() => {
               if (!target) return;
-              setMemoryBusy(true);
-              setEditError('');
-              void writeMemory(
-                onMemoryControl,
+              submitMemoryWrite(
+                { onMemoryControl, refreshMemories, setEditError, setMemoryBusy },
                 {
                   action: 'core',
                   op: 'add',
@@ -124,14 +138,11 @@ export function memoryAddRow({
                   project_id: target.projectId ?? 'common',
                   ...(addMemoryScope ? { destination_cwd: addMemoryScope } : {}),
                 },
-                () => refreshMemories(true)
-              )
-                .then(() => {
+                () => {
                   setAddingMemory(false);
                   setAddMemoryDraft('');
-                })
-                .catch((reason) => setEditError(errorMessage(reason)))
-                .finally(() => setMemoryBusy(false));
+                }
+              );
             }}
           >
             {t('Add')}
@@ -228,11 +239,9 @@ export function memoryEditRow({
           }
           onClick={() => {
             if (!target) return;
-            setMemoryBusy(true);
-            setEditError('');
             const summary = draft.trim();
-            void writeMemory(
-              onMemoryControl,
+            submitMemoryWrite(
+              { onMemoryControl, refreshMemories, setEditError, setMemoryBusy },
               {
                 action: 'core',
                 op: 'edit',
@@ -244,11 +253,8 @@ export function memoryEditRow({
                 project_id: source,
                 target_project_id: target.projectId ?? 'common',
                 ...(moveTarget ? { destination_cwd: moveTarget } : {}),
-              },
-              () => refreshMemories(true)
-            )
-              .catch((reason) => setEditError(errorMessage(reason)))
-              .finally(() => setMemoryBusy(false));
+              }
+            );
           }}
         >
           {t('Save')}
@@ -262,10 +268,8 @@ export function memoryEditRow({
               setConfirmDeleteMemory(entry.id);
               return;
             }
-            setMemoryBusy(true);
-            setEditError('');
-            void writeMemory(
-              onMemoryControl,
+            submitMemoryWrite(
+              { onMemoryControl, refreshMemories, setEditError, setMemoryBusy },
               {
                 action: 'core',
                 op: 'delete',
@@ -273,11 +277,8 @@ export function memoryEditRow({
                 index_revision: entry.indexRevision,
                 project_id: source,
               },
-              () => refreshMemories(true)
-            )
-              .then(() => setConfirmDeleteMemory(null))
-              .catch((reason) => setEditError(errorMessage(reason)))
-              .finally(() => setMemoryBusy(false));
+              () => setConfirmDeleteMemory(null)
+            );
           }}
         >
           {confirmDeleteMemory === entry.id ? t('Confirm delete') : t('Delete')}

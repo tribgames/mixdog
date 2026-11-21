@@ -1,11 +1,5 @@
-/** Electron shell for the Source Control overlay geometry probe.
- *  Usage: npx electron scripts/scm-geometry-probe/main.cjs [--cases=300x687,290x420,290x420:many,290x687:rows]
- *  Prints one JSON report per dock width / window height on stdout.
- *  A case is `<dock width>x<window content height>[:many|:rows]`; the height
- *  resizes the REAL BrowserWindow (a short window, not a short div inside a
- *  tall one), `:many` swaps the branch fixture for one that overflows the list
- *  and `:rows` swaps the changed-file / history fixtures for 2000 files and a
- *  paged 120-commit history — the windowed lists' scenario. */
+// Usage: npx electron scripts/scm-geometry-probe/main.cjs [--cases=300x687,290x420,290x420:many,290x687:rows]
+// A case is `<dock width>x<window content height>[:many|:rows]`.
 const path = require('node:path');
 const fs = require('node:fs');
 const { app, BrowserWindow } = require('electron');

@@ -1,7 +1,3 @@
-/**
- * What changed since the last capture of the same window with the same read
- * parameters: the per-session baseline and the change summary against it.
- */
 import { captureIdentityMap, summarizeCaptureChanges } from './analysis';
 import type { ComputerCommand, ComputerElementRecord } from '../shared/types';
 import type { CaptureMode } from './capture-target';

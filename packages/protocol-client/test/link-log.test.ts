@@ -13,7 +13,7 @@ test('a sink that throws, rejects or is slow cannot throw into, delay or reorder
   });
   log('link-open', {});
   order.push('caller');
-  assert.deepEqual(order, ['caller'], 'the caller\'s work comes first');
+  assert.deepEqual(order, ['caller'], "the caller's work comes first");
   await flush();
   assert.deepEqual(order, ['caller', 'sink']);
   contained(() => Promise.reject(new Error('rejected')))();

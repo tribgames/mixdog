@@ -1,9 +1,3 @@
-// The opt-in renderer performance probe: while `<data dir>/renderer-profile.on`
-// exists (created by hand, like the daemon's lag-profile.on), the renderer
-// reports long frames and a periodic summary that main appends to
-// `<data dir>/renderer-perf.jsonl`. Timings, counts, channel names and code
-// locations only; main strips directories from every location it writes.
-
 export const RENDERER_PROBE_FLAG_FILE = 'renderer-profile.on';
 export const RENDERER_PROBE_LOG_FILE = 'renderer-perf.jsonl';
 

@@ -1,8 +1,3 @@
-/**
- * The browser host's public methods, grouped by what they serve: the local
- * pane's display, paired clients' remote control, and the host's session and
- * bridge lifecycle.
- */
 import { randomUUID } from 'node:crypto';
 
 import { DESKTOP_IPC, MAIN_BROWSER_PAGE_PREFIX } from '../../shared/contract';

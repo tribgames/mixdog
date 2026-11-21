@@ -1,8 +1,3 @@
-// A split visualize tab (2-3 panes side by side) can show one pane alone at
-// full size: a click on a pane (or its hover name chip) picks it, the zoom
-// pill's ‹ / › and the ←/→ keys step through the panes, and Esc or the pill's
-// split button returns to the split. Remembered per tab for this renderer
-// only (never persisted): another tab, or a reload, starts in the split.
 import { useSyncExternalStore } from 'react';
 
 const shown = new Map<string, number>();
