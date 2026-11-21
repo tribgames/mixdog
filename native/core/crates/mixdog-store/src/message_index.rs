@@ -317,8 +317,9 @@ fn hand_back(tx: &Transaction<'_>, session: &str, at: i64, (ordinal, idx): (i64,
 pub(crate) fn open_view(tx: &Transaction<'_>, session: &str, valid_from: i64, base: &str, position: i64, cut: i64) -> rusqlite::Result<()> {
     let projected: Option<i64> = tx.prepare_cached("SELECT projected_ordinal FROM sessions WHERE id = ?1")?.query_row([base], |r| r.get(0)).optional()?;
     // Ready now only when the base's projection ends exactly at the fork point (its state
-    // is then the snapshot); a base behind it must project first, a base ahead is scanned.
-    let now = cut == position && projected == Some(position) && !any_pending_view(tx, base)?;
+    // is then the snapshot); a base behind it must project first, a base ahead is scanned. A base whose rows lie past
+    // its cursor (a projection of it was missed) has no state at the cursor to take: its forks wait for its rebuild.
+    let now = cut == position && projected == Some(position) && !any_pending_view(tx, base)? && crate::sqlite::contiguous(tx, base)?;
     let (state, count, real, preview, line, routine, incoming) = if now {
         // The tail is kept for every fork: a fork of this fork may want it.
         let s = read_stats(tx, base, true)?;
@@ -377,6 +378,32 @@ pub(crate) fn view_step(tx: &Transaction<'_>, rows: usize) -> rusqlite::Result<S
     Ok(if done { Step::Done(job.session) } else { Step::Progress })
 }
 
+/// Whether the maintenance steps reach the pending view of `session`: one they can advance now ([`runnable_view`]'s
+/// conditions), or one whose base waits for a view of its own that they reach. When not, it waits on a base that is behind
+/// the fork point or holed, for as long as that base stays so.
+pub(crate) fn view_runnable(tx: &Transaction<'_>, session: &str) -> rusqlite::Result<bool> {
+    let mut session = session.to_owned();
+    // A lineage is far shallower; the bound only ends a walk over rows that name each other.
+    for _ in 0..1024 {
+        let base: Option<(String, bool)> = tx
+            .prepare_cached(
+                "SELECT v.base, EXISTS (SELECT 1 FROM message_views w WHERE w.session = v.base AND w.state = 'pending')
+                 FROM message_views v JOIN sessions b ON b.id = v.base
+                 WHERE v.session = ?1 AND v.state = 'pending' AND b.projected_ordinal >= v.position
+                   AND NOT EXISTS (SELECT 1 FROM meta m WHERE m.key = 'hole:' || v.base)
+                 LIMIT 1",
+            )?
+            .query_row([&session], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?;
+        match base {
+            None => return Ok(false),
+            Some((_, false)) => return Ok(true),
+            Some((base, true)) => session = base,
+        }
+    }
+    Ok(false)
+}
+
 fn runnable_view(tx: &Transaction<'_>) -> rusqlite::Result<Option<ViewJob>> {
     tx.prepare_cached(
         "SELECT v.session, v.valid_from, v.hop_session, v.hop_time, v.hop_cut, v.scanning, v.cur_ordinal,
@@ -384,6 +411,7 @@ fn runnable_view(tx: &Transaction<'_>) -> rusqlite::Result<Option<ViewJob>> {
          FROM message_views v JOIN sessions b ON b.id = v.base
          WHERE v.state = 'pending' AND b.projected_ordinal >= v.position
            AND NOT EXISTS (SELECT 1 FROM message_views w WHERE w.session = v.base AND w.state = 'pending')
+           AND NOT EXISTS (SELECT 1 FROM meta m WHERE m.key = 'hole:' || v.base)
          ORDER BY v.session, v.valid_from LIMIT 1",
     )?
     .query_row([], |r| {

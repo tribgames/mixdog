@@ -128,6 +128,8 @@ impl SqliteStore {
     /// Every session the idle sweep visits (agent-only ones too): the one listing, then one
     /// `stat` of each session's newest log file under `sessions` (`<data>/sessions`).
     pub async fn sweep_sessions(&self, sessions: PathBuf) -> Result<Vec<SweepSession>, DbError> {
+        // The sweep removes sessions by what their rows say: none is read while a repair owed at open is pending.
+        self.reconciled().await?;
         self.shared
             .gate
             .read_in_lane(move |lane, c| {

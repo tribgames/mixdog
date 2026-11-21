@@ -108,6 +108,15 @@ pub trait SessionLog: Send + 'static {
     /// The rewrite a mark owes what the log stored before it (`redactSessionFiles`), with no batch to commit: what
     /// [`Self::commit`] runs before it appends. Nothing for a log that redacts nothing.
     fn redact(&mut self, _lane: &InLane<DurabilityIo>) {}
+
+    /// The writer's clean end, once nothing more is appended ([`super::durability::Retirer`]): the log is closed (a final
+    /// checkpoint when one is due, else no frame), and the returned wait resolves `Ok` once the catalog holds the log
+    /// through its end with the session's row no longer marked for a writer, committed together. An `Err` names why the
+    /// mark stays (a fenced or indeterminate writer, a projection the catalog never took): the next start then reads the
+    /// session's log again. A log with no catalog mark has nothing to settle.
+    fn retire(self: Box<Self>, _lane: &InLane<DurabilityIo>) -> futures::future::BoxFuture<'static, Result<(), String>> {
+        Box::pin(std::future::ready(Ok(())))
+    }
 }
 
 /// Store-private result of open job J1 (catalog row, reverse scan, tail bytes).

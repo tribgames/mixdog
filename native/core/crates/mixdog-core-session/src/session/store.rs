@@ -46,6 +46,7 @@ use mixdog_store::sqlite::DbError;
 use mixdog_store::sqlite::DirtyMark;
 use mixdog_store::sqlite::HistoryRow;
 use mixdog_store::sqlite::LineageLevel;
+use mixdog_store::sqlite::Retirement;
 use mixdog_store::sqlite::SqliteStore;
 use mixdog_store::summary::CatalogHead;
 use serde::de::DeserializeOwned;
@@ -91,8 +92,15 @@ fn internal(step: &str, error: &dyn std::fmt::Display) -> CoreError {
     CoreError::Internal { incident_id: format!("session-store-{step}: {error}").into() }
 }
 
+/// How the forwarding task queues a retirement at the index: the wait for its answer once it is queued.
+type QueueRetirement = Box<
+    dyn FnMut(Projection, Retirement) -> futures::future::BoxFuture<'static, Result<futures::future::BoxFuture<'static, Result<(), String>>, String>> + Send,
+>;
+
 enum Projecting {
     Frames(u64, Box<Projection>),
+    /// The last projection of a log's writer, closed cleanly ([`StoreLog::retire`]): answered with the index's.
+    Retire(Box<Projection>, Retirement, tokio::sync::oneshot::Sender<Result<(), String>>),
     /// Answered once every projection sent before it is committed.
     Flush(tokio::sync::oneshot::Sender<()>),
     /// Answers `reached` once every projection sent before it is committed, then takes nothing more until `release`
@@ -705,6 +713,25 @@ mod projector_tests {
         projector.indexed("sess_bad").await.expect("the index holds the session again");
     }
 
+    /// A retirement the index keeps unanswered (its row waits) holds no other session's answer behind it: a projection sent
+    /// after it is answered, and a list has nothing left to wait for.
+    #[tokio::test]
+    async fn a_retirement_left_unanswered_holds_no_other_sessions_answer() {
+        let unanswered: QueueRetirement = Box::new(|_, _| {
+            Box::pin(async {
+                let never: futures::future::BoxFuture<'static, Result<(), String>> = Box::pin(std::future::pending());
+                Ok(never)
+            })
+        });
+        let projector = Projector::spawn_both(unanswered, |_: Projection| std::future::ready(Ok::<_, String>(std::future::ready(Ok::<(), String>(())))));
+        let retirement = Retirement { log_id: "L".into(), end: FramePos { ordinal: 1, file_no: 0, offset: 1 }, activation: 1 };
+        let mut retired = projector.retire(empty_projection("sess_fork"), retirement);
+        projector.send(empty_projection("sess_other"));
+        projector.indexed("sess_other").await.expect("answered behind the unanswered retirement");
+        assert!(projector.settle().is_none(), "a list waits behind the unanswered retirement");
+        assert!(retired.try_recv().is_err(), "the retirement was answered");
+    }
+
     /// What a list asks of the projector: pending from the moment a projection is queued until the index holds it, and nothing
     /// to wait for (no future at all) when idle.
     #[tokio::test]
@@ -928,7 +955,16 @@ impl Projector {
         // A failed projection leaves the session dirty; reconcile re-projects it from its log at the next start. The open's own
         // reconcile needs no wait here: every way into the index waits for it and answers its failure (`SqliteStore`'s gate).
         let refuse_next = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let mut projector = Self::spawn_with({
+        let retiring = index.clone();
+        let retire: QueueRetirement = Box::new(move |projection, retirement| {
+            let index = retiring.clone();
+            Box::pin(async move {
+                let committed = index.queue_retirement(projection, retirement).await.map_err(|error| error.to_string())?;
+                let committed: futures::future::BoxFuture<'static, Result<(), String>> = Box::pin(async move { committed.await.map_err(|error| error.to_string()) });
+                Ok(committed)
+            })
+        });
+        let mut projector = Self::spawn_both(retire, {
             let refuse_next = refuse_next.clone();
             move |projection| {
                 let index = index.clone();
@@ -948,7 +984,18 @@ impl Projector {
         projector
     }
 
-    fn spawn_with<P, Q, C>(mut project: P) -> Self
+    /// A projector over `project` alone: it has no index to retire a writer at, and refuses one.
+    #[cfg(test)]
+    fn spawn_with<P, Q, C>(project: P) -> Self
+    where
+        P: FnMut(Projection) -> Q + Send + 'static,
+        Q: std::future::Future<Output = Result<C, String>> + Send,
+        C: std::future::Future<Output = Result<(), String>> + Send + 'static,
+    {
+        Self::spawn_both(Box::new(|_, _| Box::pin(std::future::ready(Err("this projector has no index".to_owned())))), project)
+    }
+
+    fn spawn_both<P, Q, C>(mut retire: QueueRetirement, mut project: P) -> Self
     where
         P: FnMut(Projection) -> Q + Send + 'static,
         Q: std::future::Future<Output = Result<C, String>> + Send,
@@ -1025,6 +1072,15 @@ impl Projector {
                                 Err(error) => Box::pin(std::future::ready(Settled::Projected(number, session, Err(error)))),
                             });
                         }
+                        Some(Projecting::Retire(projection, retirement, done)) => {
+                            // Queued at the index here, in the order of the session's projections; its answer is awaited
+                            // apart from the ordered answers, so a retirement that waits (for its fork view) holds no other
+                            // session's projection, flush or retirement behind it.
+                            match retire(*projection, retirement).await {
+                                Ok(commit) => drop(tokio::spawn(async move { drop(done.send(commit.await)) })),
+                                Err(error) => drop(done.send(Err(error))),
+                            }
+                        }
                         Some(Projecting::Flush(done)) => committing.push_back(Box::pin(std::future::ready(Settled::Flushed(done)))),
                         Some(Projecting::Hold { reached, release }) => {
                             while let Some(settled) = committing.next().await {
@@ -1068,6 +1124,15 @@ impl Projector {
 
     fn send(&self, projection: Projection) {
         self.send_marking(projection, false);
+    }
+
+    /// The last projection of a log's writer, in the order of the projections sent: the wait for the index's answer, `Ok`
+    /// once the session's row is committed clean ([`SqliteStore::queue_retirement`]).
+    fn retire(&self, projection: Projection, retirement: Retirement) -> tokio::sync::oneshot::Receiver<Result<(), String>> {
+        let (done, settled) = tokio::sync::oneshot::channel();
+        // Not counted among the projections a read waits for: it changes no row a read is owed, only the mark.
+        let _ = self.queue.send(Projecting::Retire(Box::new(projection), retirement, done));
+        settled
     }
 
     /// [`send`](Self::send); `marks`: the projection carries a favorite or archive mark write, which a failed projection leaves
@@ -1167,6 +1232,8 @@ struct StoreLog {
     retention: Arc<std::sync::atomic::AtomicU64>,
     /// The thread this log is of.
     thread: String,
+    /// The activation this writer marked its session with: its retirement clears that mark and no other.
+    activation: u64,
     /// The store's kept context lengths: this log's batches run inside them.
     context_lens: Arc<super::context_lens::ContextLens>,
 }
@@ -1330,6 +1397,33 @@ impl SessionLog for StoreLog {
 
     fn redact(&mut self, lane: &InLane<DurabilityIo>) {
         self.redact_written(lane);
+    }
+
+    fn retire(mut self: Box<Self>, lane: &InLane<DurabilityIo>) -> futures::future::BoxFuture<'static, Result<(), String>> {
+        let kept = |why: String| -> futures::future::BoxFuture<'static, Result<(), String>> { Box::pin(std::future::ready(Err(why))) };
+        // A rewrite that stopped half-way is the next start's to settle.
+        if self.redaction.as_ref().is_some_and(|redaction| redaction.unfinished) {
+            return kept("the log's sensitive rewrite is unfinished".to_owned());
+        }
+        let Some(mut writer) = self.writer.take() else {
+            return kept("the log's writer was lost".to_owned());
+        };
+        let closed = match writer.close(lane) {
+            Ok(closed) => closed,
+            Err(error) => return kept(format!("the log did not close: {error}")),
+        };
+        let Some(end) = writer.end() else {
+            return kept(format!("the log's writer is not clean: {:?}", writer.state()));
+        };
+        let retirement = Retirement { log_id: writer.fold().log_id.clone(), end, activation: self.activation };
+        // The close's checkpoint when it appended one, else no frame: the final head either way.
+        let projection = match closed {
+            Some(ack) => ack.projection,
+            None => Projection { session: writer.fold().session.clone(), frames: Vec::new(), head: Arc::new(CatalogHead::of(writer.fold())) },
+        };
+        drop(writer);
+        let settled = self.projector.retire(projection, retirement);
+        Box::pin(async move { settled.await.unwrap_or_else(|_| Err("the index projector stopped before the retirement was answered".to_owned())) })
     }
 }
 /// [`ThreadStore`] over `<data>/sessions/<id>`, the blob store and the index.
@@ -1596,6 +1690,7 @@ impl StoreThreads {
         let (Some(marks), Some(journal)) = (self.sensitive.get(), self.journal.get()) else {
             // No marks bound, so none is owed and the log reads refuse nothing: the catalog agrees.
             self.index.withhold(Vec::new()).await.map_err(|e| internal("sensitive-marks-withhold", &e))?;
+            self.report_repairs();
             return Ok(owed);
         };
         use mixdog_core_base::support::on_lane_wait as wait;
@@ -1616,10 +1711,39 @@ impl StoreThreads {
         }
         self.owed.begin(owed.owed.keys().cloned());
         self.index.withhold(owed.owed.keys().cloned().collect()).await.map_err(|e| internal("sensitive-marks-withhold", &e))?;
+        self.report_repairs();
         if let Some(progress) = progress {
             progress.extend(owed.owed.len());
         }
         Ok(owed)
+    }
+
+    /// The index repairs this start owes run behind the serving core from the withheld set's commit on: what they were
+    /// and how they ended is logged, each failure with its session and reason.
+    fn report_repairs(&self) {
+        let owed = self.index.repairs().owed;
+        if owed == 0 {
+            return;
+        }
+        tracing::info!(owed, "index repairs owed at open: started behind the withheld set");
+        let index = self.index.clone();
+        drop(mixdog_rt::spawn("index-repairs-report", mixdog_rt::TaskClass::Work, async move {
+            let ended = index.reconciled().await;
+            let report = index.repairs();
+            for (session, why) in &report.failed {
+                tracing::warn!(thread = %session, "the session's index rows were not repaired; it is unavailable until the next start: {why}");
+            }
+            tracing::info!(
+                owed = report.owed,
+                repaired = report.repaired,
+                left_to_rewrite = report.left.len(),
+                failed = report.failed.len(),
+                pending = report.pending,
+                since_open_ms = report.elapsed.map(|elapsed| elapsed.as_millis() as u64),
+                stopped = matches!(ended, Err(mixdog_store::sqlite::DbError::Stopped)),
+                "index repairs owed at open: ended"
+            );
+        }));
     }
 
     /// One owed session's log rewritten for every value its marks hold, and its rows rebuilt from the rewritten log; again
@@ -1698,7 +1822,7 @@ impl StoreThreads {
         Ok(())
     }
 
-    fn store_log(&self, id: &ThreadId, writer: LogWriter) -> Box<dyn SessionLog> {
+    fn store_log(&self, id: &ThreadId, writer: LogWriter, activation: u64) -> Box<dyn SessionLog> {
         let redaction = self.sensitive.get().map(|marks| Redaction {
             marks: marks.clone(),
             thread: id.clone(),
@@ -1718,6 +1842,7 @@ impl StoreThreads {
             redaction,
             retention: self.retention.clone(),
             thread: id.as_str().to_owned(),
+            activation,
             context_lens: self.context_lens.clone(),
         })
     }
@@ -2783,13 +2908,15 @@ impl ThreadStore for StoreThreads {
             return Err(BarrierError::failed("sensitiveRewriteOwed"));
         }
         let opened = *at.0.downcast::<log::OpenedLog>().expect("StoreThreads position");
-        self.wait(lane, self.index.mark_dirty(id.as_str())).map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
+        // Admission: no writer is opened over a row the mark did not reach.
+        let activation = mixdog_store::sqlite::new_activation();
+        self.wait(lane, self.index.mark_dirty(id.as_str(), &opened.fold.log_id, activation)).map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
         let writer = LogWriter::open(lane, opened, self.writer.clone()).map_err(|e| match e {
             // A fold that lost state with its blobs (mixdog-store FORMAT.md §4.5): read-only as a damaged log is.
             OpenAppendError::StoreDamaged(_) | OpenAppendError::BodiesLost(_) => BarrierError::failed("storeDamaged"),
             OpenAppendError::Io(e) => BarrierError::Failed { io_kind: e.op.to_string().into(), cause: e.source.to_string().into() },
         })?;
-        Ok(self.store_log(id, writer))
+        Ok(self.store_log(id, writer, activation))
     }
 
     /// RL §9.2 rule 4: the catalog row (dirty) is committed before `log.000000` is published.
@@ -2812,12 +2939,15 @@ impl ThreadStore for StoreThreads {
         let start = record.base.as_ref().map_or(0, |b| b.end_ordinal_exclusive);
         let fold = Fold::from_session(record, header, FramePos { ordinal: start, file_no: 0, offset: 0 });
         self.wait(lane, self.index.upsert(CatalogHead::of(&fold), DirtyMark::Set)).map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
+        // The row's mark is this activation's before the log exists: its retirement clears that mark and no other.
+        let activation = mixdog_store::sqlite::new_activation();
+        self.wait(lane, self.index.mark_dirty(id.as_str(), &fold.log_id, activation)).map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
         let entered = self.context_lens.batch(id.as_str());
         let (writer, ack) = LogWriter::create(lane, &self.dir(id.as_str()), session.encoded.0.clone(), self.writer.clone()).map_err(barrier)?;
         let ordinal = ack.positions[0].ordinal;
         let growth = super::context_lens::Growth::of(&ack.projection);
         entered.stored(growth, || self.projector.send(ack.projection));
-        Ok((self.store_log(id, writer), ordinal))
+        Ok((self.store_log(id, writer, activation), ordinal))
     }
 
     fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError> {

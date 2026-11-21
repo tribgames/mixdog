@@ -341,6 +341,27 @@ pub(crate) struct SlotLease {
     directory: std::sync::Weak<DirInner>,
     id: ThreadId,
     cell: Arc<ControlCell>,
+    /// Dropped with the lease, after the slot is released: the actor has ended ([`Journal::actor_ended`]).
+    _ended: oneshot::Sender<()>,
+}
+/// The journal writer of one loaded runtime, kept by the directory until the runtime leaves it. An unload or the shutdown
+/// takes it and retires the writer, with the thread's id still held; an actor that ended any other way drops it, and the
+/// writer is not retired (the session stays marked for the next start).
+struct Journal {
+    /// The runtime's cell: its identity.
+    cell: Arc<ControlCell>,
+    retirer: super::durability::Retirer,
+    /// Errs once the actor has ended and dropped its channel to the journal: nothing more is appended.
+    actor_ended: oneshot::Receiver<()>,
+}
+impl Journal {
+    /// Once the actor has ended: the writer finishes what it accepted, closes, and the catalog settles its row.
+    async fn retire(self, thread: ThreadId) {
+        let _ = self.actor_ended.await;
+        if let super::durability::Retired::Kept(why) = self.retirer.retire().await {
+            tracing::warn!(thread = thread.as_str(), "the session's journal writer was not retired clean; its log is read again at the next start: {why}");
+        }
+    }
 }
 impl Drop for SlotLease {
     fn drop(&mut self) {
@@ -432,6 +453,11 @@ pub(crate) struct DirInner {
     sealed: std::sync::atomic::AtomicBool,
     /// The close work of each unloaded runtime still running, by thread: the next open of the thread waits for it.
     teardowns: Mutex<HashMap<ThreadId, watch::Receiver<()>>>,
+    /// The journal writer of each loaded runtime, by thread ([`Journal`]). Locked after the thread's shard.
+    journals: Mutex<HashMap<ThreadId, Journal>>,
+    /// The retirement of each unloaded runtime's journal writer still under way, by thread: closed once it has settled. The
+    /// shutdown waits for them with the writers it retires itself, apart from its wait for the close work.
+    unloading: Mutex<HashMap<ThreadId, watch::Receiver<()>>>,
     /// The control thread paired phones share (`SessionDirectory::remote_control`); `None` until one starts it.
     remote_control: tokio::sync::Semaphore,
     /// The thread `remote_control` holds, written only under that gate.
@@ -608,9 +634,19 @@ impl DirInner {
 
     /// The slot of `id` goes, and with it what the process remembered of the thread's surface. Under the shard lock, so
     /// no later load of the id has begun: what that load remembers is its own.
-    fn vacate(&self, shard: &mut HashMap<ThreadId, Slot_>, id: &ThreadId) {
-        shard.remove(id);
+    fn vacate(&self, shard: &mut HashMap<ThreadId, Slot_>, id: &ThreadId) -> Option<Slot_> {
+        let slot = shard.remove(id);
         self.deps.new_tools.unloaded(id);
+        slot
+    }
+
+    /// Whether a slot may still be taken for `id`: not once the shutdown drains the slots. Asked under the shard lock
+    /// the drain takes after it set the seal, so whoever takes a slot either finds the seal or has the slot drained.
+    fn admitting(&self, id: &ThreadId) -> Result<(), CoreError> {
+        if self.sealed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(CoreError::ThreadClosing { thread_id: id.clone() });
+        }
+        Ok(())
     }
 
     /// The thread of `cell` ends here: its actor ended ([`SlotLease`]), or its first record failed (the actor). It takes no
@@ -623,6 +659,11 @@ impl DirInner {
             self.vacate(&mut shard, id);
             #[cfg(any(test, feature = "test-support"))]
             self.left.notify_waiters();
+        }
+        // Neither an unload nor the shutdown took this runtime's journal: its writer is not retired.
+        let mut journals = lock(&self.journals);
+        if journals.get(id).is_some_and(|journal| Arc::ptr_eq(&journal.cell, cell)) {
+            journals.remove(id);
         }
     }
 
@@ -641,6 +682,7 @@ impl DirInner {
     /// Holds the minted `id` of a control start ([`Starting`]).
     fn start(&self, id: &ThreadId) -> Result<Starting, CoreError> {
         let mut shard = lock(self.shard(id));
+        self.admitting(id)?;
         if shard.contains_key(id) || lock(&self.teardowns).contains_key(id) {
             return Err(exists());
         }
@@ -694,6 +736,18 @@ impl DirInner {
         let (done, finished) = watch::channel(());
         let (stop, stopped) = oneshot::channel();
         lock(&self.teardowns).insert(id.clone(), finished);
+        // The registration above holds the id until the writer's retirement has settled: no later runtime of the thread
+        // marks the session while this one's retirement can still clear the mark.
+        let journal = {
+            let mut journals = lock(&self.journals);
+            journals.get(id).is_some_and(|journal| Arc::ptr_eq(&journal.cell, cell)).then(|| journals.remove(id)).flatten()
+        };
+        let thread = id.clone();
+        let (settled, settling) = watch::channel(());
+        if journal.is_some() {
+            lock(&self.unloading).insert(id.clone(), settling);
+        }
+        let directory = self.me.clone();
         self.vacate(&mut shard, id);
         struct PendingTeardown {
             directory: std::sync::Weak<DirInner>,
@@ -712,7 +766,17 @@ impl DirInner {
         let pending = PendingTeardown { directory: self.me.clone(), thread: id.clone(), _done: done };
         tokio::spawn(async move {
             let _ = stopped.await;
-            teardown.await;
+            let retired = async {
+                if let Some(journal) = journal {
+                    journal.retire(thread.clone()).await;
+                    // Unregistered before the id is let go (`pending`, below): the next unload of the thread registers its own.
+                    if let Some(directory) = directory.upgrade() {
+                        lock(&directory.unloading).remove(&thread);
+                    }
+                }
+                drop(settled);
+            };
+            futures::join!(teardown, retired);
             drop(pending);
         });
         #[cfg(any(test, feature = "test-support"))]
@@ -948,11 +1012,7 @@ impl DirInner {
     async fn open_with(&self, id: &ThreadId, ctx: &CallContext, for_use: bool) -> Result<Arc<SessionHandle>, CoreError> {
         let mut rx = {
             let mut shard = lock(self.shard(id));
-            // Read under the shard lock the shutdown drains this shard under, after it set the seal: an open either
-            // finds the seal or has its slot drained.
-            if self.sealed.load(std::sync::atomic::Ordering::SeqCst) {
-                return Err(CoreError::ThreadClosing { thread_id: id.clone() });
-            }
+            self.admitting(id)?;
             match shard.get(id) {
                 Some(Slot_::Loaded(handle)) => return Ok(handle.clone()),
                 Some(Slot_::Loading(rx)) => (**rx).clone(),
@@ -1154,8 +1214,10 @@ impl DirInner {
             image_gate: Default::default(),
             loaded_seq: self.loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
         });
-        let lease = SlotLease { directory: self.me.clone(), id: id.clone(), cell: cell.clone() };
-        let durability = DurabilityTask::new(id.clone(), deps.store.clone(), deps.lanes.durability, limits.batch_bytes, log, dur_in, dur_out);
+        let (ended, actor_ended) = oneshot::channel();
+        let lease = SlotLease { directory: self.me.clone(), id: id.clone(), cell: cell.clone(), _ended: ended };
+        let mut durability = DurabilityTask::new(id.clone(), deps.store.clone(), deps.lanes.durability, limits.batch_bytes, log, dur_in, dur_out);
+        lock(&self.journals).insert(id.clone(), Journal { cell: cell.clone(), retirer: durability.retirer(), actor_ended });
         let actor = SessionActor::new(
             id,
             deps.clone(),
@@ -1336,6 +1398,7 @@ impl DirInner {
         let (tx, rx) = oneshot::channel();
         let (handle, launch) = {
             let mut shard = lock(self.shard(&id));
+            self.admitting(&id)?;
             match (shard.get(&id), &spec.starting) {
                 (None, None) if !lock(&self.teardowns).contains_key(&id) => {}
                 (Some(Slot_::Starting(mark)), Some(starting)) if Arc::ptr_eq(mark, &starting.mark) => {}
@@ -1851,6 +1914,8 @@ impl SessionDirectory {
             closed: Default::default(),
             sealed: Default::default(),
             teardowns: Default::default(),
+            journals: Default::default(),
+            unloading: Default::default(),
             remote_control: tokio::sync::Semaphore::new(1),
             remote_thread: Mutex::default(),
             #[cfg(any(test, feature = "test-support"))]
@@ -2559,6 +2624,13 @@ impl SessionDirectory {
         self.inner.deps.new_tasks.cut();
     }
 
+    /// Resolves once no unloaded runtime of `id` is still closing: its close work has ended and its journal writer's
+    /// retirement has settled (the session's last write is in the catalog and, retired clean, its row is no longer marked
+    /// for a writer). At once when none is.
+    pub async fn unload_settled(&self, id: &ThreadId) {
+        self.inner.settle_teardowns(id).await;
+    }
+
     /// [`Self::shutdown_for`] with the reason of a daemon stop.
     pub async fn shutdown(&self) {
         self.shutdown_for("daemon shutdown").await;
@@ -2614,10 +2686,14 @@ impl SessionDirectory {
         // owns the journal until then, and one that reaches it later is not applied (`SessionActor::stored_patch`).
         self.inner.sealed.store(true, std::sync::atomic::Ordering::SeqCst);
         let handles = self.drain_slots();
-        self.stop_loaded(handles).await;
+        let retired = self.stop_loaded(handles).await;
         // Each runtime's teardown ends with `dispose()` of its side checkouts: no snapshot
         // cleanup runs on, and what is left is the prune's and the startup reconcile's.
         self.inner.deps.snapshots.dispose();
+        // Last, and bounded only by what bounds this shutdown (the stop step's budget): each stopped thread's journal
+        // writer retires once its actor has ended. One cut off there is safe: its session stays marked, and the next
+        // start reads its log again.
+        retired.await;
     }
 
     fn drain_slots(&self) -> Vec<Arc<SessionHandle>> {
@@ -2625,9 +2701,11 @@ impl SessionDirectory {
             .shards
             .iter()
             .flat_map(|shard| {
-                lock(shard)
-                    .drain()
-                    .filter_map(|(_, slot)| match slot {
+                let mut shard = lock(shard);
+                let ids: Vec<ThreadId> = shard.keys().cloned().collect();
+                ids.iter()
+                    .filter_map(|id| self.inner.vacate(&mut shard, id))
+                    .filter_map(|slot| match slot {
                         Slot_::Loaded(handle) => Some(handle),
                         // The start's create is refused from here (`ThreadClosing`): it ends now.
                         Slot_::Starting(mark) => {
@@ -2642,8 +2720,13 @@ impl SessionDirectory {
     }
 
     /// Stops every drained thread (a live run is cancelled) and waits, up to [`SHUTDOWN_INGEST_DEADLINE`], for the memory ingest of
-    /// each and for the teardowns of the unloaded.
-    async fn stop_loaded(&self, handles: Vec<Arc<SessionHandle>>) {
+    /// each and for the teardowns of the unloaded. Returns the wait for the retirement of the stopped threads' journal writers,
+    /// which has no bound of its own.
+    async fn stop_loaded(&self, handles: Vec<Arc<SessionHandle>>) -> impl std::future::Future<Output = ()> + Send + 'static + use<> {
+        // Every runtime still loaded is about to stop: its writer is retired once its actor has ended, while the index and
+        // its projector are still there. Taken before the actors are told, so none ends with its journal still here; no
+        // thread is opened from here (`sealed`), so no session is marked again behind a retirement.
+        let journals: Vec<(ThreadId, Journal)> = lock(&self.inner.journals).drain().collect();
         let mut ingests = Vec::new();
         for handle in handles {
             let (done, ingest) = tokio::sync::oneshot::channel();
@@ -2651,6 +2734,18 @@ impl SessionDirectory {
                 ingests.push(ingest);
             }
         }
+        // A task of its own: a shutdown that is cut off (the stop's budget) does not cancel a retirement under way, which
+        // then ends with the index, its session still marked.
+        // With them, the writers of the runtimes that were already unloading: their retirement is waited for here too,
+        // under the same bound, and not inside the wait for the close work below.
+        let unloading: Vec<_> = lock(&self.inner.unloading).values().cloned().collect();
+        let retired = mixdog_rt::spawn("core-session.shutdown-retire", TaskClass::Work, async move {
+            let loaded = futures::future::join_all(journals.into_iter().map(|(thread, journal)| journal.retire(thread)));
+            let unloaded = futures::future::join_all(unloading.into_iter().map(|mut settling| async move {
+                let _ = settling.changed().await;
+            }));
+            futures::join!(loaded, unloaded);
+        });
         let pending: Vec<_> = lock(&self.inner.teardowns).values().cloned().collect();
         wait_without_cancelling(SHUTDOWN_INGEST_DEADLINE, async move {
             let loaded = futures::future::join_all(ingests.into_iter().map(|ingest| async move {
@@ -2664,6 +2759,9 @@ impl SessionDirectory {
             futures::join!(loaded, unloaded);
         })
         .await;
+        async move {
+            let _ = retired.await;
+        }
     }
 
     /// Opens (single-flight) and returns the concrete handle.
