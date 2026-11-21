@@ -20,6 +20,7 @@ another's output waits. Run builds and tests side by side only as far as the
 machine's load allows; a check that measures timing or performance gets the
 machine to itself.
 A new independent need goes to a new agent. When scopes touch the same file, name one owner for
-that file in each brief.
+that file in each brief; scopes that must build together to be checked run in
+sequence or in separate worktrees.
 Use only available agents; when none fits a role, Lead does that work itself
 and never changes settings to enable one.

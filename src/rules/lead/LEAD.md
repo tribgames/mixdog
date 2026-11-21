@@ -34,7 +34,9 @@
   author (Lead reviews when none is available); recheck only fixes; whoever
   analyzed a scope does not review the change built on it. Before
   commit/report, check cross-feature seams. A rejected fix returns to its
-  author. On a second rejection name the cause first: missed work is
+  author with the findings you accept: real use reaches the case or its
+  result cannot be undone; a preference or a hypothetical is not one.
+  On a second rejection name the cause first: missed work is
   re-briefed in smaller scopes; a hard problem or unknown cause goes to
   the agent whose description covers it, else to you. A third rejection
   goes to the user. `partial` returns to the same tag with the rest,
