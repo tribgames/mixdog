@@ -103,6 +103,19 @@ html[data-mixdog-mobile-tabs] .workspace-tab-compact-current > svg {
   width: 20px;
   height: 20px;
 }
+/* The working spinner (14px) turns inside the glyph's own slot — 20px, a bot
+   chat's face 16px (agent-chat.css) — so the title stays put when a turn
+   starts and ends. */
+html[data-mixdog-mobile-tabs] .workspace-tab-compact-current > .progress-spinner-turn {
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+}
+html[data-mixdog-mobile-tabs] .workspace-tab-compact-current[data-glyph="face"] > .progress-spinner-turn {
+  width: 16px;
+  height: 16px;
+}
 /* The desktop + on the touch tier: 44 box, 22 mark, the strip's 1.5px line
    scaled with the mark (strokes are non-scaling). */
 html[data-mixdog-mobile-tabs] .workspace-tabs-shell > .workspace-tab-new {
@@ -344,28 +357,41 @@ html[data-mixdog-mobile-tabs] .route-sheet-flyout {
 html[data-mixdog-mobile-tabs] .composer-model-aside {
   margin-left: 0;
 }
-html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator,
+/* The ring keeps a 28px slot whether or not it has a reading yet (an empty
+   ring is only hidden), so the model label beside it never moves when a turn
+   starts. The button keeps the 44px touch box, 8px past each side. */
+html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator {
+  width: var(--mx-touch-fixed-main);
+  height: var(--mx-touch-main);
+  min-width: var(--mx-touch-fixed-main);
+  flex-basis: var(--mx-touch-fixed-main);
+}
+html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator[data-active="false"] {
+  display: block;
+  visibility: hidden;
+}
 html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator > button {
   width: var(--mx-touch-main);
   height: var(--mx-touch-main);
-  min-width: var(--mx-touch-main);
-  flex-basis: var(--mx-touch-main);
+  margin-inline: calc((var(--mx-touch-fixed-main) - var(--mx-touch-main)) / 2);
 }
 html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator svg {
   width: calc(36px * 15 / 28);
   height: calc(36px * 15 / 28);
 }
-/* The card opens upward from the footer on desktop too; on the phone it can
-   only be as wide as the screen minus the pane inset. It anchors to the
-   footer itself, opening from the footer's left edge where the full width
-   always fits. The card grows 220px rightward (its fallback width), so
-   anchoring to the gauge mid-footer would spill past the viewport's right
-   edge. */
+/* The gauge's card opens above its ring, centred on it and kept inside the
+   screen's edge (ContextUsageIndicator measures --context-card-left), never
+   over the microphone and send buttons at the row's end. */
 html[data-mixdog-mobile-tabs] .composer-footer {
   position: relative;
 }
-html[data-mixdog-mobile-tabs] .composer-model-line .session-context-indicator {
-  position: static;
+html[data-mixdog-mobile-tabs] form.composer.composer .composer-footer .composer-model-aside .session-context-indicator {
+  position: relative;
+}
+html[data-mixdog-mobile-tabs] form.composer.composer .composer-model-aside .session-context-popover,
+html[data-mixdog-mobile-tabs] .composer-model-line .composer-model-aside .session-context-popover {
+  right: auto;
+  left: var(--context-card-left, 0);
 }
 html[data-mixdog-mobile-tabs] .composer-model-line .session-context-popover {
   max-width: calc(100vw - 2 * var(--mx-mobile-edge-main));

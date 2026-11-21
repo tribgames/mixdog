@@ -53,6 +53,7 @@ import {
   tokensReadoutItem,
 } from './composer-usage-readout';
 import { statsCount } from './usage-stats-model';
+import { useWholeRowList } from './whole-row-list';
 import { usageMoney } from './usage-format';
 import { ShellJobContent, ShellRowButton, useShellStops } from './shell-job-controls';
 import { ComposerIslandContext, type ComposerIslandTab, type IslandSegmentReserves } from './composer-island-state';
@@ -295,6 +296,8 @@ function AgentsPanel({
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }) {
   const clock = useClock(true);
+  const list = useRef<HTMLDivElement>(null);
+  useWholeRowList(list);
   // The listed rows are already the tree flattened: each is judged on its own node.
   const clearable = agents.filter(({ node }) => clearableAgentNode(node)).map(({ node }) => node.agent);
   return (
@@ -307,7 +310,11 @@ function AgentsPanel({
       />
       {/* The Agents window's own tree and row component; each row's own
           ledger total sits at its right edge. */}
-      <div className="composer-island-pbody composer-island-jobs composer-island-agents schedules-list" role="tree">
+      <div
+        ref={list}
+        className="composer-island-pbody composer-island-jobs composer-island-agents schedules-list agent-pool-list"
+        role="tree"
+      >
         {agents.map(({ node, state, waitingForTasks }, index) => {
           const tokens = usage.agentRowTokens.get(node.sessionId);
           return (
@@ -373,6 +380,8 @@ function ShellsPanel({
   onDismissAll(rows: JobRow[]): void;
 }) {
   const clock = useClock(true);
+  const list = useRef<HTMLUListElement>(null);
+  useWholeRowList(list);
   const { stopOf, releasingOf, stop } = useShellStops(sessionId);
   const runningShells = shells.filter((row) => !row.finished).length;
   const finished = shells.filter((row) => row.finished);
@@ -384,7 +393,7 @@ function ShellsPanel({
         meta={finished.length > 0 ? <span>{t('Island: Ended {{count}}', { count: finished.length })}</span> : undefined}
         onClose={onClose}
       />
-      <ul className="composer-island-pbody composer-island-jobs">
+      <ul ref={list} className="composer-island-pbody composer-island-jobs">
         {shells.map((row) => (
           <ShellJobItem
             key={row.key}

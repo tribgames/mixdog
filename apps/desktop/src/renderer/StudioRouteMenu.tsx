@@ -92,7 +92,6 @@ export function StudioRouteMenu({
     sheetBox,
     flyoutBox,
     drill,
-    triggerWidth,
     trigger,
     sheet,
     flyout,
@@ -212,8 +211,6 @@ export function StudioRouteMenu({
         type="button"
         className={field ? 'model-trigger' : 'studio-model-trigger'}
         disabled={disabled}
-        style={triggerWidth !== null ? { width: triggerWidth } : undefined}
-        data-morph={triggerWidth !== null ? '' : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={ariaLabel || t('Generation model')}

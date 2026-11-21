@@ -579,9 +579,7 @@
    dialog input skin from 30-dialogs.css — 32px plate on --mx-bg-base,
    hairline at rest, one-pixel ring on focus — and its plate starts on the
    label edge like every other field, with the glyph 8px inside the plate
-   exactly as the inputs above it. Width stays content-sized: the
-   open pill morphs to the sheet width (RouteEditor), and a full-width plate
-   would visibly shrink on open. */
+   exactly as the inputs above it. Width stays content-sized. */
 .workflows-dialog-route {
   min-height: 32px;
   display: flex;

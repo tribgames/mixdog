@@ -25,8 +25,8 @@
 }
 /* A label wider than its lane (phone footer: the context gauge, mic and send
    are fixed, so only the pill can give) ends in an ellipsis instead of a hard
-   cut at the lane edge. The open pill widens to the
-   full label, so the whole name is always one tap away. */
+   cut at the lane edge. The open sheet is at least as wide as the full
+   label, so the whole name is always one tap away. */
 .route-trigger-copy > .model-route-label {
   flex: 1 1 auto;
   overflow: hidden;
@@ -123,30 +123,6 @@
 }
 .route-sheet[data-align="end"][data-placement="below"] {
   transform-origin: top right;
-}
-/* Codex-style pill: while the sheet is open the trigger expands to the sheet
-   width (inline width per frame drives the transition); the chevron slides
-   to the pill's right edge. */
-.route-editor > .model-trigger[data-morph] {
-  max-width: none;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  /* Codex-style: the open pill reads as a control tied to the sheet — by its
-     plate alone, no outline. */
-  color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: none;
-  transition: width var(--mx-motion-base) var(--mx-ease-emphasized);
-  /* The pill is part of the sheet, not of the footer row: on a lane too
-     narrow for it (phone footer next to the context gauge) it rides OVER the
-     fixed neighbours instead of being cut at the lane edge. */
-  position: relative;
-  z-index: 2;
-}
-.route-controls:has(> .route-editor > .model-trigger[data-morph]) {
-  overflow: visible;
 }
 @keyframes route-sheet-morph-in {
   from {

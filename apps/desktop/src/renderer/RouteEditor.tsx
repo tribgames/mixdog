@@ -244,7 +244,7 @@ export function RouteEditor({
     surfaceActive,
     onOpenSheet,
   });
-  const { closing, visible, mounted, pane, setPane, drill, sheetBox, flyoutBox, triggerWidth, refs } = sheetState;
+  const { closing, visible, mounted, pane, setPane, drill, sheetBox, flyoutBox, refs } = sheetState;
   const { layoutFor, show, toggle, closeAll, closePane } = sheetState;
   const { trigger, sheet, optionFlyout, modelFlyout, rowButtons, hoverLock, morphFrom } = refs;
   const { modelCatalogReady, hoverSwitchTimer, openPane, focusPane } = useRoutePaneNavigation({
@@ -340,7 +340,6 @@ export function RouteEditor({
       <RouteTrigger
         triggerRef={trigger}
         disabled={modelDisabled}
-        width={triggerWidth}
         tooltip={tooltip}
         visible={visible}
         sheetId={sheetId}

@@ -167,9 +167,12 @@ export const AgentPoolRow = memo(function AgentPoolRow({
         <span className="agent-pool-heading">
           <b className="agent-pool-name">{name}</b>
           {lead && descendantCount > 0 && <span className="dock-review-count">{descendantCount}</span>}
-          <AgentTodoMark todo={agent.todo} />
         </span>
         <AgentRouteSummary agent={agent} />
+      </span>
+      {/* Its own column (.agent-pool-list), so the step mark lines up across rows. */}
+      <span className="agent-pool-progress">
+        <AgentTodoMark todo={agent.todo} />
       </span>
       <span className="agent-activity-status">
         <AgentRowElapsed state={state} agent={agent} clock={clock} />
@@ -351,7 +354,7 @@ export function AgentActivityTree({
     if (groupExpanded) onCollapseGroup?.();
   };
   return (
-    <div ref={treeRef} className="schedules-list" role="tree" aria-label={label} onKeyDown={onKeyDown}>
+    <div ref={treeRef} className="schedules-list agent-pool-list" role="tree" aria-label={label} onKeyDown={onKeyDown}>
       {rows.map((node, index) => (
         <AgentPoolRow
           key={poolRowKey(node.agent, index)}

@@ -110,9 +110,12 @@ export interface RouteSessionChoice {
 export function routeSessionChoicePane({
   choice,
   onOptionKeyDown,
+  onPicked,
 }: {
   choice: RouteSessionChoice;
   onOptionKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>): void;
+  /** Any option tapped, the checked one included. */
+  onPicked?(): void;
 }): ReactNode {
   return choice.options.map((option) => {
     const selected = option.value === choice.value;
@@ -126,6 +129,7 @@ export function routeSessionChoicePane({
         disabled={choice.disabled}
         onClick={() => {
           if (!selected) choice.onSelect(option.value);
+          onPicked?.();
         }}
         onKeyDown={onOptionKeyDown}
       >

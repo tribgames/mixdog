@@ -7,7 +7,7 @@ export const ROUTE_SHEET_ROW_HEIGHT = 36;
 
 const ROUTE_PANEL_EDGE = ANCHORED_PANEL_EDGE;
 const ROUTE_PANEL_GAP = ANCHORED_PANEL_GAP;
-// Codex-scale panel: the pill expands to this same width, so it stays modest.
+// Codex-scale panel width.
 export const ROUTE_PANEL_WIDTH = 224;
 
 export interface RoutePanelBox {
@@ -203,6 +203,18 @@ export function routeDrillBox(sheet: RoutePanelBox, preferredHeight: number, vie
     maxHeight: height,
     placement: above ? 'above' : 'below',
   };
+}
+
+/** A drilled pane sized to its content: its box becomes the cap, the edge that
+ *  faces the trigger stays put, and useRouteFlyoutFit sets the height from the
+ *  measured content (routeFlyoutFit). */
+export function routeContentFit(box: RoutePanelBox): RoutePanelBox {
+  const bottom = box.top + box.height;
+  const fit =
+    box.placement === 'above'
+      ? { anchorTop: bottom, minTop: box.top, maxBottom: bottom }
+      : { anchorTop: box.top, minTop: box.top, maxBottom: bottom };
+  return { ...box, maxHeight: box.height, fit };
 }
 
 /** Re-place a side flyout for its measured content height: top on its row,

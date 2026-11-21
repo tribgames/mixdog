@@ -104,6 +104,63 @@ test('route label: a click opens the menu the model trigger opens', async (t) =>
   await view.unmount();
 });
 
+// Under the card the model trigger is a row away: the label opens its own
+// small menu of the delegation choices, anchored to the label.
+test('route label under the card: a click opens its own menu of the choices, and a pick closes it', async (t) => {
+  t.after(() => setComposerStyle('basic'));
+  setComposerStyle('detail');
+  const picked = [];
+  const mode = {
+    ...choice('orchestration-mode', 'Solo'),
+    value: 'solo',
+    options: [
+      { value: 'solo', label: 'Solo', description: 'One agent' },
+      { value: 'swarm', label: 'Swarm', description: 'Many agents' },
+    ],
+    onSelect: (value) => picked.push(value),
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(() => act(async () => root.unmount()));
+  await act(async () =>
+    root.render(
+      React.createElement(
+        'div',
+        { className: 'composer-model-line' },
+        React.createElement('button', { type: 'button', className: 'model-trigger', onClick: () => (opened += 1) }),
+        React.createElement(ComposerRouteLabel, { parts: { workflow: '', mode: 'Solo' }, choices: [mode] })
+      )
+    )
+  );
+  opened = 0;
+  const label = host.querySelector('.composer-route-label');
+  await act(async () => label.click());
+  const menu = document.querySelector('.composer-route-choices[role="menu"]');
+  assert.ok(menu, 'its own menu opened');
+  assert.equal(opened, 0, 'the model menu stayed shut');
+  assert.equal(label.getAttribute('aria-expanded'), 'true');
+  assert.deepEqual(
+    [...menu.querySelectorAll('[role="menuitemradio"]')].map((option) => [
+      option.textContent,
+      option.getAttribute('aria-checked'),
+    ]),
+    [
+      ['SoloOne agent', 'true'],
+      ['SwarmMany agents', 'false'],
+    ]
+  );
+  await act(async () => menu.querySelectorAll('[role="menuitemradio"]')[1].click());
+  assert.deepEqual(picked, ['swarm']);
+  assert.equal(document.querySelector('.composer-route-choices'), null, 'a pick closes it');
+  assert.equal(label.getAttribute('aria-expanded'), 'false');
+  // The checked option changes nothing, and still closes the menu.
+  await act(async () => label.click());
+  await act(async () => document.querySelector('.composer-route-choices [aria-checked="true"]').click());
+  assert.deepEqual(picked, ['swarm']);
+  assert.equal(document.querySelector('.composer-route-choices'), null, 'the checked option closes it too');
+});
+
 // The press that lands on the label is not "outside" the menu: dismissing on it
 // would close the menu just before the click re-opens it.
 test('route label: pressing it keeps the model menu open but closes any other menu', async () => {

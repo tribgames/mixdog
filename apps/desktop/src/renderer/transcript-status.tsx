@@ -13,6 +13,8 @@ import {
 import { resolveContextDisplayUsage } from './context-usage';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { useHoverPopover } from './hover-popover';
+import { centeredPanelOffset, rectFrom, viewportRect } from './anchored-panel';
+import { isPhoneSurfaceMarked } from './mobile-surface';
 import { cachedAutoEffortCapable, useAutoEffortShown } from './auto-effort-store';
 import { subscribeUiLanguage, t, uiFormatLocale } from './i18n';
 import { modelDisplayName, modelRouteDisplayParts } from './provider-display';
@@ -220,6 +222,22 @@ export function ContextUsageIndicator({
   // surface the compact action.
   const popover = useHoverPopover({ open: controlledOpen, onOpenChange, hoverOpens: false });
   const popoverOpen = popover.open;
+  const host = popover.host;
+  // The phone's card opens centred on the ring and kept inside the screen's
+  // edge (07-mobile-chrome.css reads the offset).
+  useLayoutEffect(() => {
+    const node = host.current;
+    const card = node?.querySelector<HTMLElement>('.session-context-popover');
+    if (!popoverOpen || !node || !card || !isPhoneSurfaceMarked()) return;
+    const edge = Number.parseFloat(getComputedStyle(node).getPropertyValue('--mx-mobile-edge-main'));
+    const left = centeredPanelOffset({
+      trigger: rectFrom(node),
+      width: card.offsetWidth,
+      bounds: viewportRect(),
+      edge,
+    });
+    card.style.setProperty('--context-card-left', `${left}px`);
+  }, [host, popoverOpen]);
   const context = contextMetrics(snapshot);
   const descriptionId = `context-usage-${String(snapshot.sessionId || 'session')}`;
   const contextPercent = context?.percent ?? 0;

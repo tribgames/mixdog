@@ -1,7 +1,7 @@
 import { type RefObject, useEffect, useRef } from 'react';
 import { TOUCH_SLOP_PX } from './remote-browser-touch';
 import { useSurfaceActive } from './surface-activity';
-import { routeMenuTrigger } from './composer-route-label';
+import { routeMenuTrigger } from './route-menu-trigger';
 
 const ROW_CONTEXT_MENU_SELECTOR = '.dock-scm-context-menu';
 const TRIGGER_PROXY_SELECTOR = '[data-menu-trigger-proxy]';

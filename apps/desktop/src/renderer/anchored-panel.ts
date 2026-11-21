@@ -83,6 +83,23 @@ export function anchoredPanelGeometry({
   };
 }
 
+/** A card's left edge relative to its trigger's: centred on the trigger, then
+ *  kept `edge` inside the bounds. */
+export function centeredPanelOffset({
+  trigger,
+  width,
+  bounds,
+  edge,
+}: {
+  trigger: Pick<AnchorRect, 'left' | 'width'>;
+  width: number;
+  bounds: Pick<AnchorRect, 'left' | 'right'>;
+  edge: number;
+}): number {
+  const left = clamp(trigger.left + (trigger.width - width) / 2, bounds.left + edge, bounds.right - edge - width);
+  return Math.round(left - trigger.left);
+}
+
 export const rectFrom = (element: Element): AnchorRect => {
   const rect = element.getBoundingClientRect();
   return {

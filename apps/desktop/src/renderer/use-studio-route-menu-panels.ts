@@ -5,6 +5,7 @@ import {
   ROUTE_PANEL_PADDING,
   ROUTE_PANEL_WIDTH,
   ROUTE_SHEET_ROW_HEIGHT,
+  routePanelStyle,
   routeSheetBox,
   type RoutePanelBox,
 } from './route-editor-logic';
@@ -37,7 +38,7 @@ export function studioSheetStyle(
   morphFrom: { width: number; height: number } | null
 ): CSSProperties {
   return {
-    ...panelBox,
+    ...routePanelStyle(panelBox),
     '--route-morph-sx': String(Math.min(1, Math.max(0.1, (morphFrom?.width || panelBox.width) / panelBox.width))),
     '--route-morph-sy': String(Math.min(1, Math.max(0.1, (morphFrom?.height || panelBox.height) / panelBox.height))),
   } as CSSProperties;
@@ -61,8 +62,6 @@ export function useStudioRouteMenuPanels({
   // Narrow surface (phone): the pane takes over the sheet's footprint and the
   // sheet steps aside, instead of stacking a detached second panel.
   const [drill, setDrill] = useState(false);
-  // While open, the trigger expands to the sheet width.
-  const [triggerWidth, setTriggerWidth] = useState<number | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const sheet = useRef<HTMLDivElement>(null);
   const flyout = useRef<HTMLDivElement>(null);
@@ -82,21 +81,17 @@ export function useStudioRouteMenuPanels({
     setSheetBox(null);
     setFlyoutBox(null);
     setDrill(false);
-    setTriggerWidth(null);
   }, []);
 
   const closeAll = useCallback(() => {
     if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
     setOpen(false);
     setClosing(true);
-    // The pill shrinks back to its captured natural width during the close
-    // animation; finishClose releases it to auto.
-    setTriggerWidth(field ? null : (morphFrom.current?.width ?? null));
     closeTimer.current = window.setTimeout(() => {
       closeTimer.current = null;
       finishClose();
     }, CLOSE_DURATION);
-  }, [field, finishClose]);
+  }, [finishClose]);
 
   // The route editor's pane geometry (route-editor-layout.ts).
   const paneLayout = useCallback(
@@ -107,6 +102,8 @@ export function useStudioRouteMenuPanels({
     [flyoutSize]
   );
   useRouteFlyoutFit(flyout, flyoutBox, setFlyoutBox, () => (pane ? rowButtons.current[pane] : null));
+  // A drilled pane is hosted by the sheet itself.
+  useRouteFlyoutFit(sheet, drill ? flyoutBox : null, setFlyoutBox);
 
   const layout = useCallback(() => {
     const node = trigger.current;
@@ -133,15 +130,7 @@ export function useStudioRouteMenuPanels({
     }
     setClosing(false);
     morphFrom.current = rect ? { width: rect.width, height: rect.height } : null;
-    if (node && rect) {
-      const { sheet: nextSheet } = measuredSheet(node, rect, sheetHeight, field);
-      setSheetBox(nextSheet);
-      // Two-step width: pin the numeric width first, widen on the next frame.
-      if (!field) {
-        setTriggerWidth(rect.width);
-        window.requestAnimationFrame(() => setTriggerWidth(nextSheet.width));
-      }
-    }
+    if (node && rect) setSheetBox(measuredSheet(node, rect, sheetHeight, field).sheet);
     setPane(null);
     setModelQuery('');
     setOpen(true);
@@ -176,7 +165,6 @@ export function useStudioRouteMenuPanels({
     sheetBox,
     flyoutBox,
     drill,
-    triggerWidth,
     trigger,
     sheet,
     flyout,

@@ -160,7 +160,7 @@ function workspaceTabHomeButton() {
   );
 }
 
-function workspaceMobileTabPill({
+export function workspaceMobileTabPill({
   tabs,
   activeKey,
   activeBusy,
@@ -185,6 +185,10 @@ function workspaceMobileTabPill({
     <button
       type="button"
       className="workspace-tab-compact-current"
+      // A bot chat's glyph is its 16px face: the spinner turns in that slot.
+      data-glyph={
+        activeTab?.selection.kind === 'session' && isAgentChatSession(activeTab.selection.id) ? 'face' : undefined
+      }
       data-tooltip={activeTab?.title}
       onClick={() => {
         if (activeTab && !pendingNewTask && activeTab.key === activeKey) onSelectTab(activeTab);

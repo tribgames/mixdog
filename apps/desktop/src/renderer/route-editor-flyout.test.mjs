@@ -9,6 +9,7 @@ import {
   routePanelStyle,
   routeSheetBox,
 } from './route-editor-logic.ts';
+import { routePaneLayout } from './route-editor-layout.ts';
 
 const viewport = { left: 0, top: 0, width: 1400, height: 900 };
 
@@ -94,6 +95,33 @@ test('a drilled pane never takes more than the real room, even under one row', (
   const box = routeDrillBox(sheet, 200, tiny);
   assert.equal(box.height, 12);
   assert.equal(box.top, 8);
+});
+
+// The phone: no room for a second column, so a pane drills into the sheet.
+test('a drilled pane is as tall as its content, its edge toward the trigger pinned', () => {
+  const phone = { left: 0, top: 0, width: 412, height: 870 };
+  const above = { left: 52, top: 420, width: 224, height: 352, maxHeight: 352, placement: 'above' };
+  const { box, drilled } = routePaneLayout(above, phone, { maxHeight: 340, width: 224 }, 600);
+  assert.equal(drilled, true);
+  // Four delegation modes and the back header: 248px, bottom still on the sheet's.
+  const fitted = routeFlyoutFit(box, 248);
+  assert.equal(fitted.height, 248);
+  assert.equal(fitted.top + fitted.height, 772);
+  assert.equal('height' in routePanelStyle(fitted), false, 'the content sets the height');
+  // Content past the cap scrolls inside it.
+  assert.equal(routeFlyoutFit(box, 2000).height, box.height);
+  // Below its trigger, the top stays.
+  const below = { ...above, top: 100, placement: 'below' };
+  const short = routeFlyoutFit(routePaneLayout(below, phone, { maxHeight: 176 }, 150).box, 110);
+  assert.deepEqual([short.top, short.height], [100, 110]);
+});
+
+test('a drilled model catalog keeps its full height, so filtering does not move its search field', () => {
+  const phone = { left: 0, top: 0, width: 412, height: 870 };
+  const sheet = { left: 52, top: 420, width: 224, height: 352, maxHeight: 352, placement: 'above' };
+  const { box } = routePaneLayout(sheet, phone, { maxHeight: 360, width: 280, catalog: true }, 600);
+  assert.equal(routeFlyoutFit(box, 80), box);
+  assert.equal(routePanelStyle(box).height, box.height);
 });
 
 test('a measured flyout is shifted up only as far as the bounds require', () => {

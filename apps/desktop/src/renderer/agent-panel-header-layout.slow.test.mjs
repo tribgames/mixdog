@@ -51,10 +51,10 @@ const PAGE = `
   const build = () => {
   const own = [
     { tag: 'lead:' + LEAD, agent: 'lead', sessionId: LEAD, ownerSessionId: LEAD, status: 'running', stage: 'running', startedAt: NOW - 60_000 },
-    row('feat-approval-button-ui-with-a-really-long-branch-name', { status: 'running', stage: 'running', idleSince: null, turnStartedAt: NOW - 583_000 }),
-    row('queued-one', { status: 'queued', stage: 'queued', idleSince: null }),
+    row('feat-approval-button-ui-with-a-really-long-branch-name', { status: 'running', stage: 'running', idleSince: null, turnStartedAt: NOW - 583_000, todo: { completed: 6, total: 9 } }),
+    row('queued-one', { status: 'queued', stage: 'queued', idleSince: null, todo: { completed: 0, total: 3 } }),
     row('needs-approval', { status: 'running', stage: 'running', idleSince: null, turnStartedAt: NOW - 5_000, awaitingUser: 'approval' }),
-    row('long-route', { model: 'a-model-whose-name-is-far-too-long-to-fit-in-a-phone-row-at-all', effort: 'high', idleSince: null, status: 'running', stage: 'running', turnStartedAt: NOW - 3_723_000 }),
+    row('long-route', { model: 'a-model-whose-name-is-far-too-long-to-fit-in-a-phone-row-at-all', effort: 'high', idleSince: null, status: 'running', stage: 'running', turnStartedAt: NOW - 3_723_000, todo: { completed: 8, total: 9 } }),
     ...Array.from({ length: 13 }, (_, i) => row('rested-' + i)),
   ];
     rows.push(...own);
@@ -227,6 +227,12 @@ const PAGE = `
       }
       if (box(status).right > it.right + 0.5 || (tokens && box(tokens).right > it.right + 0.5)) rowOverlaps.push('right column leaves the row');
     }
+    const marks = [...panel.querySelectorAll('.agent-todo-mark')].map((node) => box(node).left);
+    const list = panel.querySelector('.composer-island-jobs');
+    const shown = box(list);
+    const cutRows = items
+      .filter((item) => box(item).top < shown.bottom - 0.5 && box(item).bottom > shown.bottom + 0.5)
+      .map(name);
     const names = [...panel.querySelectorAll('.agent-pool-name')];
     const summary = panel.querySelector('.composer-island-summary');
     const parts = summary.hidden ? [] : [...summary.children];
@@ -255,6 +261,9 @@ const PAGE = `
       close: size(close),
       rows: items.length,
       rowOverlaps,
+      marks,
+      cutRows,
+      moreBelow: list.hasAttribute('data-more'),
       namesEllipsize: names.every((n) => getComputedStyle(n).textOverflow === 'ellipsis' && getComputedStyle(n).overflow === 'hidden'),
       summary: { overflow: summary.scrollWidth - summary.clientWidth, overlaps: summaryOverlaps, text: summary.textContent },
     };
@@ -276,6 +285,11 @@ function problems(label, m, phone) {
   expect(m.outside.length === 0, `pokes out of the panel: ${m.outside}`);
   expect(m.rowOverlaps.length === 0, `row text under the right column: ${m.rowOverlaps}`);
   expect(m.namesEllipsize, 'row titles ellipsize');
+  expect(
+    m.marks.length === 3 && Math.max(...m.marks) - Math.min(...m.marks) <= 0.5,
+    `step marks are not in one column: ${m.marks}`
+  );
+  expect(m.cutRows.length === 0 && m.moreBelow, `the list ends mid-row or without its shadow: ${m.cutRows}`);
   expect(m.summary.overflow <= 0 && m.summary.overlaps.length === 0, `footer overflow/overlap ${m.summary.overlaps}`);
   const a = m.footAction;
   expect(

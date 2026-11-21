@@ -934,15 +934,6 @@ html:not([data-mixdog-mobile-tabs]) .studio-dock {
   position: relative;
   display: inline-flex;
 }
-/* Codex-style pill: expands to the panel width while open. */
-.studio-model-trigger[data-morph] {
-  max-width: none;
-  justify-content: space-between;
-  color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 1px var(--mx-border-muted);
-  transition: width var(--mx-motion-base) var(--mx-ease-emphasized);
-}
 /* The generation controls ride one slim line under the card, right-aligned
    like .composer-model-line. The strip SCROLLS instead of clipping the model
    picker at ANY width — the side panel narrows the desktop shell exactly like
