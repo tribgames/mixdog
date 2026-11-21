@@ -275,7 +275,7 @@ fn eval_binom_inv(a: &[V]) -> Result<V, Failure> {
             Err(_) => ok = false,
         }
     }
-    value(cd2::binom_inv(trials, p[1], alpha, ok.then_some(lo)))
+    cert(cd2::binom_inv(trials, p[1], alpha, ok.then_some(lo)))
 }
 fn eval_chisq_dist(a: &[V]) -> Result<V, Failure> {
     let cumulative = flag!(a, 2);
