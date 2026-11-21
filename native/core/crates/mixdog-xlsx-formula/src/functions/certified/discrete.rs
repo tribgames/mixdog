@@ -135,23 +135,31 @@ pub fn binom_range(n: f64, p: f64, s: f64, s2: f64) -> R {
 /// Whether P(X <= k) >= alpha for X ~ Bin(n, p), 0 < p, alpha < 1. Exact separation: P(X <= k) is a multiple of
 /// 2^-(e n) (p = m 2^-e with m odd, so every term C(n,i) m^i (2^e - m)^(n-i) / 2^(e n)) and alpha of 2^-f, so a
 /// nonzero difference is at least 2^-max(e n, f). An enclosure narrower than that which still holds alpha proves the
-/// equality (which counts as reached). For p = 1/2 the symmetry P(X <= (n-1)/2) = 1/2 (n odd) is exact. When the
-/// separation needs more than 8192 bits and 8192 do not decide, the comparison is taken as reached (the outstanding
-/// proof gate named in the report: a difference below 2^-8000 between a binomial tail and a double).
-fn binom_reached(k: &Fl, n: &Fl, p: f64, alpha: f64) -> bool {
+/// equality (which counts as reached). For p = 1/2 the symmetry P(X <= (n-1)/2) = 1/2 (n odd) is exact. The
+/// precision is doubled up to `BINOM_MAX_BITS`; a comparison no precision up to it decides is `#NUM!`, never assumed.
+fn binom_reached(k: &Fl, n: &Fl, p: f64, alpha: f64) -> Result<bool, E> {
     if k.cmp(n) != Ordering::Less {
-        return true;
+        return Ok(true);
     }
     if p == 0.5 && alpha == 0.5 && k.mul_2exp(1).add(&one()) == *n {
-        return true;
+        return Ok(true);
     }
+    binom_decide(k, n, p, alpha, BINOM_MAX_BITS).ok_or(E::Num)
+}
+
+/// Each doubling costs about seven times the last (Bin(5e6, 0.3) at the mean, dev build: 0.13 s at 128 bits, 0.7 s
+/// at 256, 5.7 s at 512, 38 s at 1024), so a worksheet cell stops at 512.
+const BINOM_MAX_BITS: u64 = 512;
+
+/// The comparison of `binom_reached` at precisions 128, 256, ... up to `max_bits`; `None` when none decides it.
+fn binom_decide(k: &Fl, n: &Fl, p: f64, alpha: f64, max_bits: u64) -> Option<bool> {
     let target = Rat::f(alpha);
     let upper = alpha > 0.5;
     let t_up = Rat::int(1).sub(&target);
     let e = -Fl::from_f64(p).low();
     let f = -Fl::from_f64(alpha).low();
-    let sep = n.to_f64() * e as f64;
-    let sep = sep.max(f as f64) + 64.0;
+    let sep = (n.to_f64() * e as f64).max(f as f64) as i64;
+    let gap = Fl::pow2(-sep);
     let mut bits = 128u64;
     loop {
         let r = with_prec(bits, || {
@@ -169,18 +177,22 @@ fn binom_reached(k: &Fl, n: &Fl, p: f64, alpha: f64) -> bool {
             if b.rad.is_zero() {
                 return Some(Rat::fl(b.mid.clone()).cmp(goal));
             }
-            if Rat::fl(b.lo()).cmp(goal) == Ordering::Greater {
+            let (lo, hi) = (b.lo(), b.hi());
+            if Rat::fl(lo.clone()).cmp(goal) == Ordering::Greater {
                 Some(Ordering::Greater)
-            } else if Rat::fl(b.hi()).cmp(goal) == Ordering::Less {
+            } else if Rat::fl(hi.clone()).cmp(goal) == Ordering::Less {
                 Some(Ordering::Less)
+            } else if hi.sub(&lo).cmp(&gap) == Ordering::Less {
+                // both the tail and the goal lie in [lo, hi], closer than any nonzero difference
+                Some(Ordering::Equal)
             } else {
                 None
             }
         });
         match r {
             // reached: P(X <= k) >= alpha, i.e. P(X > k) <= 1 - alpha on the upper side
-            Some(o) => return if upper { o != Ordering::Greater } else { o != Ordering::Less },
-            None if bits as f64 >= sep || bits >= 8192 => return true,
+            Some(o) => return Some(if upper { o != Ordering::Greater } else { o != Ordering::Less }),
+            None if bits >= max_bits => return None,
             None => bits *= 2,
         }
     }
@@ -188,24 +200,24 @@ fn binom_reached(k: &Fl, n: &Fl, p: f64, alpha: f64) -> bool {
 
 /// BINOM.INV: the smallest k in [0, n] with P(X <= k) >= alpha; `guess` is checked (k reached, k - 1 not) before a
 /// certified integer bisection is run.
-pub fn binom_inv(n: f64, p: f64, alpha: f64, guess: Option<f64>) -> f64 {
+pub fn binom_inv(n: f64, p: f64, alpha: f64, guess: Option<f64>) -> R {
     let nf = int(n);
     if let Some(g) = guess {
         let gf = int(g);
-        if binom_reached(&gf, &nf, p, alpha) && (g == 0.0 || !binom_reached(&gf.sub(&one()), &nf, p, alpha)) {
-            return g;
+        if binom_reached(&gf, &nf, p, alpha)? && (g == 0.0 || !binom_reached(&gf.sub(&one()), &nf, p, alpha)?) {
+            return Ok(g);
         }
     }
     let (mut lo, mut hi) = (0.0_f64, n);
     while lo < hi {
         let mid = lo + ((hi - lo) / 2.0).floor();
-        if binom_reached(&int(mid), &nf, p, alpha) {
+        if binom_reached(&int(mid), &nf, p, alpha)? {
             hi = mid;
         } else {
             lo = mid + 1.0;
         }
     }
-    lo
+    Ok(lo)
 }
 
 // ---------------------------------------------------------------- negative binomial
@@ -505,4 +517,30 @@ pub fn hypgeom_cdf(k: f64, n: f64, kk: f64, pop: f64) -> R {
             Val::Log(hyper_log_mass(&t, &k).add(&s))
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // (1/4)^10 == 2^-20, and 31 * 2^-20 = P(X <= 1) for Bin(10, 3/4) exceeds the double after 2^-20
+    #[test]
+    fn binom_inv_proves_an_exact_tie() {
+        let a = 2f64.powi(-20);
+        assert_eq!(binom_inv(10.0, 0.75, a, None), Ok(0.0));
+        assert_eq!(binom_inv(10.0, 0.75, f64::from_bits(a.to_bits() + 1), None), Ok(1.0));
+    }
+
+    // Exact rationals (Python fractions), p = 1/2 + 2^-53, alpha = 3/4 - 2^-53: P(X <= 1) = 1 - p^2 =
+    // alpha - 2^-106 (not reached; P(X > 1) is 2^-104 above 1 - alpha relatively, past the 2^-72 of 128 bits);
+    // p = 1/2 - 2^-54, alpha = 1/4 + 2^-54: P(X <= 0) = alpha + 2^-108 (reached).
+    #[test]
+    fn binom_reached_escalates_a_near_tie_and_never_assumes_it() {
+        let (p, a) = (0.5 + 2f64.powi(-53), 0.75 - 2f64.powi(-53));
+        let (k, n) = (int(1.0), int(2.0));
+        assert_eq!(binom_decide(&k, &n, p, a, 128), None);
+        assert_eq!(binom_decide(&k, &n, p, a, 256), Some(false));
+        assert_eq!(binom_inv(2.0, p, a, None), Ok(2.0));
+        assert_eq!(binom_decide(&int(0.0), &n, 0.5 - 2f64.powi(-54), 0.25 + 2f64.powi(-54), 256), Some(true));
+    }
 }
