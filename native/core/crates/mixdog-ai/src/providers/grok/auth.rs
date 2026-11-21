@@ -744,7 +744,7 @@ mod tests {
         assert!(error.reauth_required && error.message.starts_with("Grok OAuth is not connected"), "{}", error.message);
         assert_eq!(credential.user_id(), None, "the token served before the sign-out is no longer held");
 
-        std::fs::write(&path, "{ half").unwrap();
+        std::fs::write(&path, "[ half").unwrap();
         let error = credential.header().await.expect_err("an unreadable file brings the signed-out token back");
         assert!(error.message.contains("cannot be read"), "{}", error.message);
         assert_eq!(*endpoint.seen.lock().unwrap(), 1);
@@ -773,7 +773,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (signed_in_path, bound) = signed_in(&dir, 3_600_000);
         let unreadable = dir.path().join("unreadable.json");
-        std::fs::write(&unreadable, "{ half").unwrap();
+        std::fs::write(&unreadable, "[ half").unwrap();
         let moved = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let rt = mixdog_rt::testing::tokens();
         let io = crate::oauth::CredentialIo { read: rt.interactive_io, write: rt.durability_io };
@@ -912,7 +912,7 @@ mod tests {
             async move { credential.header().await }
         });
         endpoint.arrived.acquire().await.unwrap().forget();
-        std::fs::write(&path, "{ half").unwrap();
+        std::fs::write(&path, "[ half").unwrap();
         endpoint.gate.add_permits(3);
         let header = sending.await.unwrap().expect("the token the send read is still in date");
         assert!(header.is_some_and(|(_, value)| value == "Bearer a1"));
