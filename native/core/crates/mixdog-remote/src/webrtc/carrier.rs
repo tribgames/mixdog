@@ -30,7 +30,7 @@ use webrtc::peer_connection::PeerConnection;
 use super::config::BUFFER_HIGH_BYTES;
 use super::config::BUFFER_LOW_BYTES;
 use super::config::Candidate;
-use super::config::CandidatePath;
+use super::config::CandidatePair;
 use super::config::PeerConfig;
 use super::config::PeerFailure;
 use super::config::PeerFault;
@@ -82,11 +82,11 @@ pub enum CarrierEvent {
     Connected {
         remote_certificate: Option<RemoteCertificate>,
     },
-    /// Both channels are open. `max_message_size` is the SCTP transport's limit; `path` the
-    /// selected pair's path (direct, then TURN).
+    /// Both channels are open. `max_message_size` is the SCTP transport's limit; `pair` the
+    /// selected candidate pair (`None`: the stats named none).
     Open {
         max_message_size: Option<u32>,
-        path: Option<CandidatePath>,
+        pair: Option<CandidatePair>,
     },
     Message {
         channel: CarrierChannel,
@@ -356,12 +356,12 @@ async fn maybe_open(pc: &Arc<dyn PeerConnection>, gate: &mut Gate, emit: &impl F
     if !gate.ready() {
         return;
     }
-    let path = peer::selected_pair(pc.as_ref()).await.map(|pair| pair.path());
+    let pair = peer::selected_pair(pc.as_ref()).await;
     let max_message_size = match pc.sctp().await {
         Some(sctp) => sctp.max_message_size().await.ok(),
         None => None,
     };
-    emit(CarrierEvent::Open { max_message_size, path });
+    emit(CarrierEvent::Open { max_message_size, pair });
     gate.opened = true;
     gate.held_bytes = 0;
     for (channel, data) in std::mem::take(&mut gate.held) {

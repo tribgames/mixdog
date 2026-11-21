@@ -135,7 +135,8 @@ mod tests {
             format!(" {}", "word ".repeat(120)),
             "가나다 ".repeat(90),
         ];
-        let own = |raw: &str, max| if crate::session_text::is_session_preview_noise(raw) { String::new() } else { crate::title::clean_summary_preview(raw, max) };
+        let own =
+            |raw: &str, max| if crate::session_text::is_session_preview_noise(raw) { String::new() } else { crate::title::clean_summary_preview(raw, max) };
         for text in &texts {
             for role in ["user", "assistant", "tool"] {
                 let row = MessageRow::of(&json!({ "role": role, "content": text }));

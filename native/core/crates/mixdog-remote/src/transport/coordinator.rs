@@ -1100,7 +1100,14 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
     }
 
     /// [`Self::close_direct`] without its line, which the caller writes with [`Self::log_ended`].
-    fn end_direct(&mut self, connection_id: &str, close_reason: CloseReason, signal: bool, why: Option<PathReason>, detail: Option<&str>) -> Option<EndedAttempt> {
+    fn end_direct(
+        &mut self,
+        connection_id: &str,
+        close_reason: CloseReason,
+        signal: bool,
+        why: Option<PathReason>,
+        detail: Option<&str>,
+    ) -> Option<EndedAttempt> {
         if !self.live(connection_id) {
             return None;
         }

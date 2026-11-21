@@ -245,7 +245,7 @@ async fn a_carrier_connects_on_a_machine_that_refuses_the_mdns_socket() {
                     CarrierEvent::Candidate { candidate: Some(candidate), .. } => {
                         let _ = phone.pc.add_ice_candidate(candidate.into_init()).await;
                     }
-                    CarrierEvent::Open { path, .. } => break path,
+                    CarrierEvent::Open { pair, .. } => break pair.map(|pair| pair.path()),
                     CarrierEvent::Failed(fault) => panic!("carrier failed: {fault}"),
                     _ => {}
                 },
@@ -324,8 +324,8 @@ async fn carrier_connects_orders_events_and_moves_binary_both_ways() {
                         assert!(remote_certificate.is_some_and(|c| c.fingerprint_algorithm.starts_with("sha-")));
                         log.push("connected");
                     }
-                    CarrierEvent::Open { path, max_message_size } => {
-                        assert_eq!(path, Some(CandidatePath::Direct));
+                    CarrierEvent::Open { pair, max_message_size } => {
+                        assert_eq!(pair.map(|pair| pair.path()), Some(CandidatePath::Direct));
                         assert!(max_message_size.is_some_and(|size| size > 0));
                         log.push("open");
                         opened = true;

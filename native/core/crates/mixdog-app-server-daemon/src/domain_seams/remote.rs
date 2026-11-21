@@ -123,11 +123,14 @@ impl mixdog_exthost::VisualizePush for VisualizeNotifications {
     }
 }
 
+/// One line into the daemon log.
+pub type LogLine = Arc<dyn Fn(&str) + Send + Sync>;
+
 pub struct SectionEvents {
     cleanup: OnceLock<Arc<dyn DeviceCleanup>>,
     pc_access: OnceLock<Arc<dyn PcAccessEvents>>,
     app_feed: OnceLock<mixdog_core_config::config::Announcer>,
-    log: OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
+    log: OnceLock<LogLine>,
 }
 
 /// What the services holding a device's state drop when it is unpaired. Bound once they exist (they are built after the runtime).
@@ -146,7 +149,7 @@ impl SectionEvents {
     }
 
     /// The daemon log: each phone socket's close is written there with the code and reason the relay read.
-    pub fn bind_log(&self, log: Arc<dyn Fn(&str) + Send + Sync>) -> Result<(), &'static str> {
+    pub fn bind_log(&self, log: LogLine) -> Result<(), &'static str> {
         self.log.set(log).map_err(|_| "the daemon log is already bound")
     }
 
@@ -451,10 +454,7 @@ mod tests {
         events.phone_left("fedcba98", None, "");
         assert_eq!(
             *lines.lock().unwrap(),
-            [
-                "phone leg closed client=01234567 code=4000 reason=\"keepalive unanswered\"",
-                "phone leg closed client=fedcba98 code=none reason=\"\"",
-            ]
+            ["phone leg closed client=01234567 code=4000 reason=\"keepalive unanswered\"", "phone leg closed client=fedcba98 code=none reason=\"\"",]
         );
     }
 

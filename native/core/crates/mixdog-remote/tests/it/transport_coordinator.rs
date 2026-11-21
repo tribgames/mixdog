@@ -444,12 +444,8 @@ fn a_direct_path_that_keeps_failing_is_tried_less_and_less_often_and_each_failur
     }
     let gaps: Vec<u64> = starts.windows(2).map(|pair| pair[1] - pair[0]).collect();
     assert_eq!(gaps, [39_500, 79_000, 158_000, 316_000, 632_000, 632_000]);
-    let closes: Vec<String> = log
-        .borrow()
-        .effects
-        .iter()
-        .filter_map(|effect| effect["line"].as_str().filter(|line| line.contains("direct-closed")).map(str::to_owned))
-        .collect();
+    let closes: Vec<String> =
+        log.borrow().effects.iter().filter_map(|effect| effect["line"].as_str().filter(|line| line.contains("direct-closed")).map(str::to_owned)).collect();
     assert_eq!(closes.len(), starts.len(), "one line per attempt: {closes:#?}");
     for (index, line) in closes.iter().enumerate() {
         assert!(line.contains("reason=negotiation-timeout") && line.contains("opened=false"), "{line}");

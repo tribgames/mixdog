@@ -522,7 +522,13 @@ impl SummarySender for ChatWire {
         let mut builder = ResponseBuilder::new("m", ToolCallIds::new(&[]));
         events.into_iter().for_each(|event| builder.push(event));
         let response = builder.finish();
-        Ok(SummaryResponse { text: response.content, tool_call: !response.tool_calls.is_empty(), stop: response.stop, usage: None, input_excludes_cache: false })
+        Ok(SummaryResponse {
+            text: response.content,
+            tool_call: !response.tool_calls.is_empty(),
+            stop: response.stop,
+            usage: None,
+            input_excludes_cache: false,
+        })
     }
 }
 
