@@ -2010,6 +2010,30 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
+      # The Office engine measures a deck's text in the system's own fonts, and a deck that names none is in Calibri: without
+      # Calibri or its metric-compatible Carlito every text box is reported as unmeasurable (mixdog-exthost-worker
+      # tests/skill_office_engine.rs, the qc-pages scenario). Windows has Calibri; the Linux and macOS images have neither.
+      - name: Install Calibri's metric-compatible face (Linux)
+        if: matrix.os == 'linux'
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if sudo timeout -k 10 300 apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y -qq --no-install-recommends fonts-crosextra-carlito; then break; fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            echo "font install failed (attempt ${attempt}/3)" >&2
+            sudo timeout -k 10 120 apt-get -o Acquire::Retries=2 update -qq || true
+            sleep $((attempt * 5))
+          done
+      - name: Install Calibri's metric-compatible face (macOS)
+        if: matrix.os == 'macos'
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            brew install --cask font-carlito && break
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            echo "font-carlito install failed (attempt ${attempt}/3)" >&2
+            sleep $((attempt * 10))
+          done
       - name: Read the repository Rust toolchain
         id: rust-pin
         shell: bash
