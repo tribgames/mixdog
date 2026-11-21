@@ -1,15 +1,5 @@
 #!/usr/bin/env node
-// The check between `npm pack` and `npm publish` of the mixdog packages: what the tarballs hold, and that the launcher
-// of the packed `mixdog` starts the program of the packed platform package.
-//   node scripts/check-npm-packages.mjs --dir <folder with the .tgz files> [--platforms win32-x64,linux-x64,...] [--run [<key>]]
-//
-// Every platform package must hold exactly its programs (mixdog, mixdogd, mixdog-askpass), the Office templates beside
-// them and its package.json, at the release version, with the os and cpu npm uses to choose it. The main package must list
-// every platform package as an optional dependency at that same version and carry no native program of its own.
-// `--run` extracts the main package and the platform package of this machine (or of <key>) side by side, as npm's
-// hoisted layout puts them, and starts: `node bin/mixdog.mjs --help` (the launcher), `mixdogd --version` (it must report
-// the release version) and `mixdog-askpass` (exit 2, it is started with no endpoint), then checks the manifest the
-// launcher wrote beside the programs. Reading the tarballs needs no `tar` program: the layout is the same on every runner.
+// node scripts/check-npm-packages.mjs --dir <folder with the .tgz files> [--platforms win32-x64,linux-x64,...] [--run [<key>]]
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,

@@ -30,13 +30,7 @@ const PLATFORMS = Object.freeze(['darwin-arm64', 'darwin-x64', 'linux-arm64', 'l
 
 /** @typedef {{ match: (name: string, ctx: { tag: string, version: string }) => boolean, archive?: 'none'|'zip'|'tar.gz'|'gz', binNames?: string[] }} AssetSpec */
 
-/**
- * Embedded engine table. `optional` engines (mago, air) are dropped unless
- * every platform key resolves. Required engines omit a platform key when
- * upstream has no asset.
- *
- * @type {readonly object[]}
- */
+/** @type {readonly object[]} */
 const ENGINES = Object.freeze([
   {
     id: 'biome',

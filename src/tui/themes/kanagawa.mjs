@@ -1,6 +1,4 @@
 /**
- * src/tui/themes/kanagawa.mjs — Kanagawa (Wave).
- *
  * Source: rebelot/kanagawa.nvim "wave" — sumiInk3 #1F1F28 (bg),
  * fujiWhite #DCD7BA (fg), crystalBlue #7E9CD8 (signature accent),
  * oniViolet #957FB8, springGreen #98BB6C, carpYellow #E6C384,

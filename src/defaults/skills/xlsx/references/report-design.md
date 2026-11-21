@@ -6,14 +6,16 @@ or a small input correction does not need a presentation workflow.
 **Route.** Design a new report surface in HTML/CSS for the reader and data, then use `office action:'author'` (`references/html.md`). Raw-data and calculation sheets use native operations; one workbook may mix both. The archetypes and cell recipes below are optional examples, not required layouts or styling. Palette role names (`<ink>`, `<line>`, `<accent>`, and others) stand for colours the author chooses; native operations take six-digit hex without `#`.
 
 ## Example sheet structures
+
 Use, combine, or ignore these examples according to the workbook's purpose. Do not add sheets, metrics, cards, or charts merely to fill an archetype.
-| Archetype | Sheets | Surface | Route |
-|---|---|---|---|
-| KPI report | `Report` (title, 2-4 metric figures, one or two charts, a table, a sourced note), `Data`, optional `Calc`/`Checks` | designed: reading order, a dominant metric, chart beside table; concept `formal-report`, `data-dashboard`, or `editorial-magazine` | `Report` in HTML; `Data`/`Calc` native or `data-table` |
-| Tracker (status, tasks, pipeline) | one working sheet: an Excel table with a status column, filters, a few summary figures above | functional: frozen header, dropdown (`add_validation`) status, two-hue conditional format, a summary strip; concept `data-dashboard` or `quiet-minimal` | native (the table is the sheet); a summary strip may be HTML |
-| Financial model | `Inputs`, `Calc`, `Summary`, `Checks` | conventions, not decoration: input/formula/link colours, tie-outs (`model-conventions.md`); the `Summary` may be a designed report | native; `Summary` optionally HTML |
-| Data log / dump | one `Data` sheet | none: header row, formats, frozen header, autofilter; no title block, no charts unless asked; concept `quiet-minimal` at most | native only |
-| Form / intake | `Form` (legend, example row, entry cells), `Lists` (choices) | a printable entry sheet: labelled cells, validation, unlocked fill cells, protection (`model-conventions.md` §6); concept `form-intake` | native; the form's frame may be HTML |
+
+| Archetype                         | Sheets                                                                                                             | Surface                                                                                                                                                 | Route                                                        |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| KPI report                        | `Report` (title, 2-4 metric figures, one or two charts, a table, a sourced note), `Data`, optional `Calc`/`Checks` | designed: reading order, a dominant metric, chart beside table; concept `formal-report`, `data-dashboard`, or `editorial-magazine`                      | `Report` in HTML; `Data`/`Calc` native or `data-table`       |
+| Tracker (status, tasks, pipeline) | one working sheet: an Excel table with a status column, filters, a few summary figures above                       | functional: frozen header, dropdown (`add_validation`) status, two-hue conditional format, a summary strip; concept `data-dashboard` or `quiet-minimal` | native (the table is the sheet); a summary strip may be HTML |
+| Financial model                   | `Inputs`, `Calc`, `Summary`, `Checks`                                                                              | conventions, not decoration: input/formula/link colours, tie-outs (`model-conventions.md`); the `Summary` may be a designed report                      | native; `Summary` optionally HTML                            |
+| Data log / dump                   | one `Data` sheet                                                                                                   | none: header row, formats, frozen header, autofilter; no title block, no charts unless asked; concept `quiet-minimal` at most                           | native only                                                  |
+| Form / intake                     | `Form` (legend, example row, entry cells), `Lists` (choices)                                                       | a printable entry sheet: labelled cells, validation, unlocked fill cells, protection (`model-conventions.md` §6); concept `form-intake`                 | native; the form's frame may be HTML                         |
 
 ## Choose what the reader opens
 

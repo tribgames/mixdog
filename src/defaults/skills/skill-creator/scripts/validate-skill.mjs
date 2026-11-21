@@ -67,12 +67,8 @@ function checkReferencedResources(skillDir, body, errors, warnings) {
     if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
       errors.push(`Referenced resource escapes the skill directory: ${resource}.`);
     } else if (!existsSync(resourcePath)) {
-      // A skill that bundles no folder of that kind is usually naming a
-      // repository path (`scripts/build.js` of the target repo), which this
-      // validator cannot resolve; a missing file inside a bundled folder is
-      // a broken link.
-      const bundledKind = existsSync(resolve(skillDir, resource.split('/')[0]));
-      if (bundledKind) errors.push(`Referenced resource does not exist: ${resource}.`);
+      const skillBundlesFolder = existsSync(resolve(skillDir, resource.split('/')[0]));
+      if (skillBundlesFolder) errors.push(`Referenced resource does not exist: ${resource}.`);
       else
         warnings.push(
           `${resource} is not bundled with the skill; if it is a repository path, prefer a repo-relative form the reader can resolve, or bundle it.`
@@ -81,14 +77,7 @@ function checkReferencedResources(skillDir, body, errors, warnings) {
   }
 }
 
-export function validateSkillDirectory(inputPath) {
-  const loaded = loadSkillDocument(inputPath);
-  if (loaded.failure) return loaded.failure;
-  const { skillDir, parsed } = loaded;
-  const errors = [];
-  const warnings = [];
-
-  const { name, description, whenToUse, body, frontmatter } = parsed;
+function checkFrontmatterKeys(frontmatter, errors) {
   for (const key of Object.keys(frontmatter)) {
     if (!ALLOWED_FIELDS.has(key)) errors.push(`Unsupported frontmatter field: ${key}.`);
   }
@@ -103,11 +92,12 @@ export function validateSkillDirectory(inputPath) {
       }
     }
   }
+}
 
+function checkIdentityAndListing(skillDir, { name, description, whenToUse }, errors, warnings) {
   if (basename(skillDir) !== name) {
     errors.push(`Folder name "${basename(skillDir)}" must match skill name "${name}".`);
   }
-
   if (/[<>]/.test(description) || /[<>]/.test(whenToUse)) {
     errors.push('description and when_to_use cannot contain angle brackets.');
   }
@@ -126,6 +116,9 @@ export function validateSkillDirectory(inputPath) {
       'when_to_use is empty; the model sees only the name, not the UI description. Add selection conditions and relevant boundaries.'
     );
   }
+}
+
+function checkOptionalFrontmatter(frontmatter, errors) {
   if (frontmatter.compatibility != null) {
     if (typeof frontmatter.compatibility !== 'string') {
       errors.push('compatibility must be a string.');
@@ -139,17 +132,32 @@ export function validateSkillDirectory(inputPath) {
   ) {
     errors.push('metadata must be a mapping.');
   }
+}
+
+function checkBody(body, errors, warnings) {
   if (!body) errors.push('SKILL.md must contain non-empty instructions after frontmatter.');
   const fenceLines = body ? body.split('\n').filter((line) => /^ {0,3}(```|~~~)/.test(line)).length : 0;
   if (fenceLines % 2) {
     errors.push('SKILL.md has an unclosed code fence; every ``` must start its own line.');
   }
-
   const bodyLines = body ? body.split('\n').length : 0;
   if (bodyLines > 500) {
     warnings.push(`SKILL.md body has ${bodyLines} lines; progressive disclosure is recommended above 500.`);
   }
+}
 
+export function validateSkillDirectory(inputPath) {
+  const loaded = loadSkillDocument(inputPath);
+  if (loaded.failure) return loaded.failure;
+  const { skillDir, parsed } = loaded;
+  const errors = [];
+  const warnings = [];
+  const { name, description, whenToUse, body, frontmatter } = parsed;
+
+  checkFrontmatterKeys(frontmatter, errors);
+  checkIdentityAndListing(skillDir, parsed, errors, warnings);
+  checkOptionalFrontmatter(frontmatter, errors);
+  checkBody(body, errors, warnings);
   checkReferencedResources(skillDir, body, errors, warnings);
 
   return {
@@ -159,7 +167,6 @@ export function validateSkillDirectory(inputPath) {
     skill: name ? { name, description, whenToUse, directory: skillDir } : undefined,
   };
 }
-
 function runCli() {
   const result = validateSkillDirectory(process.argv[2]);
   for (const warning of result.warnings) console.warn(`WARNING: ${warning}`);

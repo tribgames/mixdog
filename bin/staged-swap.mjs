@@ -304,10 +304,6 @@ function waitLockClear(lock, alive, timeoutMs) {
   return !existsSync(lock);
 }
 
-/**
- * The installed package folder replaced by `pkgDir`. Only a complete package replaces it, and the backup is deleted only after the
- * package at its place is verified complete; a package that is not is swapped back out.
- */
 function swapIntoPlace({ packageRoot, pkgDir, version, host, verify }) {
   if (!/\/node_modules\/[^/]+$/.test(packageRoot.replace(/\\/g, '/'))) return { done: false };
   if (!packageComplete(pkgDir, host)) return { done: false };

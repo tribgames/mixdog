@@ -13,11 +13,6 @@ const SERVICE = 'mixdog';
 const KEYCHAIN_TIMEOUT_MS = Number(process.env.MIXDOG_KEYCHAIN_TIMEOUT_MS || 15000);
 const POWERSHELL_TIMEOUT_MS = KEYCHAIN_TIMEOUT_MS;
 
-// ---------------------------------------------------------------------------
-// getSecret read cache — decrypted secrets stay resident for this process by
-// default, avoiding repeated synchronous keychain subprocesses. An explicit
-// finite TTL can bound cross-process staleness; 0 disables the cache.
-// ---------------------------------------------------------------------------
 const KEYCHAIN_CACHE_TTL_MS = (() => {
   const value = Number(process.env.MIXDOG_KEYCHAIN_CACHE_TTL_MS);
   return Number.isFinite(value) && value >= 0 ? value : Number.POSITIVE_INFINITY;
@@ -26,10 +21,6 @@ const KEYCHAIN_CACHE_TTL_MS = (() => {
 const _secretCache = new Map();
 const _cacheGenerations = new Map();
 let _cacheEpoch = 0;
-// Told whenever what a read answers may have changed: a value set, deleted or
-// invalidated here, or a Linux keyring snapshot that loaded or changed values.
-// A read that only fills the cache changes no answer and stays silent. The
-// agent config's input epoch listens (shared/config.mjs).
 const _secretsChangedListeners = new Set();
 function _noteSecretsChanged() {
   for (const listener of [..._secretsChangedListeners]) {
@@ -44,10 +35,6 @@ function onSecretsChanged(listener) {
   _secretsChangedListeners.add(listener);
   return () => _secretsChangedListeners.delete(listener);
 }
-// A desktop process can create several session runtimes, and the preload path
-// also warms credentials before the first runtime exists. All callers share
-// this one process-wide operation so Windows never launches duplicate batch
-// DPAPI PowerShell hosts for the same startup.
 let _prewarmPromise = null;
 
 // The desktop's toast for a failing secret store, raised once per process
@@ -134,12 +121,7 @@ function platform() {
 }
 
 function run(cmd, args, opts) {
-  // windowsHide + stdio:['ignore','pipe','pipe'] keeps powershell.exe
-  // consoleless during DPAPI ops. Without these flags every keychain
-  // read/write flashes a conhost window: setup-html's loaders call
-  // /agent/config and /memory/auth, and each credential probe can trigger
-  // one powershell.exe spawn — users saw 8-15 console flashes during
-  // config-UI page load.
+  // windowsHide and piped stdio keep powershell.exe from opening a console window.
   // Default opts go BEFORE the spread so callers can still override.
   return spawnSync(cmd, args, {
     encoding: 'utf8',
@@ -169,15 +151,6 @@ function powershellEnv() {
 }
 
 function powershell(script, input = null) {
-  // Bound DPAPI PowerShell calls with a timeout: a hung powershell.exe
-  // (AV scan stall, profile loader, transient cert chain lookup) would
-  // otherwise block hook/server callers synchronously. The default is long
-  // enough for cold PowerShell startup on Windows without silently dropping
-  // setup UI credential saves.
-  // Resolve powershell.exe to its deterministic System32 location rather than
-  // a PATH lookup, so a shadow `powershell.exe` earlier in PATH cannot hijack
-  // secret encryption/decryption. (pwsh/PS7 is intentionally not used: it does
-  // not auto-load the ProtectedData assembly, so DPAPI silently fails there.)
   const exe = resolvePowershellExe();
   const profiled = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
   const startedAt = profiled ? Date.now() : 0;
@@ -299,9 +272,6 @@ function writeOwnerOnlyAtomicSync(file, text) {
 // darwin — security(1)
 // ---------------------------------------------------------------------------
 
-// Bound security(1) calls so a stuck Keychain prompt (locked keychain, GUI
-// unlock dialog with no display) cannot block hook/server callers forever —
-// matching the Windows DPAPI and Linux secret-tool timeouts.
 function darwinRun(args) {
   const r = run('security', args, { timeout: KEYCHAIN_TIMEOUT_MS });
   if (r.error && r.error.code === 'ETIMEDOUT') {
@@ -347,10 +317,6 @@ function spawnAsync(cmd, args) {
   });
 }
 
-// The warm-up's read of one account, awaited by the caller (so its child keeps
-// the process alive until it answers). An answer overtaken meanwhile by this
-// process (set, delete, invalidation) is dropped; a failure other than "not
-// found" caches nothing, leaving the account to its next foreground read.
 async function _readDarwin(account) {
   const generation = _cacheGenerations.get(account) || 0;
   const epoch = _cacheEpoch;
@@ -390,13 +356,7 @@ function darwinDelete(account) {
   if (r.status !== 0 && r.status !== 44) throw new Error(`[keychain] security delete failed: ${r.stderr || r.stdout}`);
 }
 
-// ---------------------------------------------------------------------------
-// linux/WSL — secret-tool (libsecret's command line for the Secret Service)
-// ---------------------------------------------------------------------------
-// Items carry the attributes service=<SERVICE> account=<account>, the pair
-// earlier keytar-based builds wrote, so credentials saved before stay
-// readable. Without secret-tool or a running Secret Service every call throws
-// with the fix: silent credential loss is not permitted.
+// linux/WSL: secret-tool. Items carry the attributes service and account, as earlier keytar-based builds wrote them.
 
 function secretToolHint() {
   return (
@@ -406,11 +366,6 @@ function secretToolHint() {
   );
 }
 
-// The secret travels on stdin, never argv or env. The child gets a minimal
-// env instead of process.env: the parent may hold *_API_KEY secrets in its own
-// environment, which would otherwise be visible via /proc/<pid>/environ for the
-// lifetime of this child. Only PATH resolution, locale, and the libsecret
-// D-Bus session bridge are passed through.
 function secretToolEnv() {
   const passthroughKeys = [
     'PATH',
@@ -442,11 +397,6 @@ function keychainDebug(what, detail) {
   if (process.env.MIXDOG_KEYCHAIN_DEBUG) console.error(`[keychain:debug] ${what}: ${String(detail).slice(0, 500)}`);
 }
 
-// A keychain failure that POSITIVELY means "this host has no usable provider"
-// (secret-tool or libsecret missing, no Secret Service on the bus) as opposed to
-// a keyring that exists but is locked, or any failure nobody recognises. Only
-// the former is served by the private secrets file (see "Linux fallback file");
-// a locked keyring must be unlocked, and an unknown error fails closed.
 const KEYRING_UNAVAILABLE = 'KEYRING_UNAVAILABLE';
 
 function keyringUnavailable(message) {
@@ -630,12 +580,6 @@ function linuxGetBlocking(account) {
   return null;
 }
 
-// Daemon-safe state. The synchronous read path NEVER spawns secret-tool on
-// Linux: a locked keyring would freeze the event loop for the whole timeout.
-// One bounded async `secret-tool search --all` snapshot (prewarmSecrets) fills
-// the read cache; afterwards an uncached account is simply absent. Until that
-// snapshot succeeds the sync read throws the actionable keyring error (callers
-// already treat a throw as "no stored key") and a retry is scheduled lazily.
 const LINUX_PREWARM_TIMEOUT_MS = Number(process.env.MIXDOG_KEYCHAIN_PREWARM_TIMEOUT_MS || 4000);
 const LINUX_PREWARM_RETRY_MS = Number(process.env.MIXDOG_KEYCHAIN_RETRY_MS || 5000);
 // An explicit "Unlock keyring" waits on the user typing a password.
@@ -687,14 +631,8 @@ function _scheduleLinuxBackgroundRetry() {
   _linuxBgTimer.unref?.();
 }
 
-// Passive access to the Secret Service over D-Bus. Unlike secret-tool (whose
-// lookup/search raises GNOME's "Authentication required" prompt as soon as a
-// MATCHING item sits in a locked collection) SearchItems never prompts: it
-// answers with the matching item paths split into unlocked and locked ones.
-// Only Mixdog's own items matter — a locked collection that holds none of them
-// (e.g. the login keyring next to an unlocked default one) is irrelevant.
-// 'unknown' (null) means no gdbus / service unreachable / unparsable; passive
-// callers must treat it as "do not run secret-tool".
+// Unlike secret-tool lookup/search, which prompts as soon as a matching item sits in a locked collection, the D-Bus SearchItems call
+// never prompts: it returns the matching item paths split into unlocked and locked ones.
 let _gdbusMissing = false;
 const SECRETS_DEST = 'org.freedesktop.secrets';
 const SECRETS_ROOT = '/org/freedesktop/secrets';
@@ -824,13 +762,8 @@ function linuxGet(account) {
   );
 }
 
-// `secret-tool search --all` splits its report across streams: header, label,
-// secret, created/modified and schema go to stdout while the attribute.* lines
-// go to stderr (observed on GNOME). Pairing items across the split is
-// unreliable, so the search is only used to DISCOVER account names (the
-// attribute.account lines of either stream); values come from per-account
-// `lookup`. The discovered count must match the item count, otherwise the
-// snapshot could be silently incomplete and is rejected.
+// `secret-tool search --all` prints attribute.* lines on stderr and the rest on stdout (observed on GNOME), so it only discovers
+// account names; values come from per-account `lookup`.
 function parseSecretToolSearchAccounts(stdout, stderr) {
   const text = `${String(stdout || '')}\n${String(stderr || '')}`;
   const accounts = new Set();
@@ -853,16 +786,7 @@ function parseSecretToolSearchAccounts(stdout, stderr) {
   }
   return [...accounts];
 }
-// Which accounts to read, and whether Mixdog items are stuck in a locked
-// collection. Passive reads never prompt: SearchItems says which items are
-// unlocked, and only those are read. secret-tool is used only where that cannot
-// prompt without the user asking: to list accounts when no Mixdog item exists
-// at all (this also proves the tool is installed), and — for an explicit
-// `interactive` unlock — `search --unlock`, which is what raises the prompt
-// (a plain search lists locked items without attributes and never asks).
-// Its listing is not used: attributes and secrets arrive split across stdout
-// and stderr and one stale item makes the whole command fail, so the unlocked
-// items are listed through D-Bus again afterwards.
+// `secret-tool search --unlock` is what raises the unlock prompt; a plain search lists locked items without attributes and never asks.
 async function _linuxAccountsToRead(interactive, remaining) {
   let found = await searchMixdogItems();
   if (found === null && !interactive) {
@@ -899,23 +823,68 @@ async function _linuxAccountsToRead(interactive, remaining) {
   }
   return { accounts: [...new Set(names.filter(Boolean))], lockedLeft: found.locked.length > 0 };
 }
+function _linuxDeadline(interactive) {
+  const deadline = Date.now() + (interactive ? LINUX_INTERACTIVE_TIMEOUT_MS : LINUX_PREWARM_TIMEOUT_MS);
+  return () => {
+    const ms = deadline - Date.now();
+    if (ms <= 0) {
+      const error = new Error(LINUX_LOCKED_MESSAGE);
+      error.detail = 'prewarm deadline exceeded';
+      throw error;
+    }
+    return ms;
+  };
+}
+
+function _replaceCacheFromSnapshot(fresh, generations, lockedLeft) {
+  const prefix = `${SERVICE}\0`;
+  let changed = false;
+  // Mixdog items in a locked collection cannot be listed: a cached account the
+  // readable items no longer show may live there, so nothing is dropped.
+  for (const key of lockedLeft ? [] : [..._secretCache.keys()]) {
+    if (!key.startsWith(prefix)) continue;
+    const account = key.slice(prefix.length);
+    if ((_cacheGenerations.get(account) || 0) !== (generations.get(account) || 0)) continue;
+    if (!fresh.has(account)) {
+      _secretCache.delete(key);
+      changed = true;
+    }
+  }
+  for (const [account, value] of fresh) {
+    if ((_cacheGenerations.get(account) || 0) !== (generations.get(account) || 0)) continue;
+    if (_cacheGet(account) !== value) changed = true;
+    _cacheSet(account, value);
+  }
+  return changed;
+}
+
+function _markLinuxSnapshotLoaded(changed) {
+  _linuxSnapshotAt = Date.now();
+  const firstLoad = !_linuxLoaded();
+  _linuxLoadedUntil =
+    KEYCHAIN_CACHE_TTL_MS === Number.POSITIVE_INFINITY ? Number.POSITIVE_INFINITY : Date.now() + KEYCHAIN_CACHE_TTL_MS;
+  if (changed || firstLoad) _noteSecretsChanged();
+  _linuxLastFailureAt = 0;
+  const recovered = _keychainStatus.state !== 'ok' && _keychainStatus.state !== 'unknown';
+  _noteKeychainOk();
+  if (recovered) {
+    for (const listener of [..._recoveryListeners]) {
+      try {
+        listener();
+      } catch {
+        /* listener failures must not break keyring recovery */
+      }
+    }
+  }
+}
+
 async function _prewarmLinuxOnce() {
   _linuxPrewarmInFlight = true;
   const interactive = _interactiveUnlock;
   _linuxPrewarmInteractive = interactive;
   try {
     if (KEYCHAIN_CACHE_TTL_MS === 0) return;
-    // One deadline covers the search AND every per-account lookup.
-    const deadline = Date.now() + (interactive ? LINUX_INTERACTIVE_TIMEOUT_MS : LINUX_PREWARM_TIMEOUT_MS);
-    const remaining = () => {
-      const ms = deadline - Date.now();
-      if (ms <= 0) {
-        const error = new Error(LINUX_LOCKED_MESSAGE);
-        error.detail = 'prewarm deadline exceeded';
-        throw error;
-      }
-      return ms;
-    };
+    const remaining = _linuxDeadline(interactive);
     const epoch = _cacheEpoch;
     const generations = new Map(_cacheGenerations);
     const { accounts, lockedLeft } = await _linuxAccountsToRead(interactive, remaining);
@@ -926,70 +895,24 @@ async function _prewarmLinuxOnce() {
       if (value !== null) values.push([account, value]);
     }
     if (_cacheEpoch !== epoch) return;
-    // Replace, not merge: values the keyring now holds overwrite the cache and
-    // cached accounts the keyring no longer has are dropped, so external CLI /
-    // other-process add, replace and delete are picked up. A same-process
-    // set/delete that ran meanwhile bumped the account's generation and wins.
-    const fresh = new Map(values);
-    const prefix = `${SERVICE}\0`;
-    let changed = false;
-    // Mixdog items in a locked collection cannot be listed: a cached account the
-    // readable items no longer show may live there, so nothing is dropped.
-    for (const key of lockedLeft ? [] : [..._secretCache.keys()]) {
-      if (!key.startsWith(prefix)) continue;
-      const account = key.slice(prefix.length);
-      if ((_cacheGenerations.get(account) || 0) !== (generations.get(account) || 0)) continue;
-      if (!fresh.has(account)) {
-        _secretCache.delete(key);
-        changed = true;
-      }
-    }
-    for (const [account, value] of fresh) {
-      if ((_cacheGenerations.get(account) || 0) !== (generations.get(account) || 0)) continue;
-      if (_cacheGet(account) !== value) changed = true;
-      _cacheSet(account, value);
-    }
+    const changed = _replaceCacheFromSnapshot(new Map(values), generations, lockedLeft);
     _linuxSnapshotChanged = changed;
     if (lockedLeft) {
-      // The readable items are cached; the rest of the keyring still needs an
-      // unlock, so the status stays locked and uncached accounts keep throwing
-      // that error instead of reading as absent.
       const error = new Error(LINUX_LOCKED_MESSAGE);
       error.detail = 'Mixdog items sit in a locked collection (passive search)';
       if (changed) _noteSecretsChanged();
       throw error;
     }
-    _linuxSnapshotAt = Date.now();
-    // Before a snapshot every Linux read throws; after it, reads answer.
-    const firstLoad = !_linuxLoaded();
-    _linuxLoadedUntil =
-      KEYCHAIN_CACHE_TTL_MS === Number.POSITIVE_INFINITY
-        ? Number.POSITIVE_INFINITY
-        : Date.now() + KEYCHAIN_CACHE_TTL_MS;
-    if (changed || firstLoad) _noteSecretsChanged();
-    _linuxLastFailureAt = 0;
-    const recovered = _keychainStatus.state !== 'ok' && _keychainStatus.state !== 'unknown';
-    _noteKeychainOk();
-    if (recovered) {
-      for (const listener of [..._recoveryListeners]) {
-        try {
-          listener();
-        } catch {
-          /* listener failures must not break keyring recovery */
-        }
-      }
-    }
+    _markLinuxSnapshotLoaded(changed);
   } catch (error) {
     _linuxLastFailureAt = Date.now();
     _noteKeychainFailure(error);
-    // Allow a later lazy retry once the cool-down passes.
     _prewarmPromise = null;
     _scheduleLinuxBackgroundRetry();
   } finally {
     _linuxPrewarmInFlight = false;
   }
 }
-
 function linuxSet(account, value) {
   const r = secretTool(['store', `--label=${SERVICE} ${account}`, 'service', SERVICE, 'account', account], value);
   if (r.status !== 0) throw secretToolFailure('store', r);
@@ -1024,11 +947,7 @@ async function linuxDeleteAsync(account) {
 // win32 — DPAPI via PowerShell
 // ---------------------------------------------------------------------------
 
-// Add-Type loads System.Security on PS 5.1 hosts where the assembly is not
-// auto-loaded — ProtectedData/DataProtectionScope resolve to TypeNotFound
-// otherwise, and the host returns exit 0 with empty stdout, which then falls
-// through win32Set's empty-output guard. PS 7+ already has the type loaded;
-// SilentlyContinue covers the benign "already loaded" case on repeat calls.
+// On PS 5.1 Add-Type loads System.Security; without it ProtectedData is TypeNotFound and the host exits 0 with empty stdout.
 const PS_PROTECT = [
   'Add-Type -AssemblyName System.Security -ErrorAction SilentlyContinue;',
   '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;',
@@ -1067,13 +986,8 @@ function win32Get(account) {
   return out;
 }
 
-// Batch DPAPI decrypt used by prewarmSecrets: ONE PowerShell host decrypts
-// every ciphertext. Windows CreateProcess for powershell.exe is a SYNCHRONOUS
-// multi-hundred-ms operation on the calling thread (AV scanning), so the old
-// per-secret spawn fan-out froze the caller's event loop for N x spawn cost —
-// observed as a ~5s desktop boot stall with near-zero CPU. Accounts and
-// ciphertexts travel via stdin (never interpolated into the script); decrypted
-// values return base64-wrapped so arbitrary secret bytes survive the pipe.
+// powershell.exe CreateProcess is a synchronous multi-hundred-ms call (AV scanning), so one host decrypts every ciphertext.
+// Accounts and ciphertexts travel via stdin; values return base64-wrapped.
 const PS_UNPROTECT_BATCH = [
   'Add-Type -AssemblyName System.Security -ErrorAction SilentlyContinue;',
   '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;',
@@ -1192,12 +1106,6 @@ async function retryKeychain({ interactive = false } = {}) {
   }
   return _keychainStatus.state === 'ok';
 }
-// A burst of presence checks in one synchronous run (every provider asked at
-// session start) costs one stat per account, not one each, on the main thread.
-// No event from another process can be observed before the run ends, so the
-// answer is never older than anything the caller could know of; it is dropped
-// at the run's end by a microtask (never by a clock) and by this module's own
-// writes.
 const _dpapiExists = new Map();
 function _dpapiNote(account, exists) {
   if (_dpapiExists.size === 0) queueMicrotask(() => _dpapiExists.clear());
@@ -1233,20 +1141,10 @@ function win32Delete(account) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Linux fallback file — headless hosts without a usable keychain provider
-// ---------------------------------------------------------------------------
-// When secret-tool/libsecret is missing or no Secret Service is running (a
-// headless SSH server, WSL), a secret is kept in `<dataDir>/secrets/
-// <account>.secret`: one owner-only (0600) file per account in an owner-only
-// (0700) directory, written atomically. Never in mixdog-config.json. A read
-// re-verifies that layout (no symlink, regular file, this user's, no group/other
-// access) and treats a store that fails it as absent. A locked keyring is NOT
-// such a host — it fails with its unlock message instead.
-// Order: the keychain is always tried first and wins when it has the account;
-// the file is read only when the keychain has nothing (or cannot be read), so a
-// value saved here stays readable after a keychain becomes available, and a
-// later save into an available keychain supersedes (and removes) the file value.
+// Linux fallback file: without a usable keychain provider (headless SSH host, WSL) a secret lives in `<dataDir>/secrets/<account>.secret`,
+// one owner-only (0600) file per account in an owner-only (0700) directory, written atomically. A read re-verifies that layout and
+// treats a store that fails it as absent. A locked keyring is not such a host. The keychain is tried first and wins when it has the
+// account; a later save into an available keychain supersedes and removes the file value.
 
 function usesFallback(error) {
   return platform() === 'linux' && error?.code === KEYRING_UNAVAILABLE;
@@ -1269,22 +1167,12 @@ function groupOrOtherAccessible(stat) {
   return typeof process.getuid === 'function' && (stat.mode & 0o077) !== 0;
 }
 
-// Why a stat (an lstat/fstat of the store directory, or of an account file)
-// disqualifies it, as the repair it needs: 'type' (a symlink or not a regular
-// file/directory: remove it), 'owner' (someone else's: chown it), 'permissions'
-// (group/other can reach it: chmod it); null when it is fine.
 function unsafeKind(stat, directory) {
   if (directory ? !stat.isDirectory() : !stat.isFile()) return 'type';
   if (!ownedByUser(stat)) return 'owner';
   return groupOrOtherAccessible(stat) ? 'permissions' : null;
 }
 
-// The verified secrets directory, or null when absent and not `create`d. A
-// pre-existing symlink, a non-directory, or a directory owned by someone else is
-// refused: following it would chmod and write outside the data dir. lstat does
-// not follow links, so a symlink never passes isDirectory(). `create` repairs
-// the mode itself (chmod 0700); a reader passes `requirePrivate` and refuses a
-// directory that group/other can reach instead.
 function fallbackDir({ create = false, requirePrivate = false } = {}) {
   const dir = secretsDir();
   let before;
@@ -1312,12 +1200,6 @@ function fallbackDir({ create = false, requirePrivate = false } = {}) {
   return dir;
 }
 
-// A stored value is served only from a private regular file owned by this user.
-// The file is opened without following a symlink (O_NOFOLLOW; ELOOP means it is
-// one) and without blocking on a FIFO (O_NONBLOCK), then judged by fstat on the
-// descriptor that is actually read, so nothing can be swapped in between check
-// and read. Anything else reads as absent: the EUNSAFE reason is thrown like the
-// directory's, and callers that tolerate a failed read treat it as "no secret".
 function fallbackGet(account) {
   if (platform() !== 'linux') return null;
   if (fallbackDir({ requirePrivate: true }) === null) return null;
@@ -1341,12 +1223,6 @@ function fallbackGet(account) {
   }
 }
 
-// Passive health check for the status path: `{ dir, kind }` when the store has a
-// layout fallbackGet refuses (so its keys read as absent), else null. The read
-// path swallows that refusal when the keychain also failed, so without this the
-// user would see a bare "No key". Every call scans the directory afresh, so an
-// external repair shows at once; callers that need it for many rows ask once
-// (provider setup passes the one answer down).
 function fallbackUnsafeStore() {
   if (platform() !== 'linux') return null;
   const dir = secretsDir();
@@ -1475,11 +1351,6 @@ function getSecret(account) {
     return stored;
   }
   _cacheSet(account, value);
-  // A Windows read that found no DPAPI file is remembered for the rest of
-  // this synchronous run only (the memo dpApiFileExists keeps): every provider
-  // check of one config load asks again, and each ask is a main-thread disk
-  // access. It is not kept beyond the run: a file another program writes
-  // without the secrets marker would otherwise stay invisible for good.
   if (value == null && platform() === 'win32') _dpapiNote(account, false);
   return value ?? fallbackGet(account);
 }
@@ -1515,10 +1386,6 @@ function setSecret(account, value) {
     throw error;
   } finally {
     _cacheInvalidate(account);
-    // A Linux read is cache-only, and a macOS read of a key just stored here
-    // should not respawn security(1), so a fresh keychain write stays cached.
-    // A file-only value is not cached: reads reach it through the file, and
-    // the cache then means "the keychain holds this".
     if (stored && !viaFile && (platform() === 'linux' || platform() === 'darwin')) _cacheSet(account, value);
   }
 }

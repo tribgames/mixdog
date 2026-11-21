@@ -106,7 +106,9 @@ const MODELS = [
 ];
 // --render redraws the table/heatmap from results.json without measuring.
 const renderOnly = args.includes('--render');
-const only = argOf('--models')?.split(',').map((s) => s.trim().toLowerCase());
+const only = argOf('--models')
+  ?.split(',')
+  .map((s) => s.trim().toLowerCase());
 const selected = renderOnly
   ? []
   : only
@@ -116,7 +118,11 @@ const selected = renderOnly
 const corpus = Object.fromEntries(
   LANGS.map(([lang, code]) => [
     lang,
-    readFileSync(join(DATA, `${code}.devtest`), 'utf8').split(/\r?\n/).filter(Boolean).slice(0, N).join('\n'),
+    readFileSync(join(DATA, `${code}.devtest`), 'utf8')
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .slice(0, N)
+      .join('\n'),
   ])
 );
 

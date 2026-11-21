@@ -1,18 +1,6 @@
 #!/usr/bin/env node
-// The per-job early check of a lane's receipts (the aggregate proof is scripts/ci/coverage/reconcile.mjs, docs/testing.md, "Release
-// coverage"). It exists so a job that skipped something unreviewed fails where it ran, and so a pull request, which has no full
-// reconciliation, still fails an unreviewed skip. It credits nothing: it never decides that a test ran, and it does not look at a
-// listing or a profile. Two things are checked and both fail closed:
-//
-//   1. Every named receipt exists and is intact evidence (scripts/ci/receipt.mjs): complete, exit 0, the trailer binds its records.
-//      A receipt not named is not expected, and one named that is absent is an invocation that did not run.
-//   2. Every skipped, todo or ignored observation has an exact reviewed exception (scripts/ci/coverage/exceptions.json) for its case,
-//      this platform, its kind and its reason code. A skipped suite has no exception form (its children are never reported), so it fails.
-//
-//   node scripts/ci/check-skips.mjs receipts <receipt.json>...      (`--strict`: no skip at all, for an invocation that checks what a
-//                                                                     prepared environment holds)
+//   node scripts/ci/check-skips.mjs receipts <receipt.json>...      (`--strict`: no skip at all)
 //   node scripts/ci/check-skips.mjs matches <list.json>             exit 0 when the nextest list has a test that matches its filter
-//                                                                     (a step that runs a filter only where its crate is built)
 import { readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 

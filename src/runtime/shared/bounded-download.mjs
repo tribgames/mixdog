@@ -52,20 +52,9 @@ export async function readResponseBuffer(response, { maxBytes, label = 'download
   return Buffer.concat(chunks, total);
 }
 
-export async function streamResponseToFile(
-  response,
-  destPath,
-  { maxBytes, expectedBytes = 0, label = 'download', onProgress = null, signal = undefined } = {}
-) {
-  const { maximum, expected } = downloadBounds(maxBytes, expectedBytes, label);
-  const advertised = responseByteLength(response, maximum, label);
-  if (expected && advertised && advertised !== expected) {
-    throw new Error(`${label}: expected ${expected} bytes, server advertised ${advertised}`);
-  }
-
+function sizeGuard({ maximum, expected, label, onProgress, progressTotal }) {
   let downloaded = 0;
   let lastProgressAt = 0;
-  const progressTotal = advertised || expected || 0;
   const emitProgress = (force = false) => {
     if (typeof onProgress !== 'function') return;
     const now = Date.now();
@@ -73,7 +62,7 @@ export async function streamResponseToFile(
     lastProgressAt = now;
     onProgress({ downloaded, total: progressTotal });
   };
-  const guard = new Transform({
+  const stream = new Transform({
     transform(chunk, _encoding, callback) {
       downloaded += chunk.length;
       if (downloaded > maximum) {
@@ -92,12 +81,26 @@ export async function streamResponseToFile(
       callback();
     },
   });
+  return { stream, downloaded: () => downloaded };
+}
+
+export async function streamResponseToFile(
+  response,
+  destPath,
+  { maxBytes, expectedBytes = 0, label = 'download', onProgress = null, signal = undefined } = {}
+) {
+  const { maximum, expected } = downloadBounds(maxBytes, expectedBytes, label);
+  const advertised = responseByteLength(response, maximum, label);
+  if (expected && advertised && advertised !== expected) {
+    throw new Error(`${label}: expected ${expected} bytes, server advertised ${advertised}`);
+  }
+  const guard = sizeGuard({ maximum, expected, label, onProgress, progressTotal: advertised || expected || 0 });
 
   try {
     // flush: the bytes reach disk before the caller installs the file, so a
     // crash cannot leave an installed binary that is all NUL.
-    await pipeline(response.body, guard, createWriteStream(destPath, { flush: true }), { signal });
-    return downloaded;
+    await pipeline(response.body, guard.stream, createWriteStream(destPath, { flush: true }), { signal });
+    return guard.downloaded();
   } catch (error) {
     try {
       rmSync(destPath, { force: true });

@@ -1,19 +1,6 @@
-// The interpreter a built-in skill's bundled scripts run on.
-//
-// `${MIXDOG_SKILL_DIR}` is a real directory every process can read, but the
-// pptx scripts import the runtime by relative path (../../../../runtime/...)
-// and its native dependencies (sharp, @napi-rs/canvas, pdf.js). A packaged
-// desktop keeps those only inside runtime.asar, which plain Node cannot open,
-// so `node "<dir>/scripts/x.mjs"` works from an npm install and fails there.
-//
-// So the daemon that runs the model's shells hands them its OWN runtime: a
-// per-installation directory, first on every model shell's PATH, holds
-// `mixdog-skill-node` launchers that run this process's executable (Electron
-// in node mode, or node) on src/skill-script-entry.mjs, which maps the script
-// back into the archive before importing it. Each daemon builds its own shell
-// env, so an SSH-remote or mobile session gets its execution host's runtime.
-// Launchers carry two paths and nothing else: no credentials, no daemon
-// identity.
+// A packaged desktop keeps the skill scripts' runtime imports only inside runtime.asar, which plain Node cannot
+// open; `mixdog-skill-node` launchers run this process's executable on src/skill-script-entry.mjs, which maps the
+// script back into the archive.
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';

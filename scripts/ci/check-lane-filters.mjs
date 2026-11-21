@@ -1,23 +1,13 @@
 #!/usr/bin/env node
-// Checks the lanes of scripts/rust-core/k1-lanes.mjs (what release.yml `rust-lanes` runs) against the tests the workspace
-// really compiles: the nextest list of the archive `core-build` makes (release-gate.yml, job `core-tests`, step "Check that
-// every lane filter selects a test"). A lane that selects no un-ignored test would fail `rust-lanes` after the packagers
-// have started; this fails the gate first. The names come from the compiled test binaries, so module declarations, `#[path]`,
-// renamed modules and gating inherited from an ancestor module are already resolved; nothing is derived from file names.
-//
-// How a filter is matched. `cargo test -p <pkg> <filter>` passes <filter> to each test binary of the package (the lib, every
-// integration test, every bin), and libtest, without --exact, runs the tests whose full name CONTAINS <filter> as a
-// substring (name = module path + function, as `--list` prints it), skipping `#[ignore]`d ones. nextest builds its list from
-// the same `--list` output of the same binaries, so a testcase key in its JSON is the same string; "ignored" is the
-// #[ignore] flag. The check is therefore: some un-ignored testcase of some suite of package <pkg> whose key contains <filter>
-// (a lane with no filter: any un-ignored testcase of the package). Doc tests are not in the nextest list (and no lane
-// names one). Features: the archive is built with the workspace's features and `-p <pkg>` with the package's; the workspace
-// hack keeps them equal, and a mismatch would show here as a lane that selects fewer tests, not more.
+// `cargo test -p <pkg> <filter>` passes <filter> to each test binary of the package, and libtest, without --exact, runs the tests whose
+// full name (module path + function, as `--list` prints it) CONTAINS <filter>, skipping `#[ignore]`d ones. nextest lists the same names,
+// so a lane passes when some un-ignored testcase of package <pkg> has a key containing <filter> (no filter: any un-ignored testcase).
+// Doc tests are not in the nextest list.
 //
 // Usage: node scripts/ci/check-lane-filters.mjs <nextest-list.json> [--allow-missing-packages]
 //   (cargo nextest list --archive-file core-tests.tar.zst --workspace-remap native/core --message-format json > list.json)
-// A pull request archives only the changed crates and what depends on them: --allow-missing-packages skips a lane whose
-// package is not in the archive; without it a missing package fails.
+// --allow-missing-packages skips a lane whose package is not in the archive (a pull request archives only changed crates); without it a
+// missing package fails.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 

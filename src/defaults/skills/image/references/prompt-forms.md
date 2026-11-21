@@ -19,12 +19,12 @@ Avoid: no logos, no watermarks; plus no text / no faces when the use calls for i
 
 ## Anti-patterns
 
-| Pattern | Why it fails | Instead |
-|---|---|---|
-| keyword soup (`beautiful, stunning, 8k, trending`) | tag piles read as noise | narrative sentences: subject + attributes + relations |
-| quality tokens (`masterpiece`, `ultra-detailed`) | do nothing visible | lens, light, and framing language |
-| precision specs (`85mm f/1.2`, `5600K`) | read loosely | perceptual terms: `medium close-up`, `warm tungsten` |
-| contradictory constraints (`minimal` + twelve objects) | some get dropped silently | one intent per line |
+| Pattern                                                | Why it fails              | Instead                                               |
+| ------------------------------------------------------ | ------------------------- | ----------------------------------------------------- |
+| keyword soup (`beautiful, stunning, 8k, trending`)     | tag piles read as noise   | narrative sentences: subject + attributes + relations |
+| quality tokens (`masterpiece`, `ultra-detailed`)       | do nothing visible        | lens, light, and framing language                     |
+| precision specs (`85mm f/1.2`, `5600K`)                | read loosely              | perceptual terms: `medium close-up`, `warm tungsten`  |
+| contradictory constraints (`minimal` + twelve objects) | some get dropped silently | one intent per line                                   |
 
 ## Edit brief
 
@@ -39,13 +39,13 @@ A removal is written as what replaces it ("show the continuous desk grain where 
 
 ## Aspect by destination
 
-| Destination | Aspect |
-|---|---|
+| Destination                          | Aspect                                                                                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | a frame in a deck, document, or page | the frame's ratio (full-bleed 16:9 → `16:9`; side panel → `9:16` / `3:4`; square figure → `1:1`), cropped by the placement, never stretched |
-| landing hero, wide banner | landscape `16:9` or `3:2` |
-| mobile hero, story | portrait `9:16` |
-| OG / social share card | the listed aspect closest to 1.91:1 |
-| icon, avatar, texture, tile | `1:1` |
-| a still for a video clip | the clip's aspect |
+| landing hero, wide banner            | landscape `16:9` or `3:2`                                                                                                                   |
+| mobile hero, story                   | portrait `9:16`                                                                                                                             |
+| OG / social share card               | the listed aspect closest to 1.91:1                                                                                                         |
+| icon, avatar, texture, tile          | `1:1`                                                                                                                                       |
+| a still for a video clip             | the clip's aspect                                                                                                                           |
 
 When sizes are listed instead of aspects, pass the closest size.

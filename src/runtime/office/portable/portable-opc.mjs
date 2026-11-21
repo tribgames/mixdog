@@ -26,6 +26,41 @@ function templateTokenMatches(text) {
   }));
 }
 
+async function fillPartTokens(zip, part, tag, tokens, particles, replace, filled) {
+  let xml = await zipText(zip, part);
+  let changed = false;
+  const text = particles.length ? paragraphTexts(xml, tag).join('') : '';
+  for (const entry of particles) {
+    if (!text.includes(entry.find)) continue;
+    const replaced = replace(xml, tag, entry.find, entry.replace);
+    if (!replaced.count) continue;
+    xml = replaced.xml;
+    changed = true;
+    filled[entry.key] = (filled[entry.key] || 0) + replaced.count;
+  }
+  const variants = new Map(
+    templateTokenMatches(paragraphTexts(xml, tag).join('')).map((match) => [match.raw, match.key])
+  );
+  for (const [raw, key] of variants) {
+    if (!Object.hasOwn(tokens, key)) continue;
+    const replaced = replace(xml, tag, raw, String(tokens[key] ?? ''));
+    if (!replaced.count) continue;
+    xml = replaced.xml;
+    changed = true;
+    filled[key] = (filled[key] || 0) + replaced.count;
+  }
+  if (changed) zip.file(part, xml);
+}
+
+async function unfilledTokenKeys(zip, parts, tag) {
+  const remaining = new Set();
+  for (const part of parts) {
+    const xml = await zipText(zip, part);
+    for (const match of templateTokenMatches(paragraphTexts(xml, tag).join(''))) remaining.add(match.key);
+  }
+  return [...remaining].sort();
+}
+
 export async function fillTemplateParts(zip, parts, tag, operation, { replace = replaceAcrossRuns } = {}) {
   const tokens = operation.tokens;
   if (!tokens || typeof tokens !== 'object' || Array.isArray(tokens)) {
@@ -33,43 +68,11 @@ export async function fillTemplateParts(zip, parts, tag, operation, { replace = 
   }
   const filled = {};
   const particles = koreanParticleReplacements(tokens);
-  for (const part of parts) {
-    let xml = await zipText(zip, part);
-    let changed = false;
-    // The token with the particle written after it first, so "{{company}}은" lands as 모아페이는.
-    const text = particles.length ? paragraphTexts(xml, tag).join('') : '';
-    for (const entry of particles) {
-      if (!text.includes(entry.find)) continue;
-      const replaced = replace(xml, tag, entry.find, entry.replace);
-      if (!replaced.count) continue;
-      xml = replaced.xml;
-      changed = true;
-      filled[entry.key] = (filled[entry.key] || 0) + replaced.count;
-    }
-    const variants = new Map(
-      templateTokenMatches(paragraphTexts(xml, tag).join('')).map((match) => [match.raw, match.key])
-    );
-    for (const [raw, key] of variants) {
-      if (!Object.hasOwn(tokens, key)) continue;
-      const replaced = replace(xml, tag, raw, String(tokens[key] ?? ''));
-      if (!replaced.count) continue;
-      xml = replaced.xml;
-      changed = true;
-      filled[key] = (filled[key] || 0) + replaced.count;
-    }
-    if (changed) zip.file(part, xml);
-  }
-  const remaining = new Set();
-  for (const part of parts) {
-    const xml = await zipText(zip, part);
-    for (const match of templateTokenMatches(paragraphTexts(xml, tag).join(''))) remaining.add(match.key);
-  }
-  const unfilledTokens = [...remaining].sort();
+  for (const part of parts) await fillPartTokens(zip, part, tag, tokens, particles, replace, filled);
+  const unfilledTokens = await unfilledTokenKeys(zip, parts, tag);
   if (operation.strict && unfilledTokens.length) {
     throw new Error(`Unfilled template tokens: ${unfilledTokens.join(', ')}`);
   }
-  // Nothing filled while placeholders remain means the supplied names and the
-  // document's do not meet; "no change" alone would leave the caller guessing.
   if (!Object.keys(filled).length && unfilledTokens.length) {
     throw new Error(
       `fill_template changed nothing: the document carries ${unfilledTokens.map((key) => `{{${key}}}`).join(', ')}` +
@@ -84,7 +87,6 @@ export async function fillTemplateParts(zip, parts, tag, operation, { replace = 
     strict: Boolean(operation.strict),
   };
 }
-
 export async function loadPackage(path) {
   const data = await readFile(path);
   // Office tool definitions reach this module at runtime boot; JSZip is only
@@ -96,19 +98,13 @@ export async function loadPackage(path) {
       createFolders: false,
     });
   } catch (error) {
-    // A legacy .doc/.xls/.ppt is an OLE compound file, not a package, and it
-    // often arrives renamed to .docx. Nothing is damaged about it, so the
-    // repair advice sends the caller after a file that does not exist.
     if (data.subarray(0, 8).equals(OLE_COMPOUND_MAGIC)) {
       throw new Error(
         `${path} is a legacy Office file (.doc/.xls/.ppt), not an Office Open XML package.` +
           ' Open it in Microsoft Office and save a copy as .docx/.xlsx/.pptx, then work on that copy.'
       );
     }
-    // A truncated or damaged file reaches here as a ZIP internal message that
-    // names neither the file nor a way forward; the caller needs both. The
-    // library's own aside — a question about zip files and a link to its
-    // documentation — answers neither, so it does not travel with the error.
+    // JSZip appends "is this a zip file?" and a documentation link to its message.
     const reason = String(error?.message || error)
       .replace(/\s*:?\s*is this a zip file\s*\?.*$/is, '')
       .replace(/\s*see https?:\/\/\S+/gi, '')
@@ -510,11 +506,6 @@ async function registerLayoutOnMaster(zip, master, targetPath) {
   );
 }
 
-// A page borrowed from another deck was drawn on that deck's layout. When this
-// deck already holds the same layout the import points at it; when the two were
-// cut from different templates the layout is copied in and adopted by this
-// deck's master, so the page keeps the geometry it was built with and the
-// master still lists every layout under it.
 async function adoptImportedLayout(source, zip, layoutPath, cache) {
   const master = Object.keys(zip.files)
     .filter((name) => /^ppt\/slideMasters\/slideMaster\d+\.xml$/.test(name))

@@ -1,10 +1,3 @@
-/**
- * src/tui/themes/indigo.mjs — Indigo (cool blue-indigo brand dark).
- *
- * Mixdog brand theme: saturated blue-indigo primary (#5B7CFF family) with
- * cyan secondary on lifted blue-black surfaces — not violet/purple. Spreads
- * `basePalette` first so the full key set is always present.
- */
 import { basePalette } from './base.mjs';
 
 /** Indigo — true blue-indigo brand dark. */

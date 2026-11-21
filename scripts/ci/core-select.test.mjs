@@ -6,10 +6,6 @@ import test from 'node:test';
 
 import { MAX_LEGS, SYSTEMS, selectCore, TESTS_PER_LEG } from './core-select.mjs';
 
-// A workspace of five crates on disk, in the shape `cargo metadata --no-deps` reports:
-//   alpha <- beta <- gamma (each depends on the one before), delta alone, mixdog-workspace-hack beside them.
-// delta's tests read fixtures/delta-set; gamma's library opens src/defaults/rules.json by path (include_str!); beta's tests open
-// benchmarks/recorded/wire.json with joined segments.
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'core-select-')));
 test.after(() => {
   assert.equal(realpathSync(dirname(root)), realpathSync(tmpdir()));

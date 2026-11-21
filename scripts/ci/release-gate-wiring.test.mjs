@@ -129,20 +129,31 @@ test('release-gate.yml: unowned shared inputs cannot be excluded by workflow pat
   }
 });
 
+const runOf = (job) =>
+  stepsOf(job)
+    .map((step) => step.run ?? '')
+    .join('\n');
+const computerSteps = () => {
+  const desktop = gate.jobs['desktop-computer'];
+  return {
+    desktop,
+    helper: desktop.steps.find((step) => step.name === 'Build the native Computer Use helper'),
+    suite: desktop.steps.find((step) => step.name === 'Run the Computer Use suites on Windows'),
+  };
+};
+
 test('release-gate.yml: the Rust core is built once per system and its tests run from that build', () => {
   const build = gate.jobs['core-build'];
   const tests = gate.jobs['core-tests'];
   assert.deepEqual(needsOf(tests), ['changes', 'core-build']);
-  const run = (job) =>
-    stepsOf(job)
-      .map((step) => step.run ?? '')
-      .join('\n');
-  assert.match(run(build), /cargo nextest archive /);
-  assert.doesNotMatch(run(tests), /cargo (build|test|nextest archive)/, 'a test leg compiles nothing');
-  assert.match(run(tests), /--archive-file core-tests\.tar\.zst/);
-  assert.match(run(tests), /--partition "count:\$\{PART\}\/\$\{OF\}"/);
-  assert.match(run(tests), /--profile ci/);
-  // Only a push to main writes the dependency cache.
+  assert.match(runOf(build), /cargo nextest archive /);
+  assert.doesNotMatch(runOf(tests), /cargo (build|test|nextest archive)/, 'a test leg compiles nothing');
+  assert.match(runOf(tests), /--archive-file core-tests\.tar\.zst/);
+  assert.match(runOf(tests), /--partition "count:\$\{PART\}\/\$\{OF\}"/);
+  assert.match(runOf(tests), /--profile ci/);
+});
+
+test('release-gate.yml: only a push to main writes the Rust dependency cache', () => {
   for (const name of ['core-build', 'core-lint', 'core-real']) {
     const save = stepsOf(gate.jobs[name]).filter((step) => step.uses?.startsWith('actions/cache/save@'));
     assert.equal(save.length, 1, `${name} saves the cache once`);
@@ -153,14 +164,16 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
       `${name} uses restore and save, not a cache that saves on every miss`
     );
   }
-  // Nothing else builds the mixdogd the desktop replays drive.
+});
+
+test('release-gate.yml: the desktop replays and fast shards build no Rust and depend on no producer', () => {
   assert.doesNotMatch(JSON.stringify(gate.jobs['desktop-slow']), /cargo/);
-  // The Linux fast shards depend on no producer: the Windows boot's inputs gate only the Windows job.
   assert.deepEqual(gate.jobs['desktop-tests'].needs, 'changes');
   assert.doesNotMatch(JSON.stringify(gate.jobs['desktop-tests']), /cargo|MIXDOGD_BIN|computer|windows/);
-  const desktop = gate.jobs['desktop-computer'];
-  const helper = desktop.steps.find((step) => step.name === 'Build the native Computer Use helper');
-  const suite = desktop.steps.find((step) => step.name === 'Run the Computer Use suites on Windows');
+});
+
+test('release-gate.yml: desktop-computer builds the Computer Use helper once, before its suites', () => {
+  const { desktop, helper, suite } = computerSteps();
   assert.equal(desktop['runs-on'], 'windows-latest');
   assert.equal(
     helper.run,
@@ -173,8 +186,10 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
   );
   assert.doesNotMatch(JSON.stringify({ ...desktop, steps: desktop.steps.filter((step) => step !== helper) }), /cargo/);
   assert.doesNotMatch(JSON.stringify(helper), /MIXDOGD_BIN/);
-  // The real offscreen boot (app-start.electron.test.mjs, run by the electron lane of this step) takes this run's Windows
-  // daemon and the bundle of the desktop job; neither is built here.
+});
+
+test("release-gate.yml: desktop-computer takes this run's Windows daemon and the desktop bundle before its suites", () => {
+  const { desktop, suite } = computerSteps();
   assert.equal(suite.env.MIXDOGD_BIN, '${{ github.workspace }}/mixdogd-dev/mixdogd.exe');
   assert.deepEqual(desktop.needs, ['changes', 'desktop', 'core-build']);
   const fetched = desktop.steps.filter((step) => step.uses?.startsWith('actions/download-artifact@'));
@@ -186,7 +201,10 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
     ]
   );
   assert.ok(fetched.every((step) => desktop.steps.indexOf(step) < desktop.steps.indexOf(suite)));
-  // dev-core-install needs the root onnxruntime-node and the four data/pptxgenjs files, staged by the project's own paths.
+});
+
+test('release-gate.yml: desktop-computer installs and stages the root packages before its suites', () => {
+  const { desktop, suite } = computerSteps();
   const install = desktop.steps.find((step) => step.name === 'Install dependencies');
   const stage = desktop.steps.find((step) => step.name?.startsWith('Stage the root packages'));
   assert.match(install.run, /lock-subset\.mjs ci-boot-subset onnxruntime-node pptxgenjs jszip strip-ansi unpdf/);
@@ -195,6 +213,9 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
     desktop.steps.indexOf(install) < desktop.steps.indexOf(stage) &&
       desktop.steps.indexOf(stage) < desktop.steps.indexOf(suite)
   );
+});
+
+test('release-gate.yml: the desktop job runs for desktop or computer changes and uploads its bundle', () => {
   assert.equal(
     gate.jobs.desktop.if,
     "needs.changes.outputs.desktop == 'true' || needs.changes.outputs.desktop_computer == 'true'"
@@ -287,10 +308,11 @@ test('release-gate.yml: core-tests install only the packages the tests read, wit
   const tests = stepsOf(gate.jobs['core-tests'])
     .map((step) => step.run ?? '')
     .join('\n');
-  assert.match(tests, /node scripts\/ci\/lock-subset\.mjs ci-node-subset pptxgenjs jszip/);
+  assert.match(tests, /node scripts\/ci\/lock-subset\.mjs ci-node-subset pptxgenjs jszip @napi-rs\/canvas/);
   assert.match(tests, /npm ci --prefix ci-node-subset --ignore-scripts /);
   // mixdog-office tests/pptx_script.rs passes by returning early without the package, so the leg proves it is there
   assert.match(tests, /test -f node_modules\/pptxgenjs\/package\.json/);
+  assert.match(tests, /test -f node_modules\/@napi-rs\/canvas\/package\.json/);
   assert.doesNotMatch(tests, /apps\/relay/);
   assert.doesNotMatch(
     JSON.stringify(gate.jobs['core-tests']),

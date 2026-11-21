@@ -57,9 +57,7 @@ export function embeddingRuntimeTarget(options = {}) {
   return { platform, arch, key: `${platform}-${arch}` };
 }
 
-export async function pruneEmbeddingRuntime(packageRoot, options = {}) {
-  const root = resolve(packageRoot);
-  const target = embeddingRuntimeTarget(options);
+async function locateEmbeddingRuntime(root, target) {
   const nodeModules = join(root, 'node_modules');
   const transformerRoot = join(nodeModules, '@huggingface', 'transformers');
   const transformerPackage = join(transformerRoot, 'package.json');
@@ -91,6 +89,15 @@ export async function pruneEmbeddingRuntime(packageRoot, options = {}) {
   if (onnx && !(await exists(join(targetBinaryDir, 'onnxruntime_binding.node')))) {
     throw new Error(`Embedding runtime is incomplete: missing ${target.key} ONNX binding`);
   }
+  return { nodeModules, transformerRoot, ortRoot, onnx, targetBinaryDir };
+}
+
+export async function pruneEmbeddingRuntime(packageRoot, options = {}) {
+  const target = embeddingRuntimeTarget(options);
+  const { nodeModules, transformerRoot, ortRoot, onnx, targetBinaryDir } = await locateEmbeddingRuntime(
+    resolve(packageRoot),
+    target
+  );
 
   // Transformers' Node conditional export bundles all JS implementation code.
   // Browser bundles, WASM, maps, source and types are not runtime inputs.

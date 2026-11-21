@@ -1,0 +1,13 @@
+{
+  "excludes": [
+    "CHANGELOG.md",
+    "changelog/**",
+    "benchmarks/**",
+    "native/core/vendor/**",
+    "**/fixtures/**",
+    "src/rules/**",
+    "src/defaults/skills/pptx/references/kit-index.md",
+    "**/node_modules/**"
+  ],
+  "plugins": ["https://plugins.dprint.dev/markdown-0.29.0.wasm"]
+}

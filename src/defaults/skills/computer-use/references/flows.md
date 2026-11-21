@@ -21,15 +21,15 @@ frames that should stay out of the conversation.
 
 ## Troubleshooting
 
-| Symptom | Do |
-|---|---|
-| Ambiguous `app` | `list` and pass the exact `window_id`. |
-| Empty semantics | `capture` with `include_ocr:true` (set `ocr_language`), or `mode=som`. |
-| Refs rejected as expired | Use a successful recovery observation if returned; otherwise capture again. |
-| `act` stopped early | Read `recovery` and the observation; the target transitioned. |
-| Coordinates refused (`pixel_unavailable`) | Use fresh semantic refs if available; never use unavailable pixels or a desktop-region substitute. |
-| OCR unavailable, pixels usable | Continue from the fresh image/frame. Do not retry the missing recognizer unchanged or install a language pack without approval. |
-| Input completed, observation failed | Capture only to inspect the result; do not repeat completed or uncertain input. |
-| Definite background no-input refusal | Choose a supported route within scope; strict background-only work cannot escalate without approval. |
-| Target-local cleanup unconfirmed | Hand off window recovery to the user. Do not reset the guard or replay input. |
-| Input backend error | `diagnose`, report the cause, and recover through the same tool. |
+| Symptom                                   | Do                                                                                                                              |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Ambiguous `app`                           | `list` and pass the exact `window_id`.                                                                                          |
+| Empty semantics                           | `capture` with `include_ocr:true` (set `ocr_language`), or `mode=som`.                                                          |
+| Refs rejected as expired                  | Use a successful recovery observation if returned; otherwise capture again.                                                     |
+| `act` stopped early                       | Read `recovery` and the observation; the target transitioned.                                                                   |
+| Coordinates refused (`pixel_unavailable`) | Use fresh semantic refs if available; never use unavailable pixels or a desktop-region substitute.                              |
+| OCR unavailable, pixels usable            | Continue from the fresh image/frame. Do not retry the missing recognizer unchanged or install a language pack without approval. |
+| Input completed, observation failed       | Capture only to inspect the result; do not repeat completed or uncertain input.                                                 |
+| Definite background no-input refusal      | Choose a supported route within scope; strict background-only work cannot escalate without approval.                            |
+| Target-local cleanup unconfirmed          | Hand off window recovery to the user. Do not reset the guard or replay input.                                                   |
+| Input backend error                       | `diagnose`, report the cause, and recover through the same tool.                                                                |

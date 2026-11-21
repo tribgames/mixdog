@@ -267,6 +267,18 @@ function renderToolDiagnostics(report, lines, opts) {
     ]);
   }
   lines.push(...padTable(table));
+  renderToolOutcomes(report, lines, opts);
+  renderToolPatterns(report, lines);
+  lines.push(
+    `missed parallelism heuristic: ${report.tools.missed_parallelism_heuristic.consecutive_single_tool_batches} close single-tool batches`
+  );
+  lines.push(
+    `ordered patch→shell follow-ups: ${report.tools.ordered_followup_candidates?.patch_then_shell || 0} separate-turn pair(s)`
+  );
+  lines.push('');
+}
+
+function renderToolOutcomes(report, lines, opts) {
   if (report.tools.failures.length) {
     lines.push('tool failures:');
     for (const f of report.tools.failures.slice(0, 10)) {
@@ -287,6 +299,9 @@ function renderToolDiagnostics(report, lines, opts) {
       );
     }
   }
+}
+
+function renderToolPatterns(report, lines) {
   if (report.tools.duplicates.length) {
     lines.push('tool churn / duplicates:');
     for (const d of report.tools.duplicates.slice(0, 10))
@@ -320,13 +335,6 @@ function renderToolDiagnostics(report, lines, opts) {
       );
     }
   }
-  lines.push(
-    `missed parallelism heuristic: ${report.tools.missed_parallelism_heuristic.consecutive_single_tool_batches} close single-tool batches`
-  );
-  lines.push(
-    `ordered patch→shell follow-ups: ${report.tools.ordered_followup_candidates?.patch_then_shell || 0} separate-turn pair(s)`
-  );
-  lines.push('');
 }
 
 function renderIssues(report, lines, opts) {
@@ -340,16 +348,10 @@ function renderIssues(report, lines, opts) {
 // section (plus the header and issues), the default view renders everything.
 export function renderText(report, opts) {
   const lines = [];
-  const focused = opts.failuresOnly || opts.compactOnly || opts.tokensOnly || opts.slowOnly;
+  const flagged = (...names) => names.some((name) => opts[name]);
+  const focused = flagged('failuresOnly', 'compactOnly', 'tokensOnly', 'slowOnly');
   renderHeader(report, lines);
-  if (
-    !opts.issuesOnly &&
-    !opts.cacheOnly &&
-    !opts.toolsOnly &&
-    !opts.compactOnly &&
-    !opts.tokensOnly &&
-    !opts.failuresOnly
-  ) {
+  if (!flagged('issuesOnly', 'cacheOnly', 'toolsOnly', 'compactOnly', 'tokensOnly', 'failuresOnly')) {
     renderExecutiveSummary(report, lines, opts);
   }
   if (opts.compactOnly) {
@@ -360,32 +362,15 @@ export function renderText(report, opts) {
   if (wide) renderRouteTimeline(report, lines);
   if (wide) renderCacheTransport(report, lines, opts);
   if (wide && report.preflight?.turns) renderPreflight(report, lines);
-  if (
-    (opts.slowOnly || !focused) &&
-    !opts.cacheOnly &&
-    !opts.toolsOnly &&
-    !opts.issuesOnly &&
-    !opts.failuresOnly &&
-    !opts.tokensOnly
-  ) {
+  if ((opts.slowOnly || !focused) && !flagged('cacheOnly', 'toolsOnly', 'issuesOnly', 'failuresOnly', 'tokensOnly')) {
     renderSlowTurns(report, lines, opts);
   }
-  if (
-    (opts.tokensOnly || !focused) &&
-    !opts.cacheOnly &&
-    !opts.toolsOnly &&
-    !opts.issuesOnly &&
-    !opts.failuresOnly &&
-    !opts.slowOnly
-  ) {
+  if ((opts.tokensOnly || !focused) && !flagged('cacheOnly', 'toolsOnly', 'issuesOnly', 'failuresOnly', 'slowOnly')) {
     renderTokenAmplification(report, lines, opts);
   }
   if (
-    (opts.toolsOnly || opts.failuresOnly || !focused) &&
-    !opts.cacheOnly &&
-    !opts.issuesOnly &&
-    !opts.tokensOnly &&
-    !opts.slowOnly
+    (flagged('toolsOnly', 'failuresOnly') || !focused) &&
+    !flagged('cacheOnly', 'issuesOnly', 'tokensOnly', 'slowOnly')
   ) {
     renderToolDiagnostics(report, lines, opts);
   }

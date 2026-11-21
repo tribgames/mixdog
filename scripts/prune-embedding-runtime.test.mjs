@@ -92,3 +92,20 @@ test('darwin-x64 pruning succeeds without an ONNX binding and removes every nati
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('pruning an incomplete embedding runtime fails before removing anything', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-prune-embedding-incomplete-'));
+  try {
+    const transformerRoot = join(root, 'node_modules', '@huggingface', 'transformers');
+    await put(join(transformerRoot, 'package.json'), '{}');
+    await put(join(transformerRoot, 'dist', 'transformers.node.cjs'));
+    await put(join(transformerRoot, 'dist', 'extra.js'));
+    await assert.rejects(
+      pruneEmbeddingRuntime(root, { platform: 'win32', arch: 'x64' }),
+      /Embedding runtime is incomplete: missing .*transformers\.node\.mjs/
+    );
+    await access(join(transformerRoot, 'dist', 'extra.js'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -1,11 +1,4 @@
 /**
- * src/tui/themes/base.mjs — One Dark base palette (the full key set).
- *
- * Every TUI theme is defined as a COMPLETE set of `rgb(r,g,b)` string keys.
- * Non-default palettes spread this base first (`{ ...basePalette, ...overrides }`)
- * so a missing key can never leak the previous theme's color through the live
- * `Object.assign(theme, palette)` switch in theme.mjs.
- *
  * Source: One Dark (atom/joshdick) — bg0 #282c34, fg #abb2bf, blue #61afef
  * (signature accent), purple #c678dd, green #98c379, orange #d19a66,
  * yellow #e5c07b, cyan #56b6c2, red #e86671, grey #5c6370.

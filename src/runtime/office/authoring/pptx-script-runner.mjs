@@ -9,9 +9,7 @@ import { iconGlobal } from './pptx-icons.mjs';
 import { kitPrelude, scriptCarriesKit } from './pptx-kit.mjs';
 import { relationOptions } from '../portable/pptx-relations.mjs';
 
-// Text measurement for the script, in inches, with the metrics the review
-// reads the saved file with; a box sized here does not overflow there.
-// lineHeight is the PowerPoint multiple the box will carry (lineSpacingMultiple; 1 = single).
+// Inches, measured with the metrics the review reads the saved file with. lineHeight is PowerPoint's lineSpacingMultiple.
 function measureForScript(
   text,
   { font = 'Calibri', size = 18, bold = false, italic = false, width = 0, lineHeight = 1 } = {}
@@ -26,9 +24,6 @@ function measureForScript(
   return { lines: measured.lines, height: measured.height / 72, width: measured.width / 72 };
 }
 
-// The script runs inside this process: a child node cannot resolve pptxgenjs
-// out of the packaged archive, and the model already holds shell access, so a
-// separate process would add cost without adding a boundary.
 const hostRequire = createRequire(import.meta.url);
 const ALLOWED_MODULES = new Set(PPTX_SCRIPT_CONTRACT.require);
 const NODE_PREFIX = /^node:/;
@@ -70,8 +65,6 @@ function scriptError(error, script, preludeLines = 0) {
   const message = error?.message || String(error);
   const stack = String(error?.stack || '');
   const match = stack.match(/<anonymous>:(\d+):(\d+)/);
-  // The generated wrapper places three lines (signature, brace, strict
-  // pragma) before the body, and the kit prelude sits before the script.
   const raw = match ? Number(match[1]) - 3 : null;
   if (raw !== null && preludeLines && raw <= preludeLines) {
     return {
@@ -98,6 +91,30 @@ async function pathExists(path) {
   }
 }
 
+function compileScriptBody(source, kit) {
+  return new AsyncFunction(
+    'require',
+    'module',
+    'exports',
+    'OUTPUT',
+    'console',
+    'process',
+    'MEASURE',
+    'ICON',
+    'RELATE',
+    `"use strict";\n${kit ? `${kit.source}\n` : ''}${source}\n`
+  );
+}
+
+async function ensureOutputWritten(output, exported) {
+  if (await pathExists(output)) return;
+  if (exported && typeof exported.writeFile === 'function') {
+    await exported.writeFile({ fileName: output });
+    return;
+  }
+  throw new Error('The script finished without writing OUTPUT; end with `await pres.writeFile({ fileName: OUTPUT })`.');
+}
+
 export async function runPptxAuthoringScript(
   script,
   output,
@@ -110,23 +127,11 @@ export async function runPptxAuthoringScript(
   const logs = [];
   const module = { exports: {} };
   const startedAt = performance.now();
-  // The kit runs before the script unless the script brings its own presentation or toolbox.
   const kit = scriptCarriesKit(source) ? null : kitPrelude();
   const preludeLines = kit ? kit.lines : 0;
   let body;
   try {
-    body = new AsyncFunction(
-      'require',
-      'module',
-      'exports',
-      'OUTPUT',
-      'console',
-      'process',
-      'MEASURE',
-      'ICON',
-      'RELATE',
-      `"use strict";\n${kit ? `${kit.source}\n` : ''}${source}\n`
-    );
+    body = compileScriptBody(source, kit);
   } catch (error) {
     return { ok: false, error: scriptError(error, source, preludeLines), logs, elapsedMs: 0 };
   }
@@ -150,16 +155,7 @@ export async function runPptxAuthoringScript(
       ),
       timeout,
     ]);
-    if (!(await pathExists(output))) {
-      const exported = module.exports;
-      if (exported && typeof exported.writeFile === 'function') {
-        await exported.writeFile({ fileName: output });
-      } else {
-        throw new Error(
-          'The script finished without writing OUTPUT; end with `await pres.writeFile({ fileName: OUTPUT })`.'
-        );
-      }
-    }
+    await ensureOutputWritten(output, module.exports);
   } catch (error) {
     return {
       ok: false,

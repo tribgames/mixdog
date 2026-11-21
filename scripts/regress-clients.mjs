@@ -164,7 +164,7 @@ function mobileImportsDoc() {
 // ---- a real connection ------------------------------------------------------------------------------------------------
 
 /** A protocol-2 connection of `kind` to the core in `doc` (its discovery document), the handshake done unless `handshake` is false. */
-async function open(doc, kind, version, { handshake = true } = {}) {
+export async function open(doc, kind, version, { handshake = true } = {}) {
   const { default: WebSocket } = await import(pathToFileURL(need(ROOT, 'ws')).href);
   const socket = new WebSocket(`ws://127.0.0.1:${doc.core.rpc.port}/rpc`, {
     headers: { Authorization: `Bearer ${doc.endpoints.session.token}` },
@@ -212,21 +212,19 @@ async function open(doc, kind, version, { handshake = true } = {}) {
       });
       socket.send(JSON.stringify({ id, method, params }));
     });
-  if (handshake) {
-    const hello = await request('initialize', {
-      clientInfo: { name: `regress-${kind}`, version, kind },
-      capabilities: {},
-    });
-    if (hello.error)
-      throw new Error(`initialize as ${kind} was answered with ${JSON.stringify(hello.error).slice(0, 300)}`);
-    socket.send(JSON.stringify({ method: 'initialized' }));
-  }
-  return {
-    request,
-    notify: (method, params) => socket.send(JSON.stringify({ method, params })),
-    isClosed: () => closed,
-    close: () => socket.close(1000, 'done'),
-  };
+  const notify = (method, params) => socket.send(JSON.stringify({ method, params }));
+  if (handshake) await initialize(request, notify, kind, version);
+  return { request, notify, isClosed: () => closed, close: () => socket.close(1000, 'done') };
+}
+
+async function initialize(request, notify, kind, version) {
+  const hello = await request('initialize', {
+    clientInfo: { name: `regress-${kind}`, version, kind },
+    capabilities: {},
+  });
+  if (hello.error)
+    throw new Error(`initialize as ${kind} was answered with ${JSON.stringify(hello.error).slice(0, 300)}`);
+  notify('initialized');
 }
 
 const refusalOf = (answer) => {

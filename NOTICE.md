@@ -582,7 +582,6 @@ tool-argument repair.
 
 Full license text: `LICENSES/oh-my-pi-MIT.txt`
 
-
 ## Cairo pen geometry (LGPL-2.1 or MPL-1.1)
 
 `native/core/crates/mixdog-raster/src/svg/cairo_pen.rs` translates the stroke pen-collapse and major-axis calculations from Cairo 1.18.6 (`cairo-compositor.c`, `cairo-pen.c`, `cairo-matrix.c`). Copyright 2002 University of Southern California, 2008 Chris Wilson, and 2011 Intel Corporation. The original notices and the choice of LGPL version 2.1 or MPL version 1.1 are retained in that file. Full license texts are distributed in `LICENSES/cairo/` and beside the crate.

@@ -1,10 +1,6 @@
-// The headless one-shot the QC and review scripts run a model turn with: `mixdogd exec`
-// (native/core/crates/mixdog-cli/src/exec), in place of Node's runHeadlessExec, which went with the Node core.
-// Same contract as runHeadlessExec: the answer goes to `write`, errors to `writeErr`, and the exit code is returned.
-// `toolMode` is the daemon's spelling of the runtimeFactory Node's callers passed (`--tool-mode readonly|full`).
-//
-// Waits for the branch that makes `mixdog exec` real (Node's read-only tool mode included); until it lands, the
-// installed `mixdogd` may refuse or ignore these options.
+// Headless one-shot for the QC and review scripts: `mixdogd exec` (native/core/crates/mixdog-cli/src/exec).
+// The answer goes to `write`, errors to `writeErr`, and the exit code is returned.
+// `toolMode` maps to `--tool-mode readonly|full`.
 import { spawn } from 'node:child_process';
 
 export function mixdogdBin(env = process.env) {

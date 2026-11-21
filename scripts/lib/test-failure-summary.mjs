@@ -1,19 +1,9 @@
-// Run-level failure classification and the final summary block.
-//
-// A filtered run log loses a failure: `ℹ fail 1` says a test failed but never
-// which one. Every line here carries SUMMARY_TAG and names its file and test,
-// so the block survives `grep`/`Select-String` filtering, and the runner
-// prints it after all other output (scripts/lib/run-node-tests.mjs).
 export const SUMMARY_TAG = '[failure-summary]';
 
 const keyOf = (record) => `${record.file}\u0000${record.name}`;
 const byLocation = (a, b) => (a.file === b.file ? a.name.localeCompare(b.name) : a.file.localeCompare(b.file));
 
-// A test that failed and then passed inside the re-run budget is flaky; one
-// that fails every attempt stays failed. A failure that only appears during a
-// re-run joins the failed set from the attempt that produced it, so a re-run
-// can never hide a test it just broke.
-//
+// Flaky: failed, then passed within the re-run budget. Failed: failed every attempt, or first appeared during a re-run.
 // attempts: [{ files: [rerun file paths], failures: [{ file, name }] }]
 export function classifyRerunOutcomes(initialFailures, attempts = []) {
   const pending = new Map(initialFailures.map((record) => [keyOf(record), { ...record }]));
@@ -43,13 +33,9 @@ export function policyLine(rerunFailed) {
     : 'policy: --rerun-failed is off, so every failure fails the run (pass --rerun-failed <n> to classify flaky)';
 }
 
-// `hung` holds one "hung after N min: <files>" message per batch the runner's
-// watchdog killed; such a batch fails the run whatever its tests reported.
-// A non-zero `exitCode` with no failed test, flaky test or hung batch behind it
-// (a bad node flag, a crashed runner, a kill from outside) is its own failure,
-// never "0 failed". `pids` names the node --test processes that exited
-// non-zero, so a kill can be matched to the "Killing ... <pid>" line of
-// whatever killed them.
+// `hung`: one "hung after N min: <files>" message per batch the watchdog killed; it fails the run.
+// A non-zero `exitCode` with no failed test or hung batch is its own failure.
+// `pids`: the node --test processes that exited non-zero.
 export function formatFailureSummary({ failed = [], flaky = [], rerunFailed = 0, hung = [], exitCode = 0, pids = [] }) {
   const hungCount = hung.length > 0 ? `, ${hung.length} hung batch(es)` : '';
   const unexplained = exitCode !== 0 && failed.length === 0 && hung.length === 0;

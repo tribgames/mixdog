@@ -1,18 +1,12 @@
-// Scoped scratch directories for tests: every directory this module creates is
-// named `mixdog-<prefix>-*` in the system temp dir and is removed whether the
-// test passed or failed. Removal retries a bounded number of times, because on
-// Windows a just-closed file or a just-exited child can hold a path for a
-// moment (EBUSY / EPERM / ENOTEMPTY).
-//
-// Pick the narrowest scope that fits the test:
+// Directories are named `mixdog-<prefix>-*` in the system temp dir and removed whether the test passed or failed.
+// On Windows a just-closed file or just-exited child can hold a path (EBUSY / EPERM / ENOTEMPTY), so removal retries.
+// Close anything holding files inside the directory (sqlite handles, servers, child processes) first.
 //   tempDirFor(t, prefix)            removed after the node:test context `t`
 //   scopedTempDir(prefix)            `.path` + dispose; use `await using` on
 //                                    Node 24+, or `try { } finally { await d.remove() }`
 //   withTempDir(prefix, fn)          removed when `fn` settles
 //   makeTempDirSync(prefix)          removed by removeTempDirSync, and always swept at
 //                                    process exit (a late write may recreate it)
-// Close anything holding files inside the directory (sqlite handles, servers,
-// child processes) before the removal runs.
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -55,12 +49,7 @@ export function makeTempDirSync(prefix) {
   return dir;
 }
 
-/**
- * Registers a directory its creator made as test-owned, so it is swept again
- * as the last exit step (a late write by the code under test can recreate it
- * after the creator's own exit handler ran). Only an exact `mixdog-*` child of
- * the system temp dir is accepted; nothing is ever inferred from an env var.
- */
+/** Registers a directory its creator made as test-owned, swept again as the last exit step. Only an exact `mixdog-*` child of the system temp dir is accepted. */
 export function registerOwnedTempDir(dir) {
   const resolved = resolve(dir);
   const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);

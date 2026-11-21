@@ -1,6 +1,4 @@
 /**
- * src/tui/themes/tokyonight.mjs — Tokyo Night (Storm).
- *
  * Source: folke/tokyonight.nvim "storm" — bg #24283b, bgDark #1f2335,
  * fg #c0caf5, comment #565f89, blue #7aa2f7 (signature accent),
  * magenta #bb9af7, cyan #7dcfff, green #9ece6a, orange #ff9e64,

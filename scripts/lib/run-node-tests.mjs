@@ -10,10 +10,7 @@ import { classifyRerunOutcomes, formatFailureSummary } from './test-failure-summ
 const SUMMARY_REPORTER = new URL('./test-summary-reporter.mjs', import.meta.url).href;
 const SPAWN_LEDGER = new URL('./test-spawn-ledger.mjs', import.meta.url).href;
 
-// A whole-suite run passes ~700 paths to one node process. Windows caps a
-// command line at 32767 characters (CreateProcess) and POSIX caps argv+env at
-// ARG_MAX, so the file list is spawned in batches that stay under the cap
-// instead of dying with spawn ENAMETOOLONG before any test runs.
+// Windows caps a command line at 32767 characters (CreateProcess); POSIX caps argv+env at ARG_MAX.
 export const ARG_BUDGET = process.platform === 'win32' ? 30_000 : 1_000_000;
 
 const HEAP_FLAG = /^--(?:max-old-space-size|max-semi-space-size)=\d+$/;
@@ -21,10 +18,6 @@ const HEAP_FLAG = /^--(?:max-old-space-size|max-semi-space-size)=\d+$/;
 // An argument costs its own characters plus the separator and its quotes.
 const argCost = (arg) => arg.length + 3;
 
-// A green run removes its log directory; a failed run keeps it (the failure
-// summary points at it) until the start-of-run prune finds it stale. The
-// failure and scratch directories are removed when their run ends, so only a
-// killed runner leaves them for that same prune.
 const TEST_LOG_PREFIX = 'mixdog-test-output-';
 const TEST_FAILURES_PREFIX = 'mixdog-test-failures-';
 const TEST_SCRATCH_PREFIX = 'mixdog-test-scratch-';
@@ -65,10 +58,7 @@ export function testConcurrencyArg(nodeArgs, env = process.env) {
   return explicit ? `--test-concurrency=${explicit}` : null;
 }
 
-// Every test file process is bounded: node:test fails a file (and records it
-// like any other failure) that is still running after --test-timeout, so a hang
-// costs minutes instead of waiting for the batch watchdog. A --test-timeout
-// flag wins, then MIXDOG_TEST_TIMEOUT_MS (0 turns the bound off), then the
+// A --test-timeout flag wins, then MIXDOG_TEST_TIMEOUT_MS (0 turns the bound off), then the
 // caller's default. Returns the flag to add, or null.
 export function testTimeoutArg(nodeArgs, env = process.env, defaultMs = DEFAULT_TEST_TIMEOUT_MS) {
   if (nodeArgs.some((arg) => arg === '--test-timeout' || arg.startsWith('--test-timeout='))) return null;
@@ -147,11 +137,6 @@ function capture(command, args) {
   });
 }
 
-// Kills a live batch and every descendant still linked to it (on Windows the
-// shared creation-checked tree kill). On POSIX a batch leads its own process
-// group (spawned detached), so the group goes with it.
-// Loaded only when a Windows kill runs, so importers that need just this
-// module's constants (the local gate) do not pull in the runtime.
 async function loadKillProcessTrees() {
   const { killProcessTrees } = await import('../../src/runtime/agent/orchestrator/mcp/child-tree.mjs');
   return killProcessTrees;
@@ -203,27 +188,14 @@ async function processSnapshot() {
     });
 }
 
-// How far a snapshot's creation time may sit from Date.now() read around the
-// spawn. Windows reports creation to the microsecond from the same system
-// clock, so only a clock tick separates them; POSIX ps reports whole elapsed
-// seconds. No wider: Windows hands a freed pid to the next process within
-// milliseconds, and a 2 s window made a process another run had just started
-// pass for one of this run's exited spawns, so it was killed with them.
+// Windows reports creation to the microsecond; POSIX ps only whole elapsed seconds.
+// Windows reuses a freed pid within milliseconds, so a 2 s window there claimed another run's process.
 const clockSlackMs = (platform) => (platform === 'win32' ? 50 : 2000);
 
-// The processes this run owns, out of a snapshot: an anchor (the batch, or a
-// child a test process recorded in its spawn ledger) still alive under its
-// pid, the orphans an exited anchor left (they still name it as their parent),
-// every descendant of those, and anything executing from the run's scratch
-// root (e.g. the postgres the memory runtime downloads into MIXDOG_DATA_DIR).
-// An anchor is { pid, before, since, exited? }: the clock just before and just
-// after its spawn, and when its exit was seen. A pid alone never identifies a
-// process: an anchor seen to exit no longer holds its pid, so whatever holds
-// it now is another process; a live holder was created within its spawn; an
-// orphan was created while its anchor lived (a later process that reuses the
-// pid only has younger children); a descendant is younger than its parent.
-// Command-line text never makes a process the run's: an editor or terminal
-// opened on the scratch root is not.
+// The processes a run owns: live anchors, the orphans of exited anchors, every descendant, and anything
+// executing from scratchDir. An anchor is { pid, before, since, exited? }: the clock around its spawn
+// and when its exit was seen. A pid alone never identifies a process: a live holder was created within
+// the anchor's spawn, an orphan while its anchor lived, a descendant after its parent.
 export function ownedProcesses(snapshot, anchors, { scratchDir, platform = process.platform }) {
   const slack = clockSlackMs(platform);
   const byPid = new Map(snapshot.map((entry) => [entry.pid, entry]));
@@ -382,22 +354,10 @@ async function readFailureRecords(path) {
     .map((line) => JSON.parse(line));
 }
 
-// Both discovery and explicit-file runs use the same output contract. Node
-// still owns test selection, diagnostics, skip/todo counts and exit status;
-// a batched run keeps one full log and fails on the first failing batch.
-//
-// With `coverage`, every batch inherits one fresh NODE_V8_COVERAGE directory,
-// so V8 writes a dump per test process into it and the batches fold into a
-// single artifact. Without it nothing here changes — not the spawn options,
-// not the environment, not the output.
-//
-// `rerunFailed` (default 0 = off) re-runs the files that failed, up to n
-// times. A test that passes on a re-run is reported as flaky and, because the
-// flag was passed, does not fail the run; a test that fails every re-run
-// still exits 1. Every run ends with the failure summary block, so a filtered
-// log can still name what failed.
-//
-// `testTimeoutMs` is the per-file --test-timeout default (see testTimeoutArg).
+// `coverage`: every batch inherits one fresh NODE_V8_COVERAGE directory, folded into a single artifact.
+// `rerunFailed` (0 = off): re-runs the failed files up to n times; a test that passes on a re-run is
+// flaky and does not fail the run, one that fails every re-run exits 1.
+// `testTimeoutMs`: the per-file --test-timeout default (see testTimeoutArg).
 export async function runNodeTests(nodeArgs, fileArgs, options = {}) {
   pruneStaleTempDirs(RUNNER_TEMP_PREFIXES);
   const outputDir = await mkdtemp(join(tmpdir(), TEST_LOG_PREFIX));
@@ -406,12 +366,7 @@ export async function runNodeTests(nodeArgs, fileArgs, options = {}) {
   // Failure records live outside the log directory: the log directory holds
   // exactly one merged log, and these records are an internal artifact.
   const failureDir = await mkdtemp(join(tmpdir(), TEST_FAILURES_PREFIX));
-  // Test processes get a private temp root that is removed after the run, so
-  // every fixture directory a test forgets to delete goes with it instead of
-  // piling up in the system temp directory.
-  // Child tools can report a resolved cwd while retaining the original
-  // spelling of absolute inputs. Start both at the same path (macOS /var
-  // commonly aliases /private/var).
+  // macOS aliases /var to /private/var, and child tools report the resolved cwd.
   const scratchDir = await realpath(await mkdtemp(join(tmpdir(), TEST_SCRATCH_PREFIX)));
   let status = 1;
   try {
@@ -486,43 +441,11 @@ async function rerunFailures({ failures, rerunFailed, runArgs, childEnv, batchOp
   return { attempts, lastAttemptStatus };
 }
 
-async function executeRun(
-  nodeArgs,
-  fileArgs,
-  { argBudget = ARG_BUDGET, coverage = false, rerunFailed = 0, testTimeoutMs = DEFAULT_TEST_TIMEOUT_MS },
-  { logPath, failureDir, scratchDir }
+// Runs the batches side by side and merges their logs and failure records in batch order.
+async function runBatches(
+  { batches, overlapped, batchRunArgs },
+  { childEnv, batchOptions, logPath, failureDir, scratchDir }
 ) {
-  const { runArgs, batches, overlapped, batchRunArgs } = planBatches(
-    nodeArgs,
-    fileArgs,
-    { argBudget, testTimeoutMs },
-    logPath
-  );
-  const coverageDir = coverage ? await mkdtemp(join(tmpdir(), 'mixdog-v8-coverage-')) : '';
-  // Node 24's test runner rebuilds each test process's execArgv from its option
-  // table and drops V8 flags on the way, so a heap cap passed to the runner no
-  // longer reached a test (a 128 MB cap ran with the default 4 GB). The
-  // environment still reaches every test process.
-  const heapOptions = nodeArgs.filter((arg) => HEAP_FLAG.test(arg));
-  const nodeOptions = [process.env.NODE_OPTIONS, ...heapOptions].filter(Boolean).join(' ');
-  // Failure records travel by environment, not argv: the command line is
-  // already budgeted, and a third reporter would warn about listeners.
-  const childEnv = (recordsPath) => ({
-    ...process.env,
-    ...testIsolationEnv(scratchDir),
-    // Only the immutable validator binary is shared; fixture data stays private.
-    // A gate supplies one directory across lanes; a standalone run owns its own.
-    MIXDOG_TEST_OOXML_CACHE_DIR: process.env.MIXDOG_TEST_OOXML_CACHE_DIR || join(scratchDir, 'ooxml-cache'),
-    [FAILURE_RECORDS_ENV]: recordsPath,
-    ...(coverageDir ? { NODE_V8_COVERAGE: coverageDir } : {}),
-    ...(nodeOptions ? { NODE_OPTIONS: nodeOptions } : {}),
-  });
-  const batchOptions = (files, recordsPath, sweepScratch = true) => ({
-    files,
-    ledger: spawnLedgerPath(recordsPath),
-    scratchDir: sweepScratch ? scratchDir : '',
-    timeoutMs: positiveInt(process.env.MIXDOG_TEST_BATCH_TIMEOUT_MS) ?? DEFAULT_BATCH_TIMEOUT_MS,
-  });
   let status = 0;
   const failures = [];
   const hung = [];
@@ -537,22 +460,66 @@ async function executeRun(
       )
     )
   );
-  // Peers were still running while each batch exited, so the scratch root's
-  // own processes (e.g. a postgres a test started) are swept once, here.
+  // Peers were still running while each batch exited, so the scratch root is swept once, here.
   if (overlapped) await killOwned([], { scratchDir });
-  // Logs and records merge in batch order, whatever order the batches finished.
   for (const [index, outcome] of outcomes.entries()) {
     const batchLog = batchLogOf(index);
-    const batchFailures = batchFailuresOf(index);
-    const { code } = outcome;
     if (outcome.hung) hung.push(outcome.hung);
     if (batchLog !== logPath) {
       await appendFile(logPath, await readFile(batchLog));
       await rm(batchLog, { force: true });
     }
-    failures.push(...(await readFailureRecords(batchFailures)));
-    if (status === 0) status = code;
+    failures.push(...(await readFailureRecords(batchFailuresOf(index))));
+    if (status === 0) status = outcome.code;
   }
+  return { outcomes, failures, hung, status };
+}
+
+function batchSpawnSettings(nodeArgs, { coverageDir, scratchDir }) {
+  // Node 24's test runner drops V8 flags from each test process's execArgv; the environment still reaches it.
+  const heapOptions = nodeArgs.filter((arg) => HEAP_FLAG.test(arg));
+  const nodeOptions = [process.env.NODE_OPTIONS, ...heapOptions].filter(Boolean).join(' ');
+  const childEnv = (recordsPath) => ({
+    ...process.env,
+    ...testIsolationEnv(scratchDir),
+    MIXDOG_TEST_OOXML_CACHE_DIR: process.env.MIXDOG_TEST_OOXML_CACHE_DIR || join(scratchDir, 'ooxml-cache'),
+    [FAILURE_RECORDS_ENV]: recordsPath,
+    ...(coverageDir ? { NODE_V8_COVERAGE: coverageDir } : {}),
+    ...(nodeOptions ? { NODE_OPTIONS: nodeOptions } : {}),
+  });
+  const batchOptions = (files, recordsPath, sweepScratch = true) => ({
+    files,
+    ledger: spawnLedgerPath(recordsPath),
+    scratchDir: sweepScratch ? scratchDir : '',
+    timeoutMs: positiveInt(process.env.MIXDOG_TEST_BATCH_TIMEOUT_MS) ?? DEFAULT_BATCH_TIMEOUT_MS,
+  });
+  return { childEnv, batchOptions };
+}
+
+async function executeRun(
+  nodeArgs,
+  fileArgs,
+  { argBudget = ARG_BUDGET, coverage = false, rerunFailed = 0, testTimeoutMs = DEFAULT_TEST_TIMEOUT_MS },
+  { logPath, failureDir, scratchDir }
+) {
+  const { runArgs, batches, overlapped, batchRunArgs } = planBatches(
+    nodeArgs,
+    fileArgs,
+    { argBudget, testTimeoutMs },
+    logPath
+  );
+  const coverageDir = coverage ? await mkdtemp(join(tmpdir(), 'mixdog-v8-coverage-')) : '';
+  const { childEnv, batchOptions } = batchSpawnSettings(nodeArgs, { coverageDir, scratchDir });
+  const {
+    outcomes,
+    failures,
+    hung,
+    status: batchStatus,
+  } = await runBatches(
+    { batches, overlapped, batchRunArgs },
+    { childEnv, batchOptions, logPath, failureDir, scratchDir }
+  );
+  let status = batchStatus;
 
   const { attempts, lastAttemptStatus } = await rerunFailures({
     failures,
@@ -565,10 +532,6 @@ async function executeRun(
     hung,
   });
   const { failed, flaky } = classifyRerunOutcomes(failures, attempts);
-  // Flaky tolerance applies only to an ordinary test-failure exit that the
-  // re-runs fully explained: nothing failed twice and the last re-run itself
-  // came back clean.
-  // A hung batch is never explained by re-runs.
   if (
     rerunFailed > 0 &&
     status === 1 &&
@@ -585,7 +548,6 @@ async function executeRun(
     await reportCoverage(coverageDir);
     await rm(coverageDir, { recursive: true, force: true });
   }
-  // Last line of the run, after every reporter and the coverage report.
   const pids = outcomes.filter((outcome) => outcome.code !== 0 && outcome.pid).map((outcome) => outcome.pid);
   process.stdout.write(`\n${formatFailureSummary({ failed, flaky, rerunFailed, hung, exitCode: status, pids })}`);
   return status;

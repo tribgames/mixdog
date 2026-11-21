@@ -4,13 +4,13 @@ Read before adding a test or fixing a bug test-first.
 
 ## What a change gets
 
-| Change | New tests |
-|---|---|
-| Bug fix | One regression test for the reported behaviour |
-| New behaviour | One per observable behaviour the requirement names (its success and its stated rejections) |
-| Refactor, rename, move | None; the existing tests must still pass unchanged |
-| Removal | None; delete the removed behaviour's tests, never assert the absence |
-| Docs, copy, style, config values | None |
+| Change                           | New tests                                                                                  |
+| -------------------------------- | ------------------------------------------------------------------------------------------ |
+| Bug fix                          | One regression test for the reported behaviour                                             |
+| New behaviour                    | One per observable behaviour the requirement names (its success and its stated rejections) |
+| Refactor, rename, move           | None; the existing tests must still pass unchanged                                         |
+| Removal                          | None; delete the removed behaviour's tests, never assert the absence                       |
+| Docs, copy, style, config values | None                                                                                       |
 
 Only a test owning a lasting contract joins the suite and its CI lane.
 Reproductions, probes and one-off checks are scratch: they live in a temp

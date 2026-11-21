@@ -18,10 +18,9 @@ import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import { INSTANCE_NAME } from './paths.mjs';
+import { sleep } from './sleep.mjs';
 
 const exec = promisify(execFile);
-
-export const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 
 export function freePort() {
   return new Promise((resolvePort, reject) => {
@@ -134,6 +133,19 @@ export function instanceController({
 }) {
   const logs = join(isoRoot, 'logs');
   const env = () => starterEnv({ coreExe, isoRoot, electronDist });
+  const runLogged = async (verb, args, withStderr) => {
+    mkdirSync(logs, { recursive: true });
+    const { code, stdout, stderr } = await run(
+      desktopDir,
+      args,
+      env(),
+      join(logs, `${verb}-${Date.now()}.log`),
+      120_000
+    );
+    const tails = (withStderr ? [stdout, stderr] : [stdout]).map((text) => text.trim().slice(0, 400));
+    log(`instance: ${verb} exit ${code} ${tails.join(' ')}`);
+    return code;
+  };
   return {
     logs,
     /**
@@ -164,30 +176,8 @@ export function instanceController({
       log(`instance: window loaded after ${((Date.now() - started) / 1000).toFixed(1)} s; dataDir ${info.dataDir}`);
       return { ...info, inspectorPort, startMs: Date.now() - started };
     },
-    async stop() {
-      mkdirSync(logs, { recursive: true });
-      const { code, stdout, stderr } = await run(
-        desktopDir,
-        ['stop', '--name', name],
-        env(),
-        join(logs, `stop-${Date.now()}.log`),
-        120_000
-      );
-      log(`instance: stop exit ${code} ${stdout.trim().slice(0, 400)} ${stderr.trim().slice(0, 400)}`);
-      return code;
-    },
-    async sweep() {
-      mkdirSync(logs, { recursive: true });
-      const { code, stdout } = await run(
-        desktopDir,
-        ['sweep', '--all'],
-        env(),
-        join(logs, `sweep-${Date.now()}.log`),
-        120_000
-      );
-      log(`instance: sweep exit ${code} ${stdout.trim().slice(0, 400)}`);
-      return code;
-    },
+    stop: () => runLogged('stop', ['stop', '--name', name], true),
+    sweep: () => runLogged('sweep', ['sweep', '--all'], false),
   };
 }
 

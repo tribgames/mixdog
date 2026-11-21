@@ -1,13 +1,3 @@
-// The release reconciler (docs/testing.md, "Release coverage"): two independently produced sets, compared at the exact release commit.
-// The inventory (the manifest) assigns each test file and Rust target to the legs that must run it; the receipts hold what each leg's own
-// runner reported, case by case. A case's name comes from the runner at run time, never from the source. Fail closed:
-//   1. every artifact is intact, from this commit and run, with a single producer attempt per leg, and exactly the declared legs and slots;
-//   2. every reported case belongs to an assigned file or target, on a leg that is assigned it, and none failed;
-//   3. every assigned file or target ran at least one case on each of its clauses' legs (a clause whose only reports are skips is met
-//      only when each skip is an exception whose replacement runs that case elsewhere);
-//   4. every skipped, todo or ignored report matches an exact reviewed exception tuple, and every tuple was reported (stale tuples fail).
-// It returns every problem, sorted, so a reviewer sees what is missing, extra, stale or on the wrong leg, and who produces it.
-// It does not prove a test body checks anything: a case that returns early passes.
 import { readReceipts, receiptProblems } from '../receipt.mjs';
 import { digestOf, idKey, compareKeys, matchesAny } from './ids.mjs';
 import { OS_OF, allows } from './exceptions.mjs';
@@ -17,10 +7,6 @@ import { listedSuites, listedTests } from './adapters.mjs';
 const FAILED = new Set(['fail', 'cancelled']);
 const isSkipped = (observation) => ['skip', 'todo', 'xfail', 'ignored'].includes(observation.status);
 
-/**
- * The file or target a case belongs to: `['node', file]`, `['python', file]`, `['shell', file]` (a suite report belongs to its file),
- * or `['rust', manifest, kind, target]` of a Rust target (`doctest` for the rustdoc blocks of a lib).
- */
 function unitKey(id) {
   const family = id[0].replace(/-suite$/, '');
   return family === 'rust' ? idKey(id.slice(0, 4)) : idKey([family, id[1]]);
@@ -130,11 +116,6 @@ function observations(intact, fail) {
 function rustListingProblems({ manifest, plan, rustLists, byName, listings, expected, required, exempt, at, fail }) {
   /** per build variant, and per leg slot for the listings of standalone runs: the targets the listing shows */
   const shown = new Map();
-  /** a target the plan declares absent from a variant (a platform cfg), by rule and never by what a listing lacks */
-  const absentOn = (unit, variant) =>
-    (plan.rust?.absent ?? []).some((rule) => rule.variants.includes(variant) && matchesAny(unit.source, [rule.glob]));
-  /** @param {'workspace'|'listed'} how */
-  const osOf = (where) => plan.legs.find((leg) => where.startsWith(`${leg.id}#`))?.os;
   const consider = (suites, how, clausesOf, from, variant) => {
     for (const suite of suites) {
       const key = idKey(suite.id);
@@ -142,7 +123,10 @@ function rustListingProblems({ manifest, plan, rustLists, byName, listings, expe
         exempt.add(key);
         continue;
       }
-      if (!expected.get(key)?.[how] || absentOn(expected.get(key), how === 'listed' ? osOf(variant) : variant)) {
+      if (
+        !expected.get(key)?.[how] ||
+        absentOn(plan, expected.get(key), how === 'listed' ? osOf(plan, variant) : variant)
+      ) {
         fail(`unexplained: ${key} is listed by ${from} but the inventory expects no such target there`);
         continue;
       }
@@ -176,20 +160,9 @@ function rustListingProblems({ manifest, plan, rustLists, byName, listings, expe
         `the ${variant.name} build`,
         variant.name
       );
-      const profileMatches = new Map();
-      for (const [profile, list] of Object.entries(lists.profiles ?? {})) {
-        for (const test of listedTests(list, byName))
-          if (test.matches)
-            profileMatches.set(idKey(test.id), [...(profileMatches.get(idKey(test.id)) ?? []), profile]);
-      }
-      for (const test of listedTests(lists.all, byName)) {
-        const targets = (profileMatches.get(idKey(test.id)) ?? [])
-          .filter((profile) => variant.profileLegs?.[profile])
-          .flatMap((profile) => variant.profileLegs[profile].map(at));
-        if (!test.ignored || targets.length === 0) continue;
-        // the partitions report it ignored (a scheduler exclusion); the profile leg must pass the same case
-        promised.set(`${idKey(test.id)}|${variant.name}`, { key: idKey(test.id), targets, variant: variant.name });
-        for (const testAt of testAts) dropped.add(`${idKey(test.id)}|${testAt}`);
+      for (const { key, targets } of profileRunsOfIgnored(lists, variant, byName, at)) {
+        promised.set(`${key}|${variant.name}`, { key, targets, variant: variant.name });
+        for (const testAt of testAts) dropped.add(`${key}|${testAt}`);
       }
     } catch (error) {
       fail(`the listing of ${variant.name} is unreadable: ${error.message}`);
@@ -208,22 +181,49 @@ function rustListingProblems({ manifest, plan, rustLists, byName, listings, expe
       fail(`the listing in ${where} is unreadable: ${error.message}`);
     }
   }
-  // a target the inventory expects that a listing does not show has vanished from that variant; another variant showing it proves nothing
+  vanishedProblems({ plan, rustLists, expected, shown, fail });
+  return { dropped, promised };
+}
+
+/** A target the plan declares absent from a variant (a platform cfg), by rule and never by what a listing lacks. */
+const absentOn = (plan, unit, variant) =>
+  (plan.rust?.absent ?? []).some((rule) => rule.variants.includes(variant) && matchesAny(unit.source, [rule.glob]));
+
+const osOf = (plan, where) => plan.legs.find((leg) => where.startsWith(`${leg.id}#`))?.os;
+
+/** The ignored tests of a variant that a profile leg is to run: the partitions report them ignored (a scheduler exclusion); the profile leg must pass the same case. */
+function profileRunsOfIgnored(lists, variant, byName, at) {
+  const profileMatches = new Map();
+  for (const [profile, list] of Object.entries(lists.profiles ?? {})) {
+    for (const test of listedTests(list, byName))
+      if (test.matches) profileMatches.set(idKey(test.id), [...(profileMatches.get(idKey(test.id)) ?? []), profile]);
+  }
+  const promises = [];
+  for (const test of listedTests(lists.all, byName)) {
+    const targets = (profileMatches.get(idKey(test.id)) ?? [])
+      .filter((profile) => variant.profileLegs?.[profile])
+      .flatMap((profile) => variant.profileLegs[profile].map(at));
+    if (test.ignored && targets.length > 0) promises.push({ key: idKey(test.id), targets });
+  }
+  return promises;
+}
+
+/** A target the inventory expects that a listing does not show has vanished from that variant; another variant showing it proves nothing. */
+function vanishedProblems({ plan, rustLists, expected, shown, fail }) {
   for (const [key, unit] of expected) {
     if (unit.workspace) {
       for (const variant of (plan.rust?.variants ?? []).filter((entry) => rustLists[entry.name]))
-        if (!absentOn(unit, variant.name) && !shown.get(variant.name)?.has(key))
+        if (!absentOn(plan, unit, variant.name) && !shown.get(variant.name)?.has(key))
           fail(`vanished: ${key} is expected on ${variant.name} but its listing does not show it`);
     } else if (unit.listed) {
       // each platform the plan assigns the crate to has its own listing, and must show the target (or be declared without it)
       for (const clause of unit.requires) {
         const seen = clause.anyOf.some((where) => shown.get(where)?.has(key));
-        if (!seen && !clause.anyOf.some((where) => absentOn(unit, osOf(where))))
+        if (!seen && !clause.anyOf.some((where) => absentOn(plan, unit, osOf(plan, where))))
           fail(`vanished: ${key} is expected on ${clause.anyOf.join(' or ')} but no listing there shows it`);
       }
     }
   }
-  return { dropped, promised };
 }
 
 /** Step 4: an exact reviewed exception for every skip; marks the tuples used and which obligations reported them. */
@@ -308,46 +308,10 @@ function replacementProblems({ excepted, used, usedAt, passed, promised, plan, c
       );
       return;
     }
-    // where the excepted case is executed instead: a pass of it there, or a pass of every test that starts it as a child process
     const replacement = tuple.replacement;
-    if (replacement.kind === 'runs') {
-      let targets;
-      try {
-        targets = replacement.in.map(at);
-      } catch (error) {
-        fail(`no replacement: ${key} is excepted on ${tuple.platform} with a replacement that ${error.message}`);
-        return;
-      }
-      // a prepared environment only a release workflow builds: its own join checks that pass (cli.mjs join), the gate cannot see it
-      const joins = targets.filter((target) => isJoinObligation(plan, target));
-      // a gate call with no join (release-gate.yml `joins`) cannot accept the promise: nothing would check it before an outward effect
-      // unless the plan scopes the case to other gates (it tests an artifact only they build), and then this gate is not asked for it
-      const scope = (plan.gateScopes ?? []).find((entry) => idKey(entry.id) === key);
-      if (joins.length === targets.length && !context.joins && scope && !scope.gates.includes(context.gate)) return;
-      if (joins.length && !context.joins) {
-        fail(
-          `no replacement: ${key} is excepted on ${tuple.platform} with a replacement in a join leg, which this gate call (${context.gate}) has no join for`
-        );
-        return;
-      }
-      if (joins.length === targets.length) return;
-      if (joins.length)
-        fail(
-          `no replacement: ${key} is excepted on ${tuple.platform} with a replacement that mixes gate legs and join legs`
-        );
-      if (!(passed.get(key) ?? []).some((where) => targets.includes(where)))
-        fail(
-          `no replacement: ${key} is excepted on ${tuple.platform} because it runs in ${targets.join(' or ')}, which reported no pass of it`
-        );
-    } else if (replacement.kind === 'parent') {
-      // the child is a test of the parent's own invocation: the parent must pass where the child was reported
-      for (const parentId of replacement.parents)
-        for (const where of new Set(usedAt.get(index)))
-          if (!(passed.get(idKey(parentId)) ?? []).includes(where))
-            fail(
-              `no replacement: ${key} is excepted on ${tuple.platform} because ${idKey(parentId)} starts it, which did not pass in ${where}`
-            );
-    }
+    if (replacement.kind === 'runs') runsReplacementProblems({ tuple, key, passed, plan, context, at, fail });
+    else if (replacement.kind === 'parent')
+      parentReplacementProblems({ tuple, key, passed, usedAt: usedAt.get(index), fail });
   });
   // a scope names a case an exception sends to a join leg, or it is stale
   for (const scope of plan.gateScopes ?? [])
@@ -369,6 +333,47 @@ function replacementProblems({ excepted, used, usedAt, passed, promised, plan, c
       );
 }
 
+/** The excepted case is executed instead on other obligations: a pass of it there, or a join leg's own check. */
+function runsReplacementProblems({ tuple, key, passed, plan, context, at, fail }) {
+  let targets;
+  try {
+    targets = tuple.replacement.in.map(at);
+  } catch (error) {
+    fail(`no replacement: ${key} is excepted on ${tuple.platform} with a replacement that ${error.message}`);
+    return;
+  }
+  // a prepared environment only a release workflow builds: its own join checks that pass (cli.mjs join), the gate cannot see it
+  const joins = targets.filter((target) => isJoinObligation(plan, target));
+  // a gate call with no join (release-gate.yml `joins`) cannot accept the promise: nothing would check it before an outward effect
+  // unless the plan scopes the case to other gates (it tests an artifact only they build), and then this gate is not asked for it
+  const scope = (plan.gateScopes ?? []).find((entry) => idKey(entry.id) === key);
+  if (joins.length === targets.length && !context.joins && scope && !scope.gates.includes(context.gate)) return;
+  if (joins.length && !context.joins) {
+    fail(
+      `no replacement: ${key} is excepted on ${tuple.platform} with a replacement in a join leg, which this gate call (${context.gate}) has no join for`
+    );
+    return;
+  }
+  if (joins.length === targets.length) return;
+  if (joins.length)
+    fail(
+      `no replacement: ${key} is excepted on ${tuple.platform} with a replacement that mixes gate legs and join legs`
+    );
+  if (!(passed.get(key) ?? []).some((where) => targets.includes(where)))
+    fail(
+      `no replacement: ${key} is excepted on ${tuple.platform} because it runs in ${targets.join(' or ')}, which reported no pass of it`
+    );
+}
+
+/** The case is a child process of these tests: each must pass in the invocation that reported the child. */
+function parentReplacementProblems({ tuple, key, passed, usedAt, fail }) {
+  for (const parentId of tuple.replacement.parents)
+    for (const where of new Set(usedAt))
+      if (!(passed.get(idKey(parentId)) ?? []).includes(where))
+        fail(
+          `no replacement: ${key} is excepted on ${tuple.platform} because ${idKey(parentId)} starts it, which did not pass in ${where}`
+        );
+}
 /** The manifest is version 1, of this commit, intact, and routed by this plan. */
 function manifestProblems(manifest, plan, context, fail) {
   if (manifest.v !== 2) fail('the manifest is not version 2');
@@ -381,11 +386,39 @@ function manifestProblems(manifest, plan, context, fail) {
     fail('the manifest legs differ from the plan legs');
 }
 
-/**
- * Step 1 of the decision for a set of declared legs: every receipt is intact, of this commit, repository, workflow, run and attempt,
- * from the leg, slot, producer and parent invocation it names, and the declared slots equal the received ones in both directions.
- * @returns {{path: string, receipt: object, leg: object}[]} the receipts whose records are observations
- */
+function provenanceProblems(path, env, context, fail) {
+  if (env.sha !== context.sha) fail(`${path}: produced at ${env.sha}, not the release commit ${context.sha}`);
+  if (env.repository !== context.repository)
+    fail(`${path}: produced in the repository ${env.repository}, not ${context.repository}`);
+  if (env.workflow !== context.workflow)
+    fail(`${path}: produced by the workflow ${env.workflow}, not ${context.workflow}`);
+  if (String(env.runId) !== String(context.runId)) fail(`${path}: from run ${env.runId}, not ${context.runId}`);
+  const attempt = String(env.attempt);
+  const reused = context.allowReused && /^[1-9]\d*$/.test(attempt) && Number(attempt) < Number(context.attempt);
+  if (attempt !== String(context.attempt) && !reused)
+    fail(`${path}: from attempt ${attempt}, not permitted in attempt ${context.attempt}`);
+}
+
+/** The parent is the invocation whose children folder held this receipt, and it must be the declared parent slot of the same leg. */
+function parentLinkProblems({ path, leg, slot, env, actual, parent, fail }) {
+  if (slot.parent === undefined) {
+    if (parent !== null || env.parentSlot !== null)
+      fail(`${path}: ${leg.id} slot ${slot.id} is a top-level slot but the receipt was left by a child invocation`);
+  } else if (!actual)
+    fail(
+      `${path}: ${leg.id} slot ${slot.id} is a child of ${slot.parent} but the receipt was not left in a children folder of a ${slot.parent} invocation`
+    );
+  else if (
+    actual.envelope?.leg !== leg.id ||
+    actual.envelope?.slot !== slot.parent ||
+    actual.id !== env.parentInvocation ||
+    env.parentSlot !== slot.parent
+  )
+    fail(
+      `${path}: ${leg.id} slot ${slot.id} must be launched by its parent slot ${slot.parent}; it names ${env.parentSlot} (invocation ${env.parentInvocation}) and was left by ${actual.envelope?.leg} slot ${actual.envelope?.slot} (invocation ${actual.id})`
+    );
+}
+
 function artifacts(receipts, legs, context, fail) {
   const planLegs = new Map(legs.map((leg) => [leg.id, leg]));
   const byLeg = new Map();
@@ -405,16 +438,8 @@ function artifacts(receipts, legs, context, fail) {
     if (invocationIds.has(receipt.id))
       fail(`${path}: the invocation id ${receipt.id} is also the id of ${invocationIds.get(receipt.id)}`);
     invocationIds.set(receipt.id, path);
-    if (env.sha !== context.sha) fail(`${path}: produced at ${env.sha}, not the release commit ${context.sha}`);
-    if (env.repository !== context.repository)
-      fail(`${path}: produced in the repository ${env.repository}, not ${context.repository}`);
-    if (env.workflow !== context.workflow)
-      fail(`${path}: produced by the workflow ${env.workflow}, not ${context.workflow}`);
-    if (String(env.runId) !== String(context.runId)) fail(`${path}: from run ${env.runId}, not ${context.runId}`);
     const attempt = String(env.attempt);
-    const reused = context.allowReused && /^[1-9]\d*$/.test(attempt) && Number(attempt) < Number(context.attempt);
-    if (attempt !== String(context.attempt) && !reused)
-      fail(`${path}: from attempt ${attempt}, not permitted in attempt ${context.attempt}`);
+    provenanceProblems(path, env, context, fail);
     if (legAttempts.has(env.leg) && legAttempts.get(env.leg) !== attempt)
       fail(`${path}: leg ${env.leg} mixes producer attempts`);
     legAttempts.set(env.leg, attempt);
@@ -433,27 +458,15 @@ function artifacts(receipts, legs, context, fail) {
       fail(
         `${path}: written by the ${env.producer} producer, the plan's producer of ${leg.id} slot ${slot.id} is ${slot.producer}`
       );
-    // the parent is the invocation whose children folder held this receipt, and it must be the declared parent slot of the same leg
-    if (slot.parent === undefined) {
-      if (parent !== null || env.parentSlot !== null)
-        fail(`${path}: ${leg.id} slot ${slot.id} is a top-level slot but the receipt was left by a child invocation`);
-    } else {
-      const actual = parent === null ? undefined : byPath.get(parent);
-      if (!actual)
-        fail(
-          `${path}: ${leg.id} slot ${slot.id} is a child of ${slot.parent} but the receipt was not left in a children folder of a ${slot.parent} invocation`
-        );
-      else if (
-        actual.envelope?.leg !== leg.id ||
-        actual.envelope?.slot !== slot.parent ||
-        actual.id !== env.parentInvocation ||
-        env.parentSlot !== slot.parent
-      ) {
-        fail(
-          `${path}: ${leg.id} slot ${slot.id} must be launched by its parent slot ${slot.parent}; it names ${env.parentSlot} (invocation ${env.parentInvocation}) and was left by ${actual.envelope?.leg} slot ${actual.envelope?.slot} (invocation ${actual.id})`
-        );
-      }
-    }
+    parentLinkProblems({
+      path,
+      leg,
+      slot,
+      env,
+      actual: parent === null ? undefined : byPath.get(parent),
+      parent,
+      fail,
+    });
     const slots = byLeg.get(leg.id) ?? new Map();
     if (slots.has(env.slot))
       fail(`${path}: a second receipt for ${leg.id} slot ${env.slot} (${slots.get(env.slot).path})`);

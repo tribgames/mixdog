@@ -55,14 +55,36 @@ export function obligationOf(plan, ref) {
 /** Is the obligation `<leg>#<slot>` one of a join leg (evidence the release workflow checks at its join, which the gate cannot see)? */
 export const isJoinObligation = (plan, at) => (plan.joinLegs ?? []).some((leg) => at.startsWith(`${leg.id}#`));
 
-/** Structural problems of a plan: the reviewed document must name an owner everywhere a decision is recorded. */
-export function planProblems(plan) {
-  const problems = [];
-  if (plan.v !== 1) problems.push('plan.v must be 1');
-  for (const owner of ['classifier', 'routing', 'exceptions'])
-    if (!plan.owners?.[owner]) problems.push(`plan.owners.${owner} is missing`);
-  if (Object.hasOwn(plan, 'pendingProducers'))
-    problems.push('plan.pendingProducers exists: every declared leg has its producer, there is no pending form');
+function slotProblems(leg, slots, problems) {
+  const ids = slots.map((slot) => slot?.id);
+  if (slots.length === 0 || new Set(ids).size !== ids.length || ids.some((id) => typeof id !== 'string' || !id))
+    problems.push(`leg ${leg.id} needs distinct named slots`);
+  for (const slot of slots) {
+    for (const field of Object.keys(slot ?? {}))
+      if (!SLOT_FIELDS.has(field)) problems.push(`leg ${leg.id} slot ${slot.id} has the unknown field ${field}`);
+    if (!PRODUCERS.has(slot?.producer))
+      problems.push(`leg ${leg.id} slot ${slot?.id} needs its producer (${[...PRODUCERS].join(', ')})`);
+    if (slot?.parent === undefined) continue;
+    if (slot.parent === slot.id) problems.push(`leg ${leg.id} slot ${slot.id} names itself as its parent`);
+    else if (!ids.includes(slot.parent))
+      problems.push(`leg ${leg.id} slot ${slot.id} names the parent ${slot.parent}, which the leg does not declare`);
+    // the parent chain ends in a top-level slot
+    const seen = new Set([slot.id]);
+    for (
+      let at = slots.find((entry) => entry.id === slot.parent);
+      at?.parent !== undefined;
+      at = slots.find((entry) => entry.id === at.parent)
+    ) {
+      if (seen.has(at.id)) {
+        problems.push(`leg ${leg.id} slot ${slot.id} has a parent cycle`);
+        break;
+      }
+      seen.add(at.id);
+    }
+  }
+}
+
+function legProblems(plan, problems) {
   const legIds = new Set();
   // join legs: producers in a release workflow's own jobs (a prepared environment the gate cannot build), checked at that workflow's join
   for (const leg of [...(plan.legs ?? []), ...(plan.joinLegs ?? []).map((entry) => ({ ...entry, join: true }))]) {
@@ -77,57 +99,36 @@ export function planProblems(plan) {
         );
     if (legIds.has(leg.id)) problems.push(`leg ${leg.id} is declared twice`);
     legIds.add(leg.id);
-    const slots = Array.isArray(leg.slots) ? leg.slots : [];
-    const ids = slots.map((slot) => slot?.id);
-    if (slots.length === 0 || new Set(ids).size !== ids.length || ids.some((id) => typeof id !== 'string' || !id))
-      problems.push(`leg ${leg.id} needs distinct named slots`);
-    for (const slot of slots) {
-      for (const field of Object.keys(slot ?? {}))
-        if (!SLOT_FIELDS.has(field)) problems.push(`leg ${leg.id} slot ${slot.id} has the unknown field ${field}`);
-      if (!PRODUCERS.has(slot?.producer))
-        problems.push(`leg ${leg.id} slot ${slot?.id} needs its producer (${[...PRODUCERS].join(', ')})`);
-      if (slot?.parent === undefined) continue;
-      if (slot.parent === slot.id) problems.push(`leg ${leg.id} slot ${slot.id} names itself as its parent`);
-      else if (!ids.includes(slot.parent))
-        problems.push(`leg ${leg.id} slot ${slot.id} names the parent ${slot.parent}, which the leg does not declare`);
-      // the parent chain ends in a top-level slot
-      const seen = new Set([slot.id]);
-      for (
-        let at = slots.find((entry) => entry.id === slot.parent);
-        at?.parent !== undefined;
-        at = slots.find((entry) => entry.id === at.parent)
-      ) {
-        if (seen.has(at.id)) {
-          problems.push(`leg ${leg.id} slot ${slot.id} has a parent cycle`);
-          break;
-        }
-        seen.add(at.id);
-      }
+    slotProblems(leg, Array.isArray(leg.slots) ? leg.slots : [], problems);
+  }
+}
+
+/** Routing names the gate's own legs: a join leg is only a replacement of an exception, never where a test is routed. */
+function refProblems(plan, problems, where, refs) {
+  for (const ref of refs) {
+    try {
+      if (isJoinObligation(plan, obligationOf(plan, ref)))
+        problems.push(`${where} routes to the join leg ${ref}, which the gate does not run`);
+    } catch (error) {
+      problems.push(`${where} ${error.message}`);
     }
   }
-  // routing names the gate's own legs: a join leg is only a replacement of an exception, never where a test is routed
-  const refProblems = (where, refs) => {
-    for (const ref of refs) {
-      try {
-        if (isJoinObligation(plan, obligationOf(plan, ref)))
-          problems.push(`${where} routes to the join leg ${ref}, which the gate does not run`);
-      } catch (error) {
-        problems.push(`${where} ${error.message}`);
-      }
-    }
-  };
-  const clauseProblems = (where, requires) => {
-    if (!Array.isArray(requires) || requires.length === 0)
-      problems.push(`${where} has no requirement: a test with no applicable leg is an error`);
-    for (const clause of requires ?? []) {
-      if (!Array.isArray(clause.anyOf) || clause.anyOf.length === 0) problems.push(`${where} has an empty clause`);
-      refProblems(where, clause.anyOf ?? []);
-    }
-  };
+}
+
+function clauseProblems(plan, problems, where, requires) {
+  if (!Array.isArray(requires) || requires.length === 0)
+    problems.push(`${where} has no requirement: a test with no applicable leg is an error`);
+  for (const clause of requires ?? []) {
+    if (!Array.isArray(clause.anyOf) || clause.anyOf.length === 0) problems.push(`${where} has an empty clause`);
+    refProblems(plan, problems, where, clause.anyOf ?? []);
+  }
+}
+
+function routeAndClassProblems(plan, problems) {
   for (const route of plan.routes ?? []) {
     if (!route.name || !route.family || !route.owner || !Array.isArray(route.include) || route.include.length === 0)
       problems.push(`route ${JSON.stringify(route.name)} needs a name, a family, an owner and include globs`);
-    clauseProblems(`route ${route.name}`, route.requires);
+    clauseProblems(plan, problems, `route ${route.name}`, route.requires);
   }
   for (const rule of plan.classes ?? []) {
     if (!CLASSES.has(rule.class) || !rule.glob || !rule.reason || !rule.owner)
@@ -151,7 +152,11 @@ export function planProblems(plan) {
     if (!Array.isArray(scope.gates) || scope.gates.length === 0 || !scope.reason || !scope.owner)
       problems.push(`gate scope ${JSON.stringify(scope.id)} needs the gates that must run it, a reason and an owner`);
   }
-  for (const unit of plan.rust?.standalone ?? []) clauseProblems(`rust unit ${unit.manifestDir}`, unit.requires);
+}
+
+function rustProblems(plan, problems) {
+  for (const unit of plan.rust?.standalone ?? [])
+    clauseProblems(plan, problems, `rust unit ${unit.manifestDir}`, unit.requires);
   // a target absent from some build variants by a platform cfg: declared here by rule, never inferred from a listing that lacks it
   for (const rule of plan.rust?.absent ?? [])
     for (const name of rule.variants ?? [])
@@ -162,16 +167,29 @@ export function planProblems(plan) {
   for (const rule of plan.rust?.absent ?? [])
     if (!rule.glob || !Array.isArray(rule.variants) || rule.variants.length === 0 || !rule.reason || !rule.owner)
       problems.push(`rust absent rule ${JSON.stringify(rule.glob)} needs a glob, its variants, a reason and an owner`);
-  for (const unit of plan.rust?.doctests ?? []) clauseProblems(`rust doctests of ${unit.manifestDir}`, unit.requires);
+  for (const unit of plan.rust?.doctests ?? [])
+    clauseProblems(plan, problems, `rust doctests of ${unit.manifestDir}`, unit.requires);
   for (const variant of plan.rust?.variants ?? [])
-    refProblems(`rust variant ${variant.name}`, [
+    refProblems(plan, problems, `rust variant ${variant.name}`, [
       ...variant.testLegs,
       variant.listLeg,
       ...Object.values(variant.profileLegs ?? {}).flat(),
     ]);
-  return problems;
 }
 
+/** Structural problems of a plan: the reviewed document must name an owner everywhere a decision is recorded. */
+export function planProblems(plan) {
+  const problems = [];
+  if (plan.v !== 1) problems.push('plan.v must be 1');
+  for (const owner of ['classifier', 'routing', 'exceptions'])
+    if (!plan.owners?.[owner]) problems.push(`plan.owners.${owner} is missing`);
+  if (Object.hasOwn(plan, 'pendingProducers'))
+    problems.push('plan.pendingProducers exists: every declared leg has its producer, there is no pending form');
+  legProblems(plan, problems);
+  routeAndClassProblems(plan, problems);
+  rustProblems(plan, problems);
+  return problems;
+}
 /** Clauses of every route whose include globs match `path` for `family`, as canonical obligations; none is an error for the caller. */
 export function clausesFor(plan, family, path) {
   const clauses = new Map();

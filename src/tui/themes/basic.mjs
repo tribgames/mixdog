@@ -1,13 +1,3 @@
-/**
- * src/tui/themes/basic.mjs — Basic (amber-gold default dark).
- *
- * A clean amber / golden-orange accent carries the default theme identity
- * (titles, headings, links, code), with a slightly hotter orange live spinner.
- * Body text stays neutral/cool for readability so the theme does not feel
- * muddy or yellowed. Warm stays more terracotta / cream, while Indigo owns the
- * cool violet-blue family. Spreads `basePalette` first so the full key set is
- * always present.
- */
 import { basePalette } from './base.mjs';
 
 /** Basic — amber-gold default dark with a hot orange live state. */

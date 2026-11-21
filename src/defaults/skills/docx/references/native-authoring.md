@@ -15,17 +15,17 @@ file is a Word document.
 
 The runtime absorbs what it can (edge spaces are preserved, list numbering is defined, package validity is checked at finalize). What it cannot, the author must avoid:
 
-| Boundary | Failure → runtime code |
-|---|---|
-| A list marker comes from `listKind:'bullet'|'number'` (append_text properties) or `set_list`, never a typed `•` or `- ` | a double or fake bullet → `literal_bullet` |
-| One paragraph per `append_text`; never `\n` inside `text` | the newline renders as a space → `newline_in_text` |
-| A TOC (`insert_toc`) lists paragraphs styled `Heading 1..3`; a bold Normal paragraph is not a heading. Insert it after the headings exist (`paragraph:<n>` places it under the title): the field caches the outline it finds, and a TOC inserted into an empty document renders as its update prompt until Word rebuilds it | an empty TOC → `heading_hierarchy_missing` |
-| Page numbers are fields (`add_page_numbers`, `separator:' / '` for "3 / 12"), never typed digits; a cover without the running line takes `set_header_footer variant:'first' text:''` | wrong numbers after any edit; a header above the cover's eyebrow |
-| Deleted text lives in `<w:delText>` inside `<w:del>`, inserted text in `<w:t>` inside `<w:ins>` (hand-built XML only; the operations do this) | Word refuses the file → `text_in_deletion`, `deleted_text_in_insertion` |
-| A text element with an edge space carries `xml:space="preserve"` | "HelloWorld" → `whitespace_not_preserved` |
-| Comment range markers come in pairs and match a comment | → `comment_marker_mismatch` |
-| A picture carries about 150 pixels per inch at the size it is placed | an enlarged thumbnail prints soft → `image_low_resolution` |
-| A table that crosses a page repeats its header row (`add_table` `properties.repeatHeader`, on by default) | unlabelled columns after the break → `table_header_not_repeated` |
+| Boundary                                                                                                                                                                                                                                                                                                                    | Failure → runtime code                                                        |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| A list marker comes from `listKind:'bullet'                                                                                                                                                                                                                                                                                 | 'number'``(append_text properties) or``set_list``, never a typed ``•``or``- ` | a double or fake bullet → `literal_bullet` |
+| One paragraph per `append_text`; never `\n` inside `text`                                                                                                                                                                                                                                                                   | the newline renders as a space → `newline_in_text`                            |
+| A TOC (`insert_toc`) lists paragraphs styled `Heading 1..3`; a bold Normal paragraph is not a heading. Insert it after the headings exist (`paragraph:<n>` places it under the title): the field caches the outline it finds, and a TOC inserted into an empty document renders as its update prompt until Word rebuilds it | an empty TOC → `heading_hierarchy_missing`                                    |
+| Page numbers are fields (`add_page_numbers`, `separator:' / '` for "3 / 12"), never typed digits; a cover without the running line takes `set_header_footer variant:'first' text:''`                                                                                                                                        | wrong numbers after any edit; a header above the cover's eyebrow              |
+| Deleted text lives in `<w:delText>` inside `<w:del>`, inserted text in `<w:t>` inside `<w:ins>` (hand-built XML only; the operations do this)                                                                                                                                                                               | Word refuses the file → `text_in_deletion`, `deleted_text_in_insertion`       |
+| A text element with an edge space carries `xml:space="preserve"`                                                                                                                                                                                                                                                            | "HelloWorld" → `whitespace_not_preserved`                                     |
+| Comment range markers come in pairs and match a comment                                                                                                                                                                                                                                                                     | → `comment_marker_mismatch`                                                   |
+| A picture carries about 150 pixels per inch at the size it is placed                                                                                                                                                                                                                                                        | an enlarged thumbnail prints soft → `image_low_resolution`                    |
+| A table that crosses a page repeats its header row (`add_table` `properties.repeatHeader`, on by default)                                                                                                                                                                                                                   | unlabelled columns after the break → `table_header_not_repeated`              |
 
 ## Control map
 
@@ -64,8 +64,8 @@ The runtime absorbs what it can (edge spaces are preserved, list numbering is de
   step that carries a procedure on past a note between its steps takes
   `listContinue:true`, or it reads 1 again. Its levels count the global
   1. a. i., and a list that opens on Korean text counts 1. 가. 1), the Korean
-  document convention; `listNumbering:'global'|'korean'` names it for the list an
-  item opens, and an item that continues a list keeps the list's own.
+     document convention; `listNumbering:'global'|'korean'` names it for the list an
+     item opens, and an item that continues a list keeps the list's own.
 - Type: `properties:{ name, nameEastAsia, size, bold, italic, color }`. Hangul, kana, and Han have no italic (Word
   and LibreOffice slant them synthetically): a Korean pull quote or caption is set apart by colour, weight, a rule, or
   an indent instead.

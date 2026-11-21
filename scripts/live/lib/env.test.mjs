@@ -1,14 +1,18 @@
 // Pure parts of the live runner library: paths, overlay merge, core identity parsing, CPU parsers, start arguments.
-// Starts no app, no core and no process.
+// Starts no app and no core.
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 
 import { linuxLoad, macLoad } from './cpu.mjs';
 import { instanceConfig, mergeOverlay } from './env.mjs';
+import { startFixtures } from './fixtures.mjs';
 import { profileShares, topFunctions } from './inspector.mjs';
-import { parseCimProcess, samePath, starterEnv, startArgs, verifyCore } from './instance.mjs';
+import { instanceController, parseCimProcess, samePath, starterEnv, startArgs, verifyCore } from './instance.mjs';
 import { findOrtLibrary, parseLiveArgs, resolveLivePaths } from './paths.mjs';
+import { providerControl, startProvider } from './provider.mjs';
 import { CUSTOM } from './paths.mjs';
 
 test('parseLiveArgs reads --a=b, --a b and bare flags', () => {
@@ -157,4 +161,87 @@ test('profileShares and topFunctions split a CPU profile by self time', () => {
   const shares = profileShares(profile);
   assert.deepEqual(shares, { totalMs: 4, idlePct: 25, programPct: 0, gcPct: 25, jsPct: 50, busyPct: 75 });
   assert.deepEqual(topFunctions(profile), [{ fn: 'work main.js:10', selfMs: 2, pct: 50 }]);
+});
+
+test('startProvider answers queued, routed and decided chat requests and exposes the control API', async () => {
+  const provider = await startProvider();
+  const chat = async (content) => {
+    const res = await fetch(`${provider.baseURL}/v1/chat/completions`, {
+      method: 'POST',
+      body: JSON.stringify({ messages: [{ role: 'user', content }] }),
+    });
+    return { status: res.status, text: await res.text() };
+  };
+  try {
+    const control = providerControl(provider.baseURL);
+    assert.deepEqual(await control.push([{ text: 'queued' }, { status: 500 }]), { queued: 2 });
+    assert.deepEqual(await control.route('thread-b', [{ text: 'routed' }]), { routes: 1 });
+    assert.match((await chat('thread-b')).text, /"content":"routed"/);
+    assert.match((await chat('x')).text, /"content":"queued"/);
+    assert.equal((await chat('x')).status, 500);
+    assert.match((await chat('x')).text, /"content":"done"/);
+    provider.state.decide = (_body, n) => ({ calls: [{ name: 'tool', args: { n } }] });
+    assert.match((await chat('x')).text, /"name":"tool","arguments":"{\\"n\\":5}"/);
+    assert.equal((await chat('{')).status, 200);
+    const models = await fetch(`${provider.baseURL}/v1/models`).then((r) => r.json());
+    assert.equal(models.data[0].id, 'smoke');
+    const view = await control.requests(4);
+    assert.equal(view.total, provider.requests.length);
+    assert.equal(view.requests[0].i, 4);
+    assert.equal(view.requests[0].answer.kind, 'calls');
+  } finally {
+    await provider.close();
+  }
+});
+
+test('startFixtures serves the form, frames, submitted, root and blank pages and closes', async () => {
+  const fixtures = await startFixtures();
+  try {
+    const text = async (url) => (await fetch(url)).text();
+    assert.match(await text(fixtures.url('/form')), /<form id="f" action="\/submitted"/);
+    const frames = await text(fixtures.url('/frames'));
+    assert.match(frames, /id="plain"/);
+    assert.ok(frames.includes(`src="${fixtures.frameOrigin}/inner"`));
+    assert.match(await text(`${fixtures.frameOrigin}/inner`), /id="inner"/);
+    assert.match(await text(fixtures.url('/submitted?q=a%20b')), /<p id="q">a%20b<\/p>/);
+    assert.deepEqual(JSON.parse(await text(fixtures.url('/root?q=7'))), { q: '7' });
+    assert.match(await text(fixtures.url('/anything')), /<p>blank<\/p>/);
+  } finally {
+    await fixtures.close();
+  }
+  await assert.rejects(fetch(fixtures.url('/form')));
+});
+
+test('instanceController runs dev-isolated start, stop and sweep and logs each run', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'live-instance-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const desktopDir = join(root, 'desktop');
+  mkdirSync(join(desktopDir, 'scripts'), { recursive: true });
+  writeFileSync(
+    join(desktopDir, 'scripts', 'dev-isolated.mjs'),
+    "console.log('noise'); console.log(JSON.stringify({ verb: process.argv[2], dataDir: 'd', args: process.argv.slice(3) }));"
+  );
+  const lines = [];
+  const controller = instanceController({
+    desktopDir,
+    coreExe: 'core',
+    isoRoot: join(root, 'iso'),
+    name: 'probe',
+    log: (line) => lines.push(line),
+  });
+  const info = await controller.start({ inspectorPort: 9229, config: { a: 1 } });
+  assert.equal(info.verb, 'start');
+  assert.equal(info.dataDir, 'd');
+  assert.equal(info.inspectorPort, 9229);
+  assert.ok(info.args.includes('--inspect-main=9229'));
+  assert.equal(await controller.stop(), 0);
+  assert.equal(await controller.sweep(), 0);
+  assert.ok(lines.some((line) => line.startsWith('instance: stop exit 0 ')));
+  assert.ok(lines.some((line) => line.startsWith('instance: sweep exit 0 ')));
+  const logNames = readdirSync(controller.logs);
+  for (const prefix of ['start-', 'stop-', 'sweep-'])
+    assert.ok(
+      logNames.some((name) => name.startsWith(prefix)),
+      prefix
+    );
 });

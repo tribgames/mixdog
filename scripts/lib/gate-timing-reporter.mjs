@@ -1,7 +1,4 @@
-// node:test reporter the local gate adds to each shard it runs: one JSON line
-// per test file, { file, ms }, the file's top-level test time (relative to the
-// package the run started in, like `scripts/test.mjs --list`). The gate turns
-// these into the per-file estimates its next run plans shards from.
+// One JSON line per test file, { file, ms }: top-level test time, file relative to the package the run started in.
 import { relative } from 'node:path';
 
 export default async function* gateTimingReporter(source) {

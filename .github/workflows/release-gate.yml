@@ -1899,9 +1899,9 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
       # The tracked tests that run `node` need the binary on the search path (the daemon's discovery tests, the Office
       # authoring script runtime), and one reads the checkout's node_modules: mixdog-office tests/pptx_script.rs, for
-      # pptxgenjs and jszip. No other tracked test reads a package (the relay interop, the skill validators and the
-      # package-reading comparisons were Node-comparison tests, now removed). So the legs install those two packages
-      # (below) and need no npm download cache: a restore of the root tree's 250-470 MB cache entry would cost more than
+      # pptxgenjs, jszip and @napi-rs/canvas (the script's text metrics, src/runtime/office/portable/text-metrics.mjs). No other
+      # tracked test reads a package (the relay interop, the skill validators and the package-reading comparisons were
+      # Node-comparison tests, now removed). So the legs install those three packages (below) and need no npm download cache: a restore of the root tree's 250-470 MB cache entry would cost more than
       # the install it serves.
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -2008,9 +2008,9 @@ jobs:
       #
       # The check after the install is not a formality: pptx_script.rs returns early, as a pass, when node_modules/pptxgenjs
       # is missing, so a leg without the package would be green and test nothing.
-      - name: Install the packages the tests read (pptxgenjs and jszip, without scripts)
+      - name: Install the packages the tests read (pptxgenjs, jszip and @napi-rs/canvas, without scripts)
         run: |
-          node scripts/ci/lock-subset.mjs ci-node-subset pptxgenjs jszip
+          node scripts/ci/lock-subset.mjs ci-node-subset pptxgenjs jszip @napi-rs/canvas
           for attempt in 1 2 3; do
             npm ci --prefix ci-node-subset --ignore-scripts --prefer-offline --no-audit --no-fund && break
             if [ "$attempt" -eq 3 ]; then exit 1; fi
@@ -2020,6 +2020,7 @@ jobs:
           cp -R ci-node-subset/node_modules node_modules
           test -f node_modules/pptxgenjs/package.json
           test -f node_modules/jszip/package.json
+          test -f node_modules/@napi-rs/canvas/package.json
       - name: Run partition ${{ matrix.part }} of ${{ matrix.of }}
         env:
           FILTER: ${{ needs.changes.outputs.core_filter }}

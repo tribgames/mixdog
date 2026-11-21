@@ -1,9 +1,3 @@
-// Release Gate guard for the immutable voice runtime release. Deploy reuses the
-// published runtime only while the build-input hash of the checkout matches it,
-// so a change to any hash input (scripts/voice-runtime-config.json, the build
-// scripts and workflow, generate-voice-runtime-manifest.mjs) without a
-// runtimeVersion bump fails here on push instead of stopping a live Deploy.
-// A formatter pass that only re-indents those files counts as a change.
 // Run it on a Linux checkout: the hash covers the files as checked out there.
 import { readFile } from 'node:fs/promises';
 

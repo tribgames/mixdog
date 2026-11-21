@@ -3,8 +3,8 @@
 Office 엔진은 Rust(`native/core/crates/mixdog-office*`)에 있고, 그 검증은 cargo 테스트입니다.
 Node에는 PPTX 작성 스크립트(`src/runtime/office/authoring/pptx-script-entry.mjs`)와 그 import 닫힘만 남아 있으며, 그 테스트만 실행합니다.
 
-| 명령 | 범위 |
-| --- | --- |
+| 명령                  | 범위                                                                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `npm run test:office` | PPTX 작성 스크립트(정규화·키트 색인·차트 스타일·글꼴 준비)와 데스크톱 승인 카드 검증. Microsoft Office를 열지 않습니다. |
 
 라이브 검증(Windows와 Microsoft Office 필요)은 Rust 쪽 `mixdog-office`의 `live_com` 테스트입니다.

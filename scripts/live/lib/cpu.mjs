@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+import { sleep } from './sleep.mjs';
 
 /** Busy percentage between two readings of /proc/stat (idle + iowait count as idle), or null. */
 export function linuxLoad(before, after) {

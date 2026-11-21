@@ -9,7 +9,7 @@ import { browserCommand } from '../lib/core-client.mjs';
 import { parseLiveArgs } from '../lib/paths.mjs';
 
 const exec = promisify(execFile);
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+import { sleep } from '../lib/sleep.mjs';
 
 export const name = 'mixdogd memory and cpu budget';
 

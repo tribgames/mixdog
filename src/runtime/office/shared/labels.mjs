@@ -1,7 +1,3 @@
-// Captions the runtime adds on its own — a preset's dashboard band, a decision
-// panel, a callout label, the prefix on a provenance note. A document written in
-// Korean must not carry an English caption the caller never wrote, so these
-// follow the copy they sit with; a script with no wording here keeps English.
 const LABELS = Object.freeze({
   latin: Object.freeze({
     eyebrow: 'EXECUTIVE DECISION DASHBOARD',

@@ -11,4 +11,3 @@ behavior and state it before changing anything. Choose the change that holds
 for every caller, interleaving or state it reaches, not only the reported
 case. Preserve existing behavior unless the brief changes it. Report the
 decisions you made and the alternatives you rejected, with the outcome.
-

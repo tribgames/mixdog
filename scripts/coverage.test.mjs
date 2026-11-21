@@ -191,46 +191,68 @@ test('empty and rangeless input folds into an empty artifact instead of failing'
   });
 });
 
-test('the query answers executed, unexecuted, outside-function, excluded and unknown lines', async (t) => {
+async function queryFixture(t) {
   const cwd = await fixture(t);
   const artifact = await foldCoverage(sample(cwd), { root: cwd });
-  const generatedAt = artifact.generatedAt;
-  const app = 'src/nested/app.mjs';
-  const ask = (file, line) => queryCoverage(artifact, file, line, { root: cwd });
-  assert.deepEqual(await ask(app, 7), {
-    path: app,
+  return { artifact, ask: (file, line) => queryCoverage(artifact, file, line, { root: cwd }) };
+}
+
+const APP_PATH = 'src/nested/app.mjs';
+
+test('the query answers a line inside an executed function as executed', async (t) => {
+  const { artifact, ask } = await queryFixture(t);
+  assert.deepEqual(await ask(APP_PATH, 7), {
+    path: APP_PATH,
     line: 7,
     status: 'executed',
     loaded: true,
-    generatedAt,
+    generatedAt: artifact.generatedAt,
     function: { name: 'beta', startLine: 6, endLine: 8, executed: true },
   });
-  assert.deepEqual(await ask(app, 11), {
-    path: app,
+});
+
+test('the query answers a line inside an unexecuted function as not-executed', async (t) => {
+  const { artifact, ask } = await queryFixture(t);
+  assert.deepEqual(await ask(APP_PATH, 11), {
+    path: APP_PATH,
     line: 11,
     status: 'not-executed',
     loaded: true,
-    generatedAt,
+    generatedAt: artifact.generatedAt,
     function: { name: 'gamma', startLine: 10, endLine: 12, executed: false },
   });
-  assert.deepEqual(await ask(app, 1), {
-    path: app,
+});
+
+test('the query answers a line outside every function as outside-functions', async (t) => {
+  const { artifact, ask } = await queryFixture(t);
+  assert.deepEqual(await ask(APP_PATH, 1), {
+    path: APP_PATH,
     line: 1,
     status: 'outside-functions',
     loaded: true,
-    generatedAt,
+    generatedAt: artifact.generatedAt,
   });
-  // The innermost enclosing function wins, never the one wrapped around it.
-  assert.equal((await ask(app, 3)).function.name, '(anonymous)');
-  assert.equal((await ask(app, 2)).function.name, 'alpha');
-  // Windows separators and ./ prefixes name the same file.
+});
+
+test('the query names the innermost enclosing function, never the one wrapped around it', async (t) => {
+  const { ask } = await queryFixture(t);
+  assert.equal((await ask(APP_PATH, 3)).function.name, '(anonymous)');
+  assert.equal((await ask(APP_PATH, 2)).function.name, 'alpha');
+});
+
+test('the query takes Windows separators and ./ prefixes for the same file', async (t) => {
+  const { ask } = await queryFixture(t);
   assert.equal((await ask('src\\nested\\app.mjs', 7)).status, 'executed');
   assert.equal((await ask('./src/nested/app.mjs', 7)).status, 'executed');
+});
+
+test('the query answers an unknown file and an excluded file with their own statuses', async (t) => {
+  const { artifact, ask } = await queryFixture(t);
   assert.deepEqual(await ask('src/nested/absent.mjs', 2), {
     path: 'src/nested/absent.mjs',
     line: 2,
     status: 'unknown-file',
-    generatedAt,
+    generatedAt: artifact.generatedAt,
     changedSinceCollection: false,
   });
   assert.deepEqual(await ask('apps/desktop/src/main.ts', 2), {
@@ -238,7 +260,7 @@ test('the query answers executed, unexecuted, outside-function, excluded and unk
     line: 2,
     status: 'excluded',
     reason: 'transpiled-by-tsx',
-    generatedAt,
+    generatedAt: artifact.generatedAt,
   });
 });
 

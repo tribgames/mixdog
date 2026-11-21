@@ -1,8 +1,5 @@
-// Latency statistics shared by the scripts/ CLIs and benches. Nearest-rank
-// percentiles: p50 of an even-sized sample is the lower middle sample, never
-// an interpolated value, so a reported number is always one the run actually
-// produced. An empty sample reports null rather than a zero that would read
-// as a real measurement.
+// Nearest-rank percentiles: p50 of an even-sized sample is the lower middle sample, never interpolated.
+// An empty sample reports null, not zero.
 
 // `p` is a percent (0-100); `sorted` must already be ascending.
 export function percentile(sorted, p) {

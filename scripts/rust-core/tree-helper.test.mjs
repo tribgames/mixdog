@@ -87,10 +87,6 @@ for (const [name, number] of [
   );
 }
 
-// The program signals its helper and exits at once: whichever of the two the helper sees first, the signal reached it before
-// it published, so there is no record and the exit is 143. (Which one comes first is not controlled here; the order in which
-// the exit is seen first and the signal is caught during the end of the tree is the unit test
-// a_signal_caught_before_publication_withholds_the_record.)
 test('a SIGTERM that reaches the helper as its program exits withholds the report: exit 143', {
   skip: WINDOWS && 'POSIX signals',
 }, async () => {
@@ -137,10 +133,6 @@ process.exit(0);
     await assertTreeEnded(dir, members());
   }));
 
-// The members left in the program's group are signalled when it exits; the run must return only once they are gone, which the
-// single process query right after it checks. Linux reaps each as the helper's own adopted child; macOS waits for the group to
-// be empty (item: a signal sent is not a member ended). Several members make one still dying at the query likely if that
-// wait were missing.
 test('a program that exits leaving eight members in its group: every one is gone when the run returns', () =>
   withDir(async (dir, members, track) => {
     const script = join(dir, 'many.mjs');

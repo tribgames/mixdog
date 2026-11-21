@@ -98,8 +98,10 @@ test('--changed selects the tests whose static imports reach a changed file', as
   );
   assert.equal(parseArgs(['--changed', 'src']).changed, true);
   assert.match(USAGE, /--changed/);
+});
 
-  // The changed set is what differs from HEAD, untracked files included.
+test('the changed set is what differs from HEAD, untracked files included', async (t) => {
+  const cwd = await fixture(t, { 'src/a.mjs': 'export const a = 1;\n' });
   const git = (...args) =>
     spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' });
   git('init', '-q');
@@ -577,10 +579,6 @@ test('CLI spawn preserves exact flags, reporters, selected paths, stdio, and chi
                 executable,
                 args,
                 stdio: options.stdio,
-                // The whole parent environment is inherited; the runner only
-                // adds where this spawn records its failures and its isolation
-                // variables (temp, data and backup roots it removes after the
-                // run), which a parent run already set and this one replaces.
                 inheritsEnvironment: Object.keys(process.env).every(
                   (key) =>
                     ${JSON.stringify(['MIXDOG_TEST_FAILURE_RECORDS', ...Object.keys(testIsolationEnv('scratch'))])}.includes(key) ||
@@ -667,7 +665,7 @@ test('CLI spawn preserves exact flags, reporters, selected paths, stdio, and chi
   }
 });
 
-test('CLI executes selected tests with forwarded imports and name filters, reporting success and failure', async (t) => {
+test('CLI executes selected tests with forwarded imports and name filters, reporting success', async (t) => {
   const cwd = await fixture(t, {
     'setup.mjs': 'globalThis.fromRunnerImport = true;',
     'src/pass.test.mjs': `
@@ -679,10 +677,6 @@ test('CLI executes selected tests with forwarded imports and name filters, repor
       });
       test('chosen skipped', { skip: 'requires a tool the fixture host lacks' }, () => {});
       test('ignored', () => assert.fail('name filter was not forwarded'));
-    `,
-    'src/fail.test.mjs': `
-      import test from 'node:test';
-      test('fails', () => { throw new Error('fixture assertion failure'); });
     `,
   });
   const pass = runNode(cwd, [
@@ -711,6 +705,15 @@ test('CLI executes selected tests with forwarded imports and name filters, repor
     pass.stdout.trimEnd().split('\n').at(-1),
     `${SUMMARY_TAG} 0 failed, 0 flaky (every failed test is named below)`
   );
+});
+
+test('CLI executes a failing test, keeps its full log and names it last in the summary', async (t) => {
+  const cwd = await fixture(t, {
+    'src/fail.test.mjs': `
+      import test from 'node:test';
+      test('fails', () => { throw new Error('fixture assertion failure'); });
+    `,
+  });
   const fail = runNode(cwd, [runnerPath, 'src/fail.test.mjs']);
   assert.equal(fail.status, 1);
   // A failed run keeps the full log its printed path names.
@@ -787,14 +790,38 @@ test('a test registered after a still-pending top-level await fails the file ins
   assert.match(USAGE, /Test-file rule/);
 });
 
-test('the force-exit guard leaves CommonJS entries unobserved and keeps the exit code a file already set', async (t) => {
+function viaNodeTest(cwd, file) {
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, ['--test', '--test-force-exit', '--import', spawnLedgerUrl, file], {
+    cwd,
+    env,
+    encoding: 'utf8',
+    timeout: 20_000,
+  });
+  assert.ifError(result.error);
+  return result;
+}
+
+test('the force-exit guard leaves CommonJS entries unobserved', async (t) => {
   const cwd = await fixture(t, {
     'package.json': '{"type":"commonjs"}',
-    'esm/package.json': '{"type":"module"}',
     // Re-importing a CommonJS entry would run it twice and make
     // require.main !== module, so a main-guarded file would lose its tests.
     'cjs-main.test.cjs': cjsEntry,
     'cjs-scope.test.js': cjsEntry,
+  });
+  for (const file of ['cjs-main.test.cjs', 'cjs-scope.test.js']) {
+    const run = viaNodeTest(cwd, file);
+    assert.equal(run.status, 0, `${file}\n${run.stdout}${run.stderr}`);
+    assert.match(run.stdout, /pass 1\b/, file);
+  }
+});
+
+test('the force-exit guard observes a .js entry whose package scope is type module', async (t) => {
+  const cwd = await fixture(t, {
+    'package.json': '{"type":"commonjs"}',
+    'esm/package.json': '{"type":"module"}',
     'esm/module-scope.test.js': `
       import assert from 'node:assert/strict';
       import test from 'node:test';
@@ -802,6 +829,14 @@ test('the force-exit guard leaves CommonJS entries unobserved and keeps the exit
       await new Promise((resolve) => setTimeout(resolve, 500));
       test('late', () => assert.fail('late'));
     `,
+  });
+  const esmScope = viaNodeTest(cwd, 'esm/module-scope.test.js');
+  assert.equal(esmScope.status, 1, esmScope.stdout);
+  assert.match(esmScope.stdout + esmScope.stderr, /force-exited before the file's top-level evaluation completed/);
+});
+
+test('the force-exit guard never replaces an exit code a file already set', async (t) => {
+  const cwd = await fixture(t, {
     'exit7.mjs': `
       setTimeout(() => process.exit(7), 50);
       await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -811,42 +846,16 @@ test('the force-exit guard leaves CommonJS entries unobserved and keeps the exit
       await new Promise((resolve) => setTimeout(resolve, 5000));
     `,
   });
-  const direct = (file, extra = {}) => {
-    const env = { ...process.env, NODE_TEST_CONTEXT: 'child-v8', ...extra };
+  for (const file of ['exit7.mjs', 'exit-code-then-exit.mjs']) {
+    const env = { ...process.env, NODE_TEST_CONTEXT: 'child-v8' };
     delete env.MIXDOG_TEST_CONCURRENCY;
-    const result = spawnSync(process.execPath, ['--test-force-exit', '--import', spawnLedgerUrl, file], {
+    const run = spawnSync(process.execPath, ['--test-force-exit', '--import', spawnLedgerUrl, file], {
       cwd,
       env,
       encoding: 'utf8',
       timeout: 10_000,
     });
-    assert.ifError(result.error);
-    return result;
-  };
-  const viaNodeTest = (file) => {
-    const env = { ...process.env };
-    delete env.NODE_TEST_CONTEXT;
-    const result = spawnSync(process.execPath, ['--test', '--test-force-exit', '--import', spawnLedgerUrl, file], {
-      cwd,
-      env,
-      encoding: 'utf8',
-      timeout: 20_000,
-    });
-    assert.ifError(result.error);
-    return result;
-  };
-  for (const file of ['cjs-main.test.cjs', 'cjs-scope.test.js']) {
-    const run = viaNodeTest(file);
-    assert.equal(run.status, 0, `${file}\n${run.stdout}${run.stderr}`);
-    assert.match(run.stdout, /pass 1\b/, file);
-  }
-  // A package scope of type module makes a .js entry ESM, so it is observed.
-  const esmScope = viaNodeTest('esm/module-scope.test.js');
-  assert.equal(esmScope.status, 1, esmScope.stdout);
-  assert.match(esmScope.stdout + esmScope.stderr, /force-exited before the file's top-level evaluation completed/);
-  // A code the file already chose is never replaced by the guard's 1.
-  for (const file of ['exit7.mjs', 'exit-code-then-exit.mjs']) {
-    const run = direct(file);
+    assert.ifError(run.error);
     assert.equal(run.status, 7, `${file}\n${run.stdout}${run.stderr}`);
   }
 });
@@ -922,53 +931,51 @@ test('a test process never signals the pid of a child whose exit it already saw'
   ]);
 });
 
-test('--rerun-failed reports a flaky test in its own category and states its exit policy', async (t) => {
-  const cwd = await fixture(t, {
-    // Fails on its first attempt only, like the load-sensitive suites that
-    // three re-runs once hid.
-    'src/flaky.test.mjs': `
-      import assert from 'node:assert/strict';
-      import { existsSync, writeFileSync } from 'node:fs';
-      import test from 'node:test';
-      const marker = new URL('./attempt.marker', import.meta.url);
-      test('load sensitive', () => {
-        const firstAttempt = !existsSync(marker);
-        writeFileSync(marker, 'seen');
-        assert.equal(firstAttempt, false, 'first attempt fails, later attempts pass');
-      });
-    `,
-    'src/broken.test.mjs': `
-      import test from 'node:test';
-      test('always fails', () => { throw new Error('deterministic failure'); });
-    `,
+const flakySource = `
+  import assert from 'node:assert/strict';
+  import { existsSync, writeFileSync } from 'node:fs';
+  import test from 'node:test';
+  const marker = new URL('./attempt.marker', import.meta.url);
+  test('load sensitive', () => {
+    const firstAttempt = !existsSync(marker);
+    writeFileSync(marker, 'seen');
+    assert.equal(firstAttempt, false, 'first attempt fails, later attempts pass');
   });
-  const logDirectories = [];
-  const run = (args) => {
-    const result = runNode(cwd, [runnerPath, ...args]);
-    logDirectories.push(dirname(/^Full test log: (.+)$/m.exec(result.stderr)[1]));
-    return result;
-  };
-  t.after(() => Promise.all(logDirectories.map((directory) => rm(directory, { recursive: true, force: true }))));
+`;
 
-  // Without the flag the flaky test is an ordinary failure: nothing is folded
-  // into the pass count and the run still fails.
-  const strict = run(['src/flaky.test.mjs']);
+const brokenSource = `
+  import test from 'node:test';
+  test('always fails', () => { throw new Error('deterministic failure'); });
+`;
+
+function runLogged(t, cwd, args) {
+  const result = runNode(cwd, [runnerPath, ...args]);
+  const directory = dirname(/^Full test log: (.+)$/m.exec(result.stderr)[1]);
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  return result;
+}
+
+test('without --rerun-failed a flaky test is an ordinary failure', async (t) => {
+  const cwd = await fixture(t, { 'src/flaky.test.mjs': flakySource });
+  const strict = runLogged(t, cwd, ['src/flaky.test.mjs']);
   assert.equal(strict.status, 1);
   assert.ok(strict.stdout.includes(`${SUMMARY_TAG} FAILED src/flaky.test.mjs > load sensitive`), strict.stdout);
-  await rm(join(cwd, 'src', 'attempt.marker'), { force: true });
+});
 
-  const tolerated = run(['--rerun-failed', '2', 'src/flaky.test.mjs']);
+test('--rerun-failed reports a flaky test in its own category and states its exit policy', async (t) => {
+  const cwd = await fixture(t, { 'src/flaky.test.mjs': flakySource });
+  const tolerated = runLogged(t, cwd, ['--rerun-failed', '2', 'src/flaky.test.mjs']);
   assert.equal(tolerated.status, 0, 'a flaky test does not fail a run that asked for re-runs');
   assert.match(tolerated.stdout, /0 failed, 1 flaky/);
   assert.match(tolerated.stdout, /FLAKY src\/flaky\.test\.mjs > load sensitive \(failed, then passed on re-run 1\/2\)/);
   assert.match(tolerated.stdout, /flaky test does not fail the run/);
   assert.doesNotMatch(tolerated.stdout, /FAILED src\/flaky/);
   assert.match(tolerated.stderr, /Re-running 1 failed file\(s\): attempt 1\/2/);
-  await rm(join(cwd, 'src', 'attempt.marker'), { force: true });
+});
 
-  // A test that fails every re-run keeps failing the run, and the flaky one
-  // beside it is still named separately.
-  const mixed = run(['--rerun-failed', '2']);
+test('--rerun-failed keeps failing the run for a test that fails every re-run and names the flaky one separately', async (t) => {
+  const cwd = await fixture(t, { 'src/flaky.test.mjs': flakySource, 'src/broken.test.mjs': brokenSource });
+  const mixed = runLogged(t, cwd, ['--rerun-failed', '2']);
   assert.equal(mixed.status, 1);
   const summary = mixed.stdout.trimEnd().split('\n').slice(-4);
   assert.deepEqual(summary, [
@@ -980,7 +987,6 @@ test('--rerun-failed reports a flaky test in its own category and states its exi
   assert.match(mixed.stderr, /Re-running 2 failed file\(s\): attempt 1\/2/);
   assert.match(mixed.stderr, /Re-running 1 failed file\(s\): attempt 2\/2/);
 });
-
 test('explicit Node runs preserve imports, nested failures, skip/todo reasons and the full log', async (t) => {
   const cwd = await fixture(t, {
     'setup.mjs': 'globalThis.directImport = true;',

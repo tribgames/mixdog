@@ -298,12 +298,6 @@ function backupDirsNewestFirst(dir) {
   }
 }
 
-/**
- * A backup is restorable only when its manifest names this data dir and this
- * incarnation of it. Legacy unscoped backups carry no manifest, so they stay
- * on disk but never match. A transient read failure throws: skipping the
- * backup would restore an older one instead.
- */
 function readRestorableConfig(backupDir, dataDirKey, instanceId) {
   try {
     const manifest = JSON.parse(readFileSync(join(backupDir, BACKUP_MANIFEST), 'utf8'));
@@ -333,10 +327,6 @@ function findRestorableConfig(dataDir, instanceId) {
   return null;
 }
 
-// Per-process restore lookup, keyed by data dir. A hit is reused while the
-// backup root and the marker's instanceId are unchanged; this process's own
-// backups invalidate it, and a `fresh` lookup (an RMW write, which another
-// process's newer backup may precede) always rescans.
 const restoreLookupCache = new Map();
 
 /**
@@ -359,11 +349,6 @@ export function loadLatestMixdogConfigFromBackup(dataDir, options) {
   return hit.config ? structuredClone(hit.config) : null;
 }
 
-/**
- * Upgraded data dir without the in-dir marker: only an unscoped backup whose
- * manifest names this data dir is verifiable (legacy backups predate
- * instanceIds); manifest-less legacy backups are never restored.
- */
 function loadLegacyMixdogConfigFromBackup(dataDir, options) {
   const evidence = findLegacyUserDataEvidence(dataDir, options);
   for (const backupDir of evidence?.backups || []) {
@@ -529,10 +514,6 @@ export function backupUserData(dataDir, reason = 'snapshot', { dirs = [] } = {})
   return { dir: copied.length > 0 ? backupDir : null, copied };
 }
 
-// ── Async backup variant (fs.promises) ──────────────────────────────
-// Byte-for-byte the same policy/skip guards/prune behavior as backupUserData,
-// but every filesystem op yields via fs.promises so a debounced config flush
-// on the UI event loop never blocks on the copy tree or the prune sweep.
 async function copyTreeAsync(src, dst, copied) {
   const st = await statP(src);
   if (st.isDirectory()) {

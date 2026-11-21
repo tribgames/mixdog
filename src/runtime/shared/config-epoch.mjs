@@ -1,11 +1,3 @@
-// Counter of changes to what the agent config is built from. It moves on this
-// process's own writes (config, OAuth credential files, the selected provider
-// account, an auth binding; secrets through the keychain cache's change event),
-// on another process's config or secret write applied by the config-change
-// pass, and on the config snapshot's file-watch events and the exact expiry
-// timer. The snapshot compares it on every read (no I/O); a listener hears
-// every move. Dependency-free so the writers can import it without a cycle
-// through shared/config.mjs.
 let epoch = 0;
 const listeners = new Set();
 

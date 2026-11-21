@@ -14,6 +14,7 @@ import {
   checkRelayApp,
   detectPublished,
   getReleaseByTag,
+  renderReport,
   runSections,
   waitForNpm,
   waitForNpmPackages,

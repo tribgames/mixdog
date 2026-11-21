@@ -55,7 +55,7 @@ function boundedRead(path) {
   return readFileSync(path, 'utf8');
 }
 
-export function readSkillToolDependencies(filePath, frontmatter = {}) {
+function readDeclaredToolDependencies(filePath, frontmatter) {
   const issues = [];
   const declared = [];
   const add = (value, label) => {
@@ -82,26 +82,33 @@ export function readSkillToolDependencies(filePath, frontmatter = {}) {
   } catch (error) {
     issues.push(error.message);
   }
-  const localPath = overridePath(filePath);
-  if (existsSync(localPath)) {
-    try {
-      const local = JSON.parse(boundedRead(localPath));
-      return {
-        toolDependencies: normalizeSkillToolDependencies(local.dependencies?.tools),
-        declaredToolDependencies,
-        dependencySource: 'override',
-        dependencyIssues: [],
-      };
-    } catch (error) {
-      // A broken override must not silently restore dependencies the user removed.
-      return {
-        toolDependencies: [],
-        declaredToolDependencies,
-        dependencySource: 'override',
-        dependencyIssues: [`Local skill dependencies: ${error.message}`],
-      };
-    }
+  return { declaredToolDependencies, issues };
+}
+
+function readOverrideResult(localPath, declaredToolDependencies) {
+  try {
+    const local = JSON.parse(boundedRead(localPath));
+    return {
+      toolDependencies: normalizeSkillToolDependencies(local.dependencies?.tools),
+      declaredToolDependencies,
+      dependencySource: 'override',
+      dependencyIssues: [],
+    };
+  } catch (error) {
+    // A broken override must not silently restore dependencies the user removed.
+    return {
+      toolDependencies: [],
+      declaredToolDependencies,
+      dependencySource: 'override',
+      dependencyIssues: [`Local skill dependencies: ${error.message}`],
+    };
   }
+}
+
+export function readSkillToolDependencies(filePath, frontmatter = {}) {
+  const { declaredToolDependencies, issues } = readDeclaredToolDependencies(filePath, frontmatter);
+  const localPath = overridePath(filePath);
+  if (existsSync(localPath)) return readOverrideResult(localPath, declaredToolDependencies);
   return {
     toolDependencies: declaredToolDependencies,
     declaredToolDependencies,

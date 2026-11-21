@@ -1,8 +1,3 @@
-/**
- * media-result.mjs — the media tool's JSON job outcome: `{ ok, job, status,
- * error, canceled }`. A status read that succeeded is distinct from the job
- * state it inspected.
- */
 import { normalizeToolTerminalStatus } from '../tool-status.mjs';
 
 export function parseMediaOutcome(text) {

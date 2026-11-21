@@ -1,11 +1,3 @@
-/**
- * src/tui/themes/light.mjs — light terminal TUI theme.
- *
- * High-contrast light palette for Windows Terminal and picker rows: white
- * surface, near-black ink, solid blue selection (#0069CC), visible chrome
- * borders, and a light syntax palette (no pastel wash). Spreads
- * `basePalette` first so the full key set is always present.
- */
 import { basePalette } from './base.mjs';
 
 /** GitHub Light high-contrast — terminal-first readability. */

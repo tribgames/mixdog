@@ -63,11 +63,6 @@ test("another set of rows, or another call's row, fails", () => {
   assert.throws(() => judgeToolFailureRows([mine({ iteration: 2 })], RUN), /iteration 2/);
 });
 
-// Needs the real core: MIXDOGD_BIN, which the lane sets (release-gate.yml, rust-core job); without it the test FAILS, since a skip
-// would read as a pass. MIXDOG_TESTS_WITHOUT_CORE=1 is the explicit local opt-out; no lane sets it.
-// The scripted turn must reach the failed tool result (otherwise the check throws something else). Until rs-tool-failures
-// (the core's tool-failure writer) lands, the verdict is the owner message and that is accepted here; once it has, the
-// row must be the provoked one and this test must drop the catch.
 test('the scripted turn provokes the failure in the real core', {
   skip: process.env.MIXDOG_TESTS_WITHOUT_CORE === '1' && 'MIXDOG_TESTS_WITHOUT_CORE=1: no mixdogd built',
   timeout: 180_000,

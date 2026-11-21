@@ -1,16 +1,3 @@
-// Reading the Linux fallback secrets store (keychain-cjs.cjs "Linux fallback
-// file"). A read must not trust whatever sits at `<dataDir>/secrets/<account>.secret`:
-// a store restored with permissive modes, an account file swapped for a symlink,
-// or a planted file owned by someone else must read as absent (the reason is
-// surfaced as an EUNSAFE error, never the value) while a private 0600 file in a
-// private directory is still served.
-//
-// Real files, real modes, real symlinks wherever the host has them; only
-// process.platform is faked (as in keychain-cjs.test.mjs) and `secret-tool` is
-// faked so the keyring either has no such item ('absent') or is not installed
-// ('missing'). win32 has no owner/mode bits and no O_NOFOLLOW, so there the
-// owner/mode/type checks run against an emulated POSIX stat view of the test
-// data dir (see installPosixView) and the symlink/FIFO cases are skipped.
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { EventEmitter } from 'node:events';

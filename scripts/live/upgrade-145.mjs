@@ -21,9 +21,8 @@ import { createHash } from 'node:crypto';
 import { attachCore, isolatedEnv, isolatedPaths } from '../rust-core/lib/core-session.mjs';
 import { endTree, spawnTree } from '../rust-core/lib/process-tree.mjs';
 import { parseLiveArgs } from './lib/paths.mjs';
+import { sleep } from './lib/sleep.mjs';
 
-const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
-// The harness runs from the candidate checkout: keep the expected on-disk generation tied to its actual migrator.
 export const GENERATION = Number(
   readFileSync(
     new URL('../../native/core/crates/mixdog-migrate/src/desktop_profile/supplement.rs', import.meta.url),
@@ -425,6 +424,50 @@ export async function runChecks(checks, ctx, log = console.log) {
   return results;
 }
 
+/** One start of the app on the isolated profile: its checks' results, and the error that stopped the pass, if any. */
+async function runPass({ exe, paths, vector, backupEnabled, pass }) {
+  // The runtime is this harness's own: a stale discovery file must not satisfy the next pass's wait.
+  if (pass) rmSync(join(paths.runtimeRoot, 'daemon.json'), { force: true });
+  const child = spawnTree(exe, [], {
+    env: upgradeEnvironment(paths, backupEnabled),
+    cwd: paths.root,
+    stdio: 'ignore',
+  });
+  let core = null;
+  let results = [];
+  let failure = null;
+  try {
+    core = await attachCore({
+      runtimeRoot: paths.runtimeRoot,
+      clientName: 'upgrade-145',
+      mainWindowId: `upgrade-145-${pass}`,
+      timeoutMs: 180_000,
+    });
+    const checks = checksFor({
+      expect: vector.expect,
+      dataDir: paths.dataDir,
+      backupRoot: backupEnabled ? join(paths.root, 'user-data-backups') : undefined,
+      performWrite: pass === 0,
+    });
+    results = (await runChecks(checks, { core, workspace: paths.workspace })).map((result) => ({
+      ...result,
+      pass: pass + 1,
+    }));
+  } catch (error) {
+    failure = error;
+  } finally {
+    try {
+      await core?.close();
+    } catch {}
+    try {
+      await endTree(child);
+    } catch (error) {
+      failure ??= error;
+    }
+  }
+  return { results, failure };
+}
+
 async function main() {
   const args = parseLiveArgs(process.argv.slice(2));
   if (typeof args.app !== 'string' || typeof args['profile-vector'] !== 'string') {
@@ -460,45 +503,9 @@ async function main() {
   const results = [];
   let failure = null;
   for (let pass = 0; pass < passes; pass++) {
-    // Only this harness's empty-owned runtime is used; after ending its process tree a stale discovery must not satisfy the next wait.
-    if (pass) rmSync(join(paths.runtimeRoot, 'daemon.json'), { force: true });
-    const child = spawnTree(exe, [], {
-      env: upgradeEnvironment(paths, backupEnabled),
-      cwd: paths.root,
-      stdio: 'ignore',
-    });
-    let core = null;
-    try {
-      core = await attachCore({
-        runtimeRoot: paths.runtimeRoot,
-        clientName: 'upgrade-145',
-        mainWindowId: `upgrade-145-${pass}`,
-        timeoutMs: 180_000,
-      });
-      const checks = checksFor({
-        expect: vector.expect,
-        dataDir: paths.dataDir,
-        backupRoot: backupEnabled ? join(paths.root, 'user-data-backups') : undefined,
-        performWrite: pass === 0,
-      });
-      results.push(
-        ...(await runChecks(checks, { core, workspace: paths.workspace })).map((result) => ({
-          ...result,
-          pass: pass + 1,
-        }))
-      );
-    } catch (error) {
-      failure = error;
-    } finally {
-      try {
-        await core?.close();
-      } catch {}
-      try {
-        await endTree(child);
-      } catch (error) {
-        failure ??= error;
-      }
-    }
+    const run = await runPass({ exe, paths, vector, backupEnabled, pass });
+    results.push(...run.results);
+    failure = run.failure;
     if (failure || results.some((result) => !result.ok)) break;
   }
   try {

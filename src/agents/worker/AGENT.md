@@ -9,4 +9,3 @@ Make the change the brief describes, following exact constraints and
 established project patterns, and avoid unrelated cleanup or redesign. A part
 that turns out to need a decision the brief does not settle is left as it is
 and named in the report with what has to be decided, not decided.
-

@@ -24,6 +24,26 @@ const cases = [
   },
 ];
 
+// The parser is pure; give it the Windows view it checks (platform and the
+// System32 tools it requires to exist) and mock every command.
+async function presentAsWindows(root, restores) {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+  const { SystemRoot, windir } = process.env;
+  restores.push(() => {
+    Object.defineProperty(process, 'platform', platform);
+    for (const [key, value] of Object.entries({ SystemRoot, windir })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  const system32 = join(root, 'windows', 'System32');
+  await mkdir(system32, { recursive: true });
+  await Promise.all(['whoami.exe', 'icacls.exe'].map((name) => writeFile(join(system32, name), '')));
+  Object.defineProperty(process, 'platform', { ...platform, value: 'win32' });
+  process.env.SystemRoot = join(root, 'windows');
+  delete process.env.windir;
+}
+
 for (const [index, fixture] of cases.entries()) {
   test(`Windows ACL principal selection handles ${fixture.name}`, async (t) => {
     const root = await mkdtemp(join(tmpdir(), 'mixdog-acl-principal-'));
@@ -36,26 +56,7 @@ for (const [index, fixture] of cases.entries()) {
     });
     const path = join(root, 'secret');
     await writeFile(path, 'fixture');
-    if (process.platform !== 'win32') {
-      // The parser is pure; give it the Windows view it checks (platform and
-      // the System32 tools it requires to exist) and mock every command.
-      const platform = Object.getOwnPropertyDescriptor(process, 'platform');
-      const { SystemRoot, windir } = process.env;
-      // Restoration is registered before the first mutation.
-      restores.push(() => {
-        Object.defineProperty(process, 'platform', platform);
-        for (const [key, value] of Object.entries({ SystemRoot, windir })) {
-          if (value === undefined) delete process.env[key];
-          else process.env[key] = value;
-        }
-      });
-      const system32 = join(root, 'windows', 'System32');
-      await mkdir(system32, { recursive: true });
-      await Promise.all(['whoami.exe', 'icacls.exe'].map((name) => writeFile(join(system32, name), '')));
-      Object.defineProperty(process, 'platform', { ...platform, value: 'win32' });
-      process.env.SystemRoot = join(root, 'windows');
-      delete process.env.windir;
-    }
+    if (process.platform !== 'win32') await presentAsWindows(root, restores);
     const grants = [];
     t.mock.method(childProcess, 'execFileSync', (file, args) => {
       if (String(file).endsWith('whoami.exe')) return fixture.output;

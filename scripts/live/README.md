@@ -14,12 +14,12 @@ node --input-type=module -e "import { openEnvironment } from './scripts/live/lib
 
 Paths come from the command line or the environment:
 
-| Option | Environment | Meaning |
-| --- | --- | --- |
-| `--core=<mixdogd>` | `MIXDOG_LIVE_CORE_EXE` | built core binary (required); copied to `<iso-root>/core/`, never run in place |
-| `--iso-root=<dir>` | `MIXDOG_LIVE_ISO_ROOT` | root of every instance of the run (default: `<tmp>/mixdog-live`) |
-| `--electron-dist=<dir>` | `MIXDOG_LIVE_ELECTRON_DIST` | Electron dist folder to use as it is (default: this checkout's) |
-| `--ort-library=<file>` | `MIXDOG_LIVE_ORT_LIBRARY` | ONNX Runtime library (default: found under `apps/desktop`) |
+| Option                  | Environment                 | Meaning                                                                        |
+| ----------------------- | --------------------------- | ------------------------------------------------------------------------------ |
+| `--core=<mixdogd>`      | `MIXDOG_LIVE_CORE_EXE`      | built core binary (required); copied to `<iso-root>/core/`, never run in place |
+| `--iso-root=<dir>`      | `MIXDOG_LIVE_ISO_ROOT`      | root of every instance of the run (default: `<tmp>/mixdog-live`)               |
+| `--electron-dist=<dir>` | `MIXDOG_LIVE_ELECTRON_DIST` | Electron dist folder to use as it is (default: this checkout's)                |
+| `--ort-library=<file>`  | `MIXDOG_LIVE_ORT_LIBRARY`   | ONNX Runtime library (default: found under `apps/desktop`)                     |
 
 `openEnvironment({ coreExe, desktopDir, isoRoot, electronDist?, inspector?, configOverlay?, log })` returns
 `{ info, core, main, renderer(), provider { push, route, reset, requests }, fixtures { origin, url(path) }, close(outDir) }`.

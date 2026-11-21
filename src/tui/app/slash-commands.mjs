@@ -1,8 +1,3 @@
-/**
- * slash-commands.mjs — the /command registry plus the pure string/matching
- * helpers that operate on it. No hooks, no App state, no closures — plain
- * data + pure fns.
- */
 export const SLASH_COMMANDS = [
   { name: 'clear', usage: '/clear', aliases: ['new'], aliasUsage: ['new'], description: 'Start a fresh chat' },
   {

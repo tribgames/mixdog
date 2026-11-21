@@ -144,6 +144,10 @@ function cacheBreakTransitionTag(row) {
   return typeof transition === 'string' && transition ? transition : null;
 }
 
+function cacheBreakReason(row) {
+  return field(row, 'reason') || field(row, 'chain_delta_reason') || field(row, 'payload')?.reason || null;
+}
+
 function cacheBreakIntentionalTransition(row) {
   const transition = cacheBreakTransitionTag(row);
   const reason = field(row, 'reason') || field(row, 'chain_delta_reason') || null;
@@ -159,7 +163,7 @@ function cacheBreakIntentionalTransition(row) {
 }
 
 function classifyCacheBreakPhase(row, usageRows, transportRows) {
-  const reason = field(row, 'reason') || field(row, 'chain_delta_reason') || field(row, 'payload')?.reason || null;
+  const reason = cacheBreakReason(row);
   const sid = sessionId(row);
   const intentionalTransition = cacheBreakIntentionalTransition(row);
   if (intentionalTransition) return `intentional_${intentionalTransition}`;
@@ -177,6 +181,13 @@ function classifyCacheBreakPhase(row, usageRows, transportRows) {
   }
   if (priorCalls === 0) return 'first_call_mismatch';
   return 'mid_chain_break';
+}
+
+function topCounts(items, keyFn) {
+  return countBy(items, keyFn)
+    .slice(0, 3)
+    .map(([key, count]) => `${key}×${count}`)
+    .join(', ');
 }
 
 function groupBy(rows, keyFn) {
@@ -262,10 +273,6 @@ function filterAgent(rows, agent) {
       .map((v) => String(v).toLowerCase());
     return values.some((v) => v.includes(q));
   };
-  // Row-level agent fields only exist on some kinds (tool/steer); usage_raw and
-  // transport rows carry no agent. Filter at SESSION granularity: keep every
-  // row of any session where at least one row matches, so per-agent views keep
-  // their usage/cache/turn aggregates intact.
   const matchedSessions = new Set();
   for (const r of rows) {
     if (rowMatches(r)) {
@@ -337,7 +344,7 @@ function buildServiceTierDowngrades(transport) {
 // actionable break or an intentional transition.
 function buildCacheBreakRows(breaks, usage, transport) {
   return breaks.map((r) => {
-    const reason = field(r, 'reason') || field(r, 'chain_delta_reason') || field(r, 'payload')?.reason || null;
+    const reason = cacheBreakReason(r);
     const relatedUsage =
       nearestRowAround(
         usage,
@@ -986,12 +993,10 @@ function buildTurnRecord(
   const thinkingTokens = usage ? num(usage, 'thinking_tokens') || 0 : 0;
   const serviceRequested = transport ? field(transport, 'requested_service_tier') : null;
   const serviceResponse = transport ? field(transport, 'response_service_tier') : field(usage, 'service_tier');
+  const breakReasons = cacheBreaks.map((r) => cacheBreakReason(r) || 'unknown');
   const flags = [];
   if (field(transport, 'ws_mode') === 'full') flags.push('full_ws');
-  if (cacheBreaks.length)
-    flags.push(
-      `cache_break:${cacheBreaks.map((r) => field(r, 'reason') || field(r, 'chain_delta_reason') || field(r, 'payload')?.reason || 'unknown').join('|')}`
-    );
+  if (breakReasons.length) flags.push(`cache_break:${breakReasons.join('|')}`);
   if (serviceRequested && serviceResponse && serviceRequested !== serviceResponse)
     flags.push(`tier:${serviceRequested}->${serviceResponse}`);
   if (streamMs >= 15_000) flags.push('slow_stream');
@@ -1022,22 +1027,23 @@ function buildTurnRecord(
     has_previous_response_id: transport ? field(transport, 'request_has_previous_response_id') : null,
     service_requested: serviceRequested,
     service_response: serviceResponse,
-    cache_breaks: cacheBreaks.map(
-      (r) => field(r, 'reason') || field(r, 'chain_delta_reason') || field(r, 'payload')?.reason || 'unknown'
-    ),
-    top_tools: Object.values(
-      tools.reduce((acc, r) => {
-        const name = String(field(r, 'tool_name') || '(unknown)');
-        if (!acc[name]) acc[name] = { tool: name, count: 0, ms: 0 };
-        acc[name].count += 1;
-        acc[name].ms += num(r, 'tool_ms') || 0;
-        return acc;
-      }, {})
-    )
-      .sort((a, b) => b.ms - a.ms || b.count - a.count)
-      .slice(0, 3),
+    cache_breaks: breakReasons,
+    top_tools: topToolsByTime(tools),
     flags,
   };
+}
+
+function topToolsByTime(tools) {
+  const byName = {};
+  for (const r of tools) {
+    const name = String(field(r, 'tool_name') || '(unknown)');
+    byName[name] ??= { tool: name, count: 0, ms: 0 };
+    byName[name].count += 1;
+    byName[name].ms += num(r, 'tool_ms') || 0;
+  }
+  return Object.values(byName)
+    .sort((a, b) => b.ms - a.ms || b.count - a.count)
+    .slice(0, 3);
 }
 
 // Turns anchored on a usage row: same iteration, inside the window that ends at
@@ -1128,6 +1134,54 @@ function buildTurnDiagnostics(rows, routeGroups) {
   };
 }
 
+function sessionTokenSummary(sid, useful) {
+  const first = useful[0];
+  const last = useful[useful.length - 1];
+  const maxPromptTurn = useful.reduce(
+    (best, t) => (Number(t.prompt_tokens || 0) > Number(best.prompt_tokens || 0) ? t : best),
+    useful[0]
+  );
+  return {
+    session_id: sid,
+    agent: last.agent || first.agent || null,
+    turns: useful.length,
+    first_prompt: first.prompt_tokens || 0,
+    last_prompt: last.prompt_tokens || 0,
+    max_prompt: maxPromptTurn.prompt_tokens || 0,
+    max_prompt_it: maxPromptTurn.turn_label || maxPromptTurn.iteration,
+    prompt_growth: Math.max(0, (last.prompt_tokens || 0) - (first.prompt_tokens || 0)),
+    total_output: sum(useful.map((t) => t.output_tokens)),
+    total_thinking: sum(useful.map((t) => t.thinking_tokens)),
+    uncached_tokens: sum(useful.map((t) => Math.max(0, (t.prompt_tokens || 0) - (t.cached_tokens || 0)))),
+    cache_ratio: cacheRatioFromUsage(
+      useful.map((t) => ({
+        prompt_tokens: t.prompt_tokens,
+        cached_tokens: t.cached_tokens,
+      }))
+    ),
+  };
+}
+
+function turnTokenRow(sid, t, prev) {
+  const promptDelta = prev ? (t.prompt_tokens || 0) - (prev.prompt_tokens || 0) : 0;
+  const out = t.output_tokens || 0;
+  return {
+    session_id: sid,
+    agent: t.agent || null,
+    iteration: t.iteration,
+    turn_label: t.turn_label || (t.iteration ?? '-'),
+    prompt_tokens: t.prompt_tokens || 0,
+    prompt_delta: promptDelta,
+    output_tokens: out,
+    thinking_tokens: t.thinking_tokens || 0,
+    cached_tokens: t.cached_tokens || 0,
+    cache_ratio: t.cache_ratio,
+    uncached_tokens: Math.max(0, (t.prompt_tokens || 0) - (t.cached_tokens || 0)),
+    growth_per_output: out > 0 ? promptDelta / out : null,
+    ts: t.ts,
+  };
+}
+
 function buildTokenDiagnostics(turns) {
   const bySession = groupBy(
     [...turns].sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0)),
@@ -1141,62 +1195,16 @@ function buildTokenDiagnostics(turns) {
   for (const [sid, trows] of bySession.entries()) {
     const useful = trows.filter((t) => Number(t.prompt_tokens || 0) > 0);
     if (!useful.length) continue;
-    const first = useful[0];
-    const last = useful[useful.length - 1];
-    const maxPromptTurn = useful.reduce(
-      (best, t) => (Number(t.prompt_tokens || 0) > Number(best.prompt_tokens || 0) ? t : best),
-      useful[0]
-    );
-    const totalOutput = sum(useful.map((t) => t.output_tokens));
-    const totalThinking = sum(useful.map((t) => t.thinking_tokens));
-    const uncachedTokens = sum(useful.map((t) => Math.max(0, (t.prompt_tokens || 0) - (t.cached_tokens || 0))));
-    sessions.push({
-      session_id: sid,
-      agent: last.agent || first.agent || null,
-      turns: useful.length,
-      first_prompt: first.prompt_tokens || 0,
-      last_prompt: last.prompt_tokens || 0,
-      max_prompt: maxPromptTurn.prompt_tokens || 0,
-      max_prompt_it: maxPromptTurn.turn_label || maxPromptTurn.iteration,
-      prompt_growth: Math.max(0, (last.prompt_tokens || 0) - (first.prompt_tokens || 0)),
-      total_output: totalOutput,
-      total_thinking: totalThinking,
-      uncached_tokens: uncachedTokens,
-      cache_ratio: cacheRatioFromUsage(
-        useful.map((t) => ({
-          prompt_tokens: t.prompt_tokens,
-          cached_tokens: t.cached_tokens,
-        }))
-      ),
-    });
+    sessions.push(sessionTokenSummary(sid, useful));
 
-    for (let i = 0; i < useful.length; i += 1) {
-      const t = useful[i];
-      const prev = useful[i - 1] || null;
-      const promptDelta = prev ? (t.prompt_tokens || 0) - (prev.prompt_tokens || 0) : 0;
-      const out = t.output_tokens || 0;
-      const uncached = Math.max(0, (t.prompt_tokens || 0) - (t.cached_tokens || 0));
-      const growthPerOutput = out > 0 ? promptDelta / out : null;
-      const tokenRow = {
-        session_id: sid,
-        agent: t.agent || null,
-        iteration: t.iteration,
-        turn_label: t.turn_label || (t.iteration ?? '-'),
-        prompt_tokens: t.prompt_tokens || 0,
-        prompt_delta: promptDelta,
-        output_tokens: out,
-        thinking_tokens: t.thinking_tokens || 0,
-        cached_tokens: t.cached_tokens || 0,
-        cache_ratio: t.cache_ratio,
-        uncached_tokens: uncached,
-        growth_per_output: growthPerOutput,
-        ts: t.ts,
-      };
-      if (promptDelta >= 5_000 || (growthPerOutput != null && growthPerOutput >= 10)) growthTurns.push(tokenRow);
-      if (out >= 1_000 || (t.thinking_tokens || 0) >= 1_000) outputHeavy.push(tokenRow);
-      if (uncached >= 10_000 || ((t.cache_ratio ?? 1) < 0.8 && (t.prompt_tokens || 0) >= 20_000))
+    useful.forEach((t, i) => {
+      const tokenRow = turnTokenRow(sid, t, useful[i - 1] || null);
+      if (tokenRow.prompt_delta >= 5_000 || (tokenRow.growth_per_output != null && tokenRow.growth_per_output >= 10))
+        growthTurns.push(tokenRow);
+      if (tokenRow.output_tokens >= 1_000 || tokenRow.thinking_tokens >= 1_000) outputHeavy.push(tokenRow);
+      if (tokenRow.uncached_tokens >= 10_000 || ((t.cache_ratio ?? 1) < 0.8 && tokenRow.prompt_tokens >= 20_000))
         cacheMissCost.push(tokenRow);
-    }
+    });
   }
 
   sessions.sort((a, b) => b.prompt_growth - a.prompt_growth || b.total_output - a.total_output);
@@ -1208,6 +1216,78 @@ function buildTokenDiagnostics(turns) {
     growth_turns: growthTurns.slice(0, 20),
     output_heavy_turns: outputHeavy.slice(0, 20),
     cache_miss_cost_turns: cacheMissCost.slice(0, 20),
+  };
+}
+
+function compactSessionRow(sid, srows) {
+  const usage = srows.filter((r) => r.kind === 'usage_raw');
+  const transports = srows.filter((r) => r.kind === 'transport');
+  const breaks = srows.filter((r) => r.kind === 'cache_break');
+  const sseRows = srows.filter((r) => r.kind === 'sse');
+  return {
+    session_id: sid,
+    base_session_id: baseSessionId(sid),
+    turns: usage.length,
+    prompt_tokens: sum(usage.map((r) => cacheDenom(r))),
+    cached_tokens: sum(usage.map((r) => num(r, 'cached_tokens'))),
+    output_tokens: sum(usage.map((r) => num(r, 'output_tokens'))),
+    thinking_tokens: sum(usage.map((r) => num(r, 'thinking_tokens'))),
+    stream_ms: sum(sseRows.map((r) => num(r, 'stream_total_ms') ?? num(r, 'sse_parse_ms'))),
+    cache_ratio: cacheRatioFromUsage(usage),
+    breaks: breaks.length,
+    no_anchor: breaks.filter((r) =>
+      String(field(r, 'reason') || field(r, 'chain_delta_reason') || '').includes('no_anchor')
+    ).length,
+    full_ws: transports.filter((r) => field(r, 'ws_mode') === 'full').length,
+    delta_ws: transports.filter((r) => field(r, 'ws_mode') === 'delta').length,
+  };
+}
+
+function compactMetaRow(r) {
+  const details = field(r, 'details') || {};
+  const fresh = details?.freshContext || null;
+  const pipe = fresh?.pipeline || null;
+  const finalHandoffKb = pipe?.finalHandoffBytes != null ? Math.round(pipe.finalHandoffBytes / 1024) : null;
+  return {
+    session_id: sessionId(r),
+    ts: r.ts || null,
+    iteration: num(r, 'iteration'),
+    stage: field(r, 'stage'),
+    trigger: field(r, 'trigger'),
+    changed: field(r, 'compact_changed') === true,
+    before_tokens: num(r, 'message_tokens_est'),
+    pressure_tokens: num(r, 'pressure_tokens'),
+    trigger_tokens: num(r, 'trigger_tokens'),
+    boundary_tokens: num(r, 'boundary_tokens') ?? num(r, 'budget_tokens'),
+    target_budget_tokens: num(r, 'target_budget_tokens'),
+    after_tokens: fresh?.finalTokens ?? null,
+    before_messages: num(r, 'before_count'),
+    after_messages: num(r, 'after_count'),
+    duration_ms: num(r, 'duration_ms'),
+    error: field(r, 'error'),
+    handoff_pipeline: pipe
+      ? {
+          ingest_ms: pipe.ingestMs ?? null,
+          initial_dump_ms: pipe.initialDumpMs ?? null,
+          initial_raw_pending: pipe.initialRawPending ?? null,
+          cycle1_ms: pipe.cycle1Ms ?? null,
+          cycle1_passes: pipe.cycle1Passes ?? null,
+          cycle1_raw_remaining: pipe.cycle1RawRemaining ?? null,
+          final_handoff_kb: finalHandoffKb,
+        }
+      : null,
+    fit: fresh
+      ? {
+          head_messages: fresh.headMessages ?? null,
+          tail_messages: fresh.tailMessages ?? null,
+          mandatory_cost: fresh.mandatoryCost ?? null,
+          remaining_tokens: fresh.remainingTokens ?? null,
+          budget_raised: fresh.budgetRaised === true,
+          final_tokens: fresh.finalTokens ?? null,
+          handoff_chars: fresh.handoffChars ?? null,
+          tail_truncated: fresh.tailTruncated ?? null,
+        }
+      : null,
   };
 }
 
@@ -1226,82 +1306,13 @@ function buildCompactDiagnostics(rows, selectedIds) {
   const cache = buildCacheDiagnostics(compactRows);
   const usageRows = compactRows.filter((r) => r.kind === 'usage_raw');
   const transportRows = compactRows.filter((r) => r.kind === 'transport');
-  const sessions = [];
-  for (const [sid, srows] of groupBy(compactRows, sessionId).entries()) {
-    const usage = srows.filter((r) => r.kind === 'usage_raw');
-    const transports = srows.filter((r) => r.kind === 'transport');
-    const breaks = srows.filter((r) => r.kind === 'cache_break');
-    const sseRows = srows.filter((r) => r.kind === 'sse');
-    sessions.push({
-      session_id: sid,
-      base_session_id: baseSessionId(sid),
-      turns: usage.length,
-      prompt_tokens: sum(usage.map((r) => cacheDenom(r))),
-      cached_tokens: sum(usage.map((r) => num(r, 'cached_tokens'))),
-      output_tokens: sum(usage.map((r) => num(r, 'output_tokens'))),
-      thinking_tokens: sum(usage.map((r) => num(r, 'thinking_tokens'))),
-      stream_ms: sum(sseRows.map((r) => num(r, 'stream_total_ms') ?? num(r, 'sse_parse_ms'))),
-      cache_ratio: cacheRatioFromUsage(usage),
-      breaks: breaks.length,
-      no_anchor: breaks.filter((r) =>
-        String(field(r, 'reason') || field(r, 'chain_delta_reason') || '').includes('no_anchor')
-      ).length,
-      full_ws: transports.filter((r) => field(r, 'ws_mode') === 'full').length,
-      delta_ws: transports.filter((r) => field(r, 'ws_mode') === 'delta').length,
-    });
-  }
+  const sessions = [...groupBy(compactRows, sessionId).entries()].map(([sid, srows]) => compactSessionRow(sid, srows));
   sessions.sort((a, b) => b.stream_ms - a.stream_ms || b.prompt_tokens - a.prompt_tokens);
   return {
     rows: compactRows.length,
     sessions,
     meta_rows: metaRows.length,
-    recent_meta: metaRows.slice(0, 10).map((r) => {
-      const details = field(r, 'details') || {};
-      const fresh = details?.freshContext || null;
-      const pipe = fresh?.pipeline || null;
-      const finalHandoffKb = pipe?.finalHandoffBytes != null ? Math.round(pipe.finalHandoffBytes / 1024) : null;
-      return {
-        session_id: sessionId(r),
-        ts: r.ts || null,
-        iteration: num(r, 'iteration'),
-        stage: field(r, 'stage'),
-        trigger: field(r, 'trigger'),
-        changed: field(r, 'compact_changed') === true,
-        before_tokens: num(r, 'message_tokens_est'),
-        pressure_tokens: num(r, 'pressure_tokens'),
-        trigger_tokens: num(r, 'trigger_tokens'),
-        boundary_tokens: num(r, 'boundary_tokens') ?? num(r, 'budget_tokens'),
-        target_budget_tokens: num(r, 'target_budget_tokens'),
-        after_tokens: fresh?.finalTokens ?? null,
-        before_messages: num(r, 'before_count'),
-        after_messages: num(r, 'after_count'),
-        duration_ms: num(r, 'duration_ms'),
-        error: field(r, 'error'),
-        handoff_pipeline: pipe
-          ? {
-              ingest_ms: pipe.ingestMs ?? null,
-              initial_dump_ms: pipe.initialDumpMs ?? null,
-              initial_raw_pending: pipe.initialRawPending ?? null,
-              cycle1_ms: pipe.cycle1Ms ?? null,
-              cycle1_passes: pipe.cycle1Passes ?? null,
-              cycle1_raw_remaining: pipe.cycle1RawRemaining ?? null,
-              final_handoff_kb: finalHandoffKb,
-            }
-          : null,
-        fit: fresh
-          ? {
-              head_messages: fresh.headMessages ?? null,
-              tail_messages: fresh.tailMessages ?? null,
-              mandatory_cost: fresh.mandatoryCost ?? null,
-              remaining_tokens: fresh.remainingTokens ?? null,
-              budget_raised: fresh.budgetRaised === true,
-              final_tokens: fresh.finalTokens ?? null,
-              handoff_chars: fresh.handoffChars ?? null,
-              tail_truncated: fresh.tailTruncated ?? null,
-            }
-          : null,
-      };
-    }),
+    recent_meta: metaRows.slice(0, 10).map(compactMetaRow),
     cache_breaks: cache.cache_breaks,
     usage_rows: usageRows.length,
     transport_rows: transportRows.length,
@@ -1430,13 +1441,7 @@ function cacheIssues(cache) {
 function toolHealthIssues(tools) {
   const issues = [];
   if (tools.failures.length) {
-    const byTool = new Map();
-    for (const f of tools.failures) byTool.set(f.tool || '(unknown)', (byTool.get(f.tool || '(unknown)') || 0) + 1);
-    const summary = [...byTool.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([tool, count]) => `${tool}×${count}`)
-      .join(', ');
+    const summary = topCounts(tools.failures, (f) => f.tool || '(unknown)');
     issues.push({
       severity: 'medium',
       type: 'tool_error',
@@ -1518,6 +1523,8 @@ function countBy(items, keyFn) {
   return [...map.entries()].sort((a, b) => b[1] - a[1]);
 }
 
+const breakReasonPhase = (b) => `${b.reason || 'unknown'}/${b.phase || 'unknown'}`;
+
 function buildWhySlowRankings(report) {
   const ranks = [];
   const topStream = report.stages.slowest_stream[0];
@@ -1538,10 +1545,7 @@ function buildWhySlowRankings(report) {
     });
   }
   if (report.tools.failures.length) {
-    const summary = countBy(report.tools.failures, (f) => f.category || f.tool || 'unknown')
-      .slice(0, 3)
-      .map(([k, v]) => `${k}×${v}`)
-      .join(', ');
+    const summary = topCounts(report.tools.failures, (f) => f.category || f.tool || 'unknown');
     ranks.push({
       score: 50 + report.tools.failures.length,
       type: 'tool_failures',
@@ -1549,13 +1553,7 @@ function buildWhySlowRankings(report) {
     });
   }
   if (report.cache.actionable_cache_breaks.length) {
-    const summary = countBy(
-      report.cache.actionable_cache_breaks,
-      (b) => `${b.reason || 'unknown'}/${b.phase || 'unknown'}`
-    )
-      .slice(0, 3)
-      .map(([k, v]) => `${k}×${v}`)
-      .join(', ');
+    const summary = topCounts(report.cache.actionable_cache_breaks, breakReasonPhase);
     ranks.push({
       score: 40 + report.cache.actionable_cache_breaks.length,
       type: 'cache_breaks',
@@ -1614,10 +1612,7 @@ function buildExecutiveSummary(report) {
     `\uC8FC \uBCD1\uBAA9=${dominant[0]} ${fmtMs(dominant[1])}/${fmtMs(total)}; cache=${fmtPct((report.summary.cache_ratio ?? 0) * 100)}; turns=${report.summary.turns}; tools=${report.summary.tool_calls}`
   );
   if (report.cache.cache_breaks.length) {
-    const summary = countBy(report.cache.cache_breaks, (b) => `${b.reason || 'unknown'}/${b.phase || 'unknown'}`)
-      .slice(0, 3)
-      .map(([k, v]) => `${k}×${v}`)
-      .join(', ');
+    const summary = topCounts(report.cache.cache_breaks, breakReasonPhase);
     lines.push(`\uCE90\uC2DC \uAE68\uC9D0=${report.cache.cache_breaks.length} (${summary})`);
   }
   if (report.cache.actual_cache_misses?.length) {
@@ -1629,19 +1624,13 @@ function buildExecutiveSummary(report) {
     );
   }
   if (report.compact?.cache_breaks?.length) {
-    const summary = countBy(report.compact.cache_breaks, (b) => `${b.reason || 'unknown'}/${b.phase || 'unknown'}`)
-      .slice(0, 3)
-      .map(([k, v]) => `${k}×${v}`)
-      .join(', ');
+    const summary = topCounts(report.compact.cache_breaks, breakReasonPhase);
     lines.push(
       `\uCEF4\uD329\uD2B8 \uD638\uCD9C=${report.compact.sessions.length} session, cache reset=${report.compact.cache_breaks.length} (${summary})`
     );
   }
   if (report.tools.failures.length) {
-    const summary = countBy(report.tools.failures, (f) => f.category || f.tool || 'unknown')
-      .slice(0, 3)
-      .map(([k, v]) => `${k}×${v}`)
-      .join(', ');
+    const summary = topCounts(report.tools.failures, (f) => f.category || f.tool || 'unknown');
     lines.push(`\uD234 \uC2E4\uD328=${report.tools.failures.length} (${summary})`);
   }
   const topGrowth = report.tokens.growth_turns[0];
@@ -1655,10 +1644,6 @@ function buildExecutiveSummary(report) {
   return lines;
 }
 
-// Per-turn preflight stages (kind: 'turn_timing'), i.e. everything the harness
-// owns between submit and the provider request: queue wait, route preparation,
-// MCP turn grace, and the rest of preflight. Separates OUR latency from the
-// provider's headers/stream time already covered by the stage breakdown.
 function buildPreflightDiagnostics(rows) {
   const list = (rows || []).filter((r) => r.kind === 'turn_timing');
   const pctl = (arr, q) => (arr.length ? arr[Math.min(arr.length - 1, Math.floor(arr.length * q))] : null);
@@ -1687,6 +1672,26 @@ function buildPreflightDiagnostics(rows) {
   };
 }
 
+function withUnselectedCompactBreaks(cache, compact, selectedIds) {
+  const selectedSessionIds = new Set(selectedIds);
+  const compactActionableBreaks = compact.cache_breaks.filter(
+    (row) => row.actionable && !selectedSessionIds.has(row.session_id)
+  );
+  return {
+    ...cache,
+    cache_breaks: [...cache.cache_breaks, ...compactActionableBreaks],
+    actionable_cache_breaks: [...cache.actionable_cache_breaks, ...compactActionableBreaks],
+  };
+}
+
+function timeRangeOf(rows) {
+  const tsValues = rows.map((r) => Number(r.ts || 0)).filter((n) => n > 0);
+  if (!tsValues.length) return { start_ts: null, end_ts: null, start: null, end: null, span_ms: 0 };
+  const start = Math.min(...tsValues);
+  const end = Math.max(...tsValues);
+  return { start_ts: start, end_ts: end, start: fmtTime(start), end: fmtTime(end), span_ms: end - start };
+}
+
 function buildReport(rows, selectedIds, failureRows = []) {
   const selected = rows.filter((r) => selectedIds.includes(sessionId(r)));
   const selectedFailures = failureRows.filter((r) => selectedIds.includes(sessionId(r)));
@@ -1697,31 +1702,12 @@ function buildReport(rows, selectedIds, failureRows = []) {
   const preflight = buildPreflightDiagnostics(selected);
   const tokens = buildTokenDiagnostics(stages.turns);
   const compact = buildCompactDiagnostics(rows, selectedIds);
-  // Compact workers are normally sibling sessions rather than direct children,
-  // so their genuine mismatches are absent from `selected`. Promote only those
-  // actionable rows into the root report; intentional compact transitions stay
-  // isolated in compact diagnostics and selected compact children never duplicate.
-  const selectedSessionIds = new Set(selectedIds);
-  const compactActionableBreaks = compact.cache_breaks.filter(
-    (row) => row.actionable && !selectedSessionIds.has(row.session_id)
-  );
-  const cache = {
-    ...selectedCache,
-    cache_breaks: [...selectedCache.cache_breaks, ...compactActionableBreaks],
-    actionable_cache_breaks: [...selectedCache.actionable_cache_breaks, ...compactActionableBreaks],
-  };
+  const cache = withUnselectedCompactBreaks(selectedCache, compact, selectedIds);
   const issues = buildIssues(routeGroups, cache, tools);
-  const tsValues = selected.map((r) => Number(r.ts || 0)).filter((n) => n > 0);
   const report = {
     trace: opts.trace || defaultTracePath(),
     selected_sessions: selectedIds,
-    time_range: {
-      start_ts: tsValues.length ? Math.min(...tsValues) : null,
-      end_ts: tsValues.length ? Math.max(...tsValues) : null,
-      start: tsValues.length ? fmtTime(Math.min(...tsValues)) : null,
-      end: tsValues.length ? fmtTime(Math.max(...tsValues)) : null,
-      span_ms: tsValues.length ? Math.max(...tsValues) - Math.min(...tsValues) : 0,
-    },
+    time_range: timeRangeOf(selected),
     summary: {
       row_count: selected.length,
       sessions: selectedIds.length,

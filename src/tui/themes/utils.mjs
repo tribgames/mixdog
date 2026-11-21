@@ -1,17 +1,3 @@
-/**
- * src/tui/themes/utils.mjs — palette post-processing helpers.
- *
- * Design goals:
- * - keep body text neutral and highly readable;
- * - keep strong live-state colors for spinners/status;
- * - use accent colors sparingly for headings, links and syntax, preferably
- *   muted/desaturated enough for long coding sessions.
- *
- * Theme modules still define their full, expressive palettes. The registry runs
- * them through `softenTypographyColors()` so text-bearing accent roles are a
- * little less saturated without flattening each theme's signature color.
- */
-
 const RGB_RE = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/;
 
 const SOFTEN_KEYS = [

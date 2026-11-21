@@ -1,10 +1,4 @@
-// Developer options: the data-driven registry behind Settings → Developer.
-// A new sub-category or toggle is one entry in DEVELOPER_SECTIONS; the
-// runtime API, TUI and desktop render every section/option from this data.
-// Each option is on only while the stored agent config value
-// `developer.<optionId>` is true. Default off. An option with a `warning`
-// turns on only after the user confirms that warning; an option with a
-// `provider` gates that dev-only OAuth provider.
+// An option is on only while the stored agent config value `developer.<optionId>` is true.
 import { readSection, readSectionStrict } from './config.mjs';
 
 const OAUTH_RISK_WARNING =

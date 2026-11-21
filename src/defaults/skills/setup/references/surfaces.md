@@ -5,29 +5,29 @@ or requests a setting with no mutation action.
 
 ## `open` targets
 
-| Target | Destination |
-|---|---|
-| `settings` | Settings home |
-| `providers` | Provider authentication |
-| `model` | Main model selection |
-| `websearch` | Web Search route |
-| `workflow` | Workflow packs |
-| `agents` | Agent definitions and routes |
-| `outputstyle` | Output style |
-| `theme` | Theme surface where supported |
-| `profile` | User profile |
-| `autoclear` | Session lifecycle controls |
-| `memory` | Memory capability surface (Built-in card on the Extensions tab) |
-| `mcp` | Extensions → Connectors tab, including OAuth Connect/Reconnect/Disconnect |
-| `skills` | Skills (activity rail destination) |
-| `plugins` | Extensions → Extensions tab (plugins that bring MCP servers: Connectors → Custom connectors) |
-| `update` | Update surface |
-| `usage` | The /usage surface (provider usage); no sign-in |
-| `doctor` | Runtime diagnostics |
-| `context` | Context and compaction |
-| `developer` | Developer options |
-| `voice` | Voice Built-in card on the Extensions tab |
-| `connection` | Web-app pairing; Desktop only |
+| Target        | Destination                                                                                  |
+| ------------- | -------------------------------------------------------------------------------------------- |
+| `settings`    | Settings home                                                                                |
+| `providers`   | Provider authentication                                                                      |
+| `model`       | Main model selection                                                                         |
+| `websearch`   | Web Search route                                                                             |
+| `workflow`    | Workflow packs                                                                               |
+| `agents`      | Agent definitions and routes                                                                 |
+| `outputstyle` | Output style                                                                                 |
+| `theme`       | Theme surface where supported                                                                |
+| `profile`     | User profile                                                                                 |
+| `autoclear`   | Session lifecycle controls                                                                   |
+| `memory`      | Memory capability surface (Built-in card on the Extensions tab)                              |
+| `mcp`         | Extensions → Connectors tab, including OAuth Connect/Reconnect/Disconnect                    |
+| `skills`      | Skills (activity rail destination)                                                           |
+| `plugins`     | Extensions → Extensions tab (plugins that bring MCP servers: Connectors → Custom connectors) |
+| `update`      | Update surface                                                                               |
+| `usage`       | The /usage surface (provider usage); no sign-in                                              |
+| `doctor`      | Runtime diagnostics                                                                          |
+| `context`     | Context and compaction                                                                       |
+| `developer`   | Developer options                                                                            |
+| `voice`       | Voice Built-in card on the Extensions tab                                                    |
+| `connection`  | Web-app pairing; Desktop only                                                                |
 
 An attached Desktop may navigate and return `opened:true`.
 
@@ -163,4 +163,3 @@ The setup tool does not mutate:
   other-account switch.
 
 Use `open` where a target exists, then let the user act.
-

@@ -10,14 +10,14 @@ to every scanner.
 Collect from what already runs in the project; never install a scanner and
 never route one through `tidy` (they are not tidy engines):
 
-| Source | Gives | Notes |
-|---|---|---|
-| `tidy check` diagnostics | unused imports/variables from Biome, ruff (`F401`, `F841`), ESLint `no-unused-vars` | exact file:line, safest tier |
-| Project's documented TypeScript check | unused locals, imports, parameters, private members when the project enables those diagnostics | use its existing command and flags; do not silently add `--noUnusedLocals` or `--noUnusedParameters` |
-| `knip` (`node_modules/.bin/knip`) | unused files, exports, types, dependencies; imports missing from the manifest (`unlisted`) or resolving to nothing (`unresolved`) | JS/TS; only when the project already depends on it |
-| `vulture` (in the project's venv) | unused functions, classes, imports with confidence | Python; only when present |
-| `deadcode` (Go, `golang.org/x/tools`) / `cargo machete` | unreachable functions / unused crates | only when on PATH |
-| `code_graph mode:symbols` per selected file | private helpers with no callers (`callers`) | universal, no install |
+| Source                                                  | Gives                                                                                                                             | Notes                                                                                                |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `tidy check` diagnostics                                | unused imports/variables from Biome, ruff (`F401`, `F841`), ESLint `no-unused-vars`                                               | exact file:line, safest tier                                                                         |
+| Project's documented TypeScript check                   | unused locals, imports, parameters, private members when the project enables those diagnostics                                    | use its existing command and flags; do not silently add `--noUnusedLocals` or `--noUnusedParameters` |
+| `knip` (`node_modules/.bin/knip`)                       | unused files, exports, types, dependencies; imports missing from the manifest (`unlisted`) or resolving to nothing (`unresolved`) | JS/TS; only when the project already depends on it                                                   |
+| `vulture` (in the project's venv)                       | unused functions, classes, imports with confidence                                                                                | Python; only when present                                                                            |
+| `deadcode` (Go, `golang.org/x/tools`) / `cargo machete` | unreachable functions / unused crates                                                                                             | only when on PATH                                                                                    |
+| `code_graph mode:symbols` per selected file             | private helpers with no callers (`callers`)                                                                                       | universal, no install                                                                                |
 
 Do not add stricter compiler flags for a routine cleanup.
 
@@ -39,7 +39,7 @@ found" and never settle it by installing the package.
      dynamic reference; inspect its meaning instead of counting text matches.
    - An unresolved dynamic lookup blocks deletion; neither zero static
      references nor an ambiguous textual hit settles it.
-   Reading consumers outside the selected area does not authorize editing them.
+     Reading consumers outside the selected area does not authorize editing them.
 3. Apply the never-dead list below.
 4. Verify removal has no required side effects. Unread variables can have
    effectful initializers, and the last unused import binding can still load a

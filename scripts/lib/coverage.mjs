@@ -1,11 +1,3 @@
-// V8 coverage, folded into the one artifact that answers a single question:
-// does the suite actually execute this function? Grepping test files for a
-// symbol answers it wrongly whenever a helper is reached only through a public
-// entry point, so the evidence comes from Node itself — NODE_V8_COVERAGE makes
-// every test process dump raw V8 coverage JSON at exit, and this module folds
-// those dumps (one per batch, one per test child) into per-function lines.
-//
-// No dependency is involved: V8 emits the raw data, `node:fs` reads it back.
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -28,15 +20,6 @@ export const EXCLUSION_REASONS = {
   'source-unreadable': 'the file could not be read back while folding coverage',
 };
 
-// The identity a later query uses to tell whether the file still is what was
-// measured. Content, not mtime or size: a checkout, a formatter rewriting a
-// file byte-identically or a restored backup all move mtime without changing a
-// single line, and an edit that swaps two lines keeps the size — either way the
-// recorded line ranges would be wrong or wrongly distrusted. Folding already
-// reads every source in full to translate offsets, so hashing it costs nothing
-// and answers exactly. (A file absent from the artifact has no recorded
-// content to compare, so its mtime against the collection time is the only
-// evidence there is; `queryCoverage` uses that for the unknown-file case.)
 export function sourceDigest(source) {
   return createHash('sha256').update(source).digest('hex');
 }
@@ -199,15 +182,8 @@ export async function loadCoverageArtifact({ root = process.cwd(), artifactPath 
   return JSON.parse(await readFile(resolve(root, artifactPath), 'utf8'));
 }
 
-// Is this line inside a function the suite executed? The innermost enclosing
-// function answers; a line the file's functions do not cover is reported as
-// such rather than borrowed from the module body around it.
-//
-// A recorded answer is only worth giving while the file still is the file that
-// was measured, so every query re-reads the source and compares its digest
-// first: a changed file answers `stale`, never EXECUTED or NOT EXECUTED. An
-// artifact predating this check has no digest to match, which is itself a
-// mismatch, so it announces itself too.
+// Whether the line's innermost enclosing function was executed; a line no function covers is reported as such.
+// A changed file, or an artifact without a digest, answers `stale`.
 export async function queryCoverage(artifact, file, line, { root = process.cwd() } = {}) {
   const rootPath = resolve(root);
   const path = String(file).replaceAll('\\', '/').replace(/^\.\//, '');

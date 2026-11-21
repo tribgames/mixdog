@@ -17,19 +17,6 @@ function execFileAsync(file, args, options) {
   });
 }
 
-// Securing a published secret by spawning PowerShell costs ~150-200 ms per
-// call, and secrets are read far more often than they change. Nothing is
-// cached: every non-fresh async call still reads the file's real DACL and
-// tightens it when it is not owner-only. File metadata (mtime/ctime/size/id)
-// is never treated as evidence of permissions. To make that per-call check
-// cheap, one long-lived PowerShell helper per process answers requests over
-// stdin/stdout ("<id> <base64 path>" in, "<id> ok|fixed|err <base64 detail>"
-// out); concurrent callers share it and are matched by request id. If the
-// helper cannot start, crashes, closes its pipes or misses the request
-// deadline, every request it held (and later ones, once the restart budget is
-// spent) falls back to the spawn-per-call update, so a lost helper never
-// skips a check. A definite ACL failure reported by the helper is an error,
-// exactly like a failed per-call update.
 const ACL_HELPER_REQUEST_TIMEOUT_MS = 15_000;
 // At most this many helper starts per window. A lifetime budget let three
 // unrelated losses (a request deadline missed across a system sleep, an
@@ -110,8 +97,14 @@ function startAclHelper(icacls, sid) {
   child.stdin.on('error', helper.fail);
   child.stdout.on('error', helper.fail);
   child.stdout.on('close', () => helper.fail(new Error('Windows ACL helper closed its output')));
-  child.stdout.setEncoding('utf8');
-  child.stdout.on('data', (chunk) => {
+  readAclHelperReplies(helper);
+  syncAclHelperRef(helper);
+  return helper;
+}
+
+function readAclHelperReplies(helper) {
+  helper.child.stdout.setEncoding('utf8');
+  helper.child.stdout.on('data', (chunk) => {
     helper.buffer += chunk;
     let newline = helper.buffer.indexOf('\n');
     while (newline >= 0) {
@@ -125,8 +118,6 @@ function startAclHelper(icacls, sid) {
       request.answer(status, Buffer.from(detail, 'base64').toString('utf8'));
     }
   });
-  syncAclHelperRef(helper);
-  return helper;
 }
 
 // An idle helper never keeps the process alive; while a request awaits its
@@ -168,16 +159,6 @@ function askAclHelper(targetPath, icacls, sid) {
   });
 }
 
-// ── Sync bridge ─────────────────────────────────────────────────────────
-// Synchronous secret writes (token stores, config) cannot await the helper,
-// and a blocking icacls spawn per write held the event loop (and the write's
-// file lock) for seconds under load. A worker thread owns a second helper;
-// a synchronous caller posts its path and blocks in Atomics.wait only for
-// the answer — milliseconds once the helper runs (prewarmOwnerOnlyAclWin32
-// starts it off the write path). Shared slots: [0] answer counter, [1] the
-// worker exited, [2] the worker is ready. A worker not ready within
-// ACL_SYNC_BRIDGE_READY_MS, or gone, sends the caller to the one-shot
-// update; an answer later than ACL_SYNC_BRIDGE_TIMEOUT_MS fails the write.
 const ACL_SYNC_BRIDGE_READY_MS = 10_000;
 // The helper's own deadline plus its one-shot fallback's, with margin.
 const ACL_SYNC_BRIDGE_TIMEOUT_MS = 2 * ACL_HELPER_REQUEST_TIMEOUT_MS + 5_000;
@@ -379,11 +360,6 @@ function ownerOnlyAclCommand(targetPath, sid, fresh, icacls) {
   return powerShellCommand(icacls, script);
 }
 
-// Replaces a directory's whole DACL (explicit grants to anyone else included)
-// with one protected, inheritable owner-only grant, in one native update, so
-// files created inside need no ACL call of their own. Files already inside
-// that carry an explicit grant or any other principal's grant are reset to
-// inherit only that owner grant.
 function ownerOnlyDirectoryCommand(targetPath, sid, icacls) {
   const script = [
     "$ErrorActionPreference = 'Stop';",
@@ -421,10 +397,6 @@ function aclFailure(targetPath, cause, label = 'icacls') {
 export function enforceOwnerOnlyAclWin32(targetPath, { fresh = false } = {}) {
   if (process.platform !== 'win32') return;
   const icacls = icaclsPath();
-  // Fresh files (the temp and lock files of every synchronous secret write,
-  // made while its file lock is held) go to the helper through the sync
-  // bridge: one round trip, no process spawned. Only a bridge that is gone
-  // falls back to the blocking one-shot update below.
   if (fresh) {
     const reply = askSyncBridge(resolve(targetPath));
     if (reply.ok === true) return;
@@ -446,11 +418,6 @@ export function enforceOwnerOnlyAclWin32(targetPath, { fresh = false } = {}) {
   }
 }
 
-// Fresh files (unpublished temp/lock files, one or two per secret write) go
-// through the helper too: never owner-only yet, each is secured explicitly by
-// its DACL replacement. An icacls spawn per write, made inside the write's
-// file lock, kept provider-accounts.json locked for 114 s under heavy load
-// (each spawn blocked the event loop for seconds as well).
 export async function enforceOwnerOnlyAclWin32Async(targetPath, { fresh = false } = {}) {
   if (process.platform !== 'win32') return;
   const icacls = icaclsPath();

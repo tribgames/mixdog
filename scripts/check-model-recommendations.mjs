@@ -1,7 +1,5 @@
-// Validates the setup-guide model recommendation list and exits non-zero when
-// it is older than its own staleAfterDays.
-//
-//   node scripts/check-model-recommendations.mjs
+// Exits non-zero when the recommendation list is older than its own staleAfterDays.
+// node scripts/check-model-recommendations.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -32,12 +32,12 @@ SSH 서버 연결은 **내 PC의 Mixdog 창에서 원격 서버를 열어 쓰는
 
 **다른 PC 열기와의 차이**
 
-| | SSH 서버 | 다른 PC 열기 |
-| --- | --- | --- |
-| 연결 방식 | SSH(OpenSSH) | 코드로 연결 |
-| 상대방 | SSH로 접속되는 서버 | Mixdog 데스크톱 앱이 켜져 있는 다른 PC |
-| 상대방에 필요한 것 | sshd (Mixdog은 자동 설치) | Mixdog 앱 |
-| 모델 호출 | 내 PC의 로그인 사용 | 상대 PC의 Mixdog이 처리 |
+|                    | SSH 서버                  | 다른 PC 열기                           |
+| ------------------ | ------------------------- | -------------------------------------- |
+| 연결 방식          | SSH(OpenSSH)              | 코드로 연결                            |
+| 상대방             | SSH로 접속되는 서버       | Mixdog 데스크톱 앱이 켜져 있는 다른 PC |
+| 상대방에 필요한 것 | sshd (Mixdog은 자동 설치) | Mixdog 앱                              |
+| 모델 호출          | 내 PC의 로그인 사용       | 상대 PC의 Mixdog이 처리                |
 
 설정 → 연결에서 두 기능을 모두 찾을 수 있습니다.
 
@@ -82,11 +82,11 @@ Mixdog은 내 PC의 OpenSSH를 그대로 사용하므로 평소 터미널에서 
 
 먼저 묻지 않고(`BatchMode`) 접속을 시도하고(키 파일, ssh-agent), 로그인이 거절되면 같은 연결 창에서 한 번 더 물어봅니다. 자동 재연결 같은 백그라운드 연결은 묻지 않으므로 로그인 입력이 필요하면 멈추고, **다시 연결**을 눌러 연결 창에서 입력해야 합니다.
 
-| 묻는 내용 | 언제 | 비고 |
-| --- | --- | --- |
-| **키 암호** | 암호로 보호된 개인 키를 쓸 때 | ssh-agent에 키를 올려 두면 묻지 않습니다. |
-| **서버 암호** | 비밀번호 로그인만 허용되는 서버 | |
-| **인증 코드** | 2단계 인증(OTP)을 쓰는 서버 | |
+| 묻는 내용     | 언제                            | 비고                                      |
+| ------------- | ------------------------------- | ----------------------------------------- |
+| **키 암호**   | 암호로 보호된 개인 키를 쓸 때   | ssh-agent에 키를 올려 두면 묻지 않습니다. |
+| **서버 암호** | 비밀번호 로그인만 허용되는 서버 |                                           |
+| **인증 코드** | 2단계 인증(OTP)을 쓰는 서버     |                                           |
 
 - 입력한 값은 **이번 연결에만 사용하고 저장하지 않습니다.** 2분 안에 입력하지 않으면 취소됩니다.
 - 로그인용 키가 없다면 창에 키 만들기와 서버에 등록하는 명령이 순서대로 나타납니다(`ssh-keygen -t ed25519`, 이어서 `ssh-copy-id …`. Windows에서는 공개 키를 `ssh`로 서버의 `authorized_keys`에 붙이는 PowerShell 명령). 이 PC 터미널에서 실행한 뒤 **다시 시도**하십시오.
@@ -158,25 +158,30 @@ Mixdog은 내 PC의 OpenSSH를 그대로 사용하므로 평소 터미널에서 
 **패널 위치**: 서버 창 왼쪽 레일에서 **더 보기**를 누르면 나오는 메뉴의 **포트**입니다. 서버 창에서만 쓸 수 있습니다.
 
 **서버에서 열린 포트 목록**
+
 - 패널이 보이는 동안 **5초마다** 서버를 다시 확인합니다. **포트 다시 확인**으로 바로 갱신할 수도 있습니다. 연결이 끊어져 있으면 확인을 멈췄다가 다시 연결되면 이어서 확인합니다.
 - 포트마다 번호, 주소, 그 포트를 연 **프로세스 이름**이 표시됩니다. 접속한 계정이 볼 수 있는 프로세스만 이름이 나타나고, 그렇지 않으면 "포트 3000"처럼 번호만 보입니다. 서버에서 Mixdog 자신이 쓰는 포트는 목록에 나오지 않습니다.
 - 서버가 Linux나 macOS일 때 확인합니다(macOS에서는 `lsof`를 사용합니다).
 
 **전달하기**
+
 1. 목록에서 포트의 **전달**을 누릅니다. 목록에 없는 포트는 **포트 전달**(+)에서 서버 포트 번호를 직접 입력하고, 필요하면 "이 PC 포트"도 정합니다.
 2. 내 PC 쪽 포트는 따로 정하지 않으면 **서버와 같은 번호**를 쓰고, 그 번호가 1024 미만이거나 이미 사용 중이면 비어 있는 아무 포트를 씁니다. 직접 정한 포트가 1024 미만이거나 사용 중이면 오류로 알려 주고 전달하지 않습니다.
 3. 전달되면 "전달된 포트"에 `서버 포트 → 내 PC 포트`로 표시되고 상태가 "전달 중"이 됩니다. 이제 내 PC의 `127.0.0.1:포트`로 접속할 수 있습니다. 내 PC의 `127.0.0.1`에서만 열리므로 같은 네트워크의 다른 컴퓨터는 접속할 수 없습니다.
 4. **브라우저에서 열기**(↗)를 누르면 `http://127.0.0.1:<내 PC 포트>/`를 기본 브라우저로 엽니다. **전달 중지**(■)를 누르면 전달을 끝냅니다.
 
 **새 포트 제안**
+
 - 서버에서 새로 열린 포트가 감지되면 "서버 이름에서 새 포트를 감지했습니다"라는 제안이 나타납니다. **전달**을 누르면 전달하고, **무시**를 누르면 그 포트의 제안을 더 보이지 않습니다.
 - 제안만 할 뿐 **절대 저절로 전달하지 않습니다.** 패널을 처음 확인할 때 이미 열려 있던 포트는 제안하지 않습니다.
 
 **저장과 복원**
+
 - 전달 목록은 서버별로 저장됩니다. 연결이 끊겼다가 다시 연결되거나 앱을 다시 켜서 서버에 연결하면 저장된 포트를 자동으로 다시 전달합니다. 이전에 쓰던 내 PC 포트를 우선 쓰고, 이미 사용 중이면 다른 포트를 씁니다.
 - 서버 창을 닫으면 전달은 멈추지만 저장된 목록은 남습니다. 전달을 끝내려면 **전달 중지**를 누르십시오.
 
 **제한 사항**
+
 - 전달에는 **키 파일(또는 ssh-agent)로 로그인되는 서버**만 쓸 수 있습니다. 포트 전달은 비밀번호나 인증 코드를 물어볼 수 없으므로, 비밀번호·OTP로만 로그인되는 서버에서는 전달이 실패합니다.
 - 전달은 서버의 `127.0.0.1:포트`로 연결합니다. **`::1`(IPv6 루프백)에만 열려 있는 서비스는 응답하지 않습니다.** 서비스를 `127.0.0.1` 또는 모든 주소(`0.0.0.0`)에서 받도록 설정하십시오.
 - 서버의 SSH 설정이 TCP 포워딩을 막고 있으면(`AllowTcpForwarding no`) 전달할 수 없습니다.
@@ -198,13 +203,13 @@ Mixdog은 내 PC의 OpenSSH를 그대로 사용하므로 평소 터미널에서 
 
 설정 → 연결의 서버 목록에서 서버의 설정을 열 수 있습니다("서버 이름 설정"). 변경 사항은 **다음 연결부터** 적용됩니다.
 
-| 항목 | 설명 |
-| --- | --- |
-| 기본 서버 폴더 | 서버 창이 처음 여는 폴더입니다. `~`, `~/work` 또는 절대 경로. 비우면 홈 폴더입니다. |
-| 로그인 키 파일 | 이 서버에 쓸 개인 키 파일의 경로(`ssh -i`). 비우면 평소 ssh 설정과 ssh-agent를 따릅니다. |
-| 연결이 끊어지면 자동으로 다시 연결 | 끄면 연결이 끊긴 뒤 직접 **다시 연결**을 누를 때까지 가만히 있습니다. |
-| 연결이 끊긴 뒤 서버 작업 유지 시간(분) | 위의 유지 시간. 기본 30분. |
-| 이 서버가 쓸 수 있는 모델 | 서버가 내 PC의 로그인으로 쓸 수 있는 모델 제공자. 기본은 이 PC에서 켠 모든 제공자. |
+| 항목                                   | 설명                                                                                     |
+| -------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 기본 서버 폴더                         | 서버 창이 처음 여는 폴더입니다. `~`, `~/work` 또는 절대 경로. 비우면 홈 폴더입니다.      |
+| 로그인 키 파일                         | 이 서버에 쓸 개인 키 파일의 경로(`ssh -i`). 비우면 평소 ssh 설정과 ssh-agent를 따릅니다. |
+| 연결이 끊어지면 자동으로 다시 연결     | 끄면 연결이 끊긴 뒤 직접 **다시 연결**을 누를 때까지 가만히 있습니다.                    |
+| 연결이 끊긴 뒤 서버 작업 유지 시간(분) | 위의 유지 시간. 기본 30분.                                                               |
+| 이 서버가 쓸 수 있는 모델              | 서버가 내 PC의 로그인으로 쓸 수 있는 모델 제공자. 기본은 이 PC에서 켠 모든 제공자.       |
 
 앱 설정에는 "앱을 켤 때 서버 창 다시 열기"도 있습니다. 켜 두면 종료할 때 열려 있던 서버 창을 다음 실행 때 백그라운드로 다시 엽니다. 이 자동 연결은 묻지 않는 모드이므로, 비밀번호가 필요한 서버는 설정에서 직접 연결해야 합니다.
 
@@ -217,6 +222,7 @@ Mixdog은 내 PC의 OpenSSH를 그대로 사용하므로 평소 터미널에서 
 - **서버 로그 가져오기**: 서버의 `~/.mixdog-remote/daemon.log` 마지막 200줄을 가져옵니다. 서버의 Mixdog이 시작하지 못하거나 응답하지 않을 때 원인이 담겨 있습니다.
 
 **무엇이 가려지나요?**
+
 - 토큰, 비밀번호, 긴 비밀 값처럼 비밀로 보이는 값은 화면에 보이는 로그에서도 이미 지워져 있습니다.
 - 화면에 보이는 로그 본문에서는 **서버 주소와 사용자 이름이 가려지지 않습니다.**
 - **복사**와 **진단 정보 복사**로 클립보드에 넣을 때만 서버 주소와 사용자 이름이 `<server>`로 바뀝니다. 이름이 짧으면(3자 이하) 일반 단어를 건드리지 않도록 `user@host` 형태일 때만 바뀝니다.
@@ -225,33 +231,34 @@ Mixdog은 내 PC의 OpenSSH를 그대로 사용하므로 평소 터미널에서 
 ## 문제 해결
 
 연결에 실패한 창에는 모두 "오류 코드: …" 줄이 표시됩니다(로그인, 지문 변경·폐기, OpenSSH 없음 포함). 아래 표는 그 코드를 기준으로 정리했습니다.
-| 증상 / 코드 | 원인 | 해결 |
-| --- | --- | --- |
-| OpenSSH가 설치되어 있지 않습니다 (`ssh-missing`) | 내 PC에 `ssh`가 없거나 PATH에 없습니다. | macOS/Linux는 패키지 관리자로 OpenSSH 클라이언트를 설치합니다. Windows는 창에 표시되는 관리자 PowerShell 명령으로 OpenSSH 클라이언트를 추가합니다. |
-| 로그인할 수 없습니다 (`auth`) | 서버에 내 키가 등록되어 있지 않거나, 키·비밀번호가 거절되었습니다. | 창의 명령으로 키를 만들고(`ssh-keygen -t ed25519`) 서버에 등록(`ssh-copy-id`)합니다. 키가 여러 개면 서버 설정의 "로그인 키 파일"을 지정하고, ssh-agent 안내가 있으면 따릅니다. |
-| 서버 지문이 바뀌었습니다 (`host-key-changed`) | 저장된 지문과 서버가 내놓는 지문이 다릅니다. 서버 재설치일 수도, 가로채기일 수도 있습니다. | 서버 관리자에게 확인합니다. 정상이라면 `ssh-keygen -R …`로 이전 키를 지우거나, Mixdog 전용 파일의 키라면 "고급 · 키 교체"를 씁니다. |
-| 이 서버의 키는 폐기되었습니다 (`host-key-revoked`) | `known_hosts`가 이 키를 폐기(revoked)로 표시했습니다. | 서버 관리자에게 새 키를 받습니다. |
-| 이 서버에서는 Mixdog을 실행할 수 없습니다 (`unsupported-platform`) | Windows 서버, Linux/macOS가 아닌 시스템, x64/arm64가 아닌 CPU, Alpine 같은 musl 리눅스입니다. | 지원되는 서버(glibc 기반 Linux, macOS)를 사용합니다. |
-| 설치하지 못했습니다 (`install-failed`) | 업로드한 파일이 손상되었거나 잠금 파일·권한 문제 등으로 설치 단계가 실패했습니다. 상세 내용에 이유가 있습니다. | 홈 폴더의 쓰기 권한과 디스크 여유 공간을 확인한 뒤 다시 시도합니다. 계속되면 [서버에서 Mixdog 지우기](#서버에서-mixdog-지우기) 후 다시 연결합니다. |
-| 다른 설치가 진행 중입니다 (`install-locked`) | 다른 PC나 다른 창이 같은 서버에 설치하는 중입니다. | 잠시 기다린 뒤 다시 시도합니다. 설치가 중단되어 남은 오래된 잠금은 자동으로 정리됩니다. |
-| 서버에 사용할 수 있는 포트가 없습니다 (`port-unavailable`) | 서버에서 Mixdog이 쓸 루프백 포트를 열지 못했습니다. | 서버의 방화벽·프로세스를 확인하고 사용 중인 포트를 정리합니다. |
-| 서버의 Mixdog을 다시 시작할까요? (`daemon-busy-other-version`) | 서버에서 **다른 버전**의 Mixdog이 작업 중이거나 다른 PC가 연결되어 있습니다. 앱 업데이트 직후의 이전 연결은 약 35초 기다린 뒤 이 안내로 바뀝니다. | 작업이 끝나길 기다리거나 **다시 시작하고 연결**을 누릅니다. 실행 중인 작업이 중단되고 다른 PC의 연결이 끊어집니다. |
-| 서버의 Mixdog을 종료할까요? (`daemon-not-proxy`) | 서버에 따로 실행 중인 Mixdog(프로세스 번호 표시)이 있고, 내 PC로 모델을 보내는 모드가 아닙니다. 그대로 붙으면 서버의 계정으로 모델이 실행되기 때문에 연결하지 않습니다. | 문제없으면 **종료하고 연결**을 누르거나, 서버에서 해당 프로세스를 직접 종료(`kill <번호>`)한 뒤 다시 연결합니다. |
-| 서버의 Mixdog이 다른 방식으로 실행 중입니다 (`daemon-unmanaged`) | 이 앱이 시작하지 않은 Mixdog이 이 앱의 접속 정보를 쓰고 있습니다. 앱은 그런 프로세스를 끄지 않습니다. | 서버에서 그 Mixdog을 직접 종료하거나 그쪽을 직접 사용한 뒤 다시 연결합니다. |
-| 서버의 Mixdog 데이터가 사용 중입니다 (`daemon-data-in-use`) | 다른 Mixdog이 같은 서버 데이터 폴더(`~/.mixdog-remote/user-data`)를 쓰고 있습니다. | 서버에서 그 Mixdog을 종료한 뒤 다시 연결합니다. |
-| 이전 Mixdog을 종료하지 못했습니다 (`daemon-stop`) | 서버의 이전 Mixdog이 종료 신호에도 끝나지 않았습니다. | 서버에서 상세 내용의 프로세스를 직접 종료(`kill -9`)하고 다시 시도합니다. |
-| Mixdog을 교체하지 못했습니다 (`daemon-replace`) | 다른 Mixdog이 계속 세션 포트를 다시 차지합니다. | 서버에서 실행 중인 Mixdog과 자동 재시작 설정(서비스, 스크립트)을 확인합니다. |
-| 이 Mixdog을 확인할 수 없습니다 (`daemon-unproven`) | 정리 중에 접속 정보를 잡고 있는 프로세스가 Mixdog인지 확인되지 않아 아무것도 지우지 않았습니다. | 서버에서 해당 프로세스를 확인해 종료한 뒤 다시 시도합니다. |
-| 서버의 Mixdog 버전이 맞지 않습니다 (`protocol-mismatch`) | 서버의 Mixdog이 이 앱과 호환되지 않는 통신 규약입니다. | 다시 연결하면 이 앱과 같은 버전을 서버에 설치합니다. 계속되면 설정 → 연결의 "서버에서 Mixdog 정리…"로 지운 뒤 다시 연결합니다. |
-| 연결하지 못했습니다 + 상세 내용 (`daemon-exited`, `daemon-timeout`, `daemon-unhealthy`) | 서버의 Mixdog이 시작 직후 종료되었거나 제때 준비되지 못했습니다. | 상세 내용의 `daemon.log` 마지막 줄이나 **서버 로그 가져오기**를 확인합니다. 메모리·디스크 상태가 흔한 원인입니다. |
-| 서버의 로그인 셸이 연결을 방해합니다 (`remote-shell`, `remote-home`) | 로그인할 때 서버가 예상 밖의 출력을 내보냈거나, 홈 폴더를 쓸 수 없습니다. | `~/.bashrc` 같은 로그인 스크립트가 비대화형 SSH에서 출력을 내지 않도록 정리하고 다시 시도합니다. |
-| 예상하지 못한 오류가 발생했습니다 (`internal`, `protocol`) | 서버 쪽 설치 프로그램이 예상하지 못한 결과를 냈습니다. | **로그 보기** 또는 **진단 정보 복사**로 내용을 확인해 이슈를 올릴 때 함께 첨부합니다. |
-| 연결하지 못했습니다 + "does not answer through the ssh tunnel" / "Another process answered" | SSH 터널은 열렸지만 끝에서 기대한 Mixdog이 응답하지 않거나 다른 프로세스가 응답했습니다. 보안 확인에서 멈춘 것입니다. | 다시 연결합니다. 반복되면 서버 로그와 방화벽·AllowTcpForwarding 설정을 확인합니다. |
-| 연결하지 못했습니다 + 상세 내용 (`host-key-unreachable`, `ssh-transient`, `ssh-terminal`) | 지문을 읽거나 접속하지 못했습니다. 주소·포트가 틀렸거나, 서버가 꺼져 있거나, 방화벽·VPN이 막고 있습니다. | 터미널에서 `ssh user@서버`로 접속되는지 먼저 확인합니다. |
-| 연결이 끊겼습니다 — "서버에 너무 오래 연결하지 못했습니다" | 자동 재시도로도 서버에 닿지 못했습니다. | 네트워크와 서버 상태를 확인한 뒤 **다시 연결**을 누릅니다. |
-| 연결이 끊겼습니다 — "다시 로그인이 필요합니다" | 연결 도중 로그인이 거절되었습니다(키 변경 등). | 설정 → 연결에서 서버를 다시 연결해 로그인합니다. |
-| 연결이 끊겼습니다 — "확인이 필요합니다" | 지문 변경이나 로그인 거절처럼 사람의 확인이 필요한 문제입니다. | 설정 → 연결에서 다시 연결해 안내를 따릅니다. |
-| 연결이 끊겼습니다 — "자동으로 다시 연결하지 않도록 설정되어 있습니다" | 서버 설정에서 자동 재연결을 껐습니다. | **다시 연결**을 누르거나 설정을 켭니다. |
+
+| 증상 / 코드                                                                                 | 원인                                                                                                                                                                    | 해결                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| OpenSSH가 설치되어 있지 않습니다 (`ssh-missing`)                                            | 내 PC에 `ssh`가 없거나 PATH에 없습니다.                                                                                                                                 | macOS/Linux는 패키지 관리자로 OpenSSH 클라이언트를 설치합니다. Windows는 창에 표시되는 관리자 PowerShell 명령으로 OpenSSH 클라이언트를 추가합니다.                             |
+| 로그인할 수 없습니다 (`auth`)                                                               | 서버에 내 키가 등록되어 있지 않거나, 키·비밀번호가 거절되었습니다.                                                                                                      | 창의 명령으로 키를 만들고(`ssh-keygen -t ed25519`) 서버에 등록(`ssh-copy-id`)합니다. 키가 여러 개면 서버 설정의 "로그인 키 파일"을 지정하고, ssh-agent 안내가 있으면 따릅니다. |
+| 서버 지문이 바뀌었습니다 (`host-key-changed`)                                               | 저장된 지문과 서버가 내놓는 지문이 다릅니다. 서버 재설치일 수도, 가로채기일 수도 있습니다.                                                                              | 서버 관리자에게 확인합니다. 정상이라면 `ssh-keygen -R …`로 이전 키를 지우거나, Mixdog 전용 파일의 키라면 "고급 · 키 교체"를 씁니다.                                            |
+| 이 서버의 키는 폐기되었습니다 (`host-key-revoked`)                                          | `known_hosts`가 이 키를 폐기(revoked)로 표시했습니다.                                                                                                                   | 서버 관리자에게 새 키를 받습니다.                                                                                                                                              |
+| 이 서버에서는 Mixdog을 실행할 수 없습니다 (`unsupported-platform`)                          | Windows 서버, Linux/macOS가 아닌 시스템, x64/arm64가 아닌 CPU, Alpine 같은 musl 리눅스입니다.                                                                           | 지원되는 서버(glibc 기반 Linux, macOS)를 사용합니다.                                                                                                                           |
+| 설치하지 못했습니다 (`install-failed`)                                                      | 업로드한 파일이 손상되었거나 잠금 파일·권한 문제 등으로 설치 단계가 실패했습니다. 상세 내용에 이유가 있습니다.                                                          | 홈 폴더의 쓰기 권한과 디스크 여유 공간을 확인한 뒤 다시 시도합니다. 계속되면 [서버에서 Mixdog 지우기](#서버에서-mixdog-지우기) 후 다시 연결합니다.                             |
+| 다른 설치가 진행 중입니다 (`install-locked`)                                                | 다른 PC나 다른 창이 같은 서버에 설치하는 중입니다.                                                                                                                      | 잠시 기다린 뒤 다시 시도합니다. 설치가 중단되어 남은 오래된 잠금은 자동으로 정리됩니다.                                                                                        |
+| 서버에 사용할 수 있는 포트가 없습니다 (`port-unavailable`)                                  | 서버에서 Mixdog이 쓸 루프백 포트를 열지 못했습니다.                                                                                                                     | 서버의 방화벽·프로세스를 확인하고 사용 중인 포트를 정리합니다.                                                                                                                 |
+| 서버의 Mixdog을 다시 시작할까요? (`daemon-busy-other-version`)                              | 서버에서 **다른 버전**의 Mixdog이 작업 중이거나 다른 PC가 연결되어 있습니다. 앱 업데이트 직후의 이전 연결은 약 35초 기다린 뒤 이 안내로 바뀝니다.                       | 작업이 끝나길 기다리거나 **다시 시작하고 연결**을 누릅니다. 실행 중인 작업이 중단되고 다른 PC의 연결이 끊어집니다.                                                             |
+| 서버의 Mixdog을 종료할까요? (`daemon-not-proxy`)                                            | 서버에 따로 실행 중인 Mixdog(프로세스 번호 표시)이 있고, 내 PC로 모델을 보내는 모드가 아닙니다. 그대로 붙으면 서버의 계정으로 모델이 실행되기 때문에 연결하지 않습니다. | 문제없으면 **종료하고 연결**을 누르거나, 서버에서 해당 프로세스를 직접 종료(`kill <번호>`)한 뒤 다시 연결합니다.                                                               |
+| 서버의 Mixdog이 다른 방식으로 실행 중입니다 (`daemon-unmanaged`)                            | 이 앱이 시작하지 않은 Mixdog이 이 앱의 접속 정보를 쓰고 있습니다. 앱은 그런 프로세스를 끄지 않습니다.                                                                   | 서버에서 그 Mixdog을 직접 종료하거나 그쪽을 직접 사용한 뒤 다시 연결합니다.                                                                                                    |
+| 서버의 Mixdog 데이터가 사용 중입니다 (`daemon-data-in-use`)                                 | 다른 Mixdog이 같은 서버 데이터 폴더(`~/.mixdog-remote/user-data`)를 쓰고 있습니다.                                                                                      | 서버에서 그 Mixdog을 종료한 뒤 다시 연결합니다.                                                                                                                                |
+| 이전 Mixdog을 종료하지 못했습니다 (`daemon-stop`)                                           | 서버의 이전 Mixdog이 종료 신호에도 끝나지 않았습니다.                                                                                                                   | 서버에서 상세 내용의 프로세스를 직접 종료(`kill -9`)하고 다시 시도합니다.                                                                                                      |
+| Mixdog을 교체하지 못했습니다 (`daemon-replace`)                                             | 다른 Mixdog이 계속 세션 포트를 다시 차지합니다.                                                                                                                         | 서버에서 실행 중인 Mixdog과 자동 재시작 설정(서비스, 스크립트)을 확인합니다.                                                                                                   |
+| 이 Mixdog을 확인할 수 없습니다 (`daemon-unproven`)                                          | 정리 중에 접속 정보를 잡고 있는 프로세스가 Mixdog인지 확인되지 않아 아무것도 지우지 않았습니다.                                                                         | 서버에서 해당 프로세스를 확인해 종료한 뒤 다시 시도합니다.                                                                                                                     |
+| 서버의 Mixdog 버전이 맞지 않습니다 (`protocol-mismatch`)                                    | 서버의 Mixdog이 이 앱과 호환되지 않는 통신 규약입니다.                                                                                                                  | 다시 연결하면 이 앱과 같은 버전을 서버에 설치합니다. 계속되면 설정 → 연결의 "서버에서 Mixdog 정리…"로 지운 뒤 다시 연결합니다.                                                 |
+| 연결하지 못했습니다 + 상세 내용 (`daemon-exited`, `daemon-timeout`, `daemon-unhealthy`)     | 서버의 Mixdog이 시작 직후 종료되었거나 제때 준비되지 못했습니다.                                                                                                        | 상세 내용의 `daemon.log` 마지막 줄이나 **서버 로그 가져오기**를 확인합니다. 메모리·디스크 상태가 흔한 원인입니다.                                                              |
+| 서버의 로그인 셸이 연결을 방해합니다 (`remote-shell`, `remote-home`)                        | 로그인할 때 서버가 예상 밖의 출력을 내보냈거나, 홈 폴더를 쓸 수 없습니다.                                                                                               | `~/.bashrc` 같은 로그인 스크립트가 비대화형 SSH에서 출력을 내지 않도록 정리하고 다시 시도합니다.                                                                               |
+| 예상하지 못한 오류가 발생했습니다 (`internal`, `protocol`)                                  | 서버 쪽 설치 프로그램이 예상하지 못한 결과를 냈습니다.                                                                                                                  | **로그 보기** 또는 **진단 정보 복사**로 내용을 확인해 이슈를 올릴 때 함께 첨부합니다.                                                                                          |
+| 연결하지 못했습니다 + "does not answer through the ssh tunnel" / "Another process answered" | SSH 터널은 열렸지만 끝에서 기대한 Mixdog이 응답하지 않거나 다른 프로세스가 응답했습니다. 보안 확인에서 멈춘 것입니다.                                                   | 다시 연결합니다. 반복되면 서버 로그와 방화벽·AllowTcpForwarding 설정을 확인합니다.                                                                                             |
+| 연결하지 못했습니다 + 상세 내용 (`host-key-unreachable`, `ssh-transient`, `ssh-terminal`)   | 지문을 읽거나 접속하지 못했습니다. 주소·포트가 틀렸거나, 서버가 꺼져 있거나, 방화벽·VPN이 막고 있습니다.                                                                | 터미널에서 `ssh user@서버`로 접속되는지 먼저 확인합니다.                                                                                                                       |
+| 연결이 끊겼습니다 — "서버에 너무 오래 연결하지 못했습니다"                                  | 자동 재시도로도 서버에 닿지 못했습니다.                                                                                                                                 | 네트워크와 서버 상태를 확인한 뒤 **다시 연결**을 누릅니다.                                                                                                                     |
+| 연결이 끊겼습니다 — "다시 로그인이 필요합니다"                                              | 연결 도중 로그인이 거절되었습니다(키 변경 등).                                                                                                                          | 설정 → 연결에서 서버를 다시 연결해 로그인합니다.                                                                                                                               |
+| 연결이 끊겼습니다 — "확인이 필요합니다"                                                     | 지문 변경이나 로그인 거절처럼 사람의 확인이 필요한 문제입니다.                                                                                                          | 설정 → 연결에서 다시 연결해 안내를 따릅니다.                                                                                                                                   |
+| 연결이 끊겼습니다 — "자동으로 다시 연결하지 않도록 설정되어 있습니다"                       | 서버 설정에서 자동 재연결을 껐습니다.                                                                                                                                   | **다시 연결**을 누르거나 설정을 켭니다.                                                                                                                                        |
 
 `ssh-agent`, 키 형식, 프록시 같은 SSH 자체의 문제는 터미널에서 `ssh -v user@서버`로 같은 현상을 재현하면 원인을 더 쉽게 찾을 수 있습니다.
 
@@ -287,23 +294,23 @@ rm -rf ~/.mixdog-remote
 
 ## English summary
 
-**What it is.** Open a remote server from a Mixdog desktop window over SSH. Files, editor, terminal and Git run on the server; AI model calls run on *this* PC with this PC's sign-in, so no API keys are stored on the server. This differs from "Open another PC" (Settings → Connection), which pairs with another PC that runs the Mixdog desktop app by code.
+**What it is.** Open a remote server from a Mixdog desktop window over SSH. Files, editor, terminal and Git run on the server; AI model calls run on _this_ PC with this PC's sign-in, so no API keys are stored on the server. This differs from "Open another PC" (Settings → Connection), which pairs with another PC that runs the Mixdog desktop app by code.
 
 **Requirements.** Server: Linux (x64/arm64, glibc) or macOS, sshd; no root. This PC: the OpenSSH client.
 
-**Connect.** Settings → Connection → *Connect SSH server*, enter `user@host[:port]` or an `~/.ssh/config` alias. On first contact Mixdog shows the server's fingerprint and pins it in its own `known_hosts` only after you confirm; a changed key blocks the connection. Login uses your keys/ssh-agent first; a refused login falls back to prompts for a key passphrase, a password or an OTP code (never stored). ProxyJump hops are confirmed one at a time.
+**Connect.** Settings → Connection → _Connect SSH server_, enter `user@host[:port]` or an `~/.ssh/config` alias. On first contact Mixdog shows the server's fingerprint and pins it in its own `known_hosts` only after you confirm; a changed key blocks the connection. Login uses your keys/ssh-agent first; a refused login falls back to prompts for a key passphrase, a password or an OTP code (never stored). ProxyJump hops are confirmed one at a time.
 
 **On the server.** Everything lives in `~/.mixdog-remote` (`versions/`, `runtime/`, `user-data/`, `daemon.log`); no services, no root.
 
 **Security.** The server-side daemon listens on `127.0.0.1` only and needs a token; the desktop reaches it through an `ssh -L` tunnel and verifies the process behind it first. It only attaches to a daemon in client model-proxy mode, so models always use this PC's sign-in, and each server can be limited to chosen providers. Agent and X11 forwarding are forced off, host keys are checked strictly, and Mixdog uses its own `known_hosts`. The agent runs commands with the permissions of the account you log in with.
 
-**Server window.** Files and the terminal are the server's; attachments are uploaded to the server; previews and downloads read from the server. Features that act on this PC (Computer Use, browser pane, phone access, desktop updates, opening this PC's folders or handing server files to this PC's apps) are unavailable there. The *Ports* panel (left rail → *More* → *Ports*) lists what listens on the server (refreshed every 5 s while visible, with process names; Mixdog's own ports hidden). *Forward* maps a server port to the same port on this PC when it is free and ≥ 1024, otherwise any free port, bound to `127.0.0.1` only; new ports are only suggested (*Forward* / *Ignore*), never forwarded automatically. Forwards can be opened in the browser, stopped, and are saved per server and restored on reconnect or relaunch. Limits: key-file/agent login only (password/OTP-only servers cannot forward), and services bound only to `::1` will not answer.
+**Server window.** Files and the terminal are the server's; attachments are uploaded to the server; previews and downloads read from the server. Features that act on this PC (Computer Use, browser pane, phone access, desktop updates, opening this PC's folders or handing server files to this PC's apps) are unavailable there. The _Ports_ panel (left rail → _More_ → _Ports_) lists what listens on the server (refreshed every 5 s while visible, with process names; Mixdog's own ports hidden). _Forward_ maps a server port to the same port on this PC when it is free and ≥ 1024, otherwise any free port, bound to `127.0.0.1` only; new ports are only suggested (_Forward_ / _Ignore_), never forwarded automatically. Forwards can be opened in the browser, stopped, and are saved per server and restored on reconnect or relaunch. Limits: key-file/agent login only (password/OTP-only servers cannot forward), and services bound only to `::1` will not answer.
 
 **Disconnects.** The window reconnects automatically (1 s up to 30 s steps); server work continues during the grace time (default 30 min, 1 min–7 days per server). Problems that need a person (changed host key, refused login, server setup) stop the retries until you reconnect from Settings → Connection.
 
-**Diagnostics.** *View log*, *Copy diagnostics* and *Fetch server log* (last 200 lines of `~/.mixdog-remote/daemon.log`). Secret-looking values (tokens, passwords) are removed everywhere, but the text shown in the dialog still contains the server address and user name; only the copied text replaces them with `<server>` (short names only as `user@host`). Review before sharing.
+**Diagnostics.** _View log_, _Copy diagnostics_ and _Fetch server log_ (last 200 lines of `~/.mixdog-remote/daemon.log`). Secret-looking values (tokens, passwords) are removed everywhere, but the text shown in the dialog still contains the server address and user name; only the copied text replaces them with `<server>` (short names only as `user@host`). Review before sharing.
 
-**Reconnect banner.** While reconnecting it shows the attempt and a countdown with *Reconnect now* (runs the waiting attempt immediately; backoff and the grace clock continue unchanged). *Reconnect* and *Close window* appear only once reconnecting has stopped ("Connection to … lost"). Background connections always use `BatchMode`; only a user-initiated retry after a refused login may prompt (askpass).
+**Reconnect banner.** While reconnecting it shows the attempt and a countdown with _Reconnect now_ (runs the waiting attempt immediately; backoff and the grace clock continue unchanged). _Reconnect_ and _Close window_ appear only once reconnecting has stopped ("Connection to … lost"). Background connections always use `BatchMode`; only a user-initiated retry after a refused login may prompt (askpass).
 
 **Model-call safeguards.** While the SSH connection is open, the server's model calls run on this PC like local use: there is no grant, time limit, call or token budget, rate limit, concurrency cap or per-call time cap. Each call is limited in size (128 MiB) and a server may hold at most 256 MiB of call data at once. Calls are cancelled when the connection closes, and a call whose server stops answering for 20 seconds is abandoned. Only the providers allowed for that server can be used, and attachments stored on this PC are not readable by the server.
 
@@ -311,6 +318,6 @@ rm -rf ~/.mixdog-remote
 
 **Troubleshooting.** See the table in [문제 해결](#문제-해결); each row names the error code (for example `unsupported-platform`, `install-locked`, `daemon-busy-other-version`, `daemon-not-proxy`, `host-key-changed`, `auth`).
 
-**Removing Mixdog.** Use *Clean up Mixdog on the server…* (stops the daemon Mixdog started, removes `~/.mixdog-remote`, optionally keeps or deletes `user-data` and the list entry), or by hand: `kill <pid from ~/.mixdog-remote/runtime/daemon.json>; rm -rf ~/.mixdog-remote`.
+**Removing Mixdog.** Use _Clean up Mixdog on the server…_ (stops the daemon Mixdog started, removes `~/.mixdog-remote`, optionally keeps or deletes `user-data` and the list entry), or by hand: `kill <pid from ~/.mixdog-remote/runtime/daemon.json>; rm -rf ~/.mixdog-remote`.
 
 **Automated test.** `npm run test:ssh:e2e --prefix apps/desktop` builds a throwaway Docker server and exercises pinning, install, attach, terminal, tunnel reconnect, daemon reuse and cleanup; it skips when Docker is unavailable.

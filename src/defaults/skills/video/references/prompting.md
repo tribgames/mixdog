@@ -4,21 +4,21 @@
 
 Name these, in this order, each as one focused labeled sentence or two:
 
-1. *Shot design*: the opening frame, one motivated reveal or change, and a settling final frame.
-2. *Camera intent*: the move that serves the scene — macro push-in for a product, orbit for space, handheld for documentary, crane for scale, static when nothing needs to move. Never a default "slow dolly in".
-3. *Production*: concrete material and texture, a motivated light source, depth layers (foreground / mid / background), lens framing.
-4. *Sound*: music style, no music, room tone, or effects only.
-5. *Dialogue*: the exact line in its original language, or "no dialogue".
-6. *Ending frame*: final pose, camera state, last sound cue — clear enough to be the first frame of a next clip.
+1. _Shot design_: the opening frame, one motivated reveal or change, and a settling final frame.
+2. _Camera intent_: the move that serves the scene — macro push-in for a product, orbit for space, handheld for documentary, crane for scale, static when nothing needs to move. Never a default "slow dolly in".
+3. _Production_: concrete material and texture, a motivated light source, depth layers (foreground / mid / background), lens framing.
+4. _Sound_: music style, no music, room tone, or effects only.
+5. _Dialogue_: the exact line in its original language, or "no dialogue".
+6. _Ending frame_: final pose, camera state, last sound cue — clear enough to be the first frame of a next clip.
 
 Pacing follows duration:
 
-| Duration | Beats |
-|---|---|
-| 1-4 s | one action |
-| 5-7 s | setup, turn, hold |
-| 8-10 s | two connected beats |
-| 11-15 s | a three-beat arc |
+| Duration | Beats               |
+| -------- | ------------------- |
+| 1-4 s    | one action          |
+| 5-7 s    | setup, turn, hold   |
+| 8-10 s   | two connected beats |
+| 11-15 s  | a three-beat arc    |
 
 Pick the duration from the model's list to fit the beats.
 

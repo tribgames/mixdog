@@ -26,6 +26,19 @@ export function instanceConfig(providerBaseURL, configOverlay = {}) {
   );
 }
 
+function inProcessProviderControl(provider) {
+  return {
+    ...providerControl(provider.baseURL),
+    push: async (answers) => ({ queued: provider.state.queue.push(...answers) }),
+    route: async (match, answers) => ({ routes: provider.state.routes.push({ match, answers: [...answers] }) }),
+    reset: async () => {
+      provider.state.queue.length = 0;
+      provider.state.routes.length = 0;
+      return { ok: true };
+    },
+  };
+}
+
 /**
  * Starts provider, fixtures and the instance. `coreExe` is the built mixdogd, `desktopDir` the checkout's apps/desktop,
  * `isoRoot` the root every instance of the run lives under (nothing else is touched), `electronDist` an Electron
@@ -64,16 +77,6 @@ export async function openEnvironment({
     log('WARNING: the serving core is NOT the binary this run staged; the run is not the environment it claims');
   const core = await attach(info.profile, { log });
   const main = inspector ? await connectMain(inspectorPort) : null;
-  const control = {
-    ...providerControl(provider.baseURL),
-    push: async (answers) => ({ queued: provider.state.queue.push(...answers) }),
-    route: async (match, answers) => ({ routes: provider.state.routes.push({ match, answers: [...answers] }) }),
-    reset: async () => {
-      provider.state.queue.length = 0;
-      provider.state.routes.length = 0;
-      return { ok: true };
-    },
-  };
   return {
     info,
     doc,
@@ -81,7 +84,7 @@ export async function openEnvironment({
     coreBuild,
     core,
     main,
-    provider: control,
+    provider: inProcessProviderControl(provider),
     fixtures,
     cpuBeforeStart,
     /** The instance's renderer page (the main window) over CDP. */

@@ -1,13 +1,4 @@
-// Structured failure records for the run-level failure summary.
-//
-// Node keeps ownership of diagnostics, totals and exit status; this only
-// records "which test failed, in which file" as one JSON line each, so the
-// runner can name every failure after all other output even when the run log
-// was filtered (scripts/lib/run-node-tests.mjs).
-//
-// It rides the existing summary reporter instead of adding a third node:test
-// reporter: a third reporter pushes the shared TestsStream past its listener
-// cap and every run would start with a MaxListenersExceededWarning.
+// A third node:test reporter pushes the shared TestsStream past its listener cap (MaxListenersExceededWarning).
 import { appendFileSync } from 'node:fs';
 import { relative } from 'node:path';
 

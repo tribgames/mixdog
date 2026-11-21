@@ -1,11 +1,3 @@
-/**
- * Canonical resolver for the Mixdog data dir.
- *
- * Resolution order:
- *   1. MIXDOG_DATA_DIR
- *   2. <MIXDOG_HOME|~/.mixdog>/data
- */
-
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,6 +34,7 @@ export function mixdogRoot() {
   return process.env.MIXDOG_ROOT || packagedRoot();
 }
 
+/** The data dir: MIXDOG_DATA_DIR, else `<MIXDOG_HOME|~/.mixdog>/data`. */
 export function resolvePluginData() {
   const configured = process.env.MIXDOG_DATA_DIR;
   if (configured) return configured;

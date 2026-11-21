@@ -27,10 +27,6 @@ mock.module(fileLockUrl, {
     },
   },
 });
-// A read of a path in `readGates` (a rename onto one in `renameGates`) waits
-// on its gate (once) before touching the file, so it stays in flight as long
-// as the test holds it; every read's start and rename's destination is
-// logged, and so is each held rename's start.
 const realFsp = await import('node:fs/promises');
 const readGates = new Map();
 const renameGates = new Map();

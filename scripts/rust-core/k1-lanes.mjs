@@ -186,10 +186,6 @@ export async function selectedTests(lane, filter = null, { pkg = LANES[lane].pkg
 // test). A lane whose filter selects one of them next to any other test must run under nextest; k1-lanes.test.mjs
 // checks that no lane selects a file of this list, and that no file a lane selects calls an installer (this list may
 // lag the sources; that check reads them).
-// These installs belong to process entry points, not to libtest cases sharing a
-// backend. The Office protocol fixtures launch dedicated helper
-// executables. Keep them explicit and source-checked, rather than excluding a
-// package or every file below src/.
 export const BACKEND_PROCESS_ENTRIES = [
   'native/core/crates/mixdog-app-server-daemon/src/lib.rs',
   'native/core/crates/mixdog-cli/src/main.rs',

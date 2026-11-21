@@ -1,7 +1,3 @@
-// The reviewed exceptions (scripts/ci/coverage/exceptions.json): one tuple per case, platform, kind and reason code that a run is
-// allowed to report as skipped, with the owner who reviewed it and where the case runs instead. A tuple is exact: it names one case by
-// its full identity, never a file, a pattern or a "whole file", and has no optional form. An observed skip with no tuple fails; a tuple
-// that no run observed fails (reconcile.mjs). docs/testing.md, "Release coverage".
 import { readFileSync } from 'node:fs';
 
 import { idKey } from './ids.mjs';

@@ -1,11 +1,3 @@
-/**
- * src/tui/themes/index.mjs — theme registry, order, and default id.
- *
- * Each theme lives in its own module and exports a COMPLETE palette built on
- * `basePalette` (One Dark). This index wires them into the registry consumed by
- * theme.mjs. The runtime singleton (`theme`) is seeded from the softened
- * `basicPalette` export below.
- */
 import { basePalette } from './base.mjs';
 import { basicPalette as rawBasicPalette } from './basic.mjs';
 import { indigoPalette as rawIndigoPalette } from './indigo.mjs';

@@ -133,19 +133,24 @@ test('a missing platform, a wrong version, a native program in the main package 
   }
 });
 
-test('a platform package with a program missing or an extra file, and a main package that carries a program, are refused', async () => {
+test('staging a platform package refuses a program that is not built', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-npm-check-test-'));
   try {
-    const programs = fakePrograms(dir);
-    const full = programs('linux');
-    // mixdog-askpass is not built: staging refuses it before a package exists.
+    const full = fakePrograms(dir)('linux');
     rmSync(join(full, 'mixdog-askpass'));
     await assert.rejects(
       stageNpmNative({ from: [full], out: join(dir, 'staged'), platform: 'linux', arch: 'x64', version: VERSION }),
       /mixdog-askpass is not built/
     );
-    writeFileSync(join(full, 'mixdog-askpass'), 'askpass');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
+test('a platform package with an extra file, and a main package that carries a program, are refused', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-npm-check-test-'));
+  try {
+    const full = fakePrograms(dir)('linux');
     // A platform package packed with a stray file (here a js-runtime.json: the install writes it, the package never carries it).
     const folder = await stageNpmNative({
       from: [full],

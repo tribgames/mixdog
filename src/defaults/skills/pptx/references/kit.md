@@ -7,6 +7,7 @@ Owns the code: primitives that draw what `composition.md` names, sized with `MEA
 **Hard rule — paragraph options sit on the first run**: the runtime keeps one `a:pPr` per paragraph (the first). `bullet`, `align`, `paraSpaceAfter`, `lineSpacingMultiple` go on the text box or on a paragraph's first run; `breakLine: true` on a paragraph's last run. → runtime (absorbed: the normalizer keeps the first `pPr`; nothing to check)
 
 ## 1. Tokens, palette, type, specs, masters
+
 ```js
 const pptxgen = require('pptxgenjs');
 const sharp = require('sharp');
@@ -404,6 +405,7 @@ const quiet = () => (masters(), onField(pres.addSlide({ masterName: 'QUIET' }), 
 ```
 
 ## 2. Gradients (native) and raster helpers (sharp turns an SVG string into a PNG the deck can place)
+
 ```js
 // Native gradient, editable in PowerPoint: a shape whose marked solid fill the runtime saves as a:gradFill — no raster.
 // stops: [[offset 0-100, hex, alpha 0-1], ...] with stop 0 on the side the type sits; angle 0 = left→right, 90 = top→bottom.
@@ -530,9 +532,11 @@ async function motif(slide, kind = '', x, y, w, h, { color = T.accent, alpha = 0
 ```
 
 ## 3. Measured text
+
 `MEASURE` is injected by the runtime with the review's own font metrics; every text box here is sized with it, never by guessing. `lh` is the box's `lineSpacingMultiple` (1 = single); PowerPoint lays every face out at 1.2 em per single line, Hangul and Latin alike. Leading is the author's call per box (`direction.md` §6); the helpers only default it.
 
 **Default — Hangul wraps by the eojeol**: PowerPoint breaks Korean at any character (정답/률, 그라디언/트, a one-syllable last line), so every kit text helper pre-breaks Hangul text where the last whole word fits (`wrapKo`, `wrapRuns`) and writes the break as a soft break (`a:br`) inside one paragraph; a numeral or determiner stays with its noun and a counter or bound noun with its word ("한 분기", "3.5조 원", "할 수"), and a last word left alone under a line of three or more takes the word before it along. Author-written `\n` breaks are kept; a word wider than its zone is left to PowerPoint. **Default — a shrinking box lands on the scale**: `fitSize` steps down through the deck's type scale and diagram sizes (22 → 18 → 14 → 13), never to a free number 1 pt under.
+
 ```js
 // fitH: the height a box of width w needs for text at size; fitSize: the largest scale step ≤ size that fits w × h.
 const fitH = (text, w, size, font = T.sans, { bold = false, lh = 1 } = {}) => MEASURE(text, { font, size, bold, width: w, lineHeight: lh }).height + 0.06;
@@ -958,6 +962,7 @@ function numeralBeat(slide, value, claim, { x = M, y = 1.4, w = W - 2 * M, size 
 ```
 
 ## 4. Zones and layout by weight (composition.md §6)
+
 ```js
 // Optional header/body scaffold for related pages, not a compulsory layout for every content slide.
 // Use shared zones when the pages share a structure; compose a dominant figure or relationship directly
@@ -1228,6 +1233,7 @@ function stack(slide, x, y, w, blocks, { bottom = Z.body.bottom, gap = GAP.withi
 ```
 
 ## 5. Shapes (native, editable in PowerPoint)
+
 ```js
 function field(slide, x, y, w, h, tint = T.paperAlt, shape = S.rect, extra = {}) {   // page field or module surface
   slide.addShape(shape, { ...box(x, y, w, h), fill: { color: tint }, line: { color: tint }, ...extra });
@@ -1349,10 +1355,13 @@ function stage(slide, x, y, w, h, { tint = T.paperAlt, pad = PAD } = {}) {
   return { ...c, cx: c.x + c.w / 2, cy: c.y + c.h / 2, r: Math.min(c.w, c.h) / 2, ground: tint, share: Number(((w * h) / (W * H)).toFixed(2)) };
 }
 ```
+
 Other presets: `S.round1Rect`, `S.snip1Rect`, `S.snipRoundRect`, `S.trapezoid`, `S.parallelogram`, `S.hexagon`, `S.frame`, `S.corner`, `S.pie` + `angleRange`, `S.donut`, `S.rightArrow`, `S.leftArrow`, `S.downArrow`, `S.leftRightArrow`, `S.bracePair`, `S.triangle`; `rotate` and `flipH` apply to all.
 
 ## 6. Structures — relationship carriers (composition.md §4)
+
 A structure is the geometry a relationship atom takes: an order on a spine, a hub with its satellites, levels on one taper, items on two axes. Each helper draws one structure inside a region the author chose — spine first, nodes at content-driven positions, connectors only where a link is real, labels registered to their unit (composition.md §5) — and returns the bottom edge. None draws a title, a kicker, or a takeaway: the page stays the author's, and the structure is the carrier the page hangs on, at a quarter of the canvas or more (composition.md §6). Every label reads `SPEC.structure` (one node size, one edge, one label face) and signs its kind, so the receipt reports which structures a deck used (`receipt.deck.specs.structure.variants`) and a deck that repeats one kind on every page can see it. A stage is a string or `{ label, detail?, active?, weight?, icon? }`; `active` is the one state the page is about, never a habit. A unit of a hub, a step run, or a merge carries what a frontier node carries — an icon from the set over (or before) the label, the detail under it when the unit is tall enough, and the active unit alone raised on the page's one shadow (`LIFT`) — so the structure reads as objects with a hierarchy, not as labelled discs; the reference diagrams (the mock galleries, Coatue's process page) put an icon and a line of detail in every node and spend depth on one. A lane's unit and a quadrant's item carry the same face (the icon before the label in a lane, a marker disc with the icon at the position in a quadrant, a detail under the label). `hub()`, `steps()`, `merge()`, `lanes()`, and `quadrants()` draw the icons, so they are awaited for their bottom edge.
+
 ```js
 const stageOf = (st) => (typeof st === 'string' ? { label: st } : st);
 // A unit's face: the optional icon at glyph size in the state's type colour, the label in the spec face, the detail as

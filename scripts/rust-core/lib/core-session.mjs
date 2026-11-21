@@ -219,6 +219,27 @@ async function endChild(child, exited, ms = 15_000) {
   await endTree(child);
   await within(exited, ms, `the killed core (pid ${child.pid}) exiting`);
 }
+/** Keeps the last 40 lines of the child's output in `tail`; `exited` settles with its exit, `failIfExited` rejects with that output. */
+export function watchChild(child, tail) {
+  for (const stream of ['stdout', 'stderr']) {
+    child[stream].setEncoding('utf8');
+    child[stream].on('data', (chunk) => {
+      tail.push(
+        ...chunk
+          .split(/\r?\n/)
+          .filter(Boolean)
+          .map((line) => `[${stream}] ${line}`)
+      );
+      tail.splice(0, Math.max(0, tail.length - 40));
+    });
+  }
+  const exited = new Promise((resolveExit) => child.once('exit', (code, signal) => resolveExit({ code, signal })));
+  const failIfExited = exited.then(({ code, signal }) => {
+    throw new Error(`the core exited (code=${code} signal=${signal}) before it was ready:\n${tail.join('\n')}`);
+  });
+  failIfExited.catch(() => {});
+  return { exited, failIfExited };
+}
 /**
  * Starts `bin serve` on the profile under `root` and connects to it.
  * @param {object} options
@@ -243,23 +264,7 @@ export async function startCore({ bin, root, config, prepare, extraEnv = {}, rea
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });
-  for (const stream of ['stdout', 'stderr']) {
-    child[stream].setEncoding('utf8');
-    child[stream].on('data', (chunk) => {
-      tail.push(
-        ...chunk
-          .split(/\r?\n/)
-          .filter(Boolean)
-          .map((line) => `[${stream}] ${line}`)
-      );
-      tail.splice(0, Math.max(0, tail.length - 40));
-    });
-  }
-  const exited = new Promise((resolveExit) => child.once('exit', (code, signal) => resolveExit({ code, signal })));
-  const failIfExited = exited.then(({ code, signal }) => {
-    throw new Error(`the core exited (code=${code} signal=${signal}) before it was ready:\n${tail.join('\n')}`);
-  });
-  failIfExited.catch(() => {});
+  const { exited, failIfExited } = watchChild(child, tail);
   let client = null;
   try {
     const doc = await Promise.race([waitServing(paths.runtimeRoot, { timeoutMs: readyTimeoutMs }), failIfExited]);

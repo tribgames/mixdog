@@ -1,27 +1,4 @@
-/**
- * src/tui/theme.mjs — active-theme runtime for the React/ink TUI.
- *
- * ink accepts `rgb(r,g,b)` strings directly on the `color`/`backgroundColor`
- * props, so palette values are plain strings (no escape wrapping needed — ink
- * emits the SGR and honors NO_COLOR/non-TTY itself).
- *
- * Palettes now live in `./themes/*.mjs`: `themes/base.mjs` holds the full
- * One Dark key set, each theme module spreads that base plus its overrides, and
- * `themes/index.mjs` wires them into THEME_REGISTRY / THEME_ORDER /
- * DEFAULT_THEME_ID. This module keeps only the runtime: the live singleton and
- * the switch/persistence/glyph logic.
- *
- * The exported `theme` is a SINGLETON object: every TUI module does
- * `import { theme } from '../theme.mjs'` and reads live keys off it. A theme
- * switch mutates this object in-place (`Object.assign(theme, palette)`) so the
- * existing imports observe the new colors without re-importing. A monotonic
- * `themeVersion` lets modules that cache derived values (chalk colorizers,
- * parsed RGB tuples) invalidate when the active theme changes.
- *
- * The setting persists under `ui.theme` in mixdog-config.json; the core writes it
- * (`config/setTheme`), and boot reads the file directly (`readStoredThemeSetting` in theme-config.mjs; not
- * re-exported here, so the desktop renderer can import this palette without Node's fs).
- */
+// readStoredThemeSetting lives in theme-config.mjs, not here: the desktop renderer imports this module without Node's fs.
 
 import { THEME_REGISTRY, THEME_ORDER, THEME_ALIASES, DEFAULT_THEME_ID, basicPalette } from './themes/index.mjs';
 import { BLACK_CIRCLE, RESULT_GUTTER_GLYPH, RESULT_GUTTER_CONT_GLYPH, RIGHT_ARROW, LEFT_ARROW } from './figures.mjs';
@@ -141,10 +118,4 @@ export const AGENT_CALL_MARKER = LEFT_ARROW;
 export const AGENT_RESPONSE_MARKER = RIGHT_ARROW;
 /** Result-tree gutter — `└` (U+2514) padded to a 2-col hanging indent. */
 export const RESULT_GUTTER = `  ${RESULT_GUTTER_GLYPH}  `;
-/**
- * Continuation rail for every result row AFTER the first — `│` (U+2502) at the
- * same 2-col hanging indent so a multi-line tool result keeps a continuous left
- * rail under the `└` head. Same width/padding as RESULT_GUTTER so the body text
- * column never shifts between the first and following rows.
- */
 export const RESULT_GUTTER_CONT = `  ${RESULT_GUTTER_CONT_GLYPH}  `;

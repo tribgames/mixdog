@@ -1,14 +1,12 @@
 #!/usr/bin/env node
-// K1 replacement of scripts/boot-smoke.mjs and scripts/smoke-loop.mjs (Node core boot, first answer, time budget, and the
-// tool-failure check): starts the real `mixdogd serve` on an isolated profile, connects the protocol client
-// (packages/protocol-client, the client the TUI and desktop use), opens a thread and answers a status call.
-//   Budget: boot-smoke.mjs `runCase` held the interval from the spawn through the child's exit to
-//   MIXDOG_BOOT_SMOKE_LIMIT_MS (5000). Here that is: spawn, first answered workload request (thread/start + toolsStatus),
-//   stop, exit; the parts (serving, answered, exit) are printed so the slow part is visible.
-//   Tool failures: smoke-loop.mjs ended every iteration with `tool-failures.mjs --since <loop start>`. The check here
-//   provokes one failure it controls (a scripted model turn calls `read` with arguments that must fail) and requires
-//   exactly that row in the core's history/tool-failures.jsonl and no other. A missing or empty spool fails.
-// `--loop <ms>` repeats the boot for that long (smoke-loop). The TUI's first render is the TUI package's own test.
+// Starts the real `mixdogd serve` on an isolated profile, connects the protocol client (packages/protocol-client, the
+// client the TUI and desktop use), opens a thread and answers a status call.
+//   Budget: spawn, first answered workload request (thread/start + toolsStatus), stop, exit; the parts (serving,
+//   answered, exit) are printed so the slow part is visible.
+//   Tool failures: the check provokes one failure it controls (a scripted model turn calls `read` with arguments that
+//   must fail) and requires exactly that row in the core's history/tool-failures.jsonl and no other. A missing or empty
+//   spool fails.
+// `--loop <ms>` repeats the boot for that long.
 // Usage: node scripts/rust-core/smoke-mixdogd.mjs --mixdogd <path> [--limit-ms 5000] [--loop <ms>]
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -32,8 +30,8 @@ const THREAD = {
     memory: false,
   },
 };
-const startThread = (core, route) =>
-  within(
+const startThread = async (core, route) => {
+  const started = await within(
     core.call('thread/start', {
       ...THREAD,
       projectPath: core.paths.workspace,
@@ -42,13 +40,11 @@ const startThread = (core, route) =>
     HANG_MS,
     'thread/start'
   );
+  const threadId = started?.thread?.id;
+  if (!threadId) throw new Error(`thread/start answered without a thread: ${JSON.stringify(started).slice(0, 200)}`);
+  return threadId;
+};
 
-/**
- * One core on a fresh profile: `work(core)` runs against it, then the core is stopped (bounded, the child ended on every
- * failure path) and its tool-failure spool read. A failure of the work stays the thrown one with a stop failure printed
- * beside it; a stop failure alone is the run's failure.
- * @returns {Promise<{ value: any, exitMs: number|undefined, rows: string[]|null }>} `rows` is null when the core wrote no spool file
- */
 async function withCore(bin, config, work) {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-boot-smoke-'));
   let core;
@@ -88,9 +84,7 @@ async function withCore(bin, config, work) {
 export async function bootOnce(bin) {
   const { value, exitMs, rows } = await withCore(bin, {}, async (core) => {
     const servingMs = performance.now() - core.spawnedAt;
-    const started = await startThread(core, { provider: 'anthropic-oauth', model: 'smoke' });
-    const threadId = started?.thread?.id;
-    if (!threadId) throw new Error(`thread/start answered without a thread: ${JSON.stringify(started).slice(0, 200)}`);
+    const threadId = await startThread(core, { provider: 'anthropic-oauth', model: 'smoke' });
     const status = await within(core.call('tools/toolsStatus', { threadId }), HANG_MS, 'tools/toolsStatus');
     if (!status || typeof status !== 'object') throw new Error('tools/toolsStatus answered nothing');
     return { servingMs, answeredMs: performance.now() - core.spawnedAt };
@@ -125,10 +119,7 @@ export async function toolFailureCheck(bin) {
     };
     const startedAt = Date.now();
     result = await withCore(bin, config, async (core) => {
-      const started = await startThread(core, { provider: CUSTOM, model: 'smoke' });
-      const threadId = started?.thread?.id;
-      if (!threadId)
-        throw new Error(`thread/start answered without a thread: ${JSON.stringify(started).slice(0, 200)}`);
+      const threadId = await startThread(core, { provider: CUSTOM, model: 'smoke' });
       await within(
         core.call('turn/start', { threadId, input: { prompt: 'call the tool', options: {} } }),
         HANG_MS,

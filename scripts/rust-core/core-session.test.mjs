@@ -3,12 +3,25 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { startCore, within } from './lib/core-session.mjs';
+import { spawn } from 'node:child_process';
+import { startCore, watchChild, within } from './lib/core-session.mjs';
 import { assertNothingInside, assertTreeGone, pidsOfExecutable, startTimeOf } from './lib/process-probe.mjs';
 
 test('within fails with what did not finish, and passes a value that did', async () => {
   assert.equal(await within(Promise.resolve(7), 1000, 'x'), 7);
   await assert.rejects(within(new Promise(() => {}), 20, 'the thing'), /the thing did not finish within 20 ms/);
+});
+
+test('watchChild keeps the last 40 output lines per stream label and rejects with them when the child exits', async () => {
+  const script = "for (let i = 1; i <= 45; i++) console.log('line ' + i); console.error('oops'); process.exit(3)";
+  const child = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const tail = [];
+  const { exited, failIfExited } = watchChild(child, tail);
+  assert.deepEqual(await exited, { code: 3, signal: null });
+  await assert.rejects(failIfExited, /the core exited \(code=3 signal=null\) before it was ready:\n\[stdout\] line/);
+  assert.equal(tail.length, 40);
+  assert.ok(tail.includes('[stderr] oops'));
+  assert.ok(!tail.includes('[stdout] line 1'));
 });
 
 // Needs a built mixdogd (MIXDOGD_BIN), which the rust-core job has after its build step. Without it the tests FAIL: a skip

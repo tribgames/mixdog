@@ -7,6 +7,7 @@ material was supplied, and `facts:`. `concept:` is optional free text
 everywhere, never a catalogue id.
 
 ## 1. Brief
+
 Where it goes: a deck's script opens with it as a `//` comment block; an HTML
 source carries it as a `<!-- BRIEF … -->` comment (one `key: value` per line);
 `create` takes it as `design:{ brief:'<key: value lines>' }`.
@@ -28,9 +29,10 @@ source carries it as a `<!-- BRIEF … -->` comment (one `key: value` per line);
 
 - A thin request gets a defensible brief invented from the subject, never blank fields.
 - A deck's plan line names, for every slide, its job, relationship, move, composition move, carriers, texture, and rhythm before any geometry exists. A single-slide specimen is not gated, and a stale slide count stays information (`plan_count_mismatch`).
-- The `facts:`, `directions:`, and `slide plan:` lines may wrap across comment lines; each continuation line is read as more ` · ` items — so ` · ` is the separator and never appears inside a value or a source (write "관측치와 측정", not "관측치·측정"; a fact cut at an inner ` · ` silently disappears and every figure it carried becomes `number_without_fact`).
+- The `facts:`, `directions:`, and `slide plan:` lines may wrap across comment lines; each continuation line is read as more `·` items — so `·` is the separator and never appears inside a value or a source (write "관측치와 측정", not "관측치·측정"; a fact cut at an inner `·` silently disappears and every figure it carried becomes `number_without_fact`).
 
 ## 2. Facts and sources
+
 - `facts:` lists each number the deliverable will show, with its source (a page, a cell, a URL, or "user brief"). Dates and slide numbers are exempt.
 - A chart series is one fact listing its values in order (`F3 운영비 1Q–6Q 10.5 10.8 9.1 7.9 7.0 6.5 — 재무팀 시트 B4:G4`); the values in the chart (a script's `chart()` call, a `data-chart`) are copied from that line.
 - With source material, the fact sheet is written first; without it, the facts come from the request and say so.
@@ -39,7 +41,9 @@ source carries it as a `<!-- BRIEF … -->` comment (one `key: value` per line);
 - What the runtime reads back: a deck's `author` refuses a figure no fact covers (`facts_gate`, the figures listed per slide; the previous deck and its session stay untouched, and the answer is the facts line, not a retry); `qa` reports `number_without_fact` (a figure in a body, table, title, label, or insight that no fact carries), `facts_missing`, `facts_illustrative`, and `fact_without_locator` (advisory, when sources are named).
 
 ## 3. Scored critique (finalize)
+
 `finalize design:{ reviewed:true, reviewToken:<token of the last complete render>, critique:[…] }` with one entry per slide or rendered page (keyed `slide` or `page`):
+
 - `verdict:'pass'`; five integer 1-5 scores as top-level fields — `hierarchy`, `balance`, `legibility`, `cohesion`, `evidence`; a slide- or page-specific `note` of 40+ characters; `fixes` (work still owed — applied fixes belong in `note`); and `checks`.
 - Judge those axes from the rendered page before assigning scores; never increase a score to unlock finalize. A score of 3 or lower on any axis, or any failed check, marks the page as still needing polish, and finalize holds it.
 - An anchor entry (cover, section, closing) carries `role: 'anchor'` (or its job name): its `evidence` score is recorded but does not gate, since a statement or a picture is the carrier there; the other four axes gate as usual.
