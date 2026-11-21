@@ -18,12 +18,10 @@ Use `media` to generate short video clips; read this guide before the first call
 
 **Hard rule — video only when motion was asked for**: a deliverable never gets a clip by default; a still that carries the meaning is not turned into a video.
 
-| Situation                                                                        | Route                                                                                                                                                                                                                      |
-| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| a scene whose identity, exact composition, or continuity must survive the motion | **image first**: load the `image` skill and generate a still at the clip's aspect with the protected subjects and environment composed in one picture; inspect it; then generate the video with that file as the reference |
-| several separately supplied subjects that must stay recognizable                 | references-to-video with each identity as its own reference (index and role, identity first), duration at the short end of the model's range                                                                               |
-| continuing an earlier clip                                                       | a new job with the previous clip's last frame as the reference (read `references/prompting.md` first); only the pose carries over                                                                                          |
-| a pure text-to-video request with no subject to protect                          | generate directly from the prompt                                                                                                                                                                                          |
+- a scene whose identity, exact composition, or continuity must survive the motion → **image first**: load the `image` skill and generate a still at the clip's aspect with the protected subjects and environment composed in one picture; inspect it; then generate the video with that file as the reference
+- several separately supplied subjects that must stay recognizable → references-to-video with each identity as its own reference (index and role, identity first), duration at the short end of the model's range
+- continuing an earlier clip → a new job with the previous clip's last frame as the reference (read `references/prompting.md` first); only the pose carries over
+- a pure text-to-video request with no subject to protect → generate directly from the prompt
 
 **Hard rule — no signed-in lane, no clip**: when `list` (or a failed `generate`) reports no video lane, say so and stop; never substitute a slideshow, a GIF from stock, or a placeholder.
 **Default — one generation per job, one corrected retry**: a miss is retried once with a single changed variable and every invariant restated; a second miss is reported, not attempted a third time. Several candidates only when the user asks.
