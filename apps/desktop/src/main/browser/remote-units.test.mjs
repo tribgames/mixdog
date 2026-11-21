@@ -89,6 +89,24 @@ test('schedulePublish sends the newest frame once and holds the next until the s
   assert.deepEqual(sent, [1, 3]);
 });
 
+test('a publisher that throws on the timer drops that frame and the next one still goes out', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const sent = [];
+  const publish = (frame) => {
+    sent.push(frame.seq);
+    if (frame.seq === 1) throw new Error('ClientError: protocolViolation');
+    return Promise.resolve();
+  };
+  const stream = { pending: { seq: 1 }, publishing: false, publishTimer: null, lastPublishedAt: Date.now() };
+  schedulePublish(stream, publish);
+  assert.doesNotThrow(() => t.mock.timers.tick(100), 'the throw never leaves the timer');
+  stream.pending = { seq: 2 };
+  await new Promise((resolve) => setImmediate(resolve));
+  schedulePublish(stream, publish);
+  t.mock.timers.tick(100);
+  assert.deepEqual(sent, [1, 2]);
+});
+
 test('a hand-off the service never answers reopens the gate after the relay ack window', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const sent = [];

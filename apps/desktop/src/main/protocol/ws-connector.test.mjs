@@ -140,6 +140,23 @@ test('receipt: the claim of a frame is the ws send callback — it resolves when
   core.close();
 });
 
+test('media lane: the writer carries a binary frame to the core as one binary message', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  let received;
+  const core = await listener((socket) => {
+    received = new Promise((resolve) => socket.once('message', (data, isBinary) => resolve({ data, isBinary })));
+  });
+  const connector = createWsConnector(async () => ({ url: core.url, token: 't' }), undefined);
+  const writer = await connector.open({ id: 'core' }, { frame() {}, closed() {} });
+  assert.equal(typeof writer.sendBinary, 'function');
+  writer.sendBinary(new Uint8Array([1, 2, 3]));
+  const { data, isBinary } = await received;
+  assert.equal(isBinary, true);
+  assert.deepEqual([...data], [1, 2, 3]);
+  writer.close(1000, 'done');
+  core.close();
+});
+
 test('socket-progress: the real ws library still exposes the raw socket this relies on, and its reads are what is reported', async () => {
   const { default: WebSocket } = await import('ws');
   let serverSide;
