@@ -159,6 +159,20 @@ mod tests {
         ) -> Result<Option<Map<String, Value>>, PortError> {
             Ok(None)
         }
+        async fn store_header(&self, thread: &ThreadId, write: crate::ports::threads::HeaderWrite) -> crate::ports::threads::HeaderStored {
+            crate::ports::threads::HeaderStored::of_patch(self.patch_header(thread, write.set, write.unset).await)
+        }
+        fn log_identity(&self, _: &ThreadId) -> Option<String> {
+            None
+        }
+        /// This fake holds nothing but the header it answers.
+        async fn held_fields(
+            &self,
+            thread: &ThreadId,
+            keys: &'static [&'static str],
+        ) -> Result<serde_json::Map<String, serde_json::Value>, mixdog_tools::orch::util::PortError> {
+            Ok(crate::ports::threads::held_of(&self.header(thread).await?, keys))
+        }
         async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), PortError> {
             Ok(())
         }
@@ -240,6 +254,20 @@ mod tests {
             _: Vec<String>,
         ) -> Result<Option<Map<String, Value>>, PortError> {
             Ok(None)
+        }
+        async fn store_header(&self, thread: &ThreadId, write: crate::ports::threads::HeaderWrite) -> crate::ports::threads::HeaderStored {
+            crate::ports::threads::HeaderStored::of_patch(self.patch_header(thread, write.set, write.unset).await)
+        }
+        fn log_identity(&self, _: &ThreadId) -> Option<String> {
+            None
+        }
+        /// This fake holds nothing but the header it answers.
+        async fn held_fields(
+            &self,
+            thread: &ThreadId,
+            keys: &'static [&'static str],
+        ) -> Result<serde_json::Map<String, serde_json::Value>, mixdog_tools::orch::util::PortError> {
+            Ok(crate::ports::threads::held_of(&self.header(thread).await?, keys))
         }
         async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), PortError> {
             Ok(())

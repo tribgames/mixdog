@@ -66,15 +66,23 @@ impl StoresSettled {
         // is still being waited for is not the call's, whichever store takes it.
         let threads = self.directory.durability_settled();
         let ledger = self.ledgers.if_open();
-        let mut stores = vec![self.writers.workers.marks(), self.writers.read_state.marks(), self.gateway_usage.marks()];
+        let (rows, rows_flush) = (self.writers.workers.marks(), self.writers.workers.flush_mark());
+        let rows_mark = rows_flush.number();
+        let mut stores = vec![self.writers.read_state.marks(), self.gateway_usage.marks()];
         stores.extend(ledger.as_ref().map(|ledger| ledger.writer.marks()));
         let stores: Vec<(&mixdog_rt::WriteMarks, u64)> = stores.into_iter().map(|marks| (marks, marks.accepted())).collect();
         self.writers.read_state.flush_pending();
         self.gateway_usage.flush();
         // Then every store is waited for at once. A worker row is a header patch answered once its record is durable, so a
-        // row write from before the call is committed on its own thread whenever the agent index counts it written.
+        // row write from before the call is committed on its own thread whenever the agent index counts it written. The
+        // agent index is waited for as its own flush waits (`StoreWorkers::settled_to`): a refused row is reported only
+        // once every row write up to the call's count is closed, not while the write that replaces it is at its put.
         let wait = async {
-            let (threads, _) = futures::try_join!(threads.wait(), futures::future::try_join_all(stores.iter().map(|(marks, mark)| marks.reached(*mark))))?;
+            let (threads, _, ()) = futures::try_join!(
+                threads.wait(),
+                futures::future::try_join_all(stores.iter().map(|(marks, mark)| marks.reached(*mark))),
+                self.writers.workers.settled_to(&rows_flush)
+            )?;
             // The compaction the gateway usage appends scheduled, run now.
             self.gateway_usage.compact_scheduled_now().await;
             Ok(threads)
@@ -83,6 +91,7 @@ impl StoresSettled {
             Ok(answer) => answer,
             Err(_) => {
                 let mut pending = threads.pending();
+                pending.extend((rows.committed() < rows_mark).then(|| rows.store().to_owned()));
                 pending.extend(stores.iter().filter(|(marks, mark)| marks.check(*mark).is_none()).map(|(marks, _)| marks.store().to_owned()));
                 if pending.is_empty() {
                     pending.push("the gateway usage compaction".to_owned());

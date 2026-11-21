@@ -31,9 +31,13 @@ use super::host::MemberOutcome;
 use super::host::OpenSession;
 use super::host::Recovered;
 use super::host::Registry;
+use super::host::Release;
+use super::host::ReleaseOutcome;
+use super::host::Released;
 use super::host::ResolveOptions;
 use super::host::SendFlow;
 use super::host::Sessions;
+use super::host::Spared;
 use super::host::SpawnFlow;
 use super::host::SpawnOptions;
 use super::host::TaskFacts;
@@ -324,7 +328,7 @@ pub async fn close_resolved(
     if ok && !keep_row {
         // The sessions stay open (a send reuses them), so a later scan, even after a
         // restart, would list them again: the owner's close is remembered on each.
-        registry.release_closed(tag.as_deref(), session_id, &descendants);
+        registry.release_closed(scope, tag.as_deref(), session_id, &descendants);
         let mut released = vec![session_id.to_owned()];
         released.extend(descendants.iter().cloned());
         // A closed agent's session is hidden from the lists; a send that uses it again lists it again.
@@ -460,6 +464,10 @@ async fn apply_cleanup(parts: CleanupParts, plan: CleanupPlan, recovered: Recove
     drop(scan_holds);
     let mut report = CleanupReport::default();
     let mut removed = HashSet::new();
+    // What an earlier cleanup released and could not store is stored first, as the operation it was.
+    for (member, reason) in receipts(registry.recover_releases(&plan.scope)).await.1 {
+        report.not_closed.push(release_not_stored("", &member, &reason));
+    }
     for row in &plan.gone {
         if cancel.is_cancelled() {
             report.cancelled = true;
@@ -510,6 +518,26 @@ fn cancel_planned_jobs(tasks: &dyn Tasks, jobs: &[TaskFacts], session_id: &str, 
     for job in jobs.iter().filter(|job| job.session_id.as_deref() == Some(session_id) || job.tag.as_deref() == Some(target)) {
         tasks.cancel(&job.task_id, CLOSE_REASON);
     }
+}
+
+/// Each release's own receipt, awaited: the members released, and those whose release did not come back stored with why.
+async fn receipts(releases: Vec<Release>) -> (Vec<String>, Vec<(String, String)>) {
+    let (mut released, mut unstored) = (Vec::new(), Vec::new());
+    for Release { receipt, done } in releases {
+        match done.outcome().await {
+            ReleaseOutcome::Stored => {}
+            ReleaseOutcome::Refused(reason) => unstored.push((receipt.session_id.clone(), reason)),
+            ReleaseOutcome::Superseded(reason) => unstored.push((receipt.session_id.clone(), format!("superseded: {reason}"))),
+            ReleaseOutcome::Indeterminate(reason) => unstored.push((receipt.session_id.clone(), format!("{reason} (outcome unknown)"))),
+        }
+        released.push(receipt.session_id);
+    }
+    (released, unstored)
+}
+
+/// The `notClosed` entry of a member whose release is not stored: the session a later cleanup recovers.
+fn release_not_stored(tag: &str, session_id: &str, reason: &str) -> Value {
+    json!({ "tag": tag_or_null(tag), "sessionId": session_id, "reason": format!("agent close: the release of \"{session_id}\" was not stored: {reason}") })
 }
 
 /// One tree of the plan, closed as [`close_resolved`] closes it once it is read again: each member under the tree's
@@ -593,24 +621,41 @@ async fn close_tree(
     let at: HashMap<String, Option<TurnMark>> = tree.members.iter().map(|member| (member.id.clone(), member.turn.clone())).collect();
     // A release of the root unbinds its tag only while the tag is still its own.
     let bound = tag.as_deref().is_some_and(|tag| registry.tag_session(tag).as_deref() == Some(root.as_str()));
-    let released = if complete {
-        let released = registry.release_closed_at(tag.as_deref(), &root, &ids[..ids.len() - 1], &at);
-        if released.contains(&root) {
-            report.agents_closed += 1;
-            report.tags_removed += u64::from(bound);
-        } else {
-            report.not_closed.push(not_closed(format!("agent close: \"{root}\" started another turn during the cleanup")));
+    let (released, unstored, spared) = if complete {
+        let Released { releases, mut spared } = registry.release_closed_at(&plan.scope, tag.as_deref(), &root, &ids[..ids.len() - 1], &at);
+        let (released, unstored) = receipts(releases).await;
+        // A planned member the registry answered nothing for has no receipt either: it is spared like the others.
+        for id in ids.iter().filter(|id| !released.contains(id)) {
+            if !spared.iter().any(|member| member.session_id == *id) {
+                spared.push(Spared { session_id: id.clone(), reason: "was not released".to_owned() });
+            }
         }
-        released
+        if released.contains(&root) {
+            // The tree counts once, here, when its root qualified, no required member was spared and every required
+            // receipt came back stored. The unbind in memory, the hide below and a later recovery of a release that
+            // was not stored stand in for none of them: a partial invocation is never counted.
+            report.agents_closed += u64::from(unstored.is_empty() && spared.is_empty());
+            report.tags_removed += u64::from(bound);
+        }
+        (released, unstored, spared)
     } else {
         // The root comes last. One that closed gives its tag back as in a whole close: the next scan indexes it again and
         // the cleanup after it reaches the members left open below it. One left open keeps its tag and row.
         let Some((last, rest)) = stamped.split_last() else { return };
         let tag = if *last == root { tag.as_deref() } else { None };
-        let released = registry.release_closed_at(tag, last, rest, &at);
+        let Released { releases, spared } = registry.release_closed_at(&plan.scope, tag, last, rest, &at);
+        let (released, unstored) = receipts(releases).await;
         report.tags_removed += u64::from(tag.is_some() && bound && released.contains(&root));
-        released
+        (released, unstored, spared)
     };
+    // Each spared member is its own outcome, under its own id and with its own reason.
+    for Spared { session_id, reason } in spared {
+        let tag = if session_id == root { row.tag.as_str() } else { "" };
+        report.not_closed.push(json!({ "tag": tag_or_null(tag), "sessionId": session_id, "reason": format!("agent close: \"{session_id}\" {reason}") }));
+    }
+    for (member, reason) in unstored {
+        report.not_closed.push(release_not_stored(if member == root { &row.tag } else { "" }, &member, &reason));
+    }
     removed.extend(released.iter().cloned());
     for failed in sessions.hide_sessions(&released).await {
         report.not_hidden.push(json!({ "tag": tag_or_null(&row.tag), "sessionId": failed.session_id, "reason": failed.reason }));

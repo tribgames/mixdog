@@ -347,6 +347,22 @@ impl ThreadState for LateThreads {
     async fn publish(&self, thread: &ThreadId, section: Section) -> Result<(), PortError> {
         self.threads()?.publish(thread, section).await
     }
+
+    /// The directory's own answer; before the bind nothing is stored.
+    async fn store_header(&self, thread: &ThreadId, write: mixdog_core_ports::ports::threads::HeaderWrite) -> mixdog_core_ports::ports::threads::HeaderStored {
+        match self.threads() {
+            Ok(threads) => threads.store_header(thread, write).await,
+            Err(error) => mixdog_core_ports::ports::threads::HeaderStored::Refused(format!("{error:?}")),
+        }
+    }
+
+    fn log_identity(&self, thread: &ThreadId) -> Option<String> {
+        self.threads().ok()?.log_identity(thread)
+    }
+
+    async fn held_fields(&self, thread: &ThreadId, keys: &'static [&'static str]) -> Result<Map<String, Value>, PortError> {
+        self.threads()?.held_fields(thread, keys).await
+    }
 }
 
 #[async_trait]

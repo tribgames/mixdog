@@ -129,8 +129,9 @@ pub trait Registry: Send + Sync {
         self.read_worker_rows(&Scope::default()).ok()?.into_iter().find(|row| row.session_id == session_id)
     }
     /// What a landed close leaves of its tree's rows (`close-flow.mjs`): the root's tag binding and row go, the rows
-    /// below it go, and every member is released.
-    fn release_closed(&self, tag: Option<&str>, root: &str, descendants: &[String]) {
+    /// below it go, and every member is released. `scope` is the caller's, entitled to close the tree at its root: a
+    /// surface that keeps a release it could not store keeps that scope with it ([`Self::recover_releases`]).
+    fn release_closed(&self, _scope: &Scope, tag: Option<&str>, root: &str, descendants: &[String]) {
         self.forget_terminal_session(tag, root);
         for descendant in descendants {
             self.remove_worker_row(descendant);
@@ -140,10 +141,18 @@ pub trait Registry: Send + Sync {
         self.mark_released(&released);
     }
     /// [`Self::release_closed`] for a cleanup: a member a turn started on since its close was decided (its turn is no
-    /// longer the one `at` names for it) keeps its row and its tag. Answers the members released.
-    fn release_closed_at(&self, tag: Option<&str>, root: &str, descendants: &[String], _at: &HashMap<String, Option<TurnMark>>) -> Vec<String> {
-        self.release_closed(tag, root, descendants);
-        std::iter::once(root.to_owned()).chain(descendants.iter().cloned()).collect()
+    /// longer the one `at` names for it) keeps its row and its tag, as does one whose identity its store cannot tell:
+    /// no release is decided for a spared member, nothing of it changes, and it is answered with why. Answers the
+    /// release of each member released: what was queued for it and the handle its store answers once. Every surface
+    /// states its own answer: none is assumed stored.
+    fn release_closed_at(&self, scope: &Scope, tag: Option<&str>, root: &str, descendants: &[String], at: &HashMap<String, Option<TurnMark>>) -> Released;
+    /// The releases made for `scope` (the scope its tree was closed under, whoever owns the member itself) whose receipt
+    /// came back neither stored nor superseded and that no later write of the session replaced, each submitted again
+    /// as the operation it was: the same identity, incarnation, precondition, map and release stamp. Its store answers
+    /// it by its committed record when it has one, and writes it only when it is known not to have committed and its
+    /// target, incarnation and precondition still hold. A surface that keeps none answers none.
+    fn recover_releases(&self, _scope: &Scope) -> Vec<Release> {
+        Vec::new()
     }
     fn read_all_tag_tombstones(&self) -> Vec<TagRecord>;
     fn tag_tombstone_for_tag(&self, tag: &str, scope: &Scope) -> Option<TagRecord>;
@@ -277,6 +286,138 @@ pub struct Recovered {
 pub struct TurnMark {
     pub started: u64,
     pub last: Option<String>,
+}
+
+/// Where a release's map is stored.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum ReleaseTarget {
+    /// The session record's header.
+    Header,
+    /// The table of the maps kept past their session's record.
+    Kept,
+    /// The Lead index.
+    Lead,
+}
+
+/// One release as it was queued: the operation its handle answers for, and no other write of the session.
+#[derive(Clone, PartialEq, Debug)]
+pub struct ReleaseReceipt {
+    pub session_id: String,
+    /// The identity its store holds of the session the release was decided for (a session record's journal identity):
+    /// a session deleted, kept or made again under the same id since is another incarnation, and the release is
+    /// applied to none but its own. A session whose store can tell none is not released at all.
+    pub incarnation: String,
+    /// The map the release was decided on (`None`: the session had none), fixed where the release was decided and
+    /// never read again: the release is a compare-and-set on it, applied only while its store still holds that, and it
+    /// is the same whenever the operation is submitted.
+    pub prior: Option<serde_json::Map<String, Value>>,
+    /// The operation's own identity, carried into the record that stores it: what a reconciliation asks its store for.
+    pub operation: String,
+    /// The tag the release unbound (the tree's root, while the tag was its own).
+    pub tag: Option<String>,
+    /// The turn the release was decided at.
+    pub turn: Option<TurnMark>,
+    /// The registry's number of this write: later writes of any session have a higher one.
+    pub revision: u64,
+    pub target: ReleaseTarget,
+    /// The map the release stores.
+    pub released: serde_json::Map<String, Value>,
+}
+
+/// What became of one release in its store.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum ReleaseOutcome {
+    /// Its own record is committed where it goes: the journal record of a header release, the table transaction of a
+    /// kept row's. A barrier receipt, not a publication receipt: a reader of a catalog built from the journal may
+    /// still see what was there before for a while.
+    Stored,
+    /// Nothing of it is stored.
+    Refused(String),
+    /// Nothing of it is stored and nothing will be: the session is no longer the one it was decided for, or no longer
+    /// holds the binding it was decided on. It is not made again.
+    Superseded(String),
+    /// Whether it is stored could not be told: not a success, and not a write to make again as a new one.
+    Indeterminate(String),
+}
+
+/// The completion of one release: answered once, by the write that carried it.
+#[derive(Clone)]
+pub struct ReleaseDone(tokio::sync::watch::Receiver<Option<ReleaseOutcome>>);
+
+/// The writer's end of a [`ReleaseDone`].
+pub struct ReleaseAnswer(tokio::sync::watch::Sender<Option<ReleaseOutcome>>);
+
+const RELEASE_UNANSWERED: &str = "the release's writer ended before it answered";
+
+impl ReleaseDone {
+    pub fn pending() -> (ReleaseAnswer, Self) {
+        let (answer, done) = tokio::sync::watch::channel(None);
+        (ReleaseAnswer(answer), Self(done))
+    }
+
+    /// A release answered where it was made.
+    pub fn settled(outcome: ReleaseOutcome) -> Self {
+        Self(tokio::sync::watch::channel(Some(outcome)).1)
+    }
+
+    /// The outcome when it is known already; a writer that ended without answering left it indeterminate.
+    pub fn now(&self) -> Option<ReleaseOutcome> {
+        // Read first: a writer gone by then leaves what is borrowed after it final.
+        let ended = self.0.has_changed().is_err();
+        let known = self.0.borrow().clone();
+        known.or_else(|| ended.then(|| ReleaseOutcome::Indeterminate(RELEASE_UNANSWERED.to_owned())))
+    }
+
+    pub async fn outcome(mut self) -> ReleaseOutcome {
+        match self.0.wait_for(Option::is_some).await {
+            Ok(outcome) => outcome.clone().expect("waited for an outcome"),
+            Err(_) => ReleaseOutcome::Indeterminate(RELEASE_UNANSWERED.to_owned()),
+        }
+    }
+}
+
+impl ReleaseAnswer {
+    pub fn answer(self, outcome: ReleaseOutcome) {
+        self.0.send_replace(Some(outcome));
+    }
+}
+
+/// One member's release: what was queued and its completion.
+pub struct Release {
+    pub receipt: ReleaseReceipt,
+    pub done: ReleaseDone,
+}
+
+impl Release {
+    /// A release answered where it was made, by a surface that queues nothing: `outcome` is that surface's own word.
+    pub fn answered(session_id: String, tag: Option<String>, turn: Option<TurnMark>, outcome: ReleaseOutcome) -> Self {
+        let receipt = ReleaseReceipt {
+            session_id,
+            incarnation: String::new(),
+            prior: None,
+            operation: String::new(),
+            tag,
+            turn,
+            revision: 0,
+            target: ReleaseTarget::Header,
+            released: serde_json::Map::new(),
+        };
+        Self { receipt, done: ReleaseDone::settled(outcome) }
+    }
+}
+
+/// A member a release left as it was, and why: no release was decided for it, so nothing of it changed.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Spared {
+    pub session_id: String,
+    pub reason: String,
+}
+
+/// What [`Registry::release_closed_at`] came to: the release of each member released, and each member spared.
+#[derive(Default)]
+pub struct Released {
+    pub releases: Vec<Release>,
+    pub spared: Vec<Spared>,
 }
 
 /// How a member's close is fenced ([`Sessions::close_member`]).

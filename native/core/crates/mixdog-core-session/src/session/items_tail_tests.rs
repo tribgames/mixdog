@@ -158,6 +158,9 @@ impl ThreadStore for DefaultTail {
     fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<super::seams::StoredOp>, CoreError> {
         self.0.thread_op(lane, id, op)
     }
+    fn committed_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<super::seams::StoredOp>, CoreError> {
+        self.0.committed_op(lane, id, op)
+    }
     fn fenced_ops(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<String>, CoreError> {
         self.0.fenced_ops(lane, id)
     }

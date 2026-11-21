@@ -987,6 +987,13 @@ pub(crate) enum Inbox {
         req: CoreRequest,
         tx: Waiter,
     },
+    /// A `thread/header/patch` its caller counts only once its own record is committed ([`SessionActor::stored_patch`]).
+    /// The attempt goes beside the request, not in it: an operation's parameters are the same each time it is sent.
+    StoredPatch {
+        req: CoreRequest,
+        tx: Waiter,
+        attempt: mixdog_core_ports::ports::threads::Attempt,
+    },
     /// The op store of this thread's scope (`ThreadOps`): the actor is the scope's only writer.
     Op {
         call: super::thread_ops::OpCall,
@@ -1098,7 +1105,7 @@ enum MoveApply {
 /// Whether `msg` writes the thread's header: such a message waits behind a pending route move.
 fn writes_header(msg: &Inbox) -> bool {
     match msg {
-        Inbox::UpdateHeader { .. } | Inbox::UpdateHeaderAwaiting { .. } => true,
+        Inbox::UpdateHeader { .. } | Inbox::UpdateHeaderAwaiting { .. } | Inbox::StoredPatch { .. } => true,
         Inbox::Request { req, .. } => req.method.as_str() == "thread/header/patch",
         _ => false,
     }
@@ -1138,6 +1145,13 @@ pub(crate) enum JobDone {
         req: CoreRequest,
         tx: Waiter,
         found: Result<Option<Value>, CoreError>,
+    },
+    /// The journal's record of the operation of the stored patch `req`, read for it ([`SessionActor::look_up_stored`]).
+    StoredLooked {
+        req: CoreRequest,
+        tx: Waiter,
+        attempt: mixdog_core_ports::ports::threads::Attempt,
+        found: Result<Option<super::seams::StoredOp>, CoreError>,
     },
     Encoded {
         id: u64,
@@ -1655,6 +1669,9 @@ pub(crate) struct SessionActor {
     submission_lookup: bool,
     /// The submission the store holds no receipt of, while its send is admitted ([`Self::mutation`] does not ask again).
     submission_looked: Option<String>,
+    /// The mutation in hand is a stored patch's ([`Self::stored_patch`]): it is answered at its own record's barrier,
+    /// and a precondition that does not hold is its failure, not a reply.
+    storing: bool,
     /// A dequeued Goal entry waits on `shouldRunGoalContinuation`: no other turn starts.
     goal_checking: bool,
     /// The runs the process died in are being finalized (`recover`): requests wait for them, so the first read or turn
@@ -1717,6 +1734,8 @@ pub(crate) struct SessionActor {
     exit_failed: Option<CoreError>,
     /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
     after_publish: Vec<oneshot::Sender<Result<(), CoreError>>>,
+    /// The callers waiting for the log's unknown outcome to be reconciled ([`Ctl::Reconcile`]), told by the retry's answer.
+    reconciles: Vec<oneshot::Sender<Result<(), CoreError>>>,
     releasing: bool,
     replies_after_publish: Vec<(Waiter, Value)>,
     /// The surfaced tool calls running now (`createActiveToolTracker`'s `activeToolCalls`), by call id: category, count and start.
@@ -2055,6 +2074,7 @@ impl SessionActor {
             submissions: Submissions::default(),
             submission_lookup: false,
             submission_looked: None,
+            storing: false,
             goal_checking: false,
             recovering: false,
             opened: None,
@@ -2084,6 +2104,7 @@ impl SessionActor {
             shutting_down: false,
             exit_failed: None,
             after_publish: Vec::new(),
+            reconciles: Vec::new(),
             releasing: false,
             replies_after_publish: Vec::new(),
             active_calls: std::collections::BTreeMap::new(),
@@ -2520,6 +2541,7 @@ impl SessionActor {
             JobDone::Recovered(ended) => self.recovered(ended),
             JobDone::SubmissionSettled { id, answer } => self.submissions.settled(&id, answer),
             JobDone::SubmissionLooked { id, req, tx, found } => self.lookup_answered(id, req, tx, found),
+            JobDone::StoredLooked { req, tx, attempt, found } => self.stored_looked(req, tx, attempt, found),
             // An encode is pure and its entry's id is never reused: a result whose entry a failed barrier dropped finds
             // none, and one whose entry was kept through a held barrier still lands.
             JobDone::Encoded { id, result } => self.encode_done(id, result),
@@ -3180,7 +3202,9 @@ impl SessionActor {
 
     fn effect_done(&mut self, effect: Effect) {
         match effect {
+            // A stored receipt's entry is withdrawn by a failed barrier, never held: it comes here at its record's ordinal.
             Effect::Kept { tx, value } => self.effect_done(Effect::Reply { op: None, tx, value }),
+            Effect::Stored { op, tx, value } => self.effect_done(Effect::Reply { op, tx, value }),
             Effect::Reply { op, tx, value } => {
                 // The first reply of a created thread is its `session` record's: the thread exists.
                 self.uncreated = false;
@@ -3503,6 +3527,9 @@ impl SessionActor {
 
     fn durability_retried(&mut self, result: Result<(), super::seams::BarrierError>) {
         self.indeterminate = result.is_err();
+        for told in self.reconciles.drain(..) {
+            let _ = told.send(result.as_ref().map(|_| ()).map_err(|_| CoreError::StorageIndeterminate { scope: "thread".into() }));
+        }
         match &result {
             Ok(()) => {
                 let owed = self.save_risk.outstanding();
@@ -3592,6 +3619,19 @@ impl SessionActor {
             Ctl::RunEnded { turn, outcome } => self.run_ended(turn, outcome),
             Ctl::RetryStorage => {
                 let _ = self.ch.dur_tx.try_send(ToDurability::Retry);
+            }
+            Ctl::Held(keys, told) => {
+                let held = keys.iter().map(|key| ((*key).to_owned(), self.projected.header.get(*key).cloned().unwrap_or(Value::Null))).collect();
+                let _ = told.send(held);
+            }
+            Ctl::Reconcile(told) => {
+                if !self.indeterminate && self.save_risk.unknown.is_empty() {
+                    let _ = told.send(Ok(()));
+                } else if self.ch.dur_tx.try_send(ToDurability::Retry).is_ok() {
+                    self.reconciles.push(told);
+                } else {
+                    let _ = told.send(Err(CoreError::StorageIndeterminate { scope: "thread".into() }));
+                }
             }
             Ctl::RefreshSurface => self.refresh_surface(),
             Ctl::CwdApplied { changed } => self.cwd_applied(changed),
@@ -4543,6 +4583,7 @@ impl SessionActor {
                 self.idle_acks.push(ack);
                 self.on_idle_evict();
             }
+            Inbox::StoredPatch { req, tx, attempt } => self.stored_patch(req, tx, attempt),
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
                     Some(op) => {

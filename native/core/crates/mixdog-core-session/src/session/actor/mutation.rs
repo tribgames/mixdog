@@ -2,6 +2,17 @@
 
 use super::*;
 
+/// When a plan's request is answered.
+#[derive(Clone, Copy)]
+enum Answered {
+    /// Once its record is released: a failed save answers the failure.
+    Released,
+    /// Once released, durable or held ([`Effect::Kept`]).
+    Kept,
+    /// At its record's journal barrier alone ([`Effect::Stored`]).
+    Stored,
+}
+
 impl SessionActor {
     /// `Inbox::UpdateHeader`: the change is computed here, from a copy of the header as projected
     /// (the actor is the header's only writer), and written as one `meta` record, answered once
@@ -53,6 +64,133 @@ impl SessionActor {
         let plan =
             Plan { kind: PlanKind::Records(vec![(record, Class::Normal, Display::None, Vec::new())], Vec::new()), value: json!({}), after: None, prompt: None };
         self.apply_plan(plan, None, tx);
+    }
+
+    /// `Inbox::StoredPatch`: a `thread/header/patch` whose caller counts it only once its own record is committed (a
+    /// worker release). The whole rule of such an operation is here.
+    ///
+    /// The journal comes first: the change names the log it was decided for (`incarnation`), and a thread whose log is
+    /// another one takes nothing of it and answers nothing it remembers of the operation, a cached success included.
+    /// Then, by `attempt`:
+    /// - a first submission is applied, under its precondition (`expect`: the header values it was decided on); one
+    ///   that does not hold fails it, as does a change that would be dropped, so no `Ok` stands for a change that
+    ///   was not made;
+    /// - a replay is answered by the operation's committed record: this actor's own memory of it while it has one,
+    ///   else the journal's record of that operation, with the same method and parameters ([`Self::look_up_stored`]).
+    ///   A fence, or a record of other parameters under the id, is a refusal. It is applied, as a first submission
+    ///   is, only when the journal is known to hold no record of it;
+    /// - a settle is answered the same way and applies nothing.
+    ///
+    /// While the log holds an append of unknown outcome nothing of this can be told: the answer is
+    /// `StorageIndeterminate`, and the caller settles the log first ([`Ctl::Reconcile`]).
+    pub(super) fn stored_patch(&mut self, req: CoreRequest, tx: Waiter, attempt: mixdog_core_ports::ports::threads::Attempt) {
+        use mixdog_core_ports::ports::threads::Attempt;
+        let Some(op) = req.op.clone() else {
+            let _ = tx.send(Err(CoreError::OpIdRequired));
+            return;
+        };
+        let decided = req.params.get("incarnation").and_then(Value::as_str).unwrap_or_default();
+        if decided != self.log_id {
+            let precondition = mixdog_core_api::error::Precondition::Revision { expected: decided.into(), actual: self.log_id.as_str().into() };
+            let _ = tx.send(Err(CoreError::PreconditionFailed { precondition }));
+            return;
+        }
+        // The shutdown began: what reaches the actor from here is not applied, so nothing submitted before it can
+        // still be written once the thread's stop was asked.
+        if self.shutting_down {
+            let _ = tx.send(Err(CoreError::CapabilityUnavailable { capability: "session".into(), detail: "the session is shutting down".into() }));
+            return;
+        }
+        if attempt != Attempt::First && (self.indeterminate || !self.save_risk.unknown.is_empty()) {
+            let _ = tx.send(Err(CoreError::StorageIndeterminate { scope: "thread".into() }));
+            return;
+        }
+        let digest = ops::replay_key(&req);
+        match attempt {
+            Attempt::First => {
+                if let Admit::New(tx) = self.ops.admit(&op, &digest, tx) {
+                    self.apply_stored(req, tx);
+                }
+            }
+            Attempt::Replay => {
+                if let Admit::New(tx) = self.ops.admit(&op, &digest, tx) {
+                    self.look_up_stored(req, tx, attempt);
+                }
+            }
+            Attempt::Settle => {
+                if let Some(tx) = self.ops.settle(&op, &digest, tx) {
+                    self.look_up_stored(req, tx, attempt);
+                }
+            }
+        }
+    }
+
+    fn apply_stored(&mut self, req: CoreRequest, tx: Waiter) {
+        self.storing = true;
+        let applied = self.mutation(req, tx);
+        self.storing = false;
+        if let Err((error, tx)) = applied {
+            let _ = tx.send(Err(error));
+        }
+    }
+
+    /// The journal's record of the stored patch's operation, which this actor does not remember (it was loaded since,
+    /// or never had it): read before the inbox is taken again, so nothing is applied between the question and its
+    /// answer ([`super::super::seams::ThreadStore::committed_op`]).
+    fn look_up_stored(&mut self, req: CoreRequest, tx: Waiter, attempt: mixdog_core_ports::ports::threads::Attempt) {
+        self.submission_lookup = true;
+        let (store, thread, jobs) = (self.deps.store.clone(), self.id.clone(), self.jobs_tx.clone());
+        let op = req.op.as_ref().map(|op| op.as_str().to_owned()).unwrap_or_default();
+        mixdog_core_base::support::lane_job(
+            self.deps.lanes.io,
+            "stored-patch-record",
+            // Never cancelled: the patch waits on this answer, and the actor holds its inbox until it comes.
+            &CancellationToken::new(),
+            move |lane| store.committed_op(lane, &thread, &op),
+            move |found| {
+                let found = found.and_then(|found| found);
+                let _ = jobs.send(JobDone::StoredLooked { req, tx, attempt, found });
+            },
+        );
+    }
+
+    pub(super) fn stored_looked(
+        &mut self,
+        req: CoreRequest,
+        tx: Waiter,
+        attempt: mixdog_core_ports::ports::threads::Attempt,
+        found: Result<Option<super::super::seams::StoredOp>, CoreError>,
+    ) {
+        use mixdog_core_ports::ports::threads::Attempt;
+        use mixdog_store::schema::record::OpState;
+        self.submission_lookup = false;
+        let op = req.op.clone().expect("a stored patch has an op");
+        let admitted = attempt == Attempt::Replay;
+        let answer = match found {
+            // The record cannot be read for: neither committed nor absent.
+            Err(error) => Err(CoreError::StorageIndeterminate { scope: format!("thread-op: {error:?}").into() }),
+            Ok(Some(stored)) if stored.state == OpState::Fenced => Err(CoreError::OpFenced { op_id: op.clone() }),
+            Ok(Some(stored)) if stored.state != OpState::Applied || stored.method != req.method.as_str() || stored.digest != ops::digest(&req.params) => {
+                Err(CoreError::OpIdConflict { op_id: op.clone() })
+            }
+            Ok(Some(stored)) => Ok(stored.result.unwrap_or_else(|| json!({}))),
+            Ok(None) if attempt == Attempt::Settle => Ok(json!({ "absent": true })),
+            Ok(None) => return self.apply_stored(req, tx),
+        };
+        match answer {
+            Ok(value) => {
+                if admitted {
+                    self.ops.applied(&op, &value);
+                }
+                let _ = tx.send(Ok(Reply::Value(value)));
+            }
+            Err(error) => {
+                if admitted {
+                    self.ops.failed(&op, &error);
+                }
+                let _ = tx.send(Err(error));
+            }
+        }
     }
 
     /// The thread scope's op store (P §9.2): `Await` answers once a running execution of the op
@@ -161,7 +299,15 @@ impl SessionActor {
         // A conditional header patch (`expect`): the read-modify-write of a caller that computed
         // its change from the header, decided here against the header as projected.
         if req.method.as_str() == "thread/header/patch" {
+            let superseded = |actual: &str| {
+                let expected = "the header the change was decided on".into();
+                CoreError::PreconditionFailed { precondition: mixdog_core_api::error::Precondition::Revision { expected, actual: actual.into() } }
+            };
             if let Some(current) = self.header_conflict(&req.params) {
+                // A stored patch that is not applied is not answered `Ok`: a reply carrying `conflict` is no receipt.
+                if self.storing {
+                    return fail(superseded("the header holds another value"), tx, &mut self.ops);
+                }
                 let _ = tx.send(Ok(Reply::Value(json!({ "conflict": current }))));
                 return Ok(());
             }
@@ -169,6 +315,9 @@ impl SessionActor {
             // when the header it would land on is past that generation (`_dropsAgainst`, `store.mjs:149-153`).
             let expected = req.params.get("expectedGeneration").and_then(Value::as_f64);
             if super::super::close::drops_against(&self.projected.header, expected) {
+                if self.storing {
+                    return fail(superseded("the session is past the generation the change was issued for"), tx, &mut self.ops);
+                }
                 let _ = tx.send(Ok(Reply::Value(json!({ "dropped": true }))));
                 return Ok(());
             }
@@ -219,7 +368,10 @@ impl SessionActor {
         // by the store for the next write, and their request hears the failure. A lifecycle
         // write (a close's tombstone, a generation bump) is Node's durable lifecycle barrier (`session-close.mjs:138`), whose failure its caller hears.
         let lifecycle = req.params.get("set").and_then(Value::as_object).is_some_and(|set| set.contains_key("closed") || set.contains_key("generation"));
+        // A patch its caller counts only once stored (a worker release) is answered by its own record's barrier.
+        let stored = self.storing;
         let kept = req.op.is_none()
+            && !stored
             && !lifecycle
             && !matches!(req.ctx.caller, Caller::Connection(_))
             // The removal of a refused carry's own mark hears its failure and is tried again: a held one would leave the heir marked
@@ -231,7 +383,14 @@ impl SessionActor {
                 // The plan's records are one unit, written together. Rows stored as a conversation (an inheritance, a room
                 // post, an import) are kept for the next write when theirs fails, as Node's recorder keeps them.
                 self.outbox.begin_unit(req.method.as_str() == "thread/roomRows/commit" && !kept);
-                self.apply_plan_kept(plan, req.op.clone(), tx, kept);
+                let answered = if stored {
+                    Answered::Stored
+                } else if kept {
+                    Answered::Kept
+                } else {
+                    Answered::Released
+                };
+                self.apply_plan_answered(plan, req.op.clone(), tx, answered);
                 if req.method.as_str() == "thread/header/patch" {
                     let mut keys: Vec<String> =
                         req.params.get("expect").and_then(Value::as_object).map(|expect| expect.keys().cloned().collect()).unwrap_or_default();
@@ -252,11 +411,15 @@ impl SessionActor {
     }
 
     fn apply_plan(&mut self, plan: Plan, op: Option<OpId>, tx: Waiter) {
-        self.apply_plan_kept(plan, op, tx, false);
+        self.apply_plan_answered(plan, op, tx, Answered::Released);
     }
 
-    fn apply_plan_kept(&mut self, plan: Plan, op: Option<OpId>, tx: Waiter, kept: bool) {
-        let reply = if kept { Effect::Kept { tx: Some(tx), value: plan.value } } else { Effect::Reply { op, tx: Some(tx), value: plan.value } };
+    fn apply_plan_answered(&mut self, plan: Plan, op: Option<OpId>, tx: Waiter, answered: Answered) {
+        let reply = match answered {
+            Answered::Released => Effect::Reply { op, tx: Some(tx), value: plan.value },
+            Answered::Kept => Effect::Kept { tx: Some(tx), value: plan.value },
+            Answered::Stored => Effect::Stored { op, tx: Some(tx), value: plan.value },
+        };
         match plan.kind {
             PlanKind::StartRun(input, originals_missing, op_ref) => {
                 self.start_run(input, originals_missing, op_ref, Some(reply), plan.prompt);

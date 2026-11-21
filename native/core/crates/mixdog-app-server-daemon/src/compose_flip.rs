@@ -31,14 +31,17 @@ use crate::compose_mcp::{AgentSeams, McpInputs, SetupSeams, build_agents, mcp_se
 /// A named stop step.
 pub type StopStep = (&'static str, std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>);
 
-/// The agent index's queued row writes land (daemon.mjs: `canonicalAgentControl.dispose`, then `drainProcessWrites` ->
-/// `flushAllIndexWrites`, before the statusline routes drain); a write the queue could not persist is logged as Node logs it and the stop goes on.
-/// The step ends with the stop's own budget (the release supervises every stop step), as Node's shutdown budget bounds its drain.
+/// The agent index's writer stops (daemon.mjs: `canonicalAgentControl.dispose`, then `drainProcessWrites` ->
+/// `flushAllIndexWrites`, before the statusline routes drain): its producers have ended with the session directory, so admission
+/// is sealed, every write accepted before that is put and every session's task joined, while the core state it writes is still open.
+/// The rows the sessions' closes released were put before the threads stopped (`SessionDirectory::set_row_writes`). A write that was
+/// refused is logged as Node logs it and the stop goes on. The step ends with the stop's own budget (the release supervises every stop
+/// step), as Node's shutdown budget bounds its drain.
 pub(crate) fn workers_step(workers: Arc<mixdog_core_session::session::agent_registry::StoreWorkers>, log: crate::daemon_log::DaemonLog) -> StopStep {
     (
         "agent index",
         Box::pin(async move {
-            if let Err(error) = workers.settled().await {
+            if let Err(error) = workers.shutdown().await {
                 log.log(&format!("agent index drain failed: {error}"));
             }
         }),
@@ -4258,6 +4261,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             board: job_board.clone(),
         }))
         .map_err(|_| ComposeError::AlreadyBound("owner teardown"))?;
+    directory.set_row_writes(workers.clone()).map_err(|_| ComposeError::AlreadyBound("row writes"))?;
     // The idle release (`createIdleRelease`, agent-tool.mjs): an idle agent whose result was delivered is parked after 7 minutes.
     drop(mixdog_rt::spawn(
         "agent-idle-release",

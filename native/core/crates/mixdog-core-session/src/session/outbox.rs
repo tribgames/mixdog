@@ -115,6 +115,14 @@ pub(crate) enum Effect {
         tx: Option<oneshot::Sender<Result<Reply, CoreError>>>,
         value: Value,
     },
+    /// The receipt of a change its caller counts only once it is stored (a worker release, `thread/header/patch` with
+    /// `stored`): answered at the journal barrier of its own record, never while the record is held unsaved, and with
+    /// the failure of that barrier when it fails, whoever asked. `op` is the operation its record carries.
+    Stored {
+        op: Option<OpId>,
+        tx: Option<oneshot::Sender<Result<Reply, CoreError>>>,
+        value: Value,
+    },
     /// The run's input rows are durable.
     InputDurable,
     ItemAck(oneshot::Sender<Result<(), RunError>>),
@@ -170,7 +178,8 @@ pub(crate) struct Entry {
 /// a queued prompt (refused, so a retry is a new submission).
 pub(crate) fn answers_a_client(entry: &Entry) -> bool {
     entry.effects.iter().any(|effect| {
-        matches!(effect, Effect::Reply { op, tx, .. } if op.is_some() || tx.is_some()) || matches!(effect, Effect::MarkAck(_) | Effect::AfterPublish(_))
+        matches!(effect, Effect::Reply { op, tx, .. } if op.is_some() || tx.is_some())
+            || matches!(effect, Effect::MarkAck(_) | Effect::AfterPublish(_) | Effect::Stored { .. })
     }) || matches!(&entry.change, Change::Record { record, .. } if matches!(&**record, Record::Queue(queue) if queue.action == QueueAction::Enqueue))
 }
 

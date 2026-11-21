@@ -137,6 +137,23 @@ impl Registry for Fakes {
     fn remove_worker_row(&self, session_id: &str) {
         self.0.log(json!(["removeWorkerRow", session_id]));
     }
+    /// This registry's writes are its store: what it released is there when the call returns.
+    fn release_closed_at(
+        &self,
+        scope: &Scope,
+        tag: Option<&str>,
+        root: &str,
+        descendants: &[String],
+        at: &std::collections::HashMap<String, Option<mixdog_agent::agent_tool::host::TurnMark>>,
+    ) -> mixdog_agent::agent_tool::host::Released {
+        use mixdog_agent::agent_tool::host::{Release, ReleaseOutcome, Released};
+        self.release_closed(scope, tag, root, descendants);
+        let releases = std::iter::once(root.to_owned())
+            .chain(descendants.iter().cloned())
+            .map(|id| Release::answered(id.clone(), tag.filter(|_| id == root).map(str::to_owned), at.get(&id).cloned().flatten(), ReleaseOutcome::Stored))
+            .collect();
+        Released { releases, spared: Vec::new() }
+    }
     fn mark_released(&self, session_ids: &[String]) {
         self.0.log(json!(["markReleased", session_ids]));
     }

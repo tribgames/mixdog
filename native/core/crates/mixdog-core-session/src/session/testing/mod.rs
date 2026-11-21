@@ -944,6 +944,26 @@ impl ThreadStore for MemStore {
         Ok(None)
     }
 
+    /// Its log is its memory: the records it committed are read for the op.
+    fn committed_op(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<super::seams::StoredOp>, CoreError> {
+        Ok(self.records(id).iter().find_map(|(at, record)| {
+            let found = super::thread_ops::op_ref_of(record).filter(|found| found.id.as_str() == op)?;
+            let state = match record {
+                Record::Op(r) => r.state,
+                _ => mixdog_store::schema::record::OpState::Applied,
+            };
+            Some(super::seams::StoredOp {
+                method: found.method.as_str().to_owned(),
+                digest: found.digest.as_str().to_owned(),
+                audience: found.audience.as_ref().map(|a| a.as_str().to_owned()),
+                state,
+                seq: *at,
+                result: found.result.as_ref().map(|r| r.get().clone()),
+                detail: None,
+            })
+        }))
+    }
+
     /// The first record of the log that accepted the submission, as the index projects it (`projection::receipt`).
     fn submission(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId, submission: &str) -> Result<Option<Value>, CoreError> {
         let mut inline_only = |_: &mixdog_store::schema::blob::BodyBlob| -> Result<Vec<u8>, String> { Err("the in-memory store holds bodies inline".into()) };
@@ -1098,6 +1118,12 @@ impl ThreadStore for CallCounted {
         fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>>;
         fn context_cpu(&self, lane: &InLane<CpuInteractive>, read: ContextRead) -> Result<ContextStep, CoreError>;
         fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError>;
+    }
+
+    fn committed_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<super::seams::StoredOp>, CoreError> {
+        lock(&self.calls).push("committed_op");
+        self.gate("committed_op");
+        self.inner.committed_op(lane, id, op)
     }
 
     fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError> {

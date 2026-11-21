@@ -1094,6 +1094,12 @@ impl Projector {
         self.rows_lost.lock().unwrap_or_else(|e| e.into_inner()).contains(session)
     }
 
+    /// Test support: `session` is recorded as one whose projection the index never took.
+    #[cfg(any(test, feature = "test-support"))]
+    fn lose_rows(&self, session: &str) {
+        self.rows_lost.lock().unwrap_or_else(|e| e.into_inner()).insert(session.to_owned());
+    }
+
     /// Whether a mark write the index failed to take is still missing from it: the sessions, until a later projection of each
     /// restores its head.
     fn marks_lost(&self) -> Vec<String> {
@@ -2182,6 +2188,14 @@ impl StoreThreads {
         Ok(ContextStep::Page { first, rows, next })
     }
 }
+#[cfg(any(test, feature = "test-support"))]
+impl StoreThreads {
+    /// Test support: the index is recorded as having missed a batch of `session`, as after a projection it never took.
+    pub fn lose_rows(&self, session: &str) {
+        self.projector.lose_rows(session);
+    }
+}
+
 impl ThreadStore for StoreThreads {
     #[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof argument)")]
     fn read_head(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<HeadRead, CoreError> {
@@ -2509,6 +2523,64 @@ impl ThreadStore for StoreThreads {
             _ => None,
         };
         Ok(Some(StoredOp { method: row.method, digest: row.payload_digest, audience, state: row.state, seq: row.pos.ordinal, result, detail }))
+    }
+
+    /// The index's row answers when it has one: it names a frame of the log, which is read. With none, the index
+    /// proves nothing: that it took every batch of the thread is known only to the process that sent them
+    /// ([`Projector::rows_lost`]), and a row lost before a restart is as absent as one never written. So the thread's
+    /// own log is read, frame by frame from its first, for the operation's record: `None` is the journal's answer
+    /// only when the scan reached the clean end of its last segment, and a log that cannot be read through to there
+    /// (a torn end, damage on the way) is an error.
+    fn committed_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<StoredOp>, CoreError> {
+        if let Some(found) = self.thread_op(lane, id, op)? {
+            return Ok(Some(found));
+        }
+        let _gate = self.read_gate(id)?;
+        let dir = self.dir(id.as_str());
+        let mut from = log::first_frame(lane, &dir).map_err(|e| internal("thread-op", &e))?;
+        loop {
+            let read = log::read_forward(lane, &dir, from, 1 << 20).map_err(|e| internal("thread-op", &e))?;
+            for (record, pos, _) in &read.frames {
+                let Some(found) = super::thread_ops::op_ref_of(record).filter(|found| found.id.as_str() == op) else { continue };
+                let (state, detail) = match record {
+                    Record::Op(r) => {
+                        let detail = match &r.detail {
+                            Some(slot) => match self.resolve(lane, slot)? {
+                                Slot::Inline(value) => Some(value),
+                                Slot::Blob(_) => return Err(internal("thread-op", &"detail left out of line")),
+                            },
+                            None => None,
+                        };
+                        (r.state, detail)
+                    }
+                    _ => (mixdog_store::schema::record::OpState::Applied, None),
+                };
+                return Ok(Some(StoredOp {
+                    method: found.method.as_str().to_owned(),
+                    digest: found.digest.as_str().to_owned(),
+                    audience: found.audience.as_ref().map(|a| a.as_str().to_owned()),
+                    state,
+                    seq: pos.ordinal,
+                    result: found.result.as_ref().map(|r| r.get().clone()),
+                    detail,
+                }));
+            }
+            match read.next {
+                log::ForwardEnd::More(next) => from = next,
+                // Absence is the journal's answer only where the journal ends: the clean end of its last segment. A
+                // torn end, in the last segment or (which a window can end on) in one before it, leaves frames unread
+                // or an append unfinished, and tells nothing of what lies there.
+                log::ForwardEnd::Done { file_no, torn, .. } => {
+                    let last = log::list_logs(&dir).map_err(|e| internal("thread-op", &e))?.last().copied();
+                    return if torn || last != Some(file_no) {
+                        Err(internal("thread-op", &format!("the journal was not read to its end: segment {file_no}, torn {torn}, last {last:?}")))
+                    } else {
+                        Ok(None)
+                    };
+                }
+                log::ForwardEnd::Damaged(damage) => return Err(internal("thread-op", &format!("{damage:?}"))),
+            }
+        }
     }
 
     fn submission(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, submission: &str) -> Result<Option<Value>, CoreError> {
