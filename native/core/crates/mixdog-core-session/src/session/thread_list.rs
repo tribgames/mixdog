@@ -1430,6 +1430,9 @@ mod tests {
         fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<crate::session::seams::StoredOp>, CoreError> {
             self.inner.thread_op(lane, id, op)
         }
+        fn committed_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<crate::session::seams::StoredOp>, CoreError> {
+            self.inner.committed_op(lane, id, op)
+        }
         fn fenced_ops(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<String>, CoreError> {
             self.inner.fenced_ops(lane, id)
         }

@@ -165,6 +165,9 @@ pub struct IndexedSession {
     pub created_at: Option<f64>,
     /// The `worker` map, while the session is listed as a worker row.
     pub worker: Option<Map<String, Value>>,
+    /// The identity of the session's journal (`log_id`), while it has a readable one and is not deleted: a session
+    /// deleted and made again under the same id has another.
+    pub log_id: Option<String>,
     /// The `activity` (the agent-only sessions' order: newest first, then id) and the JSON list row, while the session is
     /// listed as an agent-only session.
     pub agent: Option<(f64, String)>,
@@ -191,7 +194,8 @@ macro_rules! indexed_sql {
                 CASE WHEN worker_tag IS NOT NULL AND deleted = 0 AND log_id <> '' THEN worker END,
                 activity,
                 CASE WHEN visibility = 'agent-only' AND deleted = 0 AND log_id <> '' THEN summary END,
-                EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = sessions.id)
+                EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = sessions.id),
+                CASE WHEN deleted = 0 AND log_id <> '' THEN log_id END
             FROM sessions WHERE ",
             $cond
         )

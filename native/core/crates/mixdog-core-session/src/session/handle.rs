@@ -85,6 +85,8 @@ pub struct SessionHandle {
     pub(crate) lineage: Lineage,
     pub(crate) deps: Arc<SessionDeps>,
     pub(crate) directory: Weak<DirInner>,
+    /// The identity of the journal this handle's actor writes: a thread deleted and made again has another.
+    pub(crate) log_id: Arc<str>,
     /// One room post (`thread/roomRows/append`) or `thread/reactions/set` at a time, in
     /// order (`agent-room-delivery.mjs` `serialized`): each reads the conversation, then
     /// writes it.
@@ -164,6 +166,20 @@ impl SessionHandle {
     /// The user's "Retry storage" for a thread in `storage: indeterminate` (SM §8).
     pub fn retry_storage(&self) -> Result<(), CoreError> {
         self.cell.ctl_tx.try_send(Ctl::RetryStorage).map_err(|_| CoreError::QueueFull { queue: "control".into() })
+    }
+
+    /// Resolves once the log holds no write of unknown outcome (its pending rollback landed); an error while it does.
+    pub async fn storage_reconciled(&self) -> Result<(), CoreError> {
+        let (told, reconciled) = tokio::sync::oneshot::channel();
+        self.cell.ctl_tx.try_send(Ctl::Reconcile(told)).map_err(|_| CoreError::QueueFull { queue: "control".into() })?;
+        reconciled.await.map_err(|_| self.closing())?
+    }
+
+    /// What the actor holds now for `keys` of the header, as it projects it ([`Ctl::Held`]).
+    pub async fn held_fields(&self, keys: &'static [&'static str]) -> Result<serde_json::Map<String, Value>, CoreError> {
+        let (told, held) = tokio::sync::oneshot::channel();
+        self.cell.ctl_tx.try_send(Ctl::Held(keys, told)).map_err(|_| CoreError::QueueFull { queue: "control".into() })?;
+        held.await.map_err(|_| self.closing())
     }
 
     /// Today's `explicitSessionCwd()` inside this session's scope: its cwd, else
@@ -248,6 +264,13 @@ impl SessionHandle {
     pub(crate) async fn op_call(&self, call: super::thread_ops::OpCall) -> Result<Reply, CoreError> {
         let (tx, rx) = oneshot::channel();
         self.inbox.send(Inbox::Op { call, tx }).await.map_err(|_| self.closing())?;
+        rx.await.map_err(|_| self.closing())?
+    }
+
+    /// A header patch answered by its own record's journal barrier ([`Inbox::StoredPatch`]).
+    pub(crate) async fn stored_patch(&self, req: CoreRequest, attempt: mixdog_core_ports::ports::threads::Attempt) -> Result<Reply, CoreError> {
+        let (tx, rx) = oneshot::channel();
+        self.inbox.send(Inbox::StoredPatch { req, tx, attempt }).await.map_err(|_| self.closing())?;
         rx.await.map_err(|_| self.closing())?
     }
 

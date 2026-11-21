@@ -46,12 +46,26 @@ impl ThreadState for GatedHeaders {
     ) -> Result<Option<Map<String, Value>>, PortError> {
         Ok(None)
     }
+    async fn store_header(&self, thread: &ThreadId, write: mixdog_core_ports::ports::threads::HeaderWrite) -> mixdog_core_ports::ports::threads::HeaderStored {
+        mixdog_core_ports::ports::threads::HeaderStored::of_patch(self.patch_header(thread, write.set, write.unset).await)
+    }
+    fn log_identity(&self, _: &ThreadId) -> Option<String> {
+        None
+    }
+    /// This fake holds nothing but the header it answers.
+    async fn held_fields(
+        &self,
+        thread: &ThreadId,
+        keys: &'static [&'static str],
+    ) -> Result<serde_json::Map<String, serde_json::Value>, mixdog_tools::orch::util::PortError> {
+        Ok(mixdog_core_ports::ports::threads::held_of(&self.header(thread).await?, keys))
+    }
     async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), PortError> {
         Ok(())
     }
 }
 
-/// Headers that refuse their first N patches (Node's queue retries a refused persist, so one row write is four patches).
+/// Headers that refuse their first N patches.
 struct RefusingHeaders(std::sync::atomic::AtomicU32);
 
 #[async_trait::async_trait]
@@ -72,6 +86,20 @@ impl ThreadState for RefusingHeaders {
     ) -> Result<Option<Map<String, Value>>, PortError> {
         Ok(None)
     }
+    async fn store_header(&self, thread: &ThreadId, write: mixdog_core_ports::ports::threads::HeaderWrite) -> mixdog_core_ports::ports::threads::HeaderStored {
+        mixdog_core_ports::ports::threads::HeaderStored::of_patch(self.patch_header(thread, write.set, write.unset).await)
+    }
+    fn log_identity(&self, _: &ThreadId) -> Option<String> {
+        None
+    }
+    /// This fake holds nothing but the header it answers.
+    async fn held_fields(
+        &self,
+        thread: &ThreadId,
+        keys: &'static [&'static str],
+    ) -> Result<serde_json::Map<String, serde_json::Value>, mixdog_tools::orch::util::PortError> {
+        Ok(mixdog_core_ports::ports::threads::held_of(&self.header(thread).await?, keys))
+    }
     async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), PortError> {
         Ok(())
     }
@@ -91,11 +119,8 @@ fn capturing_log(dir: &std::path::Path, tokens: &mixdog_rt::LaneTokens) -> (crat
     (log, lines)
 }
 
-/// A write the headers refuse through every attempt is logged by the stop step, which then ends; a write that failed and was put by
-/// a later attempt is not (the step's drain is Node's `flushAllIndexWrites`, which rejects only while a batch still fails).
-#[tokio::test(start_paused = true)]
-#[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
-async fn a_row_write_the_headers_refused_is_logged_by_the_stop_step_until_it_recovers() {
+/// The row writer over `headers`, a log that keeps its lines, and the folder they live in.
+async fn refusing(refusals: u32) -> (tempfile::TempDir, Arc<RefusingHeaders>, Arc<StoreWorkers>, crate::daemon_log::DaemonLog, Arc<Mutex<Vec<String>>>) {
     let dir = tempfile::tempdir().expect("temp dir");
     let tokens = mixdog_rt::testing::tokens();
     let (state, _) =
@@ -108,28 +133,44 @@ async fn a_row_write_the_headers_refused_is_logged_by_the_stop_step_until_it_rec
     .await
     .expect("job ran")
     .expect("index");
-    // Refused by the first four patches: the write's four attempts, then the stop's drain succeeds on its first.
-    let workers = Arc::new(StoreWorkers::new(index, Arc::new(RefusingHeaders(4.into())), tokens.interactive_io, Arc::new(KeptRows::new(state))));
+    let headers = Arc::new(RefusingHeaders(refusals.into()));
+    let workers = Arc::new(StoreWorkers::new(index, headers.clone(), tokens.interactive_io, Arc::new(KeptRows::new(state))));
     let (log, lines) = capturing_log(dir.path(), &tokens);
+    (dir, headers, workers, log, lines)
+}
 
+fn running_row() -> Map<String, Value> {
     let mut row = Map::new();
     row.insert("status".to_owned(), json!("running"));
-    workers.write("sess_fail", Some(row));
+    row
+}
 
-    // The stop's drain with the batch still failing logs it (Node: `flushAllIndexWrites` rejects).
-    let (_, step) = crate::compose_flip::workers_step(workers.clone(), log.clone());
+/// A write the headers refuse is answered failed after that one put and logged by the stop step, which then ends: the writer makes no
+/// second attempt, on a timer or at the stop (the headers would have taken the fourth).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
+async fn a_row_write_the_headers_refused_is_put_once_and_logged_by_the_stop_step() {
+    let (_dir, headers, workers, log, lines) = refusing(3).await;
+    workers.write("sess_fail", Some(running_row()));
+
+    let (_, step) = crate::compose_flip::workers_step(workers, log);
     tokio::time::timeout(DEADLINE, step).await.expect("the step did not end within 10 s");
-    {
-        let logged = lines.lock().unwrap();
-        assert_eq!(logged.len(), 1, "{logged:?}");
-        assert!(
-            logged[0].starts_with("[daemon] agent index drain failed: ") && logged[0].contains("sess_fail") && logged[0].contains("disk full"),
-            "{logged:?}"
-        );
-    }
-    lines.lock().unwrap().clear();
+    let logged = lines.lock().unwrap();
+    assert_eq!(logged.len(), 1, "{logged:?}");
+    assert!(logged[0].starts_with("[daemon] agent index drain failed: ") && logged[0].contains("sess_fail") && logged[0].contains("disk full"), "{logged:?}");
+    assert_eq!(headers.0.load(std::sync::atomic::Ordering::SeqCst), 2, "one refused put, and none after it");
+}
 
-    // The headers recovered: the next drain puts the kept write and leaves no failure to log.
+/// A refused write the session's next write replaced leaves the stop step nothing to log: the headers hold the row the session is owed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
+async fn a_refused_row_write_the_sessions_next_write_replaced_is_not_logged_by_the_stop_step() {
+    let (_dir, _headers, workers, log, lines) = refusing(1).await;
+    workers.write("sess_fail", Some(running_row()));
+    let flushed = tokio::time::timeout(DEADLINE, workers.settled()).await.expect("the flush did not answer within 10 s");
+    assert!(flushed.is_err(), "the refused write is the flush's error: {flushed:?}");
+    workers.write("sess_fail", Some(running_row()));
+
     let (_, step) = crate::compose_flip::workers_step(workers, log);
     tokio::time::timeout(DEADLINE, step).await.expect("the step did not end within 10 s");
     assert!(lines.lock().unwrap().is_empty(), "{:?}", lines.lock().unwrap());

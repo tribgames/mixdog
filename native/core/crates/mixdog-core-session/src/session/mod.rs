@@ -249,6 +249,7 @@ use mixdog_rt::InteractiveIo;
 pub use self::directory::ArrivingThreads;
 #[cfg(any(test, feature = "test-support"))]
 pub use self::directory::DurabilitySettling;
+pub use self::directory::RowWrites;
 pub use self::directory::SessionDirectory;
 pub use self::directory::is_process_exit_reason;
 pub use self::handle::SessionHandle;

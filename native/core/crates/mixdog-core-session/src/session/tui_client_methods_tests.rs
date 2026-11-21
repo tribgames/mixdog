@@ -187,6 +187,20 @@ impl ThreadState for Sections {
         Err(PortError::NotFound { target: thread.as_str().to_owned(), message: "no header".into() })
     }
 
+    async fn store_header(&self, thread: &ThreadId, write: mixdog_core_ports::ports::threads::HeaderWrite) -> mixdog_core_ports::ports::threads::HeaderStored {
+        mixdog_core_ports::ports::threads::HeaderStored::of_patch(self.patch_header(thread, write.set, write.unset).await)
+    }
+    fn log_identity(&self, _: &ThreadId) -> Option<String> {
+        None
+    }
+    /// This fake holds nothing but the header it answers.
+    async fn held_fields(
+        &self,
+        thread: &ThreadId,
+        keys: &'static [&'static str],
+    ) -> Result<serde_json::Map<String, serde_json::Value>, mixdog_tools::orch::util::PortError> {
+        Ok(mixdog_core_ports::ports::threads::held_of(&self.header(thread).await?, keys))
+    }
     async fn publish(&self, thread: &ThreadId, section: Section) -> Result<(), PortError> {
         if thread.as_str() == "gone" {
             return Err(PortError::NotFound { target: "gone".into(), message: "no thread".into() });

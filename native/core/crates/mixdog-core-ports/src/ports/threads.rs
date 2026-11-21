@@ -29,6 +29,11 @@ pub trait ThreadState: Send + Sync {
     async fn header_fields(&self, thread: &ThreadId, fields: &'static [&'static str]) -> Result<Header, PortError> {
         Ok(self.header(thread).await?.into_iter().filter(|(key, _)| fields.contains(&key.as_str())).collect())
     }
+    /// What the thread's one writer holds now for `keys` of its header (key to value, `null` for absent): the values a
+    /// conditional change is judged against, a value it accepted and has not saved yet included, which
+    /// [`header`](Self::header) does not show. A read: nothing is written, and no index is waited for. A cold thread is
+    /// opened. Every implementer states its own answer ([`held_of`] for one whose header is all it holds).
+    async fn held_fields(&self, thread: &ThreadId, keys: &'static [&'static str]) -> Result<Map<String, Value>, PortError>;
     async fn patch_header(&self, thread: &ThreadId, set: Map<String, Value>, unset: Vec<String>) -> Result<(), PortError>;
     /// A header patch the session actor applies only while `expect` still holds of its header
     /// (key to the value the patch was computed from, `null` for absent). `Ok(Some(current))`
@@ -41,6 +46,81 @@ pub trait ThreadState: Send + Sync {
         unset: Vec<String>,
     ) -> Result<Option<Map<String, Value>>, PortError>;
     async fn publish(&self, thread: &ThreadId, section: Section) -> Result<(), PortError>;
+    /// [`patch_header`](Self::patch_header) answered by the journal barrier of the patch's own record, for a caller
+    /// that counts the change only once it is stored: a session that keeps a change it could not save answers that
+    /// change here as not stored. Every implementer states its own answer: none is assumed stored.
+    ///
+    /// `Stored` is a barrier receipt, not a publication receipt: the write's own journal record is committed. It says
+    /// nothing of the index or of any catalog built from the journal, so a reader of those alone may still see the
+    /// value before this write for a while; a caller that shows the change keeps its own copy until its reads show it.
+    ///
+    /// The thread's one writer decides, on what the write carries ([`HeaderWrite`]) and how often it was submitted
+    /// ([`Attempt`]): a journal that is another one, or a header that no longer holds what the write expects, takes
+    /// nothing of it (`Superseded`); a refusal before a record was accepted is `Refused`; only an append whose outcome
+    /// is unknown, or a submitted operation whose record cannot be read for, is `Indeterminate`. No success is
+    /// inferred from a fence, from a conflict, from a change that was dropped, or from the value the header holds.
+    async fn store_header(&self, thread: &ThreadId, write: HeaderWrite) -> HeaderStored;
+    /// The identity of the journal a thread loaded now is written to, read without waiting; `None` when the thread is
+    /// not loaded here. A thread deleted and made again under the same id has another.
+    fn log_identity(&self, thread: &ThreadId) -> Option<String>;
+}
+
+/// [`ThreadState::held_fields`] of a store that holds nothing but the header it answers: `keys` picked from it.
+pub fn held_of(header: &Header, keys: &[&str]) -> Map<String, Value> {
+    keys.iter().map(|key| ((*key).to_owned(), header.get(*key).cloned().unwrap_or(Value::Null))).collect()
+}
+
+/// One header change a caller counts only once it is stored ([`ThreadState::store_header`]). An operation keeps its
+/// identity, its incarnation, its precondition and its change whenever it is submitted again.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HeaderWrite {
+    /// The operation's own identity, carried into the journal record of the change: what answers for it later.
+    pub operation: String,
+    /// The log identity the change was decided for: applied to that journal alone.
+    pub incarnation: String,
+    /// The header values the change was decided on (key to value, `null` for absent): applied only while they hold.
+    pub expect: Map<String, Value>,
+    pub set: Map<String, Value>,
+    pub unset: Vec<String>,
+    pub attempt: Attempt,
+}
+
+/// How an operation reaches [`ThreadState::store_header`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Attempt {
+    /// Its first submission.
+    First,
+    /// It was submitted before and is not known stored. Whatever unknown outcome the thread's log holds is settled
+    /// first; the operation's committed record, on the journal it was decided for, answers `Stored` and nothing is
+    /// appended; it is appended only when it is known not to have committed and its precondition still holds.
+    Replay,
+    /// Its fate alone, once the log's unknown outcome is settled: `Stored` when its record is committed, `Refused`
+    /// when it is known not to be. Nothing is appended.
+    Settle,
+}
+
+impl HeaderStored {
+    /// The answer of a store whose [`ThreadState::patch_header`] is its write: `Ok` is stored, an error is nothing stored.
+    pub fn of_patch(patched: Result<(), PortError>) -> Self {
+        match patched {
+            Ok(()) => Self::Stored,
+            Err(error) => Self::Refused(format!("{error:?}")),
+        }
+    }
+}
+
+/// What became of a [`ThreadState::store_header`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HeaderStored {
+    /// The write's own journal record is committed.
+    Stored,
+    /// Nothing of it is stored.
+    Refused(String),
+    /// Nothing of it is stored, and nothing will be: the journal is another one, or the header no longer holds what
+    /// the write was decided on.
+    Superseded(String),
+    /// Whether its record is committed cannot be told.
+    Indeterminate(String),
 }
 
 /// A header change computed from the header as the thread's one writer holds it. It takes only

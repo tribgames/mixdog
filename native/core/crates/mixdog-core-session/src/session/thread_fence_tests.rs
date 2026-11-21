@@ -166,6 +166,9 @@ impl super::ThreadStore for HeldStore {
     fn thread_op(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<super::seams::StoredOp>, CoreError> {
         self.store.thread_op(lane, id, op)
     }
+    fn committed_op(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<super::seams::StoredOp>, CoreError> {
+        self.store.committed_op(lane, id, op)
+    }
     fn fenced_ops(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId) -> Result<Vec<String>, CoreError> {
         self.store.fenced_ops(lane, id)
     }

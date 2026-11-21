@@ -2551,6 +2551,14 @@ impl SqliteStore {
         .await
     }
 
+    /// Test support: the index row of `session`'s op `op_id` removed by a connection of its own, as a projection the index
+    /// never took leaves it. Answers whether there was one.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn forget_thread_op_elsewhere(&self, session: &str, op_id: &str) -> bool {
+        let conn = Connection::open(&self.shared.path).expect("the index opens");
+        conn.execute("DELETE FROM thread_ops WHERE session = ?1 AND op_id = ?2", params![session, op_id]).expect("the other connection's write") > 0
+    }
+
     /// Test support: `session`'s `worker` map replaced (`None`: removed) by a connection of its own, committed as another
     /// process writing the index would.
     #[cfg(any(test, feature = "test-support"))]
@@ -2832,7 +2840,7 @@ fn indexed_session(r: &rusqlite::Row<'_>) -> rusqlite::Result<crate::worker::Ind
             *summary = withheld::blank_summary(summary);
         }
     }
-    Ok(crate::worker::IndexedSession { session: r.get(0)?, created_at: r.get(1)?, worker, agent })
+    Ok(crate::worker::IndexedSession { session: r.get(0)?, created_at: r.get(1)?, worker, log_id: r.get(6)?, agent })
 }
 
 fn indexed_since(tx: &Connection, since: i64, also: Vec<String>) -> Result<Vec<crate::worker::IndexedSession>, DbError> {
@@ -2846,7 +2854,7 @@ fn indexed_since(tx: &Connection, since: i64, also: Vec<String>) -> Result<Vec<c
             sessions.push(s);
         }
     };
-    let gone = |id: String| IndexedSession { session: id, created_at: None, worker: None, agent: None };
+    let gone = |id: String| IndexedSession { session: id, created_at: None, worker: None, log_id: None, agent: None };
     let removed: Vec<String> = tx.prepare_cached(crate::worker::REMOVED_SINCE_SQL)?.query_map([since], |r| r.get(0))?.collect::<Result<_, _>>()?;
     for id in removed {
         put(&mut sessions, gone(id));

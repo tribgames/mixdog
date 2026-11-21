@@ -80,6 +80,12 @@ pub(crate) enum Ctl {
     },
     /// The user's "Retry storage" (SM §8 `PendingRollback`).
     RetryStorage,
+    /// [`Self::RetryStorage`] for a caller that waits for it: answered at once while the log holds no write of unknown
+    /// outcome, else by the retry's own answer.
+    Reconcile(tokio::sync::oneshot::Sender<Result<(), CoreError>>),
+    /// The values the actor holds now for these header keys (`null` for absent), as it projects them: what it judges a
+    /// conditional header patch against, a change it accepted and has not saved yet included.
+    Held(&'static [&'static str], tokio::sync::oneshot::Sender<serde_json::Map<String, serde_json::Value>>),
     /// A tool-policy input outside the thread changed (a setting, a connector policy).
     RefreshSurface,
     /// A client resumed the thread: what its queue holds from before a restart drains, as the desktop's resume drains the

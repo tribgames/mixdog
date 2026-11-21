@@ -480,6 +480,12 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// holds every barrier acked so far), `None` when the thread never recorded it.
     fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<StoredOp>, CoreError>;
 
+    /// Whether thread `id`'s journal holds a record of op `op`, as the authority for that operation: the record, or
+    /// `None` only when the journal is known to hold none. An index derived from the journal answers only while it is
+    /// known level with it; where it may lack the thread's rows the journal itself is read, and what cannot be
+    /// established is an error, never `None`. Every store states its own answer.
+    fn committed_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<StoredOp>, CoreError>;
+
     /// The answer the first acceptance of client submission `submission` of thread `id` got (`{kind:"started", turnId}` or
     /// `{kind:"queued", queuedId}`), once the index holds every barrier acked so far; `None` when the thread never accepted it.
     /// A store that keeps no submission index answers `None`.

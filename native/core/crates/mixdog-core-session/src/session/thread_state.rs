@@ -18,8 +18,11 @@ use serde_json::json;
 
 use super::SessionDirectory;
 use mixdog_core_ports::ports::memory_source::ThreadMessages;
+use mixdog_core_ports::ports::threads::Attempt;
+use mixdog_core_ports::ports::threads::HeaderStored;
 use mixdog_core_ports::ports::threads::HeaderUpdate;
 use mixdog_core_ports::ports::threads::HeaderUpdates;
+use mixdog_core_ports::ports::threads::HeaderWrite;
 use mixdog_core_ports::ports::threads::Section;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_ports::ports::threads::port_error;
@@ -128,6 +131,64 @@ impl SessionThreads {
     }
 }
 
+/// What the actor's answer to a stored patch establishes ([`ThreadState::store_header`]).
+///
+/// That nothing was written is established by a refusal only for a first submission: no record of the operation can
+/// exist but the one this submission would have made. For an operation submitted before, a refusal that came before
+/// the actor looked for its record (it is shutting down, its window or queue is full) says nothing of that record, and
+/// is no answer: `Indeterminate`. Then only what the lookup itself found refuses it (no record, a fence, a record of
+/// other parameters), or the barrier of the append the lookup allowed.
+fn stored_answer(attempt: Attempt, reply: Result<Reply, CoreError>) -> HeaderStored {
+    let first = attempt == Attempt::First;
+    match reply {
+        Ok(Reply::Value(value)) if value.get("absent") == Some(&Value::Bool(true)) => {
+            HeaderStored::Refused("the journal holds no record of the operation".into())
+        }
+        Ok(_) => HeaderStored::Stored,
+        Err(CoreError::PreconditionFailed { precondition }) => HeaderStored::Superseded(format!("{precondition:?}")),
+        // The lookup's own finding, or a barrier that rolled the record back: nothing of the operation is stored.
+        Err(error @ (CoreError::BarrierFailed { .. } | CoreError::OpFenced { .. } | CoreError::OpIdConflict { .. })) => {
+            HeaderStored::Refused(format!("{error:?}"))
+        }
+        // Answered before a record was accepted.
+        Err(
+            error @ (CoreError::InvalidParams { .. }
+            | CoreError::ThreadNotFound { .. }
+            | CoreError::WindowFull { .. }
+            | CoreError::QueueFull { .. }
+            | CoreError::OpIdRequired
+            | CoreError::CapabilityUnavailable { .. }),
+        ) if first => HeaderStored::Refused(format!("{error:?}")),
+        // An append whose outcome is unknown, a record that cannot be read for, an actor that ended with the request
+        // in hand, or one that refused before it looked.
+        Err(error) => HeaderStored::Indeterminate(format!("{error:?}")),
+    }
+}
+
+#[cfg(test)]
+mod stored_answer_tests {
+    use super::*;
+
+    /// A shutting-down actor refuses before it looks for the operation. For a first submission that is proof that
+    /// nothing was written; for a settle or a replay it is no answer, and never "absent".
+    #[test]
+    fn a_refusal_before_the_lookup_is_proof_only_for_a_first_submission() {
+        let unavailable = || Err(CoreError::CapabilityUnavailable { capability: "session".into(), detail: "the session is shutting down".into() });
+        assert!(matches!(stored_answer(Attempt::First, unavailable()), HeaderStored::Refused(_)));
+        for again in [Attempt::Settle, Attempt::Replay] {
+            assert!(matches!(stored_answer(again, unavailable()), HeaderStored::Indeterminate(_)), "{again:?}");
+            let full = Err(CoreError::QueueFull { queue: "control".into() });
+            assert!(matches!(stored_answer(again, full), HeaderStored::Indeterminate(_)), "{again:?}");
+            // What the lookup found is an answer.
+            let absent = Ok(Reply::Value(json!({ "absent": true })));
+            assert!(matches!(stored_answer(again, absent), HeaderStored::Refused(_)), "{again:?}");
+            let fenced = Err(CoreError::OpFenced { op_id: mixdog_core_api::ids::OpId::from("o".to_owned()) });
+            assert!(matches!(stored_answer(again, fenced), HeaderStored::Refused(_)), "{again:?}");
+            assert_eq!(stored_answer(again, Ok(Reply::Value(json!({})))), HeaderStored::Stored);
+        }
+    }
+}
+
 #[async_trait]
 impl ThreadState for SessionThreads {
     async fn header(&self, thread: &ThreadId) -> Result<Header, PortError> {
@@ -173,6 +234,43 @@ impl ThreadState for SessionThreads {
         let ctx = CallContext::internal("ports");
         let handle = self.directory.open_handle(thread, &ctx).await.map_err(port_error)?;
         handle.set_section(section).await.map_err(port_error)
+    }
+
+    /// The write goes to the thread's actor as a stored patch (`Inbox::StoredPatch`), with its operation as the
+    /// request's op (the `meta` record carries it), its `incarnation` and its `expect`: the same request each time the
+    /// operation is submitted. The actor holds the rule (`SessionActor::stored_patch`) and answers at the patch's own
+    /// barrier (`Effect::Stored`), so a save that failed is this caller's failure though the session is loaded. Nothing
+    /// is waited for after that answer: the index and the catalog follow the journal in their own time.
+    ///
+    /// A first submission to a thread that cannot be opened took nothing. One submitted before is another matter: its
+    /// record may be in a journal that cannot be read now, so that is not told; and the log's own unknown outcome, if
+    /// it has one, is settled before the actor is asked.
+    async fn store_header(&self, thread: &ThreadId, write: HeaderWrite) -> HeaderStored {
+        let ctx = CallContext::internal("ports");
+        let HeaderWrite { operation, incarnation, expect, set, unset, attempt } = write;
+        let first = attempt == Attempt::First;
+        let handle = match self.directory.open_handle(thread, &ctx).await {
+            Ok(handle) => handle,
+            Err(error) if first => return HeaderStored::Refused(format!("{error:?}")),
+            Err(error) => return HeaderStored::Indeterminate(format!("the session could not be opened to ask: {error:?}")),
+        };
+        if !first && let Err(error) = handle.storage_reconciled().await {
+            return HeaderStored::Indeterminate(format!("the log's unknown outcome is not settled: {error:?}"));
+        }
+        let params = json!({ "threadId": thread, "set": set, "unset": unset, "incarnation": incarnation, "expect": expect });
+        let op = Some(mixdog_core_api::ids::OpId::from(operation));
+        stored_answer(attempt, handle.stored_patch(CoreRequest { method: Method("thread/header/patch"), params, op, ctx }, attempt).await)
+    }
+
+    fn log_identity(&self, thread: &ThreadId) -> Option<String> {
+        self.directory.handle(thread).map(|handle| handle.log_id.to_string())
+    }
+
+    /// Asked of the thread's actor, which answers from the header as it projects it: no record is written and neither
+    /// the published header nor the index is read, so a thread whose projection failed is answered like any other.
+    async fn held_fields(&self, thread: &ThreadId, keys: &'static [&'static str]) -> Result<Map<String, Value>, PortError> {
+        let handle = self.directory.open_handle(thread, &CallContext::internal("ports")).await.map_err(port_error)?;
+        handle.held_fields(keys).await.map_err(port_error)
     }
 }
 

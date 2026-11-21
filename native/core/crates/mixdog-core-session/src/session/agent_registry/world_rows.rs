@@ -178,6 +178,14 @@ mod tests {
         fn kept(&self, _: &str) -> bool {
             false
         }
+        /// This store keeps nothing, so it can tell no session's identity.
+        fn bound(&self, _: &str) -> Option<super::super::Bound> {
+            None
+        }
+        fn release(&self, _: &mixdog_agent::agent_tool::host::ReleaseReceipt, _: bool) -> mixdog_agent::agent_tool::host::ReleaseDone {
+            use mixdog_agent::agent_tool::host::{ReleaseDone, ReleaseOutcome};
+            ReleaseDone::settled(ReleaseOutcome::Refused("this store keeps nothing".into()))
+        }
     }
 
     impl LiveSessions for Empty {

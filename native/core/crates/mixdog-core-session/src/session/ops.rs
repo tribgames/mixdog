@@ -140,6 +140,19 @@ impl OpTable {
         }
     }
 
+    /// What the table remembers of `op`, told to `waiter` without admitting it: its result once applied, its running
+    /// execution's answer, the fence or the conflict. An op it does not hold hands the waiter back.
+    pub fn settle(&mut self, op: &OpId, digest: &str, waiter: Waiter) -> Option<Waiter> {
+        match self.ops.get_mut(op) {
+            None => return Some(waiter),
+            Some(State::InProgress { digest: d, waiters }) if d == digest => waiters.push(waiter),
+            Some(State::Done { digest: d, result }) if d == digest => drop(waiter.send(Ok(Reply::Value(result.clone())))),
+            Some(State::Fenced) => drop(waiter.send(Err(CoreError::OpFenced { op_id: op.clone() }))),
+            Some(_) => drop(waiter.send(Err(CoreError::OpIdConflict { op_id: op.clone() }))),
+        }
+        None
+    }
+
     /// Attaches `waiter` to the op's running execution (answered with its result, or the error
     /// of a failed barrier); an op not running hands the waiter back.
     pub fn wait_for(&mut self, op: &OpId, waiter: Waiter) -> Option<Waiter> {

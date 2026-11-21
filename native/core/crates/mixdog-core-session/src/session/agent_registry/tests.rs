@@ -50,6 +50,10 @@ struct Store {
     revision: std::sync::atomic::AtomicU64,
     /// An index read fails.
     fail: std::sync::atomic::AtomicBool,
+    /// A release is answered refused and nothing of it is written.
+    refuse_releases: std::sync::atomic::AtomicBool,
+    /// The sessions this store can tell no identity of.
+    unknown: Mutex<HashSet<String>>,
 }
 
 impl Store {
@@ -97,6 +101,25 @@ impl WorkerStore for Store {
 
     fn kept(&self, session: &str) -> bool {
         self.kept.lock().unwrap().iter().any(|(id, _)| id == session)
+    }
+
+    /// This store names every session by its id, kept or not, unless the session is in `unknown`. Its writes are its
+    /// storage, so it has no record of a session holding anything but the registry's map.
+    fn bound(&self, session: &str) -> Option<Bound> {
+        if self.unknown.lock().unwrap().contains(session) {
+            return None;
+        }
+        let target = if WorkerStore::kept(self, session) { ReleaseTarget::Kept } else { ReleaseTarget::Header };
+        Some(Bound { target, incarnation: format!("store:{session}"), holds: None })
+    }
+
+    /// This store's write is its storage: the map is there when the write returns. While `refuse_releases` is set it stores no release and says so.
+    fn release(&self, receipt: &ReleaseReceipt, _again: bool) -> ReleaseDone {
+        if self.refuse_releases.load(Ordering::SeqCst) {
+            return ReleaseDone::settled(ReleaseOutcome::Refused("the store refuses releases".into()));
+        }
+        self.write(&receipt.session_id, Some(receipt.released.clone()));
+        ReleaseDone::settled(ReleaseOutcome::Stored)
     }
 
     async fn header(&self, session: &str) -> Option<Row> {
@@ -1215,6 +1238,12 @@ impl WorkerStore for Whole {
     fn kept_sessions(&self) -> Vec<String> {
         WorkerStore::kept_sessions(&*self.0)
     }
+    fn bound(&self, session: &str) -> Option<Bound> {
+        WorkerStore::bound(&*self.0, session)
+    }
+    fn release(&self, receipt: &ReleaseReceipt, again: bool) -> ReleaseDone {
+        WorkerStore::release(&*self.0, receipt, again)
+    }
 }
 
 /// What a registry holds of the index: every map at its place, and the agent-only sessions at theirs.
@@ -1866,6 +1895,20 @@ impl ThreadState for Detaches {
         self.stamps.lock().unwrap().push((thread.as_str().to_owned(), set.contains_key("ownerClosedAt")));
         self.headers.lock().unwrap().entry(thread.as_str().to_owned()).or_default().extend(set);
         Ok(None)
+    }
+    async fn store_header(&self, thread: &ThreadId, write: mixdog_core_ports::ports::threads::HeaderWrite) -> mixdog_core_ports::ports::threads::HeaderStored {
+        mixdog_core_ports::ports::threads::HeaderStored::of_patch(self.patch_header(thread, write.set, write.unset).await)
+    }
+    fn log_identity(&self, _: &ThreadId) -> Option<String> {
+        None
+    }
+    /// This fake holds nothing but the header it answers.
+    async fn held_fields(
+        &self,
+        thread: &ThreadId,
+        keys: &'static [&'static str],
+    ) -> Result<serde_json::Map<String, serde_json::Value>, mixdog_tools::orch::util::PortError> {
+        Ok(mixdog_core_ports::ports::threads::held_of(&self.header(thread).await?, keys))
     }
     async fn publish(&self, _: &ThreadId, _: mixdog_core_ports::ports::threads::Section) -> Result<(), mixdog_tools::orch::util::PortError> {
         Ok(())
@@ -2691,6 +2734,11 @@ struct Core {
 }
 impl Core {
     async fn up(data: &std::path::Path) -> Self {
+        Self::up_over(data, |store| store).await
+    }
+
+    /// [`Self::up`] with the sessions reading and writing through what `over` makes of the thread store.
+    async fn up_over(data: &std::path::Path, over: impl FnOnce(Arc<dyn crate::session::ThreadStore>) -> Arc<dyn crate::session::ThreadStore>) -> Self {
         let t = mixdog_rt::testing::tokens();
         let root = data.to_path_buf();
         let index = mixdog_rt::LaneToken::submit(t.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
@@ -2703,7 +2751,7 @@ impl Core {
         let ownership = Arc::new(mixdog_core_api::domain::mock::MockOwnership::default());
         let store = Arc::new(crate::session::StoreThreads::over_data_dir(data, index.clone(), ownership, t.maintenance_io).await.expect("the thread store"));
         let rig = crate::session::testing::Rig::new();
-        let directory = Arc::new(crate::session::SessionDirectory::new(Arc::new(rig.deps_parts(store.clone()))));
+        let directory = Arc::new(crate::session::SessionDirectory::new(Arc::new(rig.deps_parts(over(store.clone())))));
         let threads = Arc::new(crate::session::thread_state::SessionThreads::new(directory.clone()));
         let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &data.join("core.sqlite")).expect("core state");
         let workers = Arc::new(StoreWorkers::new(index.clone(), threads.clone(), t.interactive_io, Arc::new(KeptRows::new(state.clone()))));
@@ -2792,10 +2840,11 @@ async fn a_finished_agents_status_read_gives_the_same_facts_until_its_log_change
     let changed = status_of().await;
     assert_eq!((changed.status.as_deref(), changed.model.as_deref()), (Some("failed"), Some("m-1")), "the log changed, so the record is read again");
 }
-/// A kept write the table refused stays queued and reaches the table once it takes writes again (Node's index queue keeps a
-/// failed write and retries it, `index-write-queue.mjs:231-245`), with no later write of the session to carry it.
+/// A kept write the table refused is answered failed and is not made again by the writer, on a timer or by a flush: the
+/// flush that covers it is refused, and the session's next write, once the table takes writes again, stores what the
+/// session is owed and leaves no failure behind.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_kept_row_the_table_refused_reaches_it_when_the_table_takes_writes_again() {
+async fn a_kept_row_the_table_refused_is_failed_until_the_sessions_next_write_is_stored() {
     let dir = tempfile::tempdir().unwrap();
     let core = Core::up(dir.path()).await;
     // A second writer holding the file's write lock: the table refuses every write until it lets go.
@@ -2815,15 +2864,16 @@ async fn a_kept_row_the_table_refused_reaches_it_when_the_table_takes_writes_aga
     lock_held.recv_timeout(std::time::Duration::from_secs(60)).expect("the lock was taken within the deadline");
     let row = obj(json!({ "sessionId": "s-owed", "tag": "owed", "status": "failed" }));
     WorkerStore::keep(&*core.workers, "s-owed", Some(row.clone()));
-    // Node's `flush` rejects while a batch is unpersisted: the barrier is not settled while a write is owed.
     let flushed = core.workers.settled().await;
-    assert!(flushed.is_err(), "a write is still owed, so the flush is refused: {flushed:?}");
-    let stored = || async { core.state.meta_prefix("agent-kept-worker:").await.unwrap() };
-    assert!(stored().await.is_empty(), "the table refused the write");
+    assert!(flushed.as_ref().is_err_and(|error| error.contains("s-owed")), "the flush covers the refused write: {flushed:?}");
     unlock.send(()).unwrap();
     holder.await.unwrap().unwrap();
-    core.workers.settled().await.expect("nothing is owed once the table took the write");
-    assert_eq!(stored().await, [("agent-kept-worker:s-owed".to_owned(), serde_json::to_string(&row).unwrap())], "the table took the write once it could");
+    let stored = || async { core.state.meta_prefix("agent-kept-worker:").await.unwrap() };
+    assert!(core.workers.settled().await.is_err(), "the refused write is not made again by a flush");
+    assert!(stored().await.is_empty(), "the table still lacks the row");
+    WorkerStore::keep(&*core.workers, "s-owed", Some(row.clone()));
+    core.workers.settled().await.expect("the session's next write stored what it is owed");
+    assert_eq!(stored().await, [("agent-kept-worker:s-owed".to_owned(), serde_json::to_string(&row).unwrap())]);
 }
 /// `restart-notify.mjs:104-109`: the notice is stored under its stable id before the row is stamped. A real process (this test
 /// binary again) is ended by the crate's crash gate on either side of the store, then the core starts again on the same data
@@ -3264,6 +3314,8 @@ struct HeldStamps {
     hold: Mutex<Option<(usize, tokio::sync::oneshot::Sender<String>, tokio::sync::oneshot::Receiver<()>)>>,
     /// The sessions whose stamp fails.
     refused: Mutex<HashSet<String>>,
+    /// The stamp of session `.0` waits before it lands: it tells `.1`, then waits for `.2`.
+    hold_of: Mutex<Option<(String, tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>,
 }
 
 #[async_trait]
@@ -3293,9 +3345,31 @@ impl ThreadState for HeldStamps {
             let _ = arrived.send(thread.as_str().to_owned());
             let _ = go.await;
         }
+        let held_of = {
+            let mut hold = self.hold_of.lock().unwrap();
+            if hold.as_ref().is_some_and(|(session, _, _)| session == thread.as_str()) { hold.take() } else { None }
+        };
+        if let Some((_, arrived, go)) = held_of {
+            let _ = arrived.send(());
+            let _ = go.await;
+        }
         self.stamps.lock().unwrap().push(thread.as_str().to_owned());
         self.headers.lock().unwrap().entry(thread.as_str().to_owned()).or_default().extend(set);
         Ok(None)
+    }
+    async fn store_header(&self, thread: &ThreadId, write: mixdog_core_ports::ports::threads::HeaderWrite) -> mixdog_core_ports::ports::threads::HeaderStored {
+        mixdog_core_ports::ports::threads::HeaderStored::of_patch(self.patch_header(thread, write.set, write.unset).await)
+    }
+    fn log_identity(&self, _: &ThreadId) -> Option<String> {
+        None
+    }
+    /// This fake holds nothing but the header it answers.
+    async fn held_fields(
+        &self,
+        thread: &ThreadId,
+        keys: &'static [&'static str],
+    ) -> Result<serde_json::Map<String, serde_json::Value>, mixdog_tools::orch::util::PortError> {
+        Ok(mixdog_core_ports::ports::threads::held_of(&self.header(thread).await?, keys))
     }
     async fn publish(&self, _: &ThreadId, _: mixdog_core_ports::ports::threads::Section) -> Result<(), mixdog_tools::orch::util::PortError> {
         Ok(())
@@ -4035,14 +4109,146 @@ async fn a_release_leaves_the_member_a_turn_started_on_since_its_close() {
     let judged: HashMap<_, _> = members.into_iter().map(|(id, _)| (id.to_owned(), registry.turn_mark(id))).collect();
     crate::session::TurnStarts::turn_started(&registry, &"sess_b".into(), &"direct".into());
 
-    let released = registry.release_closed_at(Some("a"), "sess_a", &["sess_b".to_owned(), "sess_c".to_owned()], &judged);
-    assert_eq!(released, ["sess_a"]);
+    let mixdog_agent::agent_tool::host::Released { releases: released, spared } =
+        registry.release_closed_at(&lead("lead"), Some("a"), "sess_a", &["sess_b".to_owned(), "sess_c".to_owned()], &judged);
+    assert_eq!(released.iter().map(|release| release.receipt.session_id.as_str()).collect::<Vec<_>>(), ["sess_a"]);
+    assert_eq!(spared.iter().map(|member| member.session_id.as_str()).collect::<Vec<_>>(), ["sess_b", "sess_c"], "each spared member is answered");
+    assert!(spared.iter().all(|member| member.reason.contains("started another turn")), "{spared:?}");
+    let receipt = &released[0].receipt;
+    let held_before = Some(worker_row("sess_a", "a", owned.clone()));
+    assert_eq!((receipt.incarnation.as_str(), receipt.prior.as_ref()), ("store:sess_a", held_before.as_ref()), "decided on the map the registry held");
+    assert_eq!((receipt.tag.as_deref(), &receipt.turn, receipt.released.contains_key("releasedAt")), (Some("a"), &judged["sess_a"], true));
+    assert_eq!(rig.store.map("sess_a").as_ref(), Some(&receipt.released), "the receipt names the map that was written");
     assert!(rig.store.map("sess_a").is_some_and(|map| !map.contains_key("sessionId")), "the released member's row goes");
     for (kept, tag) in [("sess_b", "b"), ("sess_c", "c")] {
         assert!(!registry.is_released(kept) && rig.store.map(kept).is_some_and(|map| map.contains_key("sessionId")), "{kept} keeps its row");
         assert_eq!(registry.tag_for_session(kept).as_deref(), Some(tag));
     }
     assert!(registry.is_released("sess_a"));
+}
+
+/// A tree is counted closed only when every member the cleanup planned to release has a receipt. A descendant a direct
+/// turn started on after its close stamp landed and before the tree was released is spared by the turn fence and has
+/// none: the tree is partial, the member is named, and the root that did close is released as in any partial tree.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tree_whose_descendant_started_a_turn_before_its_release_is_not_counted_closed() {
+    use mixdog_agent::agent_tool::host::Registry;
+    let (world, arrived, go) = cleanup_world(0).await;
+    let parent = world.workers[0].0.clone();
+    let below = json!({ "parentSessionId": parent, "ownerSessionId": parent });
+    world.rig.store.sessions.lock().unwrap().push(session("sess_kid", "kid", &at(NOW - HOUR), below.clone()));
+    world.rig.store.write_row("sess_kid", Some(worker_row("sess_kid", "kid", below)));
+    world.rig.store.touch_sessions();
+    // The root is stamped last: while its stamp waits, the descendant's has landed and the tree is not released yet.
+    let (root_told, root_arrived) = tokio::sync::oneshot::channel();
+    let (root_go, root_held) = tokio::sync::oneshot::channel();
+    *world.threads.hold_of.lock().unwrap() = Some((parent.clone(), root_told, root_held));
+    let cleanup = world.cleanup(mixdog_rt::CancellationToken::new());
+    arrived.await.expect("the first close stamps");
+    go.send(()).unwrap();
+    root_arrived.await.expect("the root's close stamps");
+    assert!(world.threads.stamps.lock().unwrap().contains(&"sess_kid".to_owned()), "the descendant's stamp landed first");
+    crate::session::TurnStarts::turn_started(&*world.registry, &ThreadId::from("sess_kid"), &"direct".into());
+    root_go.send(()).unwrap();
+    let report = cleanup.await.unwrap().unwrap();
+
+    assert_eq!(report.agents_closed, CLEANUP_WORKERS as u64 - 1, "the tree with a member that has no receipt is not counted: {report:?}");
+    // The spared member is its own outcome, under its own id and with its own reason.
+    let named: Vec<&Value> = report.not_closed.iter().filter(|entry| entry["sessionId"] == json!("sess_kid")).collect();
+    assert!(
+        matches!(named[..], [entry] if entry["reason"].as_str().is_some_and(|reason| reason.contains("sess_kid") && reason.contains("started another turn"))),
+        "{:?}",
+        report.not_closed
+    );
+    assert!(world.registry.is_released(&parent), "the root that closed is released");
+    assert!(!world.registry.is_released("sess_kid") && world.rig.store.map("sess_kid").is_some_and(|map| map.contains_key("sessionId")), "the fence spared it");
+}
+
+/// A release that was not stored is recovered by the scope its tree was released under. A descendant's own owner is the
+/// agent above it, which the cleanup's scope does not own: it is recovered all the same, with its root, and a cleanup
+/// of another Lead recovers neither.
+#[tokio::test]
+async fn a_descendants_unstored_release_is_recovered_by_the_scope_that_released_its_tree() {
+    use mixdog_agent::agent_tool::host::Registry;
+    let rig = Rig::new();
+    let owned = json!({ "parentSessionId": "lead", "ownerSessionId": "lead" });
+    let below = json!({ "parentSessionId": "sess_root", "ownerSessionId": "sess_root" });
+    for (id, tag, owner) in [("sess_root", "root", &owned), ("sess_kid", "kid", &below)] {
+        rig.store.sessions.lock().unwrap().push(session(id, tag, &at(NOW - HOUR), owner.clone()));
+        rig.store.write_row(id, Some(worker_row(id, tag, owner.clone())));
+    }
+    // A descendant with no worker map at all: it has no owner of its own to match a scope on.
+    rig.store.sessions.lock().unwrap().push(session("sess_bare", "bare", &at(NOW - HOUR), below));
+    rig.store.touch_sessions();
+    let registry = AgentRegistry::new(rig.store.clone(), rig.live.clone(), Arc::new(Hour), rig.clock.clone());
+    registry.refresh_tags_from_sessions(false, &lead("lead")).await;
+    let members = ["sess_root", "sess_kid", "sess_bare"];
+    let judged: HashMap<_, _> = members.into_iter().map(|id| (id.to_owned(), registry.turn_mark(id))).collect();
+
+    rig.store.refuse_releases.store(true, Ordering::SeqCst);
+    let released = registry.release_closed_at(&lead("lead"), Some("root"), "sess_root", &["sess_kid".to_owned(), "sess_bare".to_owned()], &judged).releases;
+    assert_eq!(released.len(), 3);
+    assert!(released.iter().all(|release| matches!(release.done.now(), Some(ReleaseOutcome::Refused(_)))), "the store refused each");
+    assert!(rig.store.map("sess_kid").is_some_and(|map| map.contains_key("sessionId")), "nothing of the refused release is stored");
+
+    rig.store.refuse_releases.store(false, Ordering::SeqCst);
+    assert!(registry.recover_releases(&lead("other")).is_empty(), "another Lead's cleanup recovers none of them");
+    let mut again = registry.recover_releases(&lead("lead"));
+    again.sort_by(|a, b| a.receipt.session_id.cmp(&b.receipt.session_id));
+    assert_eq!(again.iter().map(|release| release.receipt.session_id.as_str()).collect::<Vec<_>>(), ["sess_bare", "sess_kid", "sess_root"]);
+    for (release, first) in again.iter().zip({
+        let mut first: Vec<_> = released.iter().map(|release| &release.receipt).collect();
+        first.sort_by(|a, b| a.session_id.cmp(&b.session_id));
+        first
+    }) {
+        assert_eq!(release.done.now(), Some(ReleaseOutcome::Stored));
+        assert_eq!((&release.receipt.operation, &release.receipt.incarnation), (&first.operation, &first.incarnation), "the same operation, not a new one");
+        assert_eq!(rig.store.map(&release.receipt.session_id).as_ref(), Some(&release.receipt.released));
+    }
+    assert!(registry.recover_releases(&lead("lead")).is_empty() && registry.lock().releases.is_empty(), "nothing is left to recover");
+}
+
+/// Unknown identity means no release decision. A member whose store can tell no identity of its session is spared before
+/// anything of it changes: its tag stays bound, its map and its revision are as they were, no release is held for it
+/// and it is not reported released; it is answered with its own reason, which is not a turn's. A member whose earlier
+/// release is of unknown outcome is spared the same way: nothing is decided over it.
+#[tokio::test]
+async fn a_member_whose_identity_is_unknown_is_spared_with_nothing_of_it_changed() {
+    use mixdog_agent::agent_tool::host::Registry;
+    let rig = Rig::new();
+    let owned = json!({ "parentSessionId": "lead", "ownerSessionId": "lead" });
+    let below = json!({ "parentSessionId": "sess_root", "ownerSessionId": "sess_root" });
+    for (id, tag, owner) in [("sess_root", "root", &owned), ("sess_kid", "kid", &below)] {
+        rig.store.sessions.lock().unwrap().push(session(id, tag, &at(NOW - HOUR), owner.clone()));
+        rig.store.write_row(id, Some(worker_row(id, tag, owner.clone())));
+    }
+    rig.store.touch_sessions();
+    let registry = AgentRegistry::new(rig.store.clone(), rig.live.clone(), Arc::new(Hour), rig.clock.clone());
+    registry.refresh_tags_from_sessions(false, &lead("lead")).await;
+    let judged: HashMap<_, _> = ["sess_root", "sess_kid"].into_iter().map(|id| (id.to_owned(), registry.turn_mark(id))).collect();
+    let held = |id: &str| {
+        let st = registry.lock();
+        (st.map(id).cloned(), st.writes, st.releases.contains_key(id))
+    };
+    let before = (held("sess_root"), held("sess_kid"));
+
+    rig.store.unknown.lock().unwrap().extend(["sess_root".to_owned(), "sess_kid".to_owned()]);
+    let released = registry.release_closed_at(&lead("lead"), Some("root"), "sess_root", &["sess_kid".to_owned()], &judged);
+    assert!(released.releases.is_empty(), "no release was decided");
+    assert_eq!(released.spared.iter().map(|member| member.session_id.as_str()).collect::<Vec<_>>(), ["sess_root", "sess_kid"]);
+    assert!(released.spared.iter().all(|member| member.reason.contains("identity") && !member.reason.contains("turn")), "{:?}", released.spared);
+    assert_eq!((held("sess_root"), held("sess_kid")), before, "neither map, revision nor held release moved");
+    assert_eq!(registry.tag_session("root").as_deref(), Some("sess_root"), "the root's tag is still bound");
+    assert!(!registry.is_released("sess_root") && !registry.is_released("sess_kid"));
+    assert!(rig.store.map("sess_kid").is_some_and(|map| map.contains_key("sessionId")), "nothing was written");
+
+    // Known again, the root is released; its descendant alone stays spared, and the next cleanup decides it afresh.
+    rig.store.unknown.lock().unwrap().remove("sess_root");
+    let released = registry.release_closed_at(&lead("lead"), Some("root"), "sess_root", &["sess_kid".to_owned()], &judged);
+    assert_eq!(released.releases.iter().map(|release| release.receipt.session_id.as_str()).collect::<Vec<_>>(), ["sess_root"]);
+    assert_eq!(released.spared.iter().map(|member| member.session_id.as_str()).collect::<Vec<_>>(), ["sess_kid"]);
+    let (kid, was) = (held("sess_kid"), before.1);
+    assert_eq!((kid.0, kid.2), (was.0, was.2));
 }
 
 /// The tombstones a cleanup's refresh leaves of stale rows are announced with what it closes, not one by one before it.
@@ -4067,3 +4273,6 @@ async fn the_stale_rows_a_cleanups_refresh_tombstones_are_announced_with_its_clo
     cleanup.await.unwrap().unwrap();
     assert_eq!(world.announcements() - announced, 1, "one announcement for the tombstones and the closes");
 }
+
+#[path = "release_receipt_tests.rs"]
+mod release_receipt_tests;

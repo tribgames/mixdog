@@ -35,9 +35,9 @@ impl SessionActor {
         let error = refused.as_ref().unwrap_or(error);
         for effect in entry.effects {
             match effect {
-                effect @ (Effect::Reply { .. } | Effect::Kept { .. }) => {
+                effect @ (Effect::Reply { .. } | Effect::Kept { .. } | Effect::Stored { .. }) => {
                     let (op, tx) = match effect {
-                        Effect::Reply { op, tx, .. } => (op, tx),
+                        Effect::Reply { op, tx, .. } | Effect::Stored { op, tx, .. } => (op, tx),
                         Effect::Kept { tx, .. } => (None, tx),
                         _ => unreachable!("matched above"),
                     };

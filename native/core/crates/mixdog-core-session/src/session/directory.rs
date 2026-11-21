@@ -145,6 +145,21 @@ pub trait OwnerTeardown: Send + Sync {
     async fn teardown(&self, owner: &ThreadId, reason: &str);
 }
 
+/// The writes a shutdown owes the threads before it stops them: the worker rows accepted so far are header records of
+/// sessions that are still loaded, or still open through their actor, only until then.
+#[async_trait]
+pub trait RowWrites: Send + Sync {
+    /// Stops taking writes bound for a session's header, then resolves once every row write accepted before that was
+    /// put or refused.
+    async fn drain(&self);
+    /// The cutoff: the directory drains its slots next, and the header writes a drain that overran left are settled
+    /// here, before this returns, not when their session's put comes back. One still queued was provably not submitted
+    /// and is answered refused; one at its put may have reached its journal and is answered indeterminate, never
+    /// refused because the time ran out. None is taken from here on, so nothing opens a session. Writes to the tables
+    /// that need no session go on until their writer is shut down.
+    fn headers_closed(&self);
+}
+
 /// What a runtime's teardown does to the session it holds: `closeOwnSession` (`teardown/session-close.mjs:42-60`)
 /// closes it with the teardown's reason, tombstoning an empty scratch session and detaching any other
 /// (`closeSession(id, reason, { tombstone: isScratchSession(session) })`), which bumps the record's generation.
@@ -403,6 +418,8 @@ pub(crate) struct DirInner {
     owner_teardown: std::sync::OnceLock<Arc<dyn OwnerTeardown>>,
     /// What each runtime's teardown does to its own session (`ExitClose`).
     exit_close: std::sync::OnceLock<Arc<dyn ExitClose>>,
+    /// The row writes drained before the threads stop (`RowWrites`).
+    row_writes: std::sync::OnceLock<Arc<dyn RowWrites>>,
     /// The threads that are listed before they are there (`ArrivingThreads`).
     arriving: std::sync::OnceLock<Arc<dyn ArrivingThreads>>,
     /// Where a thread's moved live facts republish its roster row (every cell holds it).
@@ -411,6 +428,8 @@ pub(crate) struct DirInner {
     stop_latches: Arc<super::control::StopLatches>,
     /// The shutdown began: the session service is closed.
     closed: std::sync::atomic::AtomicBool,
+    /// The shutdown drains the slots: no thread is opened from here, whoever asks ([`Self::open_with`]).
+    sealed: std::sync::atomic::AtomicBool,
     /// The close work of each unloaded runtime still running, by thread: the next open of the thread waits for it.
     teardowns: Mutex<HashMap<ThreadId, watch::Receiver<()>>>,
     /// The control thread paired phones share (`SessionDirectory::remote_control`); `None` until one starts it.
@@ -929,6 +948,11 @@ impl DirInner {
     async fn open_with(&self, id: &ThreadId, ctx: &CallContext, for_use: bool) -> Result<Arc<SessionHandle>, CoreError> {
         let mut rx = {
             let mut shard = lock(self.shard(id));
+            // Read under the shard lock the shutdown drains this shard under, after it set the seal: an open either
+            // finds the seal or has its slot drained.
+            if self.sealed.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(CoreError::ThreadClosing { thread_id: id.clone() });
+            }
             match shard.get(id) {
                 Some(Slot_::Loaded(handle)) => return Ok(handle.clone()),
                 Some(Slot_::Loading(rx)) => (**rx).clone(),
@@ -1124,6 +1148,7 @@ impl DirInner {
             lineage: lineage.clone(),
             deps: deps.clone(),
             directory: self.me.clone(),
+            log_id: Arc::from(log_id.as_str()),
             reactions: Default::default(),
             submits: Default::default(),
             image_gate: Default::default(),
@@ -1819,10 +1844,12 @@ impl SessionDirectory {
             quota_events: Mutex::new(None),
             owner_teardown: std::sync::OnceLock::new(),
             exit_close: std::sync::OnceLock::new(),
+            row_writes: std::sync::OnceLock::new(),
             arriving: std::sync::OnceLock::new(),
             live_rows: Default::default(),
             stop_latches: Default::default(),
             closed: Default::default(),
+            sealed: Default::default(),
             teardowns: Default::default(),
             remote_control: tokio::sync::Semaphore::new(1),
             remote_thread: Mutex::default(),
@@ -2499,6 +2526,11 @@ impl SessionDirectory {
         self.inner.owner_teardown.set(hook).map_err(|_| "the owner teardown is already bound")
     }
 
+    /// Binds the row writes a shutdown drains before it stops the threads; once.
+    pub fn set_row_writes(&self, writes: Arc<dyn RowWrites>) -> Result<(), &'static str> {
+        self.inner.row_writes.set(writes).map_err(|_| "the row writes are already bound")
+    }
+
     /// Binds the threads that are listed before they are there; once.
     pub fn set_arriving(&self, arriving: Arc<dyn ArrivingThreads>) -> Result<(), &'static str> {
         self.inner.arriving.set(arriving).map_err(|_| "the arriving threads are already bound")
@@ -2564,6 +2596,23 @@ impl SessionDirectory {
             }))
             .await;
         }
+        // The agents' closes and the sessions' own have ended: the rows they released are put while the actors that
+        // write them are still here.
+        // The rule this order enforces: header admission is sealed as the drain begins; at the cutoff below a header
+        // write still queued is answered refused and one at its put indeterminate, both there and then, so a session
+        // whose put never returns holds no receipt of its own or of another session; the kept and the Lead table are
+        // written until the row writer itself is shut down, after the directory.
+        if let Some(writes) = self.inner.row_writes.get() {
+            if mixdog_rt::time::timeout(CLOSE_ALL_DEADLINE, writes.drain()).await.is_err() {
+                tracing::warn!("the worker rows were not all put before the sessions stopped");
+            }
+            writes.headers_closed();
+        }
+        // The ability to open ends here, where it lives, for every caller: a header write still at its put when the
+        // drain above overran opens no thread behind the drained slots. The slots are drained and their actors stopped
+        // only after it: a put that reached its actor is finished or failed by that actor's own stop, which is what
+        // owns the journal until then, and one that reaches it later is not applied (`SessionActor::stored_patch`).
+        self.inner.sealed.store(true, std::sync::atomic::Ordering::SeqCst);
         let handles = self.drain_slots();
         self.stop_loaded(handles).await;
         // Each runtime's teardown ends with `dispose()` of its side checkouts: no snapshot

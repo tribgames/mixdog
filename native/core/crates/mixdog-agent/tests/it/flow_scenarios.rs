@@ -383,6 +383,23 @@ impl Registry for Reg {
         log(&self.0.log, json!(format!("forget:{}:{session_id}", tag.unwrap_or_default())));
     }
     fn remove_worker_row(&self, _: &str) {}
+    /// This registry's writes are its store: what it released is there when the call returns.
+    fn release_closed_at(
+        &self,
+        scope: &Scope,
+        tag: Option<&str>,
+        root: &str,
+        descendants: &[String],
+        at: &std::collections::HashMap<String, Option<mixdog_agent::agent_tool::host::TurnMark>>,
+    ) -> mixdog_agent::agent_tool::host::Released {
+        use mixdog_agent::agent_tool::host::{Release, ReleaseOutcome, Released};
+        self.release_closed(scope, tag, root, descendants);
+        let releases = std::iter::once(root.to_owned())
+            .chain(descendants.iter().cloned())
+            .map(|id| Release::answered(id.clone(), tag.filter(|_| id == root).map(str::to_owned), at.get(&id).cloned().flatten(), ReleaseOutcome::Stored))
+            .collect();
+        Released { releases, spared: Vec::new() }
+    }
     fn mark_released(&self, _: &[String]) {}
     fn read_worker_rows(&self, _: &Scope) -> Result<Vec<TagRecord>, String> {
         Ok(Vec::new())
