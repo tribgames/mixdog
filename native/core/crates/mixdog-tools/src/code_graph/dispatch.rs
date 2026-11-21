@@ -66,6 +66,43 @@ pub(super) fn run(args: &Args, default_cwd: &Path, env: &Env<'_>) -> Result<Answ
     run_scoped(args, default_cwd, env, &[])
 }
 
+/// `runCodeGraphWork`: `symbols[]` and `files[]` fan out into `# <mode> <item>` sections.
+fn answer_sections(mode: &str, args: &Args, base: &Path, default_cwd: &Path, root: &PathBuf, graph: &Lease) -> Result<Section, String> {
+    let mode = if mode == "symbols" && args.body == Some(true) && !args.symbol_list().is_empty() { "find_symbol" } else { mode };
+    let batch_mode = if mode == "search" { "symbol_search" } else { mode };
+    // A mode's failure fails the call; inside a fan-out it is that section's `Error:` body (`_fanoutSections`).
+    let raw = |a: &Args| -> Result<Section, String> { answer(mode, a, base, default_cwd, root, graph, a.file.as_deref()).map(Section::whole) };
+    let caught = |section: Result<Section, String>| section.unwrap_or_else(|e| Section::whole(format!("Error: {e}")));
+    // `files` scopes the symbol modes: one entry becomes the anchor, several fan out per file.
+    let scope_files = if BATCHABLE.contains(&batch_mode) && args.file.as_deref().is_none_or(|f| f.trim().is_empty()) { args.file_list() } else { Vec::new() };
+    let one = |a: &Args| -> Result<Section, String> {
+        match scope_files.as_slice() {
+            [] => raw(a),
+            [only] => raw(&a.with_file(only)),
+            many => Ok(fanout(many, |f| format!("file {f}"), |f| caught(raw(&a.with_file(f))))),
+        }
+    };
+    if BATCHABLE.contains(&batch_mode) {
+        let list = args.symbol_list();
+        match list.as_slice() {
+            [] => {}
+            [only] if args.symbol.as_deref() == Some(only.as_str()) => {}
+            [only] => return one(&args.with_symbol(only)),
+            many => return Ok(fanout(many, |s| format!("{batch_mode} {s}"), |s| caught(one(&args.with_symbol(s))))),
+        }
+    }
+    if FILE_BATCHABLE.contains(&batch_mode) {
+        let list = args.file_list();
+        match list.as_slice() {
+            [] => {}
+            [only] if args.file.as_deref() == Some(only.as_str()) => {}
+            [only] => return one(&args.with_file(only)),
+            many => return Ok(fanout(many, |f| format!("{batch_mode} {f}"), |f| caught(one(&args.with_file(f))))),
+        }
+    }
+    one(args)
+}
+
 /// One call. `excluded` are nested project roots a federated child must not re-index.
 pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, excluded: &[PathBuf]) -> Result<Answer, String> {
     let base = match &args.cwd {
@@ -160,45 +197,9 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
             return Err("code_graph: could not verify the current project sources; run it again".to_owned());
         }
 
-        // `runCodeGraphWork`: `symbols[]` and `files[]` fan out into `# <mode> <item>` sections.
-        let mode = if mode == "symbols" && args.body == Some(true) && !args.symbol_list().is_empty() { "find_symbol" } else { mode };
-        let batch_mode = if mode == "search" { "symbol_search" } else { mode };
         let mut warnings = Warnings::default();
         warnings.collect(one_file, &root, &graph);
-        // A mode's failure fails the call; inside a fan-out it is that section's `Error:` body (`_fanoutSections`).
-        let raw = |a: &Args| -> Result<Section, String> { answer(mode, a, &base, default_cwd, &root, &graph, a.file.as_deref()).map(Section::whole) };
-        let caught = |section: Result<Section, String>| section.unwrap_or_else(|e| Section::whole(format!("Error: {e}")));
-        // `files` scopes the symbol modes: one entry becomes the anchor, several fan out per file.
-        let scope_files =
-            if BATCHABLE.contains(&batch_mode) && args.file.as_deref().is_none_or(|f| f.trim().is_empty()) { args.file_list() } else { Vec::new() };
-        let one = |a: &Args| -> Result<Section, String> {
-            match scope_files.as_slice() {
-                [] => raw(a),
-                [only] => raw(&a.with_file(only)),
-                many => Ok(fanout(many, |f| format!("file {f}"), |f| caught(raw(&a.with_file(f))))),
-            }
-        };
-        let section = 'work: {
-            if BATCHABLE.contains(&batch_mode) {
-                let list = args.symbol_list();
-                match list.as_slice() {
-                    [] => {}
-                    [only] if args.symbol.as_deref() == Some(only.as_str()) => {}
-                    [only] => break 'work one(&args.with_symbol(only)),
-                    many => break 'work Ok(fanout(many, |s| format!("{batch_mode} {s}"), |s| caught(one(&args.with_symbol(s))))),
-                }
-            }
-            if FILE_BATCHABLE.contains(&batch_mode) {
-                let list = args.file_list();
-                match list.as_slice() {
-                    [] => {}
-                    [only] if args.file.as_deref() == Some(only.as_str()) => {}
-                    [only] => break 'work one(&args.with_file(only)),
-                    many => break 'work Ok(fanout(many, |f| format!("{batch_mode} {f}"), |f| caught(one(&args.with_file(f))))),
-                }
-            }
-            one(&args)
-        }?;
+        let section = answer_sections(mode, &args, &base, default_cwd, &root, &graph)?;
         if graph.source_stale() || !graph.resolver_inputs_current() {
             if attempt == 0 {
                 attempt = 1;

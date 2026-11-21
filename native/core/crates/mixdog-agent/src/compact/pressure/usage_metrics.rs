@@ -1,12 +1,8 @@
-//! The usage figures a session header keeps, written per model call and at the turn's end
-//! (`session/manager/usage-metrics.mjs`: `persistIterationMetrics`, `accumulateSessionUsage`,
-//! `recordLastContextTokens`, `applyAskTerminalUsageTotals`, `bumpUsageMetricsTurnId`,
-//! `bumpUsageMetricsEpoch`; `shared/usage-readout-totals.mjs`: `foldUsageReadout`;
-//! `shared/llm/reasoning-usage.mjs`).
+//! The usage figures a session header keeps, written per model call and at the turn's end.
 //!
 //! Like the pressure state beside it, every operation is a pure function from the session header
-//! to a [`HeaderPatch`]. A model call arrives as Node's `usageDeltaEvent` record; whether the
-//! provider's `input_tokens` leaves the cache out (`providerInputExcludesCache`) is the caller's.
+//! to a [`HeaderPatch`]. A model call arrives as a `usageDeltaEvent` record; whether the provider's
+//! `input_tokens` leaves the cache out is the caller's to say.
 
 use mixdog_js::math::round;
 use serde_json::Map;
@@ -185,15 +181,7 @@ struct Reading {
     output_in_window: bool,
 }
 
-/// `persistIterationMetrics(delta)`: one model call of the session, from Node's `usageDeltaEvent`.
-/// `now` is `Date.now()`, for a delta that carries no `ts`.
-///
-/// Node keeps an idempotency set per session so that a retried report of the same call counts once;
-/// a call here is reported once, so every report counts.
-pub fn iteration_metrics(session: &Header, delta: &Value, input_excludes_cache: bool, now: f64) -> HeaderPatch {
-    let mut patch = HeaderPatch::default();
-    let stated_ts = number_or_zero(delta.get("ts"));
-    let ts = if stated_ts == 0.0 { now } else { stated_ts };
+fn resolved_epoch(session: &Header, delta: &Value) -> f64 {
     // `resolveUsageMetricsEpoch`: the loop's epoch, or one more when the iteration counter went back
     // without the loop saying so.
     let stored_epoch = number_or_zero(session.get("usageMetricsEpoch"));
@@ -207,11 +195,10 @@ pub fn iteration_metrics(session: &Header, delta: &Value, input_excludes_cache: 
     if stated.is_none() && index.is_finite() && previous.is_some_and(|previous| index < previous) {
         epoch += 1.0;
     }
-    if epoch != stored_epoch {
-        patch.put("usageMetricsEpoch", num(epoch));
-    }
-    accumulate(session, &mut patch, delta, input_excludes_cache);
-    patch.put("usageReadout", fold_usage_readout(session.get("usageReadout"), delta, delta.get("requestMs")));
+    epoch
+}
+
+fn record_last_context(patch: &mut HeaderPatch, delta: &Value, input_excludes_cache: bool, ts: f64) {
     // `recordLastContextTokens(session, iterationContext(delta))`: each context field defaults to the
     // delta's own token count when the delta does not state it.
     let context = |key: &str, fallback: &str| delta.get(key).or_else(|| delta.get(fallback));
@@ -225,8 +212,8 @@ pub fn iteration_metrics(session: &Header, delta: &Value, input_excludes_cache: 
         None => prompt > 0.0,
     };
     if !prompt_known {
-        if !apply_occupancy(&mut patch, delta.get("contextMeasuredTokens"), output, ts) {
-            clear_last(&mut patch, output, ts);
+        if !apply_occupancy(patch, delta.get("contextMeasuredTokens"), output, ts) {
+            clear_last(patch, output, ts);
         }
     } else {
         let in_window = delta.get("contextOutputInWindow") == Some(&Value::Bool(true));
@@ -237,8 +224,22 @@ pub fn iteration_metrics(session: &Header, delta: &Value, input_excludes_cache: 
             cache_write: number_or_zero(cache_write),
             output_in_window: in_window,
         };
-        set_last(&mut patch, &reading, input_excludes_cache, ts);
+        set_last(patch, &reading, input_excludes_cache, ts);
     }
+}
+
+/// One model call of the session, from its `usageDeltaEvent`. `now` stands in for a delta that carries no `ts`.
+pub fn iteration_metrics(session: &Header, delta: &Value, input_excludes_cache: bool, now: f64) -> HeaderPatch {
+    let mut patch = HeaderPatch::default();
+    let stated_ts = number_or_zero(delta.get("ts"));
+    let ts = if stated_ts == 0.0 { now } else { stated_ts };
+    let epoch = resolved_epoch(session, delta);
+    if epoch != number_or_zero(session.get("usageMetricsEpoch")) {
+        patch.put("usageMetricsEpoch", num(epoch));
+    }
+    accumulate(session, &mut patch, delta, input_excludes_cache);
+    patch.put("usageReadout", fold_usage_readout(session.get("usageReadout"), delta, delta.get("requestMs")));
+    record_last_context(&mut patch, delta, input_excludes_cache, ts);
     patch.put("lastIterationIndex", delta.get("iterationIndex").cloned().unwrap_or(Value::Null));
     patch.put("updatedAt", num(ts));
     patch

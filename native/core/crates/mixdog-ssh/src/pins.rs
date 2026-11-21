@@ -289,10 +289,6 @@ fn minus<'a>(from: &'a [KnownEntry], take: &[KnownEntry]) -> Vec<&'a KnownEntry>
         .collect()
 }
 
-/// Refuses unless the entries for every endpoint of the route in the files its ssh consults are still exactly the ones the user
-/// was shown, as many times each, and gives them as they are now. The one addition that is the confirmation's own is the app's own pin of a key
-/// `claims` holds, for its very endpoint (another desktop that confirmed the same key first): any other entry holding that key (a
-/// wildcard, a hand-made line) is the user's policy. A revocation that came since names the reason itself.
 fn still_holds(shown: &[EndpointTrust], own: &Path, claims: &[Claim]) -> Result<Vec<EndpointTrust>, StateError> {
     let mut now = Vec::new();
     for endpoint in shown {

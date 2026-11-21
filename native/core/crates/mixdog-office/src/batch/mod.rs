@@ -1,20 +1,3 @@
-//! The atomic batch of the office engine (`core/office-actions-batch.mjs`): a list of operations applied to a session's document
-//! all together or not at all.
-//!
-//! - [`prepare`]: what the batch runs. The operations are checked against the contract, expanded by the design, localised to the
-//!   caller's folder and given the defaults both backends share (a Word chart becomes the picture the PDF writer draws, a page size
-//!   its two numbers, a figure column its alignment, a table style the name Excel stores).
-//! - [`run`]: the pipeline. The trust gate, the working copy, the journal's `applying` mark, the backup the batch falls back to, the
-//!   backend (Microsoft Office, the portable OOXML writer, the PDF writer, the delimited-file writer), the no-change check, and on
-//!   success the snapshot version, the design state, the transaction's expected fingerprint and the inline audit. The backup and the
-//!   scratch folders are removed whatever happens.
-//!
-//! `recalculateForReview` (`core/office-recalculation.mjs`) is [`crate::render::recalculate_for_review`]: the render stage that
-//! owns it ported it with the engine it drives, and the batch never calls it, so there is one of it.
-//!
-//! What touches the machine beyond the lane the call runs on is a [`BatchHost`]: the PDF operation set of a call, the picture a
-//! Word chart is drawn as, the readings a document brief is held to.
-
 pub mod prepare;
 pub mod run;
 

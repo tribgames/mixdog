@@ -1,17 +1,3 @@
-//! The two places a thread's route is settled that the route service owns and the composition builds
-//! after the session directory: the route a new thread begins on, and the pick held for the next turn.
-//!
-//! - A turn start applies the held pick before anything else it prepares (Node `turn-prepare.mjs`
-//!   `prepareSession`: `applyPendingRoute()`, then `applyPendingSessionSwitches`, then
-//!   `reconcileTurnSettings`): [`TurnStart`] is the [`TurnSettings`] every turn starts with, and runs
-//!   `SessionRoutes::apply_pending` ahead of the settings reconcile.
-//! - `thread/start` adopts the draft's route (else the default) and seats it on the created thread
-//!   (`NewThreadRoute`, bound to the route service).
-//!
-//! Both are late cells: the directory and the turn path are built before the route service, which
-//! reads the directory. A start or a turn before the bind fails with a typed text instead of running
-//! on an unsettled route.
-
 use std::sync::Arc;
 use std::sync::OnceLock;
 

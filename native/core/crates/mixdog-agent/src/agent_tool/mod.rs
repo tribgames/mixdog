@@ -1,4 +1,4 @@
-//! The `agent` tool's orchestration (Node `session-runtime/services/agent-tool/`): request
+//! The `agent` tool's orchestration: request
 //! dispatch, explicit-tag spawn and dead-tag send resolution, resume of reaped tags, close
 //! and cleanup. [`AgentRuntime`] implements the tools crate's `AgentPort`; everything it
 //! reads or changes outside those decisions is a trait in [`host`].

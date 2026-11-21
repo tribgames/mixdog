@@ -1,12 +1,3 @@
-//! The selection geometry the readers share and the shift that keeps a released selection on its text (the selection helpers
-//! of `transcript-window.mjs` and `use-transcript-window/selection-shift.mjs`).
-//!
-//! The effect of the Node hook is split here into the part that is arithmetic: [`SelectionLayout::capture`] records the layout
-//! of a frame, [`layout_shift`] is the rows the layout moved a selection by, and [`shifted_selection`] is the rect after the
-//! move. Clipping the rect to the viewport and painting it are the mouse's (`withSelectionClip`, `paintSelectionRect`); a
-//! shifted rect is painted without remembering its text (it is viewport-clipped, so harvesting it would replace the full text
-//! remembered at drag release with the visible fragment), and so is the repaint after a theme change.
-
 use super::render_window::RenderWindow;
 
 /// A selection rect on the screen grid.

@@ -293,43 +293,11 @@ fn model_facing_qa_result(result: &Value, top_visual_review: Option<&Value>, fin
     // A measured read (render:false) drew no page: an aesthetic score of no confidence, a quality score built on a render
     // that did not happen, and a render-coverage item failing by design all read as defects the page does not have.
     let measure_only = is_str(preview.and_then(|preview| preview.get("visualCoverage")).and_then(|coverage| coverage.get("mode")), "measure-only");
-    if let Some(Value::Object(render)) = review.get("render") {
-        let mut render = render.clone();
-        let aesthetics = render.get("aesthetics").cloned();
-        remove(&mut render, "pages");
-        remove(&mut render, "aesthetics");
-        if let Some(Value::Object(aesthetics)) = aesthetics {
-            let no_confidence = to_number_of(aesthetics.get("confidence")) == 0.0;
-            if !(measure_only || no_confidence) {
-                let mut scores = aesthetics.clone();
-                remove(&mut scores, "pages");
-                render.insert("aesthetics".to_owned(), Value::Object(scores));
-            }
-        }
-        review.insert("render".to_owned(), Value::Object(render));
-    }
+    compact_render(&mut review, measure_only);
     if measure_only {
         remove(&mut review, "quality");
     }
-    if let Some(Value::Array(items)) = review.get("checklist").and_then(|checklist| checklist.get("items")) {
-        let render_owed = |item: &Value| measure_only && is_str(item.get("id"), "full-render-coverage");
-        let dropped = items.iter().filter(|item| render_owed(item)).count();
-        let kept: Vec<Value> = items.iter().filter(|item| !is_str(item.get("status"), "pass") && !render_owed(item)).cloned().collect();
-        let summary = review.get("checklist").and_then(|checklist| checklist.get("summary")).filter(|summary| truthy(summary)).cloned();
-        if let Some(Value::Object(checklist)) = review.get("checklist") {
-            let mut checklist = checklist.clone();
-            checklist.insert("items".to_owned(), Value::Array(kept));
-            if let (true, Some(Value::Object(summary))) = (dropped > 0, summary) {
-                let mut summary = summary;
-                let total = to_number_of(summary.get("total")) - dropped as f64;
-                let failed = if is_truthy(summary.get("failed")) { to_number_of(summary.get("failed")) } else { 0.0 };
-                summary.insert("total".to_owned(), json_number(total));
-                summary.insert("failed".to_owned(), json_number(math::max(0.0, failed - dropped as f64)));
-                checklist.insert("summary".to_owned(), Value::Object(summary));
-            }
-            review.insert("checklist".to_owned(), Value::Object(checklist));
-        }
-    }
+    compact_checklist(&mut review, measure_only);
     if measure_only {
         if let Some(Value::Object(preview)) = compact.get("preview") {
             if matches!(preview.get("images"), Some(Value::Array(images)) if images.is_empty()) {
@@ -356,6 +324,46 @@ fn model_facing_qa_result(result: &Value, top_visual_review: Option<&Value>, fin
     }
     compact.insert("review".to_owned(), Value::Object(review));
     Value::Object(compact)
+}
+
+/// The render block without its per-page measurements; the aesthetic scores stay only when a page was drawn and the score has confidence.
+fn compact_render(review: &mut Object, measure_only: bool) {
+    let Some(Value::Object(render)) = review.get("render") else { return };
+    let mut render = render.clone();
+    let aesthetics = render.get("aesthetics").cloned();
+    remove(&mut render, "pages");
+    remove(&mut render, "aesthetics");
+    if let Some(Value::Object(aesthetics)) = aesthetics {
+        let no_confidence = to_number_of(aesthetics.get("confidence")) == 0.0;
+        if !(measure_only || no_confidence) {
+            let mut scores = aesthetics.clone();
+            remove(&mut scores, "pages");
+            render.insert("aesthetics".to_owned(), Value::Object(scores));
+        }
+    }
+    review.insert("render".to_owned(), Value::Object(render));
+}
+
+/// The checklist reduced to what is not passed; a measured read drops the render-coverage item and its share of the summary counts.
+fn compact_checklist(review: &mut Object, measure_only: bool) {
+    let Some(Value::Array(items)) = review.get("checklist").and_then(|checklist| checklist.get("items")) else { return };
+    let render_owed = |item: &Value| measure_only && is_str(item.get("id"), "full-render-coverage");
+    let dropped = items.iter().filter(|item| render_owed(item)).count();
+    let kept: Vec<Value> = items.iter().filter(|item| !is_str(item.get("status"), "pass") && !render_owed(item)).cloned().collect();
+    let summary = review.get("checklist").and_then(|checklist| checklist.get("summary")).filter(|summary| truthy(summary)).cloned();
+    if let Some(Value::Object(checklist)) = review.get("checklist") {
+        let mut checklist = checklist.clone();
+        checklist.insert("items".to_owned(), Value::Array(kept));
+        if let (true, Some(Value::Object(summary))) = (dropped > 0, summary) {
+            let mut summary = summary;
+            let total = to_number_of(summary.get("total")) - dropped as f64;
+            let failed = if is_truthy(summary.get("failed")) { to_number_of(summary.get("failed")) } else { 0.0 };
+            summary.insert("total".to_owned(), json_number(total));
+            summary.insert("failed".to_owned(), json_number(math::max(0.0, failed - dropped as f64)));
+            checklist.insert("summary".to_owned(), Value::Object(summary));
+        }
+        review.insert("checklist".to_owned(), Value::Object(checklist));
+    }
 }
 
 /// The check entries a passed finalize check answers without: its verdict and whatever departs from the default stay.
@@ -563,37 +571,7 @@ pub fn finalize_office_result(value: Value, options: FinalizeOptions<'_>) -> Val
         value.insert("review".to_owned(), review);
     }
     if finalizing {
-        // The reopened file's full shape inventory proves persistence, which its fingerprint and issue count already state;
-        // the inventory itself is a snapshot the caller can ask for.
-        with_object(&mut value, "validation", |validation| {
-            with_object(validation, "native", |native| {
-                if is_truthy(native.get("snapshot")) {
-                    remove(native, "snapshot");
-                }
-            })
-        });
-        if let Some(Value::Object(validation)) = value.get("validation") {
-            let digest = finalize_validation_digest(validation, &value, session.as_deref());
-            value.insert("validation".to_owned(), Value::Object(digest));
-        }
-        // A refused finalize ran no recalculation or review to report.
-        for key in ["recalculation", "review"] {
-            if value.get(key).is_some_and(Value::is_null) {
-                remove(&mut value, key);
-            }
-        }
-        // A document composed without the preset composer has no composition to report.
-        if value.get("composition").is_some_and(|composition| truthy(composition) && !is_positive(composition.get("count"))) {
-            remove(&mut value, "composition");
-        }
-        if value.get("compositionHistory").is_some_and(Value::is_null) {
-            remove(&mut value, "compositionHistory");
-        }
-        // A script-authored deck carries its design in its own brief; the session's preset design was never applied to it
-        // and only misdescribes the deck.
-        if session.as_deref().is_some_and(|session| session.authored) {
-            remove(&mut value, "design");
-        }
+        trim_finalize_fields(&mut value, session.as_deref());
     }
     if matches!(action, "create" | "open" | "attach") {
         // A session that opened as expected (in the background, fresh, nothing brought forward, no window to isolate) says
@@ -618,20 +596,7 @@ pub fn finalize_office_result(value: Value, options: FinalizeOptions<'_>) -> Val
             }
         });
         if finalizing {
-            if let Some(Value::Object(review)) = value.get("review") {
-                let mut structural = Object::new();
-                for key in ["ok", "issuesAfter", "fixes"] {
-                    if let Some(entry) = review.get(key) {
-                        structural.insert(key.to_owned(), entry.clone());
-                    }
-                }
-                if let Some(coverage) = review.get("preview").and_then(|preview| preview.get("visualCoverage")).filter(|c| truthy(c)) {
-                    let mut preview = Object::new();
-                    preview.insert("visualCoverage".to_owned(), coverage.clone());
-                    structural.insert("preview".to_owned(), Value::Object(preview));
-                }
-                value.insert("review".to_owned(), without_empty(&Value::Object(structural)));
-            }
+            structural_review(&mut value);
         }
     }
     if let Some(design) = value.get("design").filter(|design| truthy(design)) {
@@ -689,6 +654,59 @@ pub fn finalize_office_result(value: Value, options: FinalizeOptions<'_>) -> Val
     }
     attach_office_artifacts(&mut value, action, session.as_deref());
     Value::Object(value)
+}
+
+/// What a finalize result drops: the reopened snapshot, sections a refused finalize never ran, and design or composition the
+/// document never had.
+fn trim_finalize_fields(value: &mut Object, session: Option<&ResultSession>) {
+    // The reopened file's full shape inventory proves persistence, which its fingerprint and issue count already state;
+    // the inventory itself is a snapshot the caller can ask for.
+    with_object(value, "validation", |validation| {
+        with_object(validation, "native", |native| {
+            if is_truthy(native.get("snapshot")) {
+                remove(native, "snapshot");
+            }
+        })
+    });
+    if let Some(Value::Object(validation)) = value.get("validation") {
+        let digest = finalize_validation_digest(validation, value, session);
+        value.insert("validation".to_owned(), Value::Object(digest));
+    }
+    // A refused finalize ran no recalculation or review to report.
+    for key in ["recalculation", "review"] {
+        if value.get(key).is_some_and(Value::is_null) {
+            remove(value, key);
+        }
+    }
+    // A document composed without the preset composer has no composition to report.
+    if value.get("composition").is_some_and(|composition| truthy(composition) && !is_positive(composition.get("count"))) {
+        remove(value, "composition");
+    }
+    if value.get("compositionHistory").is_some_and(Value::is_null) {
+        remove(value, "compositionHistory");
+    }
+    // A script-authored deck carries its design in its own brief; the session's preset design was never applied to it
+    // and only misdescribes the deck.
+    if session.is_some_and(|session| session.authored) {
+        remove(value, "design");
+    }
+}
+
+/// A delimited file's review is structural: the verdict, what remains, and that the structural read covered it.
+fn structural_review(value: &mut Object) {
+    let Some(Value::Object(review)) = value.get("review") else { return };
+    let mut structural = Object::new();
+    for key in ["ok", "issuesAfter", "fixes"] {
+        if let Some(entry) = review.get(key) {
+            structural.insert(key.to_owned(), entry.clone());
+        }
+    }
+    if let Some(coverage) = review.get("preview").and_then(|preview| preview.get("visualCoverage")).filter(|c| truthy(c)) {
+        let mut preview = Object::new();
+        preview.insert("visualCoverage".to_owned(), coverage.clone());
+        structural.insert("preview".to_owned(), Value::Object(preview));
+    }
+    value.insert("review".to_owned(), without_empty(&Value::Object(structural)));
 }
 
 /// The file an action produced or edited, named as an artifact of the result.

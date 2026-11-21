@@ -1,12 +1,4 @@
-//! The Word editor against real Microsoft Word. Every test is `#[ignore]`: it starts Word, so it runs only on request
-//! (`cargo test -p mixdog-office-com --test word_edit_live -- --ignored`) on a Windows machine with Word and
-//! `MIXDOG_TEST_LIVE_OFFICE=1`. Without that variable a test that was asked for ends at once and says it did nothing.
-//!
-//! A background document is created, edited through the registered `docx` editor in batches (appended runs, a table, page
-//! setup, tracked changes with an author, a refusal), read back through the registered reader and closed with no Office
-//! process left that was not there before. The call order and the records of each operation are pinned without Office, against
-//! scripted Word objects, in `tests/word_edit.rs`; `tests/switch_word_live.rs` runs the listed scenarios against Word and
-//! checks what each one states.
+//! Ignored: starts Word; run with `-- --ignored` on Windows with it and `MIXDOG_TEST_LIVE_OFFICE=1`, else a requested test ends at once.
 #![cfg(windows)]
 
 use std::path::PathBuf;

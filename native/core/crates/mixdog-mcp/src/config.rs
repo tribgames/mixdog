@@ -733,6 +733,57 @@ fn positive(value: Option<&Value>) -> Option<usize> {
     value.and_then(number_or_off).flatten().and_then(|n| usize::try_from(n).ok())
 }
 
+fn transport_of(kind: TransportKind, entry: &Value, env: &Env, missing: &mut Vec<String>) -> Result<TransportConfig, ConfigError> {
+    Ok(match kind {
+        TransportKind::Stdio => {
+            let command = entry.get("command").and_then(Value::as_str).map(str::trim).filter(|c| !c.is_empty()).ok_or(ConfigError::MissingCommand)?;
+            let args = entry
+                .get("args")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().map(|v| expand_env(v.as_str().unwrap_or_default(), env, missing)).collect())
+                .unwrap_or_default();
+            TransportConfig::Stdio {
+                command: expand_env(command, env, missing),
+                args,
+                env: stdio_environment(entry, env, missing),
+                cwd: entry.get("cwd").and_then(Value::as_str).map(|c| expand_env(c, env, missing)),
+                stderr: entry.get("stderr").and_then(Value::as_str).unwrap_or("pipe").to_owned(),
+            }
+        }
+        TransportKind::Http | TransportKind::Sse | TransportKind::WebSocket => {
+            let label = match kind {
+                TransportKind::Http => "http",
+                TransportKind::Sse => "sse",
+                _ => "ws",
+            };
+            let raw = entry.get("url").and_then(Value::as_str).filter(|u| !js_trim(u).is_empty()).ok_or(ConfigError::MissingUrl(label))?;
+            let url = normalize_url(&expand_env(raw, env, missing), kind == TransportKind::WebSocket)?;
+            let headers = http_headers(entry, env, missing);
+            match kind {
+                TransportKind::Http => TransportConfig::Http { url, headers },
+                TransportKind::Sse => TransportConfig::Sse { url, headers },
+                _ => TransportConfig::WebSocket { url, headers },
+            }
+        }
+    })
+}
+
+fn missing_env_warnings(entry: &Value, missing: Vec<String>) -> Result<Vec<String>, ConfigError> {
+    if missing.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut names: Vec<String> = Vec::new();
+    for name in missing {
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    if entry.get("_mixdogStrictEnv").and_then(Value::as_bool) == Some(true) {
+        return Err(ConfigError::MissingEnv(names));
+    }
+    Ok(vec![ConfigError::MissingEnv(names).to_string()])
+}
+
 impl McpServerConfig {
     /// Builds a config from a JSON entry. `env` is the process environment (plus
     /// `MIXDOG_MCP_*` overrides, read from it like any other variable).
@@ -743,39 +794,7 @@ impl McpServerConfig {
         let auto = truthy(entry.get("autoDetect"));
         let kind = if auto { TransportKind::Http } else { transport_kind(entry)? };
         let mut missing = Vec::new();
-        let transport = match kind {
-            _ if auto => auto_detect_transport(entry, env)?,
-            TransportKind::Stdio => {
-                let command = entry.get("command").and_then(Value::as_str).map(str::trim).filter(|c| !c.is_empty()).ok_or(ConfigError::MissingCommand)?;
-                let args = entry
-                    .get("args")
-                    .and_then(Value::as_array)
-                    .map(|a| a.iter().map(|v| expand_env(v.as_str().unwrap_or_default(), env, &mut missing)).collect())
-                    .unwrap_or_default();
-                TransportConfig::Stdio {
-                    command: expand_env(command, env, &mut missing),
-                    args,
-                    env: stdio_environment(entry, env, &mut missing),
-                    cwd: entry.get("cwd").and_then(Value::as_str).map(|c| expand_env(c, env, &mut missing)),
-                    stderr: entry.get("stderr").and_then(Value::as_str).unwrap_or("pipe").to_owned(),
-                }
-            }
-            TransportKind::Http | TransportKind::Sse | TransportKind::WebSocket => {
-                let label = match kind {
-                    TransportKind::Http => "http",
-                    TransportKind::Sse => "sse",
-                    _ => "ws",
-                };
-                let raw = entry.get("url").and_then(Value::as_str).filter(|u| !js_trim(u).is_empty()).ok_or(ConfigError::MissingUrl(label))?;
-                let url = normalize_url(&expand_env(raw, env, &mut missing), kind == TransportKind::WebSocket)?;
-                let headers = http_headers(entry, env, &mut missing);
-                match kind {
-                    TransportKind::Http => TransportConfig::Http { url, headers },
-                    TransportKind::Sse => TransportConfig::Sse { url, headers },
-                    _ => TransportConfig::WebSocket { url, headers },
-                }
-            }
-        };
+        let transport = if auto { auto_detect_transport(entry, env)? } else { transport_of(kind, entry, env, &mut missing)? };
         let connector = entry.get("connector").and_then(Value::as_str).filter(|id| crate::connectors::connector(id).is_some()).map(str::to_owned);
         let stored_accounts = crate::connector_model::accounts_of(entry);
         // `createMcpTransport`: an http/sse server whose accounts are all switched off is neither connected nor routed to.
@@ -801,21 +820,7 @@ impl McpServerConfig {
             }
             _ => None,
         };
-        // `missingEnvWarnings` (client-transport.mjs:261): a server that is strict about its variables (a plugin's,
-        // `_mixdogStrictEnv`) fails on an unset one; any other connects with it expanded to the empty string and says so.
-        let mut warnings = Vec::new();
-        if !missing.is_empty() {
-            let mut names: Vec<String> = Vec::new();
-            for name in missing {
-                if !names.contains(&name) {
-                    names.push(name);
-                }
-            }
-            if entry.get("_mixdogStrictEnv").and_then(Value::as_bool) == Some(true) {
-                return Err(ConfigError::MissingEnv(names));
-            }
-            warnings.push(ConfigError::MissingEnv(names).to_string());
-        }
+        let warnings = missing_env_warnings(entry, missing)?;
         let call_timeout = duration_ms(entry, &["timeoutMs", "timeout_ms", "callTimeoutMs", "call_timeout_ms"], &[])
             .or_else(|| env.get("MIXDOG_MCP_CALL_TIMEOUT_MS").and_then(|v| number_or_off(&Value::String(v.clone()))).map(|p| p.map(Duration::from_millis)))
             .unwrap_or(Some(DEFAULT_CALL_TIMEOUT));

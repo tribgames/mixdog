@@ -279,36 +279,40 @@ pub(super) fn plan_is_read_only(operation: &str, args: &[String]) -> bool {
             args.iter().filter(|v| !v.starts_with('-')).count() <= 1
         }
         "hash-object" => !args.iter().any(|v| v == "-w" || v == "--stdin-paths"),
-        "branch" | "tag" => {
-            let writes = if operation == "tag" {
-                r"^(?:-[adfsumFe]|--(?:annotate|delete|force|sign|local-user(?:=.*)?|message(?:=.*)?|file(?:=.*)?|edit))$"
-            } else {
-                r"^(?:-[dDmMcCfu]|--(?:delete|move|copy|force|set-upstream-to(?:=.*)?|unset-upstream|edit-description|track|no-track|create-reflog))$"
-            };
-            if args.iter().any(|v| matches_re(writes, v)) {
-                return false;
-            }
-            let list: &[&str] = if operation == "tag" { &["--list", "-l"] } else { &["--list", "-l", "-a", "--all", "-r", "--remotes"] };
-            args.is_empty() || args.iter().any(|v| list.contains(&v.as_str()))
-        }
-        "config" => {
-            const MUTATION: [&str; 7] = ["--add", "--edit", "--rename-section", "--remove-section", "--replace-all", "--unset", "--unset-all"];
-            if args.iter().any(|v| MUTATION.contains(&v.as_str())) {
-                return false;
-            }
-            let read_flag = args.iter().any(|v| matches_re(r"^--(?:get|get-all|get-regexp|get-urlmatch|list|show-origin|show-scope)$", v));
-            let positional: Vec<&String> = args.iter().filter(|v| !v.starts_with('-')).collect();
-            let first = positional.first().map(|v| v.as_str());
-            if ["set", "unset", "rename-section", "remove-section"].contains(&first.unwrap_or("\0")) {
-                return false;
-            }
-            if ["get", "get-all", "get-regexp", "get-urlmatch", "list"].contains(&first.unwrap_or("\0")) {
-                return true;
-            }
-            read_flag || positional.len() <= 1
-        }
+        "branch" | "tag" => ref_listing_is_read_only(operation == "tag", args),
+        "config" => config_is_read_only(args),
         _ => false,
     }
+}
+
+fn ref_listing_is_read_only(tag: bool, args: &[String]) -> bool {
+    let writes = if tag {
+        r"^(?:-[adfsumFe]|--(?:annotate|delete|force|sign|local-user(?:=.*)?|message(?:=.*)?|file(?:=.*)?|edit))$"
+    } else {
+        r"^(?:-[dDmMcCfu]|--(?:delete|move|copy|force|set-upstream-to(?:=.*)?|unset-upstream|edit-description|track|no-track|create-reflog))$"
+    };
+    if args.iter().any(|v| matches_re(writes, v)) {
+        return false;
+    }
+    let list: &[&str] = if tag { &["--list", "-l"] } else { &["--list", "-l", "-a", "--all", "-r", "--remotes"] };
+    args.is_empty() || args.iter().any(|v| list.contains(&v.as_str()))
+}
+
+fn config_is_read_only(args: &[String]) -> bool {
+    const MUTATION: [&str; 7] = ["--add", "--edit", "--rename-section", "--remove-section", "--replace-all", "--unset", "--unset-all"];
+    if args.iter().any(|v| MUTATION.contains(&v.as_str())) {
+        return false;
+    }
+    let read_flag = args.iter().any(|v| matches_re(r"^--(?:get|get-all|get-regexp|get-urlmatch|list|show-origin|show-scope)$", v));
+    let positional: Vec<&String> = args.iter().filter(|v| !v.starts_with('-')).collect();
+    let first = positional.first().map(|v| v.as_str());
+    if ["set", "unset", "rename-section", "remove-section"].contains(&first.unwrap_or("\0")) {
+        return false;
+    }
+    if ["get", "get-all", "get-regexp", "get-urlmatch", "list"].contains(&first.unwrap_or("\0")) {
+        return true;
+    }
+    read_flag || positional.len() <= 1
 }
 
 /// Whether a `git` tool call may change the repository (`gitCommandMutates`): anything but a
@@ -555,6 +559,28 @@ mod tests {
         assert!(ro("git status") && ro("git branch -a") && ro("git config user.name"));
         assert!(!ro("git branch -a -D x") && !ro("git commit -m x") && !ro("git tag -a v1"));
         assert!(ro("git worktree list") && !ro("git worktree add x"));
+    }
+
+    #[test]
+    fn tag_branch_and_config_reads_and_writes_are_told_apart() {
+        let ro = |c: &str| plan(c).unwrap().read_only();
+        assert!(ro("git tag") && ro("git tag --list") && ro("git tag -l v*") && ro("git branch") && ro("git branch -r"));
+        assert!(
+            !ro("git tag v1 -f")
+                && !ro("git tag -d v1")
+                && !ro("git branch -m old new")
+                && !ro("git branch --set-upstream-to=o/m")
+                && !ro("git branch topic -u")
+        );
+        assert!(ro("git config --get a.b") && ro("git config list") && ro("git config --list") && ro("git config get a.b") && ro("git config a.b"));
+        assert!(!ro("git config set a.b c") && !ro("git config --unset a.b") && !ro("git config a.b c") && !ro("git config --add a.b c"));
+    }
+
+    #[test]
+    fn direct_argv_keeps_backslashes_and_doubles_a_quote_inside_its_own() {
+        assert_eq!(tokenize_direct_argv(r#"git -C C:\w "a ""b"" c" 'it''s' ''"#).unwrap(), ["git", "-C", r"C:\w", r#"a "b" c"#, "it's", ""]);
+        assert_eq!(tokenize_direct_argv(r#"git log "\"x""#).unwrap(), ["git", "log", "\"x"]);
+        assert!(tokenize_direct_argv("git log \"open").is_none());
     }
 
     #[test]

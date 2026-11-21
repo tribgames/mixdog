@@ -1,10 +1,3 @@
-//! `SessionPort` over the session directory: what the `session` and `agent` tools do to the
-//! calling session and to another one, as Node's `session-runtime/internal-tool-executor/
-//! workspace-tools.mjs` does it.
-//!
-//! The caller's own session (status, rename, fork, sidebar, project) is served from its header
-//! and the `thread/*` requests; another session (`control`) from the same requests.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -470,19 +463,7 @@ impl DirectorySessionPort {
                 session_control::read(&target.session_id, &rows, has_older, &target, call.args.get("item_id")).map_err(failed)
             }
             "send" => self.parts.send.get().map_err(failed)?.send(call, &target.session_id).await.map_err(failed),
-            "status" => {
-                let Some(header) = self.parts.callers.header(&thread).await? else {
-                    return Err(failed(format!("session {} is not available", target.session_id)));
-                };
-                // `service.readSession(...).full`: whether a turn runs (the runtime's in-flight activity) and what quota resume
-                // waits (the queue's entry, as `session bots` reads it).
-                let busy = self.parts.listing.live_sources().await.map_err(failed)?.working.iter().any(|id| id == thread.as_str());
-                let quota_resume = self.parts.quota.entry(thread.as_str()).map_or(Value::Null, |entry| entry.public());
-                // `taskSessionPendingWork(sessionId)`.
-                let send = self.parts.send.get().map_err(failed)?;
-                let agents_working = mixdog_services::task_reports::follow::FollowHost::pending_work(&**send.tasks.host(), thread.as_str(), None).await;
-                Ok(session_control::status(thread.as_str(), &header, busy, agents_working, quota_resume))
-            }
+            "status" => self.status_of(&thread, &target.session_id).await,
             "cancel" => {
                 let aborted = self.parts.requests.interrupt(&thread).map_err(core)?;
                 Ok(json!({ "sessionId": thread.as_str(), "aborted": aborted }))
@@ -493,6 +474,17 @@ impl DirectorySessionPort {
                 Ok(json!({ "sessionId": thread.as_str(), "deleted": deleted == Value::Bool(true) }))
             }
         }
+    }
+
+    async fn status_of(&self, thread: &ThreadId, session_id: &str) -> Result<Value, PortError> {
+        let Some(header) = self.parts.callers.header(thread).await? else {
+            return Err(failed(format!("session {session_id} is not available")));
+        };
+        let busy = self.parts.listing.live_sources().await.map_err(failed)?.working.iter().any(|id| id == thread.as_str());
+        let quota_resume = self.parts.quota.entry(thread.as_str()).map_or(Value::Null, |entry| entry.public());
+        let send = self.parts.send.get().map_err(failed)?;
+        let agents_working = mixdog_services::task_reports::follow::FollowHost::pending_work(&**send.tasks.host(), thread.as_str(), None).await;
+        Ok(session_control::status(thread.as_str(), &header, busy, agents_working, quota_resume))
     }
 
     /// Only the requested window, oldest first, and whether older rows exist.

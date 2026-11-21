@@ -1,5 +1,5 @@
 //! The agent's note on a new worktree's preparation, given with its first turn and never shown
-//! as a card (Node `preparation-report.mjs`): the main checkout it was made from, what
+//! as a card: the main checkout it was made from, what
 //! creation copied (env files, `.worktreeinclude`) and linked, what the first turn installed,
 //! what failed (with the output tail) and what was skipped.
 

@@ -1,13 +1,9 @@
 //! `pdf/pdf-security.mjs`: encrypting a PDF with AES-256 and decrypting one, by qpdf. qpdf stays an external program: on
 //! `PATH`, or where `MIXDOG_QPDF_PATH` points (the Windows installer does not add itself to `PATH`).
 //!
-//! Every run is bounded (a qpdf waiting on a prompt or a file it cannot finish would otherwise hold the call open with
-//! nothing to report). Passwords travel in a response file of mode 0600 beside the output, never on the command line
-//! where other processes can read them; qpdf takes each line of it as one literal argument, so a line break is the one
-//! character a password cannot carry. An input that is also the output goes through a temporary sibling and a rename.
-//!
-//! The run itself is async work (`tokio::process`); the calls of this crate are blocking jobs, so it runs on a runtime
-//! of its own, which is why these functions are for a lane thread, never for a runtime worker.
+//! Passwords travel in a response file of mode 0600 beside the output, never on the command line where other processes can
+//! read them; qpdf takes each line of it as one literal argument, so a line break is the one character a password cannot
+//! carry. These functions are for a lane thread, never for a runtime worker: the run is async work on a runtime of its own.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};

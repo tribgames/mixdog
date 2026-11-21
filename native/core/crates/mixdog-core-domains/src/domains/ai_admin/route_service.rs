@@ -1,9 +1,3 @@
-//! `route/set` and `fast/set`: the adoption half of `setRoute` (model-route/set-route.mjs) and
-//! `setFast` / `setEffort` (model-route/route-tuning.mjs). A selection is resolved and validated,
-//! its model settings and (on an explicit main-model choice) the Lead route are saved through
-//! `Config::save_agent_config`, and the live route is replaced; what the adopted route does to
-//! the thread's session is [`SessionFollow`] (`SessionRoutes::follow` / `tune`, WP-SESSION's).
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -128,11 +122,9 @@ pub struct RouteService {
     pub controls: Arc<dyn LiveControls>,
 }
 
-/// The desktop's control threads that are live now: Node's runtimes subscribed to the config. The session directory owns that state
-/// and answers it from its slots: a control start from before its route is first resolved until its create, then the loaded thread
-/// whose `session` record names it the control session while its actor runs. A start that failed or was cancelled, a create whose
-/// first record failed, an actor that ended (unwinding included), a closed, deleted or unloaded thread is not among them; a reopened
-/// one is again.
+/// The desktop's live control threads: from a control start until its create, then the loaded thread
+/// whose `session` record names it the control session while its actor runs. A failed or cancelled
+/// start, an ended actor, a closed, deleted or unloaded thread is not among them; a reopened one is again.
 pub trait LiveControls: Send + Sync {
     /// Calls `sync` once for each live control thread, while that thread cannot end: an end that lands after the threads were
     /// listed either leaves the thread out (it landed before the call) or waits until the call returned.
@@ -140,11 +132,9 @@ pub trait LiveControls: Send + Sync {
 }
 
 impl RouteService {
-    /// Node adopts every config into the runtime route and runs `syncEmptyMainRoute` on it, synchronously inside
-    /// `adoptFullConfig` (`config-lifecycle.mjs`), so the control session, created before any model was chosen, takes the
-    /// Main model the first config that resolves one brings and keeps it. The same inside the config's adoption
-    /// ([`Config::on_adoption`]): once for each adopted document, before the write that caused it is acknowledged, each
-    /// live control thread with no model takes the model that document resolves to. Dropping the guard ends it.
+    /// Once for each adopted config document ([`Config::on_adoption`]), before the write that caused it is
+    /// acknowledged, each live control thread with no model takes the model that document resolves to.
+    /// Dropping the guard ends it.
     pub fn follow_config(self: &Arc<Self>) -> AdoptionGuard {
         let service = Arc::downgrade(self);
         self.config.on_adoption(move || {
@@ -261,7 +251,7 @@ impl RouteService {
 
     /// `syncEmptyMainRoute`: a Main route with no model takes the Lead route a reload brought in.
     fn sync_empty_main_route(&self, thread: &ThreadId) -> Result<(), String> {
-        if !clean(self.writer.route(thread).get("model")).is_empty() {
+        if !self.route_lacks_model(thread) {
             return Ok(());
         }
         let resolved = self.resolve(&self.config.agent(), &Obj::new())?;
@@ -404,14 +394,10 @@ impl RouteService {
         Ok(())
     }
 
-    /// The route a new task runs on when its draft names none: the live route the config resolved
-    /// to, with the effort and Fast facts of its model (`prepareRoute`'s `refreshRouteEffort`). A
-    /// route without a model is refused before anything is created, with the text Node's
-    /// `resolveMissingRouteModelForFirstTurn` throws (`route-resolution.mjs:28-35`; no code, a
-    /// plain `Error`): `collectProviderModels()` answers no row (providers that are not available
-    /// list nothing, `row-hydration.mjs:107`), or it does and the user has not chosen one (never
-    /// auto-picked). The live route is read again after the catalog read: a model chosen while
-    /// it loaded (a new task's draft landing meanwhile) stands (`route-resolution.mjs:28-30`).
+    /// The route a new task runs on when its draft names none: the live route, with the effort and
+    /// Fast facts of its model. A route without a model is refused: no provider model is listed, or
+    /// none was chosen (never auto-picked). The route is read again after the catalog read, so a
+    /// model chosen meanwhile stands.
     pub async fn ready_default(&self, thread: &ThreadId) -> Result<(), String> {
         if self.route_lacks_model(thread) {
             let listed = !self.models.rows(false, false).await?.is_empty();
@@ -439,11 +425,9 @@ impl RouteService {
         }
     }
 
-    /// The route of the desktop's control session, which is created before any model is chosen (`ensureControlSession`; only a
-    /// turn needs one, `resolveMissingRouteModelForFirstTurn`). Its runtime's route is the one the config resolves to
-    /// (`resolveRoute(config, {})`; a route with no model takes it at every config adoption, `syncEmptyMainRoute`), so its
-    /// sessionless actions (`setFast`, `setRoute`) act on the Main model. That route is readied as a task's is; a config
-    /// that resolves to no model leaves the route as it is.
+    /// The desktop control session's route, created before any model is chosen, takes the route the
+    /// config resolves to and is readied as a task's is; a config that resolves to no model leaves
+    /// it as it is.
     pub async fn ready_control(&self, thread: &ThreadId) -> Result<(), String> {
         self.sync_empty_main_route(thread)?;
         if self.route_lacks_model(thread) {
@@ -461,15 +445,14 @@ impl RouteService {
     /// The created, empty thread takes the live route onto its header (`materializeSession`: the
     /// session is built on `rt.route`); a route without a model creates no session.
     pub async fn seat_route(&self, thread: &ThreadId) -> Result<(), String> {
-        if clean(self.writer.route(thread).get("model")).is_empty() {
+        if self.route_lacks_model(thread) {
             return Ok(());
         }
         self.session.seat(thread).await.map_err(port)
     }
 
-    /// `continueSessionInModel(sessionId, next)`: the quota escape hatch. The selection is adopted
-    /// as the live route and the addressed, established conversation switches onto it in place.
-    /// `{ modelSwitch }` with the recorded boundary, else `true` (nothing switched, or the
+    /// The selection is adopted as the live route and the addressed conversation switches onto it in
+    /// place: `{ modelSwitch }` with the recorded boundary, else `true` (nothing switched, or the
     /// session moved on while the selection resolved).
     pub async fn continue_session_in_model(&self, thread: &ThreadId, session_id: &str, next: &Obj) -> Result<Value, String> {
         // `!sessionId || !session?.id || session.id !== sessionId`: a runtime without its session has no active one.

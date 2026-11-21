@@ -635,30 +635,36 @@ fn kept_list(read: impl FnOnce(&mut Vec<Value>) -> Result<()>) -> Vec<Value> {
     list
 }
 
-/// `Snapshot-PowerPoint`.
-pub fn snapshot_powerpoint(document: &Obj, payload: &Value) -> Result<Value> {
-    let presentation = as_value(document);
-    let slide_total = || -> Result<i64> { count_of(&presentation.member("Slides")?) };
+fn slide_total(presentation: &Com) -> Result<i64> {
+    count_of(&presentation.member("Slides")?)
+}
+
+/// The slides a snapshot reads: the `pages` named, else the window of a paged read (`offset`, `limit`), else all.
+struct SlideSelection {
+    paged: bool,
+    has_pages: bool,
+    offset: i64,
+    limit: i64,
+    numbers: Vec<i64>,
+}
+
+fn select_slides(presentation: &Com, payload: &Value) -> Result<SlideSelection> {
     let paged = convert::to_bool(&payload::property(payload, "paged"));
-    let slide_offset = if paged { i64::from(convert::to_int(&payload::property(payload, "offset")).map_err(Error::host)?.max(0)) } else { 0 };
-    let slide_limit = if paged { i64::from(convert::to_int(&payload::property(payload, "limit")).map_err(Error::host)?.max(1)) } else { slide_total()? };
+    let offset = if paged { i64::from(convert::to_int(&payload::property(payload, "offset")).map_err(Error::host)?.max(0)) } else { 0 };
+    let limit = if paged { i64::from(convert::to_int(&payload::property(payload, "limit")).map_err(Error::host)?.max(1)) } else { slide_total(presentation)? };
     let pages = payload::property(payload, "pages");
     let has_pages = convert::to_bool(&pages);
-    let slide_numbers: Vec<i64> = if has_pages {
+    let numbers: Vec<i64> = if has_pages {
         pipeline_items(&pages).iter().map(|page| convert::to_int(page).map(i64::from).map_err(Error::host)).collect::<Result<_>>()?
     } else {
-        let end = slide_total()?.min(slide_offset + slide_limit);
-        if end <= slide_offset { Vec::new() } else { (slide_offset + 1..=end).collect() }
+        let end = slide_total(presentation)?.min(offset + limit);
+        if end <= offset { Vec::new() } else { (offset + 1..=end).collect() }
     };
-    let mut slides = Vec::new();
-    for slide_number in slide_numbers {
-        if slide_number < 1 || slide_number > slide_total()? {
-            return Err(Error::host(format!("PowerPoint slide out of range: {slide_number}")));
-        }
-        let slide = item_of(&presentation.member("Slides")?, to_index(slide_number))?;
-        slides.push(slide_value(&presentation, &slide)?);
-    }
-    let layouts = kept_list(|layouts| {
+    Ok(SlideSelection { paged, has_pages, offset, limit, numbers })
+}
+
+fn layout_entries(presentation: &Com) -> Vec<Value> {
+    kept_list(|layouts| {
         let master_layouts = || -> Result<Com> { presentation.member("SlideMaster")?.member("CustomLayouts") };
         let mut layout_index = 1;
         while layout_index <= count_of(&master_layouts()?)? {
@@ -671,8 +677,11 @@ pub fn snapshot_powerpoint(document: &Obj, payload: &Value) -> Result<Value> {
             layout_index += 1;
         }
         Ok(())
-    });
-    let designs = kept_list(|designs| {
+    })
+}
+
+fn design_entries(presentation: &Com) -> Vec<Value> {
+    kept_list(|designs| {
         let mut design_index = 1;
         while design_index <= count_of(&presentation.member("Designs")?)? {
             let design = item_of(&presentation.member("Designs")?, to_index(design_index))?;
@@ -680,7 +689,44 @@ pub fn snapshot_powerpoint(document: &Obj, payload: &Value) -> Result<Value> {
             design_index += 1;
         }
         Ok(())
-    });
+    })
+}
+
+/// The pagination block of a paged read, null for a whole one.
+fn pagination_of(presentation: &Com, selection: &SlideSelection, returned: i64) -> Result<Value> {
+    if !selection.paged {
+        return Ok(Value::Null);
+    }
+    let total = to_index(slide_total(presentation)?);
+    let next_offset = if !selection.has_pages && selection.offset + returned < slide_total(presentation)? {
+        Value::Int(to_index(selection.offset + returned))
+    } else {
+        Value::Null
+    };
+    Ok(ordered(vec![
+        ("unit", Value::string("slide")),
+        ("offset", Value::Int(to_index(selection.offset))),
+        ("limit", Value::Int(to_index(selection.limit))),
+        ("returned", Value::Int(to_index(returned))),
+        ("total", Value::Int(total)),
+        ("nextOffset", next_offset),
+    ]))
+}
+
+/// `Snapshot-PowerPoint`.
+pub fn snapshot_powerpoint(document: &Obj, payload: &Value) -> Result<Value> {
+    let presentation = as_value(document);
+    let selection = select_slides(&presentation, payload)?;
+    let mut slides = Vec::new();
+    for &slide_number in &selection.numbers {
+        if slide_number < 1 || slide_number > slide_total(&presentation)? {
+            return Err(Error::host(format!("PowerPoint slide out of range: {slide_number}")));
+        }
+        let slide = item_of(&presentation.member("Slides")?, to_index(slide_number))?;
+        slides.push(slide_value(&presentation, &slide)?);
+    }
+    let layouts = layout_entries(&presentation);
+    let designs = design_entries(&presentation);
     let path = string_of(&presentation.member("FullName")?);
     let slide_count = int_of(&presentation.member("Slides")?.member("Count")?)?;
     let slide_width = double_of(&presentation.member("PageSetup")?.member("SlideWidth")?)?;
@@ -691,21 +737,7 @@ pub fn snapshot_powerpoint(document: &Obj, payload: &Value) -> Result<Value> {
         .and_then(|design| design.member("Name"))
         .map(|name| string_of(&name))
         .unwrap_or_default();
-    let pagination = if paged {
-        let returned = slides.len() as i64;
-        let total = to_index(slide_total()?);
-        let next_offset = if !has_pages && slide_offset + returned < slide_total()? { Value::Int(to_index(slide_offset + returned)) } else { Value::Null };
-        ordered(vec![
-            ("unit", Value::string("slide")),
-            ("offset", Value::Int(to_index(slide_offset))),
-            ("limit", Value::Int(to_index(slide_limit))),
-            ("returned", Value::Int(to_index(returned))),
-            ("total", Value::Int(total)),
-            ("nextOffset", next_offset),
-        ])
-    } else {
-        Value::Null
-    };
+    let pagination = pagination_of(&presentation, &selection, slides.len() as i64)?;
     Ok(ordered(vec![
         ("format", Value::string("pptx")),
         ("path", Value::String(path)),

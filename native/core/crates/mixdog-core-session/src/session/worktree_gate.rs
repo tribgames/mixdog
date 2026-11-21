@@ -1,6 +1,5 @@
 //! The admission gate shared by Lead workspace transitions, turn admission and worker
-//! spawning (Node `admission-gate.mjs`), with the in-process activity ledger that replaces the
-//! cross-process one (one core owns the data dir):
+//! spawning, with an in-process activity ledger (one core owns the data dir):
 //!
 //! - a transition and a worker spawn of the same Lead never overlap;
 //! - turns and transitions are mutually exclusive: an admitted turn is registered until it

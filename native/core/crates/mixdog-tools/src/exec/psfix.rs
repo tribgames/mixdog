@@ -1,7 +1,6 @@
 //! PowerShell-specific text of the shell tool: the one-line hint for a failed bash-ism
-//! (`result-format.mjs` `_powershellBashismHint`) and the rewrite of the deprecated
-//! `wmic process … get …` probe into a bounded PowerShell/CIM command
-//! (`shell-policy.mjs` `maybeRewriteWmicProcessCommand`).
+//! and the rewrite of the deprecated `wmic process … get …` probe into a bounded
+//! PowerShell/CIM command.
 
 use std::sync::LazyLock;
 

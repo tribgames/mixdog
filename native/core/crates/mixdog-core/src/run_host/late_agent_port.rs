@@ -1,11 +1,3 @@
-//! The `AgentPort` the orchestration tools take, before the agent runtime exists.
-//!
-//! The tool pool holds the `agent` tool, which needs the [`AgentPort`] of `assemble(AgentParts{..})`
-//! (`Assembled::port`); `AgentParts` needs the session directory, which is built from the pool.
-//! The cell is bound once with `assemble(..).port()` after the directory exists, and the
-//! composition verifies it with `require` before the listener accepts, so a call never reaches an
-//! unbound cell (the same rule as every late cell: `late.rs`).
-
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;

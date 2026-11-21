@@ -44,6 +44,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::model::Row;
+use super::model::RunModel;
 use super::model::SessionModel;
 use super::observe::attachment_refs;
 use super::source::Fail;
@@ -224,48 +225,36 @@ impl Builder<'_> {
     }
 }
 
-/// The staged log files of `model`.
-pub fn frames(cx: &ItemContext<'_>, model: &SessionModel, item_key: &str, source_digest: &str) -> R<Vec<Vec<u8>>> {
-    let log_id = log_id(cx.manifest_sha256, &model.id);
-    let mut b = Builder {
-        cx,
-        files: vec![Vec::new()],
-        ordinal: 0,
-        log_id: log_id.clone(),
-        header: model.header.clone(),
-        rows: 0,
-        visible_rows: 0,
-        context: None,
-        runs: Vec::new(),
-        queue: Vec::new(),
-    };
-    let (header, _) = slot(cx, model.header.clone())?;
-    b.push(&Record::Session(SessionRecord {
-        v: SESSION_RECORD_VERSION,
-        id: bounded(&model.id, "session id")?,
-        log_id: bounded(&log_id, "log id")?,
-        base: None,
-        origin: Some(Origin {
-            migration: MigrationOrigin {
-                manifest_sha256: bounded(cx.manifest_sha256, "manifest digest")?,
-                item_key: bounded(item_key, "item key")?,
-                source_digest: Digest::try_from(source_digest.to_string()).or_else(|e| violation(format!("source digest: {e}")))?,
-            },
-        }),
-        op: None,
-        control: false,
-        header,
-    }))?;
-    for row in model.archive.iter().chain(&model.messages).chain(&model.checkpoint_rows) {
-        b.row(row)?;
+impl Builder<'_> {
+    fn session(&mut self, model: &SessionModel, item_key: &str, source_digest: &str) -> R<()> {
+        let cx = self.cx;
+        let (header, _) = slot(cx, model.header.clone())?;
+        self.push(&Record::Session(SessionRecord {
+            v: SESSION_RECORD_VERSION,
+            id: bounded(&model.id, "session id")?,
+            log_id: bounded(&self.log_id, "log id")?,
+            base: None,
+            origin: Some(Origin {
+                migration: MigrationOrigin {
+                    manifest_sha256: bounded(cx.manifest_sha256, "manifest digest")?,
+                    item_key: bounded(item_key, "item key")?,
+                    source_digest: Digest::try_from(source_digest.to_string()).or_else(|e| violation(format!("source digest: {e}")))?,
+                },
+            }),
+            op: None,
+            control: false,
+            header,
+        }))
+        .map(drop)
     }
+
     // Rows written out of 1.4.5's message order (`source::place_retained`): the context restarts at the messages in
     // that order, after every row, so none is in it twice. Silent: no divider is listed for it, and it takes nothing
     // out of the transcript.
-    if let Some(context) = &model.context {
+    fn context(&mut self, context: &[(String, Value)]) -> R<()> {
         let entries: Vec<ReplacementEntry> = context.iter().map(|(iid, body)| ReplacementEntry { iid: iid.clone(), body: body.clone() }).collect();
-        let (replacement, _) = slot(cx, entries)?;
-        let pos = b.push(&Record::Compacted(CompactedRecord {
+        let (replacement, _) = slot(self.cx, entries)?;
+        let pos = self.push(&Record::Compacted(CompactedRecord {
             cid: bounded("migrated-context", "compaction id")?,
             summary_iid: None,
             op: None,
@@ -275,49 +264,92 @@ pub fn frames(cx: &ItemContext<'_>, model: &SessionModel, item_key: &str, source
             silent: Some(true),
             replacement,
         }))?;
-        b.context = Some(pos);
+        self.context = Some(pos);
+        Ok(())
     }
-    for run in &model.runs {
-        for (phase, detail) in &run.phases {
-            let detail = detail.clone().map(|d| slot(cx, d)).transpose()?.map(|(s, _)| s);
-            let pos = b.push(&Record::Run(RunRecord {
-                rid: bounded(&run.rid, "run id")?,
-                phase: *phase,
-                attribution: None,
-                attempt: None,
-                at: run.at,
-                op: None,
-                detail,
-            }))?;
-            match phase {
-                RunPhase::Started => b.runs.push(OpenRun { rid: run.rid.clone(), started: pos }),
-                _ => b.runs.retain(|r| r.rid != run.rid),
+
+    fn runs(&mut self, runs: &[RunModel]) -> R<()> {
+        for run in runs {
+            for (phase, detail) in &run.phases {
+                let detail = detail.clone().map(|d| slot(self.cx, d)).transpose()?.map(|(s, _)| s);
+                let pos = self.push(&Record::Run(RunRecord {
+                    rid: bounded(&run.rid, "run id")?,
+                    phase: *phase,
+                    attribution: None,
+                    attempt: None,
+                    at: run.at,
+                    op: None,
+                    detail,
+                }))?;
+                match phase {
+                    RunPhase::Started => self.runs.push(OpenRun { rid: run.rid.clone(), started: pos }),
+                    _ => self.runs.retain(|r| r.rid != run.rid),
+                }
             }
         }
+        Ok(())
     }
-    for (qid, entry) in &model.queue {
-        let (entry, _) = slot(cx, entry.clone())?;
-        let pos = b.push(&Record::Queue(QueueRecord {
-            qid: bounded::<{ mixdog_store::schema::bounded::ID_MAX }>(qid, "queue id")?,
-            action: QueueAction::Enqueue,
-            reason: None,
-            op: None,
-            entry: Some(entry),
-        }))?;
-        b.queue.push(QueuedEntry { qid: qid.clone(), enqueued: pos, updated: None });
-    }
-    for set in &model.metas {
-        let (change, _) = slot(cx, HeaderChange { set: set.clone(), unset: Vec::new() })?;
-        b.push(&Record::Meta(MetaRecord { op: None, change }))?;
-        for (k, v) in set {
-            b.header.insert(k.clone(), v.clone());
+
+    fn queue(&mut self, queue: &[(String, Value)]) -> R<()> {
+        for (qid, entry) in queue {
+            let (entry, _) = slot(self.cx, entry.clone())?;
+            let pos = self.push(&Record::Queue(QueueRecord {
+                qid: bounded::<{ mixdog_store::schema::bounded::ID_MAX }>(qid, "queue id")?,
+                action: QueueAction::Enqueue,
+                reason: None,
+                op: None,
+                entry: Some(entry),
+            }))?;
+            self.queue.push(QueuedEntry { qid: qid.clone(), enqueued: pos, updated: None });
         }
+        Ok(())
     }
-    let checkpoint = b.checkpoint_payload()?;
-    let current = b.files.last().map_or(0, Vec::len) as u64;
-    if current + (FRAME_OVERHEAD + checkpoint.len()) as u64 > ROTATE_AT {
-        b.files.push(Vec::new());
+
+    fn metas(&mut self, metas: &[Header]) -> R<()> {
+        for set in metas {
+            let (change, _) = slot(self.cx, HeaderChange { set: set.clone(), unset: Vec::new() })?;
+            self.push(&Record::Meta(MetaRecord { op: None, change }))?;
+            for (k, v) in set {
+                self.header.insert(k.clone(), v.clone());
+            }
+        }
+        Ok(())
     }
-    b.append(&checkpoint);
-    Ok(b.files)
+
+    fn finish(mut self) -> R<Vec<Vec<u8>>> {
+        let checkpoint = self.checkpoint_payload()?;
+        let current = self.files.last().map_or(0, Vec::len) as u64;
+        if current + (FRAME_OVERHEAD + checkpoint.len()) as u64 > ROTATE_AT {
+            self.files.push(Vec::new());
+        }
+        self.append(&checkpoint);
+        Ok(self.files)
+    }
+}
+
+/// The staged log files of `model`.
+pub fn frames(cx: &ItemContext<'_>, model: &SessionModel, item_key: &str, source_digest: &str) -> R<Vec<Vec<u8>>> {
+    let mut b = Builder {
+        cx,
+        files: vec![Vec::new()],
+        ordinal: 0,
+        log_id: log_id(cx.manifest_sha256, &model.id),
+        header: model.header.clone(),
+        rows: 0,
+        visible_rows: 0,
+        context: None,
+        runs: Vec::new(),
+        queue: Vec::new(),
+    };
+    b.session(model, item_key, source_digest)?;
+    for row in model.archive.iter().chain(&model.messages).chain(&model.checkpoint_rows) {
+        b.row(row)?;
+    }
+    if let Some(context) = &model.context {
+        b.context(context)?;
+    }
+    b.runs(&model.runs)?;
+    b.queue(&model.queue)?;
+    b.metas(&model.metas)?;
+    b.finish()
 }

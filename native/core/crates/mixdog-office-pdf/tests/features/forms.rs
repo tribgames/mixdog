@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use mixdog_fsio::Unlaned;
-use mixdog_office_pdf::forms::{PdfForm, add_form_field, fill_form_values};
+use mixdog_office_pdf::forms::{PdfForm, add_form_field, clipped_form_values, fill_form_values};
 use mixdog_office_pdf::writer::create_pdf;
 use mixdog_pdf::Guard;
 use mixdog_pdf::codec_glue::CodecFilters;
@@ -100,4 +100,72 @@ fn a_field_added_to_a_page_is_listed_and_fillable_and_a_taken_name_or_missing_pa
     assert_eq!(taken.message(), "A field already exists with the specified name: \"who\"");
     let off_the_end = add_form_field(&mut form, &mut doc, &json!({ "name": "late", "page": 9, "x": 1, "y": 1, "width": 10, "height": 10 }), None).unwrap_err();
     assert_eq!(off_the_end.message(), "PDF page out of range: 9");
+}
+
+fn added(request: Value) -> Value {
+    let mut doc = load(form_bytes());
+    let mut form = PdfForm::new();
+    add_form_field(&mut form, &mut doc, &request, None).expect("added");
+    let name = request["name"].as_str().expect("name").to_owned();
+    field(&described(&mut doc), &name).clone()
+}
+
+#[test]
+fn an_added_checkbox_is_checked_by_a_value_that_is_not_off() {
+    let on = added(json!({ "name": "agree", "type": "checkbox", "page": 1, "x": 40, "y": 40, "width": 12, "height": 12, "value": "yes" }));
+    let off = added(json!({ "name": "agree", "type": "checkbox", "page": 1, "x": 40, "y": 40, "width": 12, "height": 12, "value": "no" }));
+    assert_eq!(on["type"], "checkbox");
+    assert_ne!(on["value"], off["value"]);
+}
+
+#[test]
+fn an_added_dropdown_lists_its_options_and_holds_the_value_it_was_given() {
+    let dropdown =
+        added(json!({ "name": "size", "type": "dropdown", "options": ["S", "M", "L"], "value": "M", "page": 1, "x": 40, "y": 40, "width": 80, "height": 20 }));
+    assert_eq!(dropdown["type"], "dropdown");
+    assert!(dropdown["value"].to_string().contains('M'), "{dropdown}");
+    assert!(dropdown["options"].to_string().contains('L'), "{dropdown}");
+}
+
+#[test]
+fn an_added_option_list_with_several_values_selects_them_all() {
+    let list = added(
+        json!({ "name": "tags", "type": "optionlist", "options": ["a", "b", "c"], "value": ["a", "c"], "page": 1, "x": 40, "y": 40, "width": 80, "height": 60 }),
+    );
+    assert_eq!(list["type"], "optionlist");
+    let value = list["value"].to_string();
+    assert!(value.contains('a') && value.contains('c') && !value.contains('b'), "{list}");
+}
+
+#[test]
+fn an_added_radio_group_has_one_widget_per_option_and_selects_the_value() {
+    let radio = added(json!({
+        "name": "mode", "type": "radio", "value": "two", "page": 1, "x": 40, "y": 40, "width": 12, "height": 12,
+        "options": [{ "value": "one" }, { "value": "two", "y": 80 }]
+    }));
+    assert_eq!(radio["type"], "radio");
+    assert_eq!(radio["value"], "two");
+    assert_eq!(radio["widgets"].as_array().expect("widgets").len(), 2);
+}
+
+#[test]
+fn a_tall_text_box_is_multiline_unless_it_says_otherwise() {
+    let tall = added(json!({ "name": "note", "page": 1, "x": 40, "y": 40, "width": 120, "height": 60 }));
+    let single = added(json!({ "name": "note", "page": 1, "x": 40, "y": 40, "width": 120, "height": 60, "multiline": false }));
+    assert_ne!(tall["multiline"], single["multiline"], "{tall} {single}");
+}
+
+#[test]
+fn a_value_too_wide_for_its_box_is_reported_clipped_and_one_that_fits_is_not() {
+    let mut doc = load(form_bytes());
+    let mut form = PdfForm::new();
+    add_form_field(&mut form, &mut doc, &json!({ "name": "tiny", "page": 1, "x": 40, "y": 40, "width": 30, "height": 14, "fontSize": 10 }), None)
+        .expect("added");
+    let font = mixdog_pdf::embed::Font::standard(mixdog_pdf::embed::StandardFontName::Helvetica);
+    let values = json!({ "tiny": "a value far too long for thirty points", "who": "Al" });
+    let clipped = clipped_form_values(&form, &mut doc, &values, Some(&font)).expect("measured");
+    assert_eq!(clipped.len(), 1);
+    assert_eq!(clipped[0]["field"], "tiny");
+    assert_eq!(clipped[0]["reason"], "width");
+    assert!(clipped_form_values(&form, &mut doc, &values, None).expect("measured").is_empty(), "nothing is measured without a font");
 }

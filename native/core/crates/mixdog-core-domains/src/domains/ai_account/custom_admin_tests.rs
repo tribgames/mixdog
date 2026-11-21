@@ -51,14 +51,14 @@ use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
 
 #[derive(Default)]
-struct TestVault {
-    secrets: Mutex<BTreeMap<String, String>>,
+pub(super) struct TestVault {
+    pub(super) secrets: Mutex<BTreeMap<String, String>>,
     /// Accounts whose secret lives in the private fallback file.
     fallback: Mutex<Vec<String>>,
     /// Deleting an additional key's secret fails.
     refuse_extra_deletes: AtomicBool,
     /// Reads never run (the lane refused them).
-    unrun_reads: AtomicBool,
+    pub(super) unrun_reads: AtomicBool,
 }
 
 #[async_trait]
@@ -109,7 +109,7 @@ impl Environment for TestEnv {
 }
 
 #[derive(Default)]
-struct CountingRefresh(AtomicUsize);
+pub(super) struct CountingRefresh(pub(super) AtomicUsize);
 
 impl AuthRefresh for CountingRefresh {
     fn after_credential_change(&self) {
@@ -136,10 +136,15 @@ impl ModelTraits for Traits {
 pub(super) struct World {
     pub(super) admin: Arc<CustomAdmin>,
     pub(super) env: Arc<TestEnv>,
-    vault: Arc<TestVault>,
+    pub(super) vault: Arc<TestVault>,
+    keys: ApiKeyStore,
+    pub(super) accounts: AccountStore,
+    pub(super) builder: Arc<DefaultProviderBuilder>,
+    pub(super) config: Config,
+    pub(super) refresh: Arc<CountingRefresh>,
     /// What the host wrote to its stderr.
     log: Arc<Mutex<Vec<String>>>,
-    _dir: tempfile::TempDir,
+    pub(super) _dir: tempfile::TempDir,
 }
 
 pub(super) async fn world(env: HashMap<String, String>) -> World {
@@ -203,9 +208,9 @@ pub(super) async fn world_over(env: HashMap<String, String>, http: Option<Arc<dy
             Arc::new(move |line: &str| log.lock().unwrap().push(line.to_owned()))
         },
     };
-    let host = CustomHost::new(config.clone(), vault.clone(), keys, accounts.clone(), builder, env, seams);
+    let host = CustomHost::new(config.clone(), vault.clone(), keys.clone(), accounts.clone(), builder.clone(), env, seams);
     let refresh = Arc::new(CountingRefresh::default());
-    World { admin: CustomAdmin::new(host, refresh.clone()), env: test_env, vault, log, _dir: dir }
+    World { admin: CustomAdmin::new(host, refresh.clone()), env: test_env, vault, keys, accounts, builder, config, refresh, log, _dir: dir }
 }
 
 /// What the scripted endpoint saw.
@@ -417,4 +422,109 @@ async fn a_removed_key_the_keychain_keeps_is_logged_and_the_save_holds() {
         w.admin.save(json!({ "id": id, "schemaVersion": 2, "name": "Log", "protocol": "openai-chat", "baseURL": base, "extraApiKeys": [] }), 0).await.unwrap();
     assert!(row.get("extraApiKeys").is_none(), "the roster no longer lists the key");
     assert_eq!(w.log.lock().unwrap().clone(), [format!("[provider-admin] could not delete additional API key {key} of {id}: keychain is locked\n")]);
+}
+
+#[tokio::test]
+async fn a_model_patch_merges_its_reasoning_prunes_stale_wire_values_and_a_null_patch_removes_the_override() {
+    let w = world(HashMap::new()).await;
+    let saved = w.admin.save(json!({ "name": "Patch", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "sk-a" }), 0).await.unwrap();
+    let id = saved["id"].as_str().unwrap().to_owned();
+    let first = json!({ "name": "Alpha", "hidden": true, "reasoning": { "levels": ["low", "high"], "wireValues": { "low": "l", "high": "h" } } });
+    let row = w.admin.update_model(&id, "m", Some(first)).await.unwrap();
+    assert_eq!(
+        row["modelOverrides"],
+        json!({ "m": { "name": "Alpha", "hidden": true, "reasoning": { "levels": ["low", "high"], "wireValues": { "low": "l", "high": "h" } } } })
+    );
+    let row = w.admin.update_model(&id, "m", Some(json!({ "reasoning": { "levels": ["low"] } }))).await.unwrap();
+    assert_eq!(row["modelOverrides"]["m"]["reasoning"], json!({ "levels": ["low"], "wireValues": { "low": "l" } }));
+    let row = w.admin.update_model(&id, "m", Some(json!({ "reasoning": null, "hidden": null }))).await.unwrap();
+    assert_eq!(row["modelOverrides"], json!({ "m": { "name": "Alpha" } }));
+    let failure = w.admin.update_model(&id, "m", Some(json!({ "bogus": 1 }))).await.unwrap_err();
+    assert_eq!(failure.message(), "model patch has unsupported field");
+    let row = w.admin.update_model(&id, "m", Some(Value::Null)).await.unwrap();
+    assert_eq!(row["modelOverrides"], json!({}));
+    assert_eq!(w.admin.update_model(&id, " ", None).await.unwrap_err().message(), "model id is required");
+}
+
+struct IdleKeychain;
+
+#[async_trait]
+impl super::setup_cache::KeychainLive for IdleKeychain {
+    fn status(&self) -> super::provider_setup::KeychainStatus {
+        super::provider_setup::KeychainStatus { state: "ok".into(), ..Default::default() }
+    }
+    fn prewarm_ready(&self) -> bool {
+        true
+    }
+    async fn await_prewarm(&self) {}
+    async fn retry(&self, _: bool) -> bool {
+        false
+    }
+    async fn refresh(&self, _: bool) -> bool {
+        false
+    }
+}
+
+struct RunningLocal;
+
+#[async_trait]
+impl super::setup_world::LocalStatus for RunningLocal {
+    async fn status(&self) -> Option<Value> {
+        Some(json!({ "running": true }))
+    }
+}
+
+struct NoPc;
+
+#[async_trait]
+impl super::setup_world::ProxyProviders for NoPc {
+    async fn providers(&self, _: bool) -> Result<Option<serde_json::Map<String, Value>>, super::failure::Failure> {
+        Ok(None)
+    }
+}
+
+#[tokio::test]
+async fn the_setup_gatherer_reads_only_what_its_options_ask_for_and_fails_on_a_read_that_never_ran() {
+    use super::custom_admin::CustomFacts as _;
+    use super::provider_setup::SetupOptions;
+    use super::provider_setup::SetupWorld as _;
+    use mixdog_ai::registry::keys::api_key_account;
+    const CUSTOM: &str = "custom-11111111-1111-4111-8111-111111111111";
+    let w = world(HashMap::new()).await;
+    let (openai, custom) = (api_key_account("openai"), api_key_account(CUSTOM));
+    w.vault.secrets.lock().unwrap().insert(openai.clone(), "sk-1".into());
+    w.vault.secrets.lock().unwrap().insert(custom.clone(), "sk-c".into());
+    w.vault.fallback.lock().unwrap().push(custom.clone());
+    let gatherer = super::setup_world::SetupGatherer {
+        config: Arc::new(|| json!({})),
+        developer: Arc::new(|| json!({})),
+        env: w.env.clone(),
+        keys: w.keys.clone(),
+        vault: w.vault.clone(),
+        accounts: w.accounts.clone(),
+        providers: Vec::new(),
+        builder: w.builder.clone(),
+        keychain: Arc::new(IdleKeychain),
+        local: Arc::new(RunningLocal),
+        proxy: Arc::new(NoPc),
+    };
+    let config = json!({ "providers": { CUSTOM: { "type": "custom" } } });
+
+    let full = gatherer.gather(&config, SetupOptions { check_secrets: true, detect_local: true }).await.unwrap();
+    assert!(full.has_agent_api_key("openai") && !full.has_agent_api_key("xai"));
+    assert!(full.has_stored_secret(&openai) && full.has_stored_secret(&custom));
+    assert!(full.is_fallback_secret(&custom) && !full.is_fallback_secret(&openai));
+    assert_eq!(full.local_status(), Some(json!({ "running": true })));
+    assert_eq!(full.keychain_status().state, "ok");
+    assert!(full.oauth_available("openai-oauth") && !full.oauth_available("mimo-oauth"), "a developer-only provider stays hidden while its option is off");
+
+    let bare = gatherer.gather(&config, SetupOptions { check_secrets: false, detect_local: false }).await.unwrap();
+    assert!(!bare.has_agent_api_key("openai") && !bare.has_stored_secret(&openai));
+    assert_eq!(bare.local_status(), None);
+    assert_eq!(bare.keychain_status().state, "");
+    assert!(bare.oauth_available("openai-oauth"));
+
+    w.vault.unrun_reads.store(true, Ordering::SeqCst);
+    assert!(gatherer.gather(&config, SetupOptions { check_secrets: true, detect_local: false }).await.is_err(), "a read that never ran is not \"no key\"");
+    assert!(gatherer.gather(&config, SetupOptions { check_secrets: false, detect_local: false }).await.is_ok());
 }

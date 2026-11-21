@@ -2,7 +2,7 @@
 //! the policy and approval wait, concurrent execution, and the ordered commit
 //! of results.
 //!
-//! Calls start together unless one of Node's ordering barriers holds a call back
+//! Calls start together unless one of the ordering barriers holds a call back
 //! ([`crate::barriers`]); results are committed in the assistant's call order, so the
 //! transcript never depends on which call finished first.
 
@@ -150,8 +150,7 @@ impl ToolSet {
     }
 
     /// A call to a tool the surface does not offer (a deferred tool of a bridge session, reached by
-    /// `call_tool` or called by its name) runs the tool the registry knows under that name, as
-    /// Node's executor dispatches by registry, not by what the request carried. The surface's own
+    /// `call_tool` or called by its name) runs the tool the registry knows under that name. The surface's own
     /// refusals (allowlist, denied tools, read-only) are the gate's and come before this.
     #[must_use]
     pub fn with_registry(mut self, resolver: Arc<dyn mixdog_tools::policy::ToolResolver>, scope: Option<String>) -> Self {
@@ -563,8 +562,6 @@ fn render_output(parts: Vec<ToolPart>) -> Content {
                 };
                 rendered.push(ContentPart::Image(source));
             }
-            // The inline file part Node's `fileInfo` reads as it reads a document block: lowered to the same provider
-            // block, and stored with its bytes.
             ToolPart::Document { mime, data } => {
                 text_only = false;
                 rendered.push(ContentPart::File {
@@ -574,7 +571,6 @@ fn render_output(parts: Vec<ToolPart>) -> Content {
                     text: None,
                 });
             }
-            // A file a tool hands over whole (a downloaded text or Office file): the part an attached file is, with its name.
             ToolPart::File { mime, data, filename } => {
                 text_only = false;
                 rendered.push(ContentPart::File {
@@ -1525,6 +1521,18 @@ async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, edi
     }
     executed
 }
+fn unapproved_detail(resolution: &ApprovalResolution, reason: &str) -> String {
+    let given = match resolution {
+        ApprovalResolution::Decided { decision, .. } => decision.reason.clone(),
+        ApprovalResolution::TimedOut { .. } => Some("approval timed out".to_owned()),
+        _ => None,
+    };
+    given.map(|r| mixdog_js::js_trim(&r).to_owned()).filter(|r| !r.is_empty()).unwrap_or_else(|| {
+        let reason = mixdog_js::js_trim(reason);
+        if reason.is_empty() { "not approved".to_owned() } else { reason.to_owned() }
+    })
+}
+
 /// The gate, the approval wait and the final surface judgement of one call: the call to
 /// dispatch, or the model-visible refusal.
 async fn authorize(
@@ -1556,29 +1564,12 @@ async fn authorize(
                     target = gate.apply_approval(&target, &decision);
                 }
                 other => {
-                    // A person (or the hold for one) said no: never a policy
-                    // hook to work around, and the turn may now wait on them.
                     guards.note_user_wait();
-                    let given = match &other {
-                        // The loop words the reason it is given; "denied by user" is filled in by the human layer
-                        // (`lifecycle.mjs:74`, `held-requests.mjs:198`), not here (tool-pool dispatch.json "denied with no reason").
-                        ApprovalResolution::Decided { decision, .. } => decision.reason.clone(),
-                        // `finishToolApproval(entry.id, false, 'approval timed out')` (tool-approval.mjs:77).
-                        ApprovalResolution::TimedOut { .. } => Some("approval timed out".to_owned()),
-                        _ => None,
-                    };
-                    let detail = given.map(|r| mixdog_js::js_trim(&r).to_owned()).filter(|r| !r.is_empty()).unwrap_or_else(|| {
-                        let reason = mixdog_js::js_trim(&reason);
-                        if reason.is_empty() { "not approved".to_owned() } else { reason.to_owned() }
-                    });
-                    return Err(denial_for_unapproved(name, &detail));
+                    return Err(denial_for_unapproved(name, &unapproved_detail(&other, &reason)));
                 }
             }
         }
     }
-    // Node: the final call (after hooks and approval) gets the built-in web_fetch transport
-    // routing, then the surface judges it again under its schema name.
-    // A hook's rewrite and an approval's edit are built without the folder: the call keeps the one it was prepared in.
     target.cwd = Some(cwd.to_path_buf());
     crate::web_route::route_web_fetch(&mut target);
     match gate.pre_dispatch_deny(&target) {
@@ -1621,7 +1612,6 @@ pub async fn run_nested(
     )
     .await
     .map_err(refused)?;
-    // A `call_tool` is projected onto its target, which Node runs as a direct call (`tool-exec.mjs:114`).
     if target.name.starts_with("mcp__")
         && let Some(mcp) = &pipeline.mcp
     {
@@ -1633,7 +1623,6 @@ pub async fn run_nested(
     let Some(tool) = tools.resolve(scope, &target.name) else {
         return Err(refused(crate::text::unknown_tool_message(&target.name, &[])));
     };
-    // A nested call from a delegated agent is judged against the agent's definition, as its own calls are.
     let spec = if ctx.surface == mixdog_core_api::domain::tool::SurfaceKind::Agent { tool.agent_spec().unwrap_or_else(|| tool.spec()) } else { tool.spec() };
     let nested = ToolContext {
         call_id: ctx.call_id.clone(),
@@ -1685,8 +1674,8 @@ pub async fn run_nested(
         }
     }
 }
-/// The deadline every run's read-only I/O calls get (`runReadOnlyIoWithDeadline`): `READ_ONLY_IO_TIMEOUT`, or what
-/// `MIXDOG_IO_TOOL_TIMEOUT_MS` sets, read at each call as Node reads it (`readOnlyIoTimeoutMs`, `read-only-deadline.mjs:27-32`):
+/// The deadline every run's read-only I/O calls get: `READ_ONLY_IO_TIMEOUT`, or what
+/// `MIXDOG_IO_TOOL_TIMEOUT_MS` sets, read at each call:
 /// `0` is no deadline, a positive number its whole milliseconds (at least 1), anything else the default. Other tools have none.
 pub fn read_only_io_deadline() -> DeadlineFn {
     Arc::new(|spec: &ToolSpec| {
@@ -1697,90 +1686,58 @@ pub fn read_only_io_deadline() -> DeadlineFn {
         io_timeout_from(&raw)
     })
 }
-async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_occurrence: Option<EditOccurrence>) -> Executed {
-    let dispatch_started_at = env.clock.now_ms();
-    // `cwd` is the folder `prepareToolCall` read before anything of the call awaited (the catalog refresh below included): the
-    // approval, the tool and the hooks all use it, whatever a Project switch does meanwhile.
-    let cwd = cwd.clone();
-    let call = call.clone();
-    let name = call.name.clone();
-    // A call the turn's abort ends settles with the abort's text.
+/// A reused result as the call's answer: PostToolUse may rewrite it, a failed-looking body is an error, and a scoped hit carries
+/// its source for the wire owner.
+async fn cache_hit_result(env: &Arc<CallEnv>, call: &ToolCall, name: &str, args: &JsonValue, cwd: &std::path::Path, hit: crate::env::Reused) -> Executed {
     let cancelled = || Executed::error(&call.id, cancelled_text(&env.signal));
-    // `prepareToolCall` (`tool-exec/call-prep.mjs:70`): every call starts from the live registry.
-    // The preparation is under the run's cancellation like the tool task: a call nobody waits for any more (an
-    // eager run the batch left to finish) must not hold the run's environment through a gate or a catalog that never
-    // answers once the turn is cancelled.
-    if !env.prepared
-        && let Some(mcp) = &env.mcp
-        && hooked(&env.cancel, mcp.refresh()).await.is_none()
-    {
-        return cancelled();
-    }
-    // The PreToolUse hook and the approval wait end the moment the turn is cancelled, and a decision that comes later is never
-    // used (`applyBeforeToolHook` and the approval race, then `tool-exec.mjs:105` `throwIfAborted`). The wait checks the cancel
-    // first, so a call that reaches it once the turn is cancelled (one that waited behind a barrier) never meets its hook
-    // (`executeToolOwned`, `tool-exec.mjs:45`).
-    let authorized = or_cancelled(
-        &env.cancel,
-        authorize(
-            (&call.id, &name),
-            &call.arguments,
-            cwd.as_path(),
-            env.gate.as_ref(),
-            env.tool_env.approvals.as_ref(),
-            env.observer.as_ref(),
-            env.guards.as_ref(),
-        ),
-    )
-    .await;
-    let target = match authorized {
-        None => return cancelled(),
-        Some(Ok(target)) => target,
-        Some(Err(text)) => return Executed::returned(&call.id, text),
-    };
-    // A decision can settle in the same step as the turn's cancel: it never authorizes the call then (`tool-exec.mjs:105`).
     if env.cancel.is_cancelled() {
         return cancelled();
     }
-    // `tool-exec.mjs:114`: an MCP call, once its hooks, approval and denial are behind it (the wait for an
-    // approval can outlast a server's connect), is judged against the registry as it stands now.
-    if target.name.starts_with("mcp__")
-        && let Some(mcp) = &env.mcp
-        && hooked(&env.cancel, mcp.refresh()).await.is_none()
-    {
+    let mut message = AgentMessage::tool_text(&call.id, hit.content, ToolKind::CacheHit);
+    let mut rewritten = false;
+    if let (Some(hooks), Content::Text(body)) = (&env.hooks, &message.message.content) {
+        let hook_call = GateCall::new(name, args.clone()).at(cwd);
+        if let Some(Some(updated)) = hooked(&env.cancel, hooks.after_tool(&call.id, &hook_call, body)).await
+            && updated != *body
+        {
+            message.message.content = Content::Text(updated);
+            rewritten = true;
+        }
+    }
+    if env.cancel.is_cancelled() {
         return cancelled();
     }
-    if let Some(text) = env.gate.deferred_call_denial(&target) {
-        return Executed::returned(&call.id, text);
+    let failed = result_text_failed(&message.message.content, name, hit.explicit_success);
+    if failed {
+        message.tool_kind = Some(ToolKind::Error);
+        message.message.is_error = true;
     }
-    let Some(tool) = env.tools.resolve(&target.name) else {
-        let text = env.tools.unknown_message(&target.name);
-        // The executor returns this text, so PostToolUse sees it like any other result (`applyAfterToolHook`).
-        let updated = match &env.hooks {
-            Some(hooks) => hooked(
-                &env.cancel,
-                hooks.after_tool(
-                    &call.id,
-                    &GateCall {
-                        name: target.name.clone(),
-                        args: target.args.clone(),
-                        schema_name: target.schema_name.clone(),
-                        cwd: target.cwd.clone(),
-                        connector_account: target.connector_account.clone(),
-                    },
-                    &text,
-                ),
-            )
-            .await
-            .flatten(),
-            None => None,
-        };
-        return Executed::returned(&call.id, updated.unwrap_or(text));
-    };
-    let spec = env.tools.spec_of(&tool);
-    let timeout = env.tool_env.deadline_of.as_ref().and_then(|f| f(spec));
-    let ctx = ToolContext {
-        call_id: ToolCallId::from(call.id.as_str()),
+    // The wire owner decides whether this exact source is present and
+    // suitable for a receipt. Always keep the recoverable full body.
+    if !failed
+        && !rewritten
+        && matches!(hit.kind, crate::env::ReuseKind::Scoped)
+        && !hit.first_tool_use_id.is_empty()
+        && let Content::Text(body) = &message.message.content
+    {
+        message.message.scoped_cache_source =
+            Some(ScopedCacheSource { call_id: hit.first_tool_use_id.clone(), body_sha256: format!("{:x}", Sha256::digest(body.as_bytes())) });
+    }
+    Executed { message, failed, cache_hit: Some((hit.first_tool_use_id, hit.kind)), ..Executed::error(&call.id, String::new()) }
+}
+
+/// The tool's context: the call's folder, deadline, capability handles and options.
+fn tool_context(
+    env: &Arc<CallEnv>,
+    call_id: &str,
+    spec: &ToolSpec,
+    cwd: AbsPath,
+    timeout: Option<Duration>,
+    target: &GateCall,
+    edit_occurrence: Option<EditOccurrence>,
+) -> ToolContext {
+    ToolContext {
+        call_id: ToolCallId::from(call_id),
         thread_id: env.tool_env.thread_id.clone(),
         turn_id: env.tool_env.turn_id.clone(),
         tool: spec.name.clone(),
@@ -1808,9 +1765,66 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
             called_as: (target.name != spec.name).then(|| target.name.clone()),
         },
         review: env.tool_env.review.clone(),
+    }
+}
+
+async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_occurrence: Option<EditOccurrence>) -> Executed {
+    let dispatch_started_at = env.clock.now_ms();
+    // `cwd` is the folder `prepareToolCall` read before anything of the call awaited (the catalog refresh below included): the
+    // approval, the tool and the hooks all use it, whatever a Project switch does meanwhile.
+    let cwd = cwd.clone();
+    let call = call.clone();
+    let name = call.name.clone();
+    // A call the turn's abort ends settles with the abort's text.
+    let cancelled = || Executed::error(&call.id, cancelled_text(&env.signal));
+    if !env.prepared
+        && let Some(mcp) = &env.mcp
+        && hooked(&env.cancel, mcp.refresh()).await.is_none()
+    {
+        return cancelled();
+    }
+    let authorized = or_cancelled(
+        &env.cancel,
+        authorize(
+            (&call.id, &name),
+            &call.arguments,
+            cwd.as_path(),
+            env.gate.as_ref(),
+            env.tool_env.approvals.as_ref(),
+            env.observer.as_ref(),
+            env.guards.as_ref(),
+        ),
+    )
+    .await;
+    let target = match authorized {
+        None => return cancelled(),
+        Some(Ok(target)) => target,
+        Some(Err(text)) => return Executed::returned(&call.id, text),
     };
-    // Node: arguments are coerced to the declared schema before the tool sees
-    // them (a model that hands an object argument as its JSON text).
+    if env.cancel.is_cancelled() {
+        return cancelled();
+    }
+    if target.name.starts_with("mcp__")
+        && let Some(mcp) = &env.mcp
+        && hooked(&env.cancel, mcp.refresh()).await.is_none()
+    {
+        return cancelled();
+    }
+    if let Some(text) = env.gate.deferred_call_denial(&target) {
+        return Executed::returned(&call.id, text);
+    }
+    let Some(tool) = env.tools.resolve(&target.name) else {
+        let text = env.tools.unknown_message(&target.name);
+        // The executor returns this text, so PostToolUse sees it like any other result (`applyAfterToolHook`).
+        let updated = match &env.hooks {
+            Some(hooks) => hooked(&env.cancel, hooks.after_tool(&call.id, &target, &text)).await.flatten(),
+            None => None,
+        };
+        return Executed::returned(&call.id, updated.unwrap_or(text));
+    };
+    let spec = env.tools.spec_of(&tool);
+    let timeout = env.tool_env.deadline_of.as_ref().and_then(|f| f(spec));
+    let ctx = tool_context(env, &call.id, spec, cwd, timeout, &target, edit_occurrence);
     let unchanged = name == target.name && call.arguments == target.args && target.schema_name.is_none() && target.connector_account.is_none();
     let mut args = target.args;
     crate::coerce::coerce_args_to_schema(&mut args, &spec.input_schema);
@@ -1825,40 +1839,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
         if let Some(Some(hit)) = or_cancelled(&env.cancel, reuse.lookup(&invocation, ctx.cwd.as_path(), true)).await
             && (env.hooks.is_none() || !crate::offload::is_offloaded(&hit.content))
         {
-            if env.cancel.is_cancelled() {
-                return cancelled();
-            }
-            let mut message = AgentMessage::tool_text(&call.id, hit.content, ToolKind::CacheHit);
-            let mut rewritten = false;
-            if let (Some(hooks), Content::Text(body)) = (&env.hooks, &message.message.content) {
-                let hook_call = GateCall::new(&name, target_args_for_hook.clone()).at(ctx.cwd.as_path());
-                if let Some(Some(updated)) = hooked(&env.cancel, hooks.after_tool(&call.id, &hook_call, body)).await
-                    && updated != *body
-                {
-                    message.message.content = Content::Text(updated);
-                    rewritten = true;
-                }
-            }
-            if env.cancel.is_cancelled() {
-                return cancelled();
-            }
-            let failed = result_text_failed(&message.message.content, &name, hit.explicit_success);
-            if failed {
-                message.tool_kind = Some(ToolKind::Error);
-                message.message.is_error = true;
-            }
-            // The wire owner decides whether this exact source is present and
-            // suitable for a receipt. Always keep the recoverable full body.
-            if !failed
-                && !rewritten
-                && matches!(hit.kind, crate::env::ReuseKind::Scoped)
-                && !hit.first_tool_use_id.is_empty()
-                && let Content::Text(body) = &message.message.content
-            {
-                message.message.scoped_cache_source =
-                    Some(ScopedCacheSource { call_id: hit.first_tool_use_id.clone(), body_sha256: format!("{:x}", Sha256::digest(body.as_bytes())) });
-            }
-            return Executed { message, failed, cache_hit: Some((hit.first_tool_use_id, hit.kind)), ..Executed::error(&call.id, String::new()) };
+            return cache_hit_result(env, &call, &name, &target_args_for_hook, ctx.cwd.as_path(), hit).await;
         }
         or_cancelled(&env.cancel, reuse.prepare(&invocation, ctx.cwd.as_path())).await.flatten()
     } else {
@@ -1867,7 +1848,6 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
     let execution_name = spec.name.clone();
     let mutation = env.reuse.as_ref().filter(|_| crate::barriers::invalidates_reuse(&execution_name, &args));
     let execution_cwd = ctx.cwd.clone();
-    // Immediately before the dispatch, the abort is checked once more (`tool-exec.mjs:127`).
     if env.cancel.is_cancelled() {
         return cancelled();
     }
@@ -1875,28 +1855,12 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
     let execution_started_at = env.clock.now_ms();
     // The call's lane jobs name the tool when one waits past the lanes' slow-wait threshold.
     let label = mixdog_rt::tool_label(&execution_name);
-    let mut handle = mixdog_rt::spawn("agent.tool", TaskClass::Work, async move { mixdog_rt::in_tool_call(label, tool.call(&ctx, args)).await });
+    let turn = env.cancel.clone();
+    let mut handle = mixdog_rt::spawn("agent.tool", TaskClass::Work, async move {
+        crate::compact::blob_reads::within_turn(turn, mixdog_rt::in_tool_call(label, tool.call(&ctx, args))).await
+    });
     let _abort = AbortOnDrop(handle.abort_handle());
-    // Node (`runReadOnlyIoWithDeadline`): a read-only I/O tool's wait ends the moment the run is aborted (its own signal fires with
-    // it), and a deadline fires the tool's signal and leaves it `TOOL_GRACE` to hand back what it collected, which an abort then no
-    // longer ends (the tool's signal has already fired). Every other tool runs outside that wrapper: the abort reaches it through its
-    // own token (a child of the run's) and the call waits for the tool to settle, however long it takes to honour that.
-    let mut past_deadline = false;
-    let waited = if read_only_io {
-        match Scope::new().cancel(&env.cancel).deadline(deadline).run(&mut handle).await {
-            Scoped::DeadlineExceeded => {
-                past_deadline = true;
-                tool_cancel.cancel();
-                match Scope::new().within(TOOL_GRACE).run(&mut handle).await {
-                    Scoped::Done(waited) => Scoped::Done(waited),
-                    _ => Scoped::DeadlineExceeded,
-                }
-            }
-            ended => ended,
-        }
-    } else {
-        Scope::new().deadline(deadline).run_with_grace(&mut handle, TOOL_GRACE, || tool_cancel.cancel()).await
-    };
+    let (waited, past_deadline) = wait_for_tool(&mut handle, read_only_io, &env.cancel, deadline, &tool_cancel).await;
     let execution_completed_at = env.clock.now_ms();
     let timing = |postprocess_started_at: i64| ToolTiming {
         dispatch_started_at,
@@ -1999,6 +1963,32 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
         }
     }
 }
+/// A read-only I/O tool's wait ends the moment the run is aborted, and a deadline fires the tool's signal and leaves it
+/// `TOOL_GRACE` to hand back what it collected, which an abort then no longer ends. Every other tool is reached by the abort
+/// through its own token and the wait lasts until it settles. The flag says the deadline passed.
+async fn wait_for_tool(
+    handle: &mut tokio::task::JoinHandle<ToolOutcome>,
+    read_only_io: bool,
+    cancel: &CancellationToken,
+    deadline: Option<Instant>,
+    tool_cancel: &CancellationToken,
+) -> (Scoped<Result<ToolOutcome, tokio::task::JoinError>>, bool) {
+    if !read_only_io {
+        return (Scope::new().deadline(deadline).run_with_grace(handle, TOOL_GRACE, || tool_cancel.cancel()).await, false);
+    }
+    match Scope::new().cancel(cancel).deadline(deadline).run(&mut *handle).await {
+        Scoped::DeadlineExceeded => {
+            tool_cancel.cancel();
+            let waited = match Scope::new().within(TOOL_GRACE).run(handle).await {
+                Scoped::Done(waited) => Scoped::Done(waited),
+                _ => Scoped::DeadlineExceeded,
+            };
+            (waited, true)
+        }
+        ended => (ended, false),
+    }
+}
+
 impl Run {
     pub(crate) async fn run_tool_phase(&mut self, response: ModelResponse) -> Result<(), AgentError> {
         let calls = response.tool_calls.clone();
@@ -2015,8 +2005,6 @@ impl Run {
         }
         // The audit records what runs: a bridged `call_tool` as its target (the wire calls stay the transcript's).
         let (execution, _, _) = self.execution_view(&calls);
-        // Node's serial loop is at the first call once the response is in; it does not wait, as the tools here do, for the
-        // assistant item to reach the session, so an ambiguous first edit settling during that wait finds the batch at it.
         if let Some(first) = execution.first() {
             self.reach_call(first, &crate::batch::edit_groups(&execution));
         }
@@ -2032,8 +2020,6 @@ impl Run {
         assistant.message.tool_calls = crate::stored_args::compact_calls(&calls);
         assistant.turn_reminder = self.last_reminder.clone();
         let ticket = self.push(assistant).await?;
-        // The tools start once the assistant item that carries their calls has reached the session, so their start and
-        // their results follow its card; Node's `onToolPhaseStarted` waits for no write, and neither does this.
         or_cancelled(&self.cancel, self.env.sink.accepted(ticket)).await.ok_or(AgentError::Aborted)?;
         self.emit(RunEvent::ToolPhase(crate::env::ToolPhase::Started));
         let tools_started_ms = self.env.clock.now_ms();

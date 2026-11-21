@@ -1,12 +1,3 @@
-// Rule loading: the bundled sources, the `# mixdog-kind:` markers and the
-// load-time diagnostics.
-//
-// The three rule sources and their precedence are described in the module
-// header of `src/outline.rs`. This file owns reading them: splitting each
-// stream into single-rule documents, reading each document's kind marker,
-// mirroring the TypeScript documents onto the Tsx grammar, and reporting every
-// document that does not parse instead of dropping its rules.
-
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, RwLock};
 

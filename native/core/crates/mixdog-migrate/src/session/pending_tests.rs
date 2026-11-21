@@ -13,8 +13,15 @@ use super::*;
 use crate::run::tests::migrator;
 use crate::run::tests::write;
 
-#[test]
-fn pending_input_resumes_once_after_publish_is_interrupted() {
+struct PendingCorpus {
+    _dir: tempfile::TempDir,
+    roots: MigrationRoots,
+    digest: String,
+    parts: Value,
+    fresh: i64,
+}
+
+fn pending_corpus() -> PendingCorpus {
     let dir = tempfile::tempdir().unwrap();
     let roots = MigrationRoots { data: dir.path().join("data"), home: dir.path().join("home"), profile: None };
     durable::create_dir_all(&roots.home).unwrap();
@@ -111,7 +118,19 @@ fn pending_input_resumes_once_after_publish_is_interrupted() {
             ]
         }}),
     );
+    PendingCorpus { _dir: dir, roots, digest, parts, fresh }
+}
 
+fn migrated_pending_corpus() -> (PendingCorpus, BTreeMap<String, target::Folded>) {
+    let corpus = pending_corpus();
+    let complete = migrator(&corpus.roots, None).run().unwrap();
+    let sessions = read_sessions(&corpus.roots, &complete.manifest_sha256).unwrap();
+    (corpus, sessions)
+}
+
+#[test]
+fn pending_input_resumes_once_after_publish_is_interrupted() {
+    let PendingCorpus { roots, .. } = pending_corpus();
     let fault = Arc::new(|point: &str| {
         if point == "publish:session/lead:after" {
             return Err(Blocked::journal("stop after queue publish"));
@@ -125,12 +144,20 @@ fn pending_input_resumes_once_after_publish_is_interrupted() {
     assert_eq!(complete.kinds.data.quarantined_unexpected, 0);
     assert_eq!(complete.kinds.data.dangling, 0);
     assert_eq!(durable::read(&roots.data.join("sessions/lead/log.000000")).unwrap(), published);
+}
 
-    let sessions = read_sessions(&roots, &complete.manifest_sha256).unwrap();
+#[test]
+fn a_stale_steering_bucket_keeps_only_its_fresh_rows_and_a_session_mirror_holds_none() {
+    let (_corpus, sessions) = migrated_pending_corpus();
     assert!(sessions["tui_lead"].queue.is_empty());
     let other = &sessions["other"].queue;
     assert_eq!(other.len(), 1);
     assert_eq!(other[0].1["message"], "fresh despite stale bucket");
+}
+
+#[test]
+fn the_lead_queue_merges_both_buckets_in_order_with_unique_ids() {
+    let (PendingCorpus { parts, .. }, sessions) = migrated_pending_corpus();
     let queue = &sessions["lead"].queue;
     assert_eq!(
         queue.iter().map(|(_, entry)| &entry["message"]).collect::<Vec<_>>(),
@@ -148,10 +175,14 @@ fn pending_input_resumes_once_after_publish_is_interrupted() {
     );
     assert_eq!(queue.iter().map(|(id, _)| id).collect::<BTreeSet<_>>().len(), queue.len());
     assert_eq!(queue[5].0, "same-id");
-    let retry = &queue[7].1;
-    assert_eq!(retry["transcriptMeta"]["device"], "terminal");
-    let options = |index: usize| serde_json::from_value::<SubmitOptions>(queue[index].1["options"].clone()).unwrap();
-    let restored = options(7);
+}
+
+#[test]
+fn a_steering_retry_keeps_its_options_and_pasted_attachments() {
+    let (PendingCorpus { digest, fresh, .. }, sessions) = migrated_pending_corpus();
+    let queue = &sessions["lead"].queue;
+    assert_eq!(queue[7].1["transcriptMeta"]["device"], "terminal");
+    let restored = serde_json::from_value::<SubmitOptions>(queue[7].1["options"].clone()).unwrap();
     assert_eq!(restored.client_submission_id.as_deref(), Some("retry-submission"));
     assert_eq!(restored.submitted_at, Some(fresh + 21));
     assert_eq!(restored.display_text.as_deref(), Some("retry [Pasted text #1]"));
@@ -162,12 +193,25 @@ fn pending_input_resumes_once_after_publish_is_interrupted() {
     let linked = &restored.pasted_images.as_ref().unwrap()["3"];
     assert_eq!(linked.attachment_ref.as_deref(), Some("att_image_3"));
     assert_eq!(restored.pasted_texts.as_ref().unwrap()["4"].attachment_ref.as_deref(), Some("att_text_4"));
-    let manager = options(8);
+}
+
+#[test]
+fn a_manager_entry_keeps_its_submission_display_text_and_queue_controls() {
+    let (_corpus, sessions) = migrated_pending_corpus();
+    let queue = &sessions["lead"].queue;
+    let manager = serde_json::from_value::<SubmitOptions>(queue[8].1["options"].clone()).unwrap();
     assert_eq!(manager.client_submission_id.as_deref(), Some("multipart-submission"));
     assert_eq!(manager.display_text.as_deref(), Some("read [Pasted text #1]"));
     assert_eq!(queue[8].1["priority"], "later");
     assert_eq!(queue[8].1["skipSlashCommands"], true);
-    for (index, options) in [(7, restored), (8, manager)] {
+}
+
+#[test]
+fn multipart_entries_keep_their_prompt_retry_options_and_pasted_text() {
+    let (PendingCorpus { digest, .. }, sessions) = migrated_pending_corpus();
+    let queue = &sessions["lead"].queue;
+    for index in [7, 8] {
+        let options = serde_json::from_value::<SubmitOptions>(queue[index].1["options"].clone()).unwrap();
         let prompt = serde_json::from_value::<PromptContent>(queue[index].1["message"].clone()).unwrap();
         assert!(matches!(prompt, PromptContent::Parts(parts) if parts.len() == 3));
         assert_eq!(options.retry_failed_turn, Some(true));

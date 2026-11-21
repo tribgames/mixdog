@@ -1,14 +1,3 @@
-//! The session transcript file user hooks are told about (`transcript_path`): a read-only
-//! copy of the session in 1.4.5's `<data>/sessions/<id>.log.jsonl` form, derived from the
-//! thread store when a hook is about to run.
-//!
-//! The thread store stays the only owner of the real log (`sessions/<id>/`); nothing reads the
-//! copy back. It is the log's base form: the `session` record and one `compacted` record that
-//! holds the whole model context (`session-log-format.mjs`), written whole through a
-//! temporary file and a rename, so a hook never reads half of it. A session with no model
-//! context yet has no such file: the path is the `<id>.json` 1.4.5 names before its first log
-//! (`hookTranscriptPath`), and an id that cannot name a session gets `null`.
-
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;

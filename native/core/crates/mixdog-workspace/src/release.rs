@@ -1,7 +1,5 @@
-//! The one release hook for "a folder is going away" (DS §4.1): a project deleted, a managed
-//! worktree removed. Whatever holds the folder open (language servers, terminals, watches) registers
-//! a [`FolderRelease`]; `project/delete` and worktree removal (`mixdog-scm`) both run all of them.
-//! This replaces the wire operations `lspDisposeUnder` and `termDisposeUnder`.
+//! The release hook for "a folder is going away" (a project deleted, a managed worktree removed): whatever holds the folder
+//! open registers a [`FolderRelease`]; `project/delete` and worktree removal both run all of them.
 
 use std::path::Path;
 use std::sync::Arc;

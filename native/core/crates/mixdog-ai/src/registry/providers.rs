@@ -464,12 +464,6 @@ impl ProviderRegistry {
                 }
                 Err(msg) => {
                     let error = format!("[provider] Failed to init \"{name}\": {msg}");
-                    // One invalid custom provider is isolated: skipped and
-                    // reported, the rest of the registry builds. So is an account
-                    // provider nobody signed in to: Node builds that one without its
-                    // account (`antigravity-oauth.mjs` reads the tokens per request),
-                    // while this adapter is bound to the account's project and has
-                    // nothing to be built from. A later plan builds it once signed in.
                     if is_custom(&name, &cfg) || msg.starts_with(NOT_SIGNED_IN) {
                         built.push((name, Err(error)));
                     } else {
@@ -603,10 +597,6 @@ impl ProviderRegistry {
         let empty = Value::Object(Map::new());
         let Ok(built) = self.builder.build(name, &empty).await else { return Ok(None) };
         let adapter = self.accounted(name, built);
-        // Both gates again after the await (Node): the credential may have been
-        // removed, or the provider disabled, while the build was in flight. The
-        // disable check and the registration share one lock, so a `disable`
-        // cannot slip between them.
         if !self.builder.oauth_credentials_usable(name).await.map_err(RegistryError::plain)? {
             return Ok(None);
         }

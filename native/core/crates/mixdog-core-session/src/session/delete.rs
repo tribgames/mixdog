@@ -1,13 +1,3 @@
-//! `thread/delete`: deleting one session as 1.4.5's `deleteSession` does
-//! (`lifecycle/session-switch/session-delete.mjs:56`, the session that is not the runtime's
-//! current one; a daemon thread never is), with the store's hard-delete purge
-//! (`store/session-delete.mjs` `_deleteSession`).
-//!
-//! The store's delete is the delete mark, a `meta` record the thread's own writer appends: a
-//! fork reads its parent's logs, so the files stay until the store's fork-aware purge, run
-//! after each delete, finds no live lineage reading them. A deleted session is not listed, not
-//! openable and never deleted twice.
-
 use std::sync::Arc;
 use std::sync::atomic::Ordering::SeqCst;
 
@@ -443,10 +433,6 @@ pub fn is_historical_automatic_closure(header: &serde_json::Map<String, serde_js
         && matches!(text("closedReason"), Some("idle-sweep" | "terminal-reap"))
 }
 
-/// The client's `deleteSession(id)` (`session-switch/session-delete.mjs:56-79`, a session that is not the client's
-/// current one): a closed record is not deletable (`availableRecord`, unless an automatic close tombstoned it); the
-/// session is detached durably first (`mgr.closeSession(id, reason, { tombstone: false })`), so a delete whose removal
-/// then fails leaves it detached; then it is deleted.
 async fn client_delete(directory: &super::directory::DirInner, id: &str) -> Result<bool, CoreError> {
     let trimmed = mixdog_js::js_trim(id);
     if !is_session_id(trimmed) {

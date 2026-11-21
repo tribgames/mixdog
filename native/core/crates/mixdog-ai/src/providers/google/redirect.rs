@@ -1,8 +1,3 @@
-//! Model ids the Gemini API serves as another model, and the models that ignore the sampling parameters (port of
-//! `gemini-model-redirect.mjs`). Effective 2026-12-01 every API request to `gemini-2.5-pro` routes to
-//! `gemini-3.8-flash` and every request to `gemini-2.5-flash` to `gemini-3.5-flash-lite`; the date is taken as UTC
-//! midnight, as in Node.
-
 use mixdog_js::JsRegex;
 use std::sync::LazyLock;
 

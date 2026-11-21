@@ -1,9 +1,3 @@
-//! Every shared conformance scenario against the engine over a real loopback WebSocket (`WsConnector`), with a test server
-//! that plays the scripted peer.
-//!
-//! "Nothing happened" assertions cannot be decided by yielding on a real socket; `settle` therefore waits a short real
-//! interval. Every positive wait (a frame, a connection) is event driven.
-
 use crate::common;
 
 use std::{

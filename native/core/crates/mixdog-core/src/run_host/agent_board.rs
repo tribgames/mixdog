@@ -1,11 +1,9 @@
 //! Two production seams of the agent tool's assembly (`mixdog_agent::agent_tool::assemble`):
 //!
-//! - [`ModelListCatalog`]: `AgentParts.catalog`, Node's `listProviderModels`
-//!   (`boot/tools.mjs:98,123` -> `collectProviderModels`, `provider-models.mjs:161`) as the
-//!   agent tool's `resolveRequestedModel` (`agent-tool/model-select.mjs:85`) calls it. It is the
+//! - [`ModelListCatalog`]: `AgentParts.catalog`, the agent tool's model listing. It is the
 //!   rows of the `model/list` service (`ModelListService::rows`), mapped to `ModelRow`.
 //! - [`LateBoardNotifier`]: the `TaskNotifier` of `JobBoard::new`. A finished agent job reaches
-//!   its owner as `notifySessionCompletion(owner, text, meta)` (`boot/infrastructure.mjs:146`);
+//!   its owner through the session notification;
 //!   the session directory is that delivery (`impl TaskNotifier for SessionDirectory`), and the
 //!   board is built before the directory exists, so it goes through the late directory.
 

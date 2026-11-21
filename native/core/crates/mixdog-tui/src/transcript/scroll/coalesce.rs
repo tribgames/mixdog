@@ -1,5 +1,4 @@
-//! The leading-edge coalescer of wheel and edge-drag deltas (`useScrollCoalescer` of `use-transcript-scroll.mjs`,
-//! `accumulateDirectionalScrollDelta` of `transcript-window.mjs`): the first delta after an idle period flushes at once, so a
+//! The leading-edge coalescer of wheel and edge-drag deltas: the first delta after an idle period flushes at once, so a
 //! single wheel tick or a short drag stays responsive, while a flood within the coalesce window accumulates into one scroll per
 //! tick instead of one per mouse event. The clock is the caller's.
 

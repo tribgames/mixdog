@@ -1,21 +1,18 @@
-//! The user hooks a session's life fires (Node's session runtime over `hooks.dispatch`), as the
-//! session layer sees them. The bus and the payloads are the host's
-//! (`mixdog-core` `run_host::lifecycle_hooks::BusLifecycleHooks`); a session only says when:
-//! - **`SessionStart`** (`session-create/session-start-hook.mjs` `dispatchSessionStart`): a
-//!   runtime built its session (`thread/start`), before anything else uses it. The context the
-//!   handlers add is stored ahead of the first user turn ([`session_start_rows`]).
-//! - **`UserPromptSubmit`** (`turn/turn-run/turn-prepare.mjs` `dispatchPromptSubmit`): every turn,
-//!   after its prompt row and before the model is asked. A block refuses the turn; added context
-//!   rides the turn.
-//! - **`Stop`** (`turn-settle.mjs` `completeTurn`): a turn completed, after its final text.
-//! - **`StopFailure`** (`turn-settle.mjs` `reportTurnError`): a turn ended any other way.
-//! - **`SessionEnd`** (`lifecycle/teardown/session-close.mjs` `dispatchSessionEnd`): the session's
-//!   runtime closes (an unload, the core's shutdown).
-//! - **`CwdChanged`** (`cwd-plugins/cwd-apply.mjs` `applyResolvedCwd`): the session's folder moved;
-//!   the session's MCP scope follows it (`onCwdChanged`).
+//! The user hooks a session's life fires, as the session layer sees them. The bus and the
+//! payloads are the host's (`mixdog-core` `run_host::lifecycle_hooks::BusLifecycleHooks`); a
+//! session only says when:
+//! - **`SessionStart`**: a runtime built its session (`thread/start`), before anything else uses
+//!   it. The context the handlers add is stored ahead of the first user turn
+//!   ([`session_start_rows`]).
+//! - **`UserPromptSubmit`**: every turn, after its prompt row and before the model is asked. A
+//!   block refuses the turn; added context rides the turn.
+//! - **`Stop`**: a turn completed, after its final text.
+//! - **`StopFailure`**: a turn ended any other way.
+//! - **`SessionEnd`**: the session's runtime closes (an unload, the core's shutdown).
+//! - **`CwdChanged`**: the session's folder moved; the session's MCP scope follows it.
 //!
 //! Every call takes the session's header as the caller holds it: the payload's `cwd`, permission
-//! mode, effort and model are read from it (`hookCommonPayload`).
+//! mode, effort and model are read from it.
 
 use async_trait::async_trait;
 use mixdog_core_api::ids::ThreadId;

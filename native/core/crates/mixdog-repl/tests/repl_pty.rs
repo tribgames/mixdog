@@ -1,11 +1,3 @@
-//! The REPL on a screen: the bytes it writes are replayed on a terminal (the VT grid of `mixdog-term`, which is the in-process
-//! pseudo-terminal of this crate's tests) and the rows are checked after a streamed markdown answer, a tool call and `/quit`.
-//! The keys come in as the bytes a terminal sends and go through the real decoder and line editor.
-//!
-//! The session is a stand-in for a core that streams: after each prompt it publishes the states of a scripted turn, one per
-//! frame. The REPL is not run against a core in a pseudo-terminal here (that would start a binary and a core, which a test of
-//! this crate does not do); what is checked is the screen the REPL's own output makes.
-
 use std::collections::VecDeque;
 use std::io;
 use std::sync::Arc;

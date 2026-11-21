@@ -265,33 +265,29 @@ fn is_html(mime: &str, body: &str) -> bool {
     mime.is_empty() && SNIFF.is_match(body)
 }
 
-pub fn extract_document(url: &Url, body: &str, content_type: &str) -> Result<Extracted, FetchError> {
-    let mime = js_trim(content_type.split(';').next().unwrap_or_default()).to_lowercase();
-    if !is_html(&mime, body) {
-        assert_readable(body)?;
-        let path = url.path().to_lowercase();
-        let format = if mime.contains("json") {
-            "json"
-        } else if mime.contains("markdown") || path.ends_with(".md") || path.ends_with(".mdown") {
-            "markdown"
-        } else {
-            "text"
-        };
-        return Ok(Extracted {
-            title: String::new(),
-            content: body.to_string(),
-            extractor: "raw",
-            format,
-            excerpt: mixdog_js::slice_utf16(body, 240),
-            excerpt_json_len: mixdog_js::json_cut_utf16_len(body, 240),
-            content_type: mime,
-        });
-    }
-    let doc = Document::from(body);
-    let title = document_title(&doc);
-    let images: Vec<String> =
-        ["meta[property=\"og:image\"]", "meta[name=\"twitter:image\"]"].iter().filter_map(|selector| meta_content(&doc, selector)).collect();
-    doc.select(REMOVED).remove();
+fn extract_raw(url: &Url, body: &str, mime: String) -> Result<Extracted, FetchError> {
+    assert_readable(body)?;
+    let path = url.path().to_lowercase();
+    let format = if mime.contains("json") {
+        "json"
+    } else if mime.contains("markdown") || path.ends_with(".md") || path.ends_with(".mdown") {
+        "markdown"
+    } else {
+        "text"
+    };
+    Ok(Extracted {
+        title: String::new(),
+        content: body.to_string(),
+        extractor: "raw",
+        format,
+        excerpt: mixdog_js::slice_utf16(body, 240),
+        excerpt_json_len: mixdog_js::json_cut_utf16_len(body, 240),
+        content_type: mime,
+    })
+}
+
+/// The page's longest content container as markdown, else the readability extract, else the whole body.
+fn main_markdown(doc: &Document, url: &Url) -> (String, &'static str) {
     let mut root: Option<(NodeRef, usize)> = None;
     for candidate in doc.select(CONTAINERS).nodes() {
         let length = utf16_len(js_trim(&candidate.text()));
@@ -299,9 +295,9 @@ pub fn extract_document(url: &Url, body: &str, content_type: &str) -> Result<Ext
             root = Some((*candidate, length));
         }
     }
-    let (text, extractor) = match root.filter(|(_, length)| *length > 0) {
+    match root.filter(|(_, length)| *length > 0) {
         Some((node, _)) => (markdown(&node, url), "dom-markdown"),
-        None => match readability_markdown(&doc, url) {
+        None => match readability_markdown(doc, url) {
             Some(text) => (text, "readability"),
             None => {
                 let body_node = doc.select_single("body");
@@ -309,7 +305,20 @@ pub fn extract_document(url: &Url, body: &str, content_type: &str) -> Result<Ext
                 (text, "dom-markdown")
             }
         },
-    };
+    }
+}
+
+pub fn extract_document(url: &Url, body: &str, content_type: &str) -> Result<Extracted, FetchError> {
+    let mime = js_trim(content_type.split(';').next().unwrap_or_default()).to_lowercase();
+    if !is_html(&mime, body) {
+        return extract_raw(url, body, mime);
+    }
+    let doc = Document::from(body);
+    let title = document_title(&doc);
+    let images: Vec<String> =
+        ["meta[property=\"og:image\"]", "meta[name=\"twitter:image\"]"].iter().filter_map(|selector| meta_content(&doc, selector)).collect();
+    doc.select(REMOVED).remove();
+    let (text, extractor) = main_markdown(&doc, url);
     let content = tidy_markdown(&text);
     assert_readable(&content)?;
     let excerpt = mixdog_js::slice_utf16(&content, 240);

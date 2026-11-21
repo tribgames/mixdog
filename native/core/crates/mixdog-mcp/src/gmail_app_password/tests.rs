@@ -226,7 +226,7 @@ async fn the_tool_list_leaves_out_the_tool_only_the_approval_gate_calls() {
 }
 
 #[tokio::test]
-async fn search_lists_newest_first_with_a_snippet_and_says_when_it_cut_the_list() {
+async fn search_lists_newest_first_with_a_snippet() {
     let server = server(stored().await).await;
     let listing = server.text("search_emails", json!({ "query": "from:ann" })).await;
     let rows: Vec<Value> = listing.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
@@ -240,7 +240,11 @@ async fn search_lists_newest_first_with_a_snippet_and_says_when_it_cut_the_list(
         json!({ "id": "333", "threadId": "444", "from": "bob@z.org", "subject": "Plain", "date": "2022-07-17T09:44:25.000Z", "snippet": "Hi there x" })
     );
     assert_eq!(server.commands()[..3], ["LIST \"\" \"*\"", "EXAMINE \"[Gmail]/All Mail\"", "UID SEARCH X-GM-RAW \"from:ann\""]);
+}
 
+#[tokio::test]
+async fn a_search_that_cuts_the_list_says_so_and_defaults_to_the_inbox() {
+    let server = server(stored().await).await;
     let one = server.text("search_emails", json!({ "maxResults": 1 })).await;
     assert!(one.ends_with("\n(1 of 2 shown; narrow the query for others)"));
     assert!(server.imap().iter().any(|line| line == "UID SEARCH X-GM-RAW \"in:inbox\""));

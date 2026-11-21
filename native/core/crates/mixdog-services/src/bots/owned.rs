@@ -1,10 +1,7 @@
-//! One run of an owned automation — a schedule or a webhook endpoint
-//! (owned-automation-run.mjs). The run itself is a turn in the owner bot's home thread; the
-//! bot's reply there is its result. A run whose owner bot does not exist never fires: it is
-//! skipped as paused, never run elsewhere. A second run of the same automation while one is in
-//! flight is skipped (and recorded). Unattended runs (timed fires, received webhooks; not the
-//! app's "Run now") also back off after consecutive failures and skip a switched-off routine.
-//! Runs have no concurrency cap and no deadline.
+//! A run whose owner bot does not exist is skipped as paused, never run elsewhere. A second run
+//! of the same automation while one is in flight is skipped. Unattended runs (timed fires,
+//! received webhooks; not "Run now") also back off after consecutive failures and skip a
+//! switched-off routine. Runs have no concurrency cap and no deadline.
 
 use std::future::Future;
 

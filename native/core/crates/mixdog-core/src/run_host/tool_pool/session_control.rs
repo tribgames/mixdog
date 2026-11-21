@@ -1,11 +1,3 @@
-//! `session action=list` and `action=read`, and the request checks every cross-session action
-//! shares, as Node's session control does them: `daemon-session-control.mjs` (`listSessions`, the
-//! `read` branch and the unknown-bot answer), `daemon-session-control/request.mjs`
-//! (`targetRequest`), `daemon-session-control/list-page.mjs`, `bot-status.mjs` (`scanCatalog`,
-//! `scopedBot`) and `session-tool-output.mjs` (`sessionListOutput`, `sessionReadOutput`).
-//! Replayed against Node's answers: `fixtures/session-tool-control/golden.json`
-//! (`record-session-tool-control.mjs`).
-
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -33,6 +25,8 @@ use mixdog_tools::exec::escape_harness_tags;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
+
+use super::session_output::truncate_tool_text;
 
 pub type Row = Map<String, Value>;
 
@@ -213,12 +207,6 @@ fn collapse_space(text: &str) -> String {
     out
 }
 
-/// `truncateToolText(value, max)`.
-fn truncate_tool_text(text: &str, max: usize) -> String {
-    let text = mixdog_js::js_trim(text);
-    if utf16_len(text) > max { format!("{}...", slice_utf16(text, max)) } else { text.to_owned() }
-}
-
 /// `session action=status` of another session (`readSessionStatus`, `daemon-session-control.mjs:203`): its stored title quoted
 /// like a listed one, its route and cwd, whether a turn runs, whether agent work it handed off is pending, its quota resume.
 pub fn status(session_id: &str, header: &Map<String, Value>, busy: bool, agents_working: bool, quota_resume: Value) -> Value {
@@ -396,26 +384,8 @@ pub async fn list(listing: &dyn SessionListing, args: &Value, own: Option<&str>,
         }
     }
     let live = live_work(listing.live_sources().await?);
-    let mut candidates: Vec<String> = Vec::new();
-    for id in live.own.iter().map(|(id, _)| id).chain(live.agents.iter()) {
-        if !candidates.contains(id) {
-            candidates.push(id.clone());
-        }
-    }
     let cursor = args.get("cursor").filter(|c| truthy(Some(c))).map(value_to_string);
-    let mut pinned = Vec::new();
-    if cursor.is_none() && !candidates.is_empty() {
-        for id in &candidates {
-            if let Some(listed) = listing.row(id).await?.filter(|listed| keeps(args, listed)) {
-                pinned.push(with_live(&listed, &live));
-            }
-        }
-        let live_activity = |listed: &ListedRow| number_of(&listed.row, "liveAt").max(activity(&listed.row)).max(number_of(&listed.row, "updatedAt"));
-        pinned.sort_by(|left, right| {
-            live_activity(right).total_cmp(&live_activity(left)).then_with(|| string_of(&left.row, "id").cmp(&string_of(&right.row, "id")))
-        });
-        pinned.truncate(limit);
-    }
+    let pinned = if cursor.is_none() { pinned_rows(listing, args, &live, limit).await? } else { Vec::new() };
     let pinned_ids: HashSet<String> = pinned.iter().map(|listed| string_of(&listed.row, "id")).collect();
     let want = limit - pinned.len();
     let scan = if want > 0 {
@@ -432,9 +402,35 @@ pub async fn list(listing: &dyn SessionListing, args: &Value, own: Option<&str>,
     let cursor_of = |listed: &ListedRow| {
         if pinned_ids.contains(&string_of(&listed.row, "id")) { top_cursor() } else { encode_catalog_cursor(&listed.row) }
     };
-    let mut sessions: Vec<Value> = raw.iter().take(limit).map(|listed| list_row(listed, rich(listed))).collect();
+    let sessions: Vec<Value> = raw.iter().take(limit).map(|listed| list_row(listed, rich(listed))).collect();
+    fit_list_page(sessions, &raw, scan.next_cursor, &cursor_of)
+}
+
+/// The live sessions that open the first page, most recently active first.
+async fn pinned_rows(listing: &dyn SessionListing, args: &Value, live: &LiveWork, limit: usize) -> Result<Vec<ListedRow>, String> {
+    let mut candidates: Vec<String> = Vec::new();
+    for id in live.own.iter().map(|(id, _)| id).chain(live.agents.iter()) {
+        if !candidates.contains(id) {
+            candidates.push(id.clone());
+        }
+    }
+    let mut pinned = Vec::new();
+    for id in &candidates {
+        if let Some(listed) = listing.row(id).await?.filter(|listed| keeps(args, listed)) {
+            pinned.push(with_live(&listed, live));
+        }
+    }
+    let live_activity = |listed: &ListedRow| number_of(&listed.row, "liveAt").max(activity(&listed.row)).max(number_of(&listed.row, "updatedAt"));
+    pinned
+        .sort_by(|left, right| live_activity(right).total_cmp(&live_activity(left)).then_with(|| string_of(&left.row, "id").cmp(&string_of(&right.row, "id"))));
+    pinned.truncate(limit);
+    Ok(pinned)
+}
+
+/// Drops rows from the end of the page until it fits the output budget, pointing the cursor at the last row kept.
+fn fit_list_page(mut sessions: Vec<Value>, raw: &[ListedRow], scan_cursor: Option<String>, cursor_of: &dyn Fn(&ListedRow) -> String) -> Result<Value, String> {
     let note = sessions.iter().any(|row| row.get("preview").is_some());
-    let mut next_cursor = scan.next_cursor;
+    let mut next_cursor = scan_cursor;
     loop {
         if sessions.len() < raw.len() && !sessions.is_empty() {
             next_cursor = Some(cursor_of(&raw[sessions.len() - 1]));
@@ -489,10 +485,6 @@ fn display_tool_path(path: &str) -> String {
     path.replace('\\', "/").split('/').rfind(|part| !part.is_empty()).map_or_else(|| path.to_owned(), str::to_owned)
 }
 
-/// `summarizeToolResult(name, args, '', isError)` (`tool-result-summary.mjs`): the line a tool row
-/// with an empty result shows. `sessionReadOutput` asks only for an empty result, so each
-/// summarizer's empty-text answer is all it can give: an error's cause is empty, an MCP tool and
-/// the counting, fetching, searching, media and generic summarizers answer nothing.
 fn empty_result_summary(name: &str, args: Option<&Value>, is_error: bool) -> Option<String> {
     if is_error {
         return None;
@@ -537,6 +529,40 @@ fn is_low(unit: Option<&u16>) -> bool {
     unit.is_some_and(|u| (0xDC00..=0xDFFF).contains(u))
 }
 
+/// The text a transcript item shows: its own text, or for a tool row its result (the summary of an empty one).
+fn item_text(item: &Value, is_error: bool) -> Option<String> {
+    let first = ["text", "detail", "label"].iter().find_map(|key| item.get(*key).filter(|v| truthy(Some(v))));
+    let mut text = first.map(value_to_string).unwrap_or_default();
+    if item.get("kind").and_then(Value::as_str) == Some("tool") {
+        let raw = match item.get("rawResult").filter(|v| !v.is_null()).or_else(|| item.get("result").filter(|v| !v.is_null())) {
+            None => String::new(),
+            Some(Value::String(s)) => s.clone(),
+            Some(other) => other.to_string(),
+        };
+        let name = item.get("name").filter(|v| truthy(Some(v))).map(value_to_string).unwrap_or_default();
+        if !raw.is_empty() {
+            text = raw;
+        } else if let Some(summary) = empty_result_summary(&name, item.get("args"), is_error) {
+            text = summary;
+        }
+    }
+    (!text.is_empty()).then_some(text)
+}
+
+/// `limit` UTF-16 units of `text` from `offset`, never splitting a surrogate pair, and where the rest continues.
+fn text_window(text: &str, offset: usize, limit: usize) -> Result<(String, Option<usize>), String> {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    if offset > 0 && is_low(units.get(offset)) && is_high(units.get(offset - 1)) {
+        return Err("session: text_offset splits a surrogate pair".into());
+    }
+    let mut end = units.len().min(offset + limit);
+    if end < units.len() && end > 0 && is_high(units.get(end - 1)) {
+        end -= 1;
+    }
+    let slice = if offset < end { String::from_utf16_lossy(&units[offset..end]) } else { String::new() };
+    Ok((slice, (end < units.len()).then_some(end)))
+}
+
 /// `conversationItem(item, offset, textOffset)`.
 fn conversation_item(item: &Value, offset: usize, text_offset: usize, text_limit: usize) -> Result<Value, String> {
     let get = |key: &str| item.get(key).filter(|v| !v.is_null());
@@ -556,34 +582,11 @@ fn conversation_item(item: &Value, offset: usize, text_offset: usize, text_limit
     if is_error {
         row.insert("isError".into(), json!(true));
     }
-    let first = ["text", "detail", "label"].iter().find_map(|key| item.get(*key).filter(|v| truthy(Some(v))));
-    let mut text = first.map(value_to_string).unwrap_or_default();
-    if item.get("kind").and_then(Value::as_str) == Some("tool") {
-        let raw = match get("rawResult").or_else(|| get("result")) {
-            None => String::new(),
-            Some(Value::String(s)) => s.clone(),
-            Some(other) => other.to_string(),
-        };
-        let name = item.get("name").filter(|v| truthy(Some(v))).map(value_to_string).unwrap_or_default();
-        if !raw.is_empty() {
-            text = raw;
-        } else if let Some(summary) = empty_result_summary(&name, item.get("args"), is_error) {
-            text = summary;
-        }
-    }
-    if !text.is_empty() {
-        let units: Vec<u16> = text.encode_utf16().collect();
-        if text_offset > 0 && is_low(units.get(text_offset)) && is_high(units.get(text_offset - 1)) {
-            return Err("session: text_offset splits a surrogate pair".into());
-        }
-        let mut end = units.len().min(text_offset + text_limit);
-        if end < units.len() && end > 0 && is_high(units.get(end - 1)) {
-            end -= 1;
-        }
-        let slice = if text_offset < end { String::from_utf16_lossy(&units[text_offset..end]) } else { String::new() };
+    if let Some(text) = item_text(item, is_error) {
+        let (slice, next) = text_window(&text, text_offset, text_limit)?;
         row.insert("text".into(), json!(slice));
-        if end < units.len() {
-            row.insert("nextTextOffset".into(), json!(end));
+        if let Some(next) = next {
+            row.insert("nextTextOffset".into(), json!(next));
         }
     }
     let attachments = get("attachments").or_else(|| get("imageRefs")).or_else(|| get("images"));
@@ -646,10 +649,6 @@ pub fn read(session_id: &str, source: &[Value], has_older: bool, target: &Target
 
 // --- the production catalog ----------------------------------------------------------------------
 
-/// The catalog the `session` tool lists, bound once the store, the list overlay and the Agents
-/// pool exist (after the tool pool is built). Unbound it answers as Node does without a session
-/// service (`daemon-session-control.mjs` `control`): the catalog opens before it is bound, so it
-/// has no loading state of its own.
 #[derive(Default)]
 pub struct LateListing(std::sync::OnceLock<Arc<dyn SessionListing>>);
 

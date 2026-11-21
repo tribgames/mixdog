@@ -655,6 +655,31 @@ fn glyphs_without_data_are_missing() {
 }
 
 #[test]
+fn a_composite_keeps_its_other_components_when_one_closes_a_cycle() {
+    let simple: [u8; 20] = [0, 1, 0, 0, 0, 0, 0, 10, 0, 10, 0, 0, 0, 0, 0x01, 0, 0, 0, 0, 0];
+    let mut composite = vec![0xff, 0xff, 0, 0, 0, 0, 0, 10, 0, 10];
+    push16(&mut composite, 0x20); // MORE_COMPONENTS, byte arguments: glyph 1 itself
+    push16(&mut composite, 1);
+    composite.extend_from_slice(&[0, 0]);
+    push16(&mut composite, 0); // the last component: glyph 0
+    push16(&mut composite, 0);
+    composite.extend_from_slice(&[0, 0]);
+    let mut glyf = simple.to_vec();
+    glyf.extend_from_slice(&composite);
+    let mut loca = Vec::new();
+    for offset in [0u16, 10, 21] {
+        push16(&mut loca, offset);
+    }
+    let font = build_font(
+        b"\0\x01\0\0",
+        &[("head", head_table(1000, 0, 0, 0)), ("hhea", hhea_table(0, 0, 0)), ("hmtx", vec![0; 4]), ("maxp", maxp_table(2)), ("loca", loca), ("glyf", glyf)],
+        0,
+    );
+    let info = parse(&font).glyph_info(None).unwrap();
+    assert_eq!(info.missing_glyphs.as_deref(), Some(&[false, false][..]));
+}
+
+#[test]
 fn long_glyph_locations_give_the_same_answer() {
     let font = build_font(
         b"\0\x01\0\0",

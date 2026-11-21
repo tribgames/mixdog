@@ -1,11 +1,3 @@
-//! `session action=send` (`sendToSession` of `daemon-session-control.mjs`, `send-turn.mjs`,
-//! `task-session-route.mjs`): a prompt queued in another session. The Lead's send is the Lead's
-//! message there (`sender: 'lead'`) and reports nothing back; a bot conversation's send is the
-//! bot's turn, run and reported by [`TaskSends`] (`agentTasks.send`). The effort, hop and bot-chain
-//! checks refuse before anything is queued. A send to a group room's log is a message to one
-//! member there, through the room host (`roomAddressee`, `roomSubmitter`).
-//! Replayed against Node's answers: `fixtures/session-tool-control/golden.json` (`send-*`).
-
 // Transparent callback/state names; existing ownership and call signatures are unchanged.
 type SessionRecordLookup = dyn Fn(&str) -> Option<Value> + Send + Sync;
 type SessionTurnLookup = dyn Fn(&str) -> (u32, Vec<String>) + Send + Sync;
@@ -429,33 +421,8 @@ impl SessionSend {
         });
         let to = room.as_ref().map(|room| room.agent_id.as_str());
         let mut origin = self.report_origin(&turn_session, agent_id, caller).await;
-        // The menu's effort pick on the target: checked now, applied just before the prompt is queued.
-        let mut level: Option<Option<String>> = None;
-        if let Some(effort) = args.get("effort") {
-            if room.is_some() {
-                return Err("session: effort applies to a session, not a group room".into());
-            }
-            if !this.is_empty() && self.report_origin(session_id, this, caller).await.is_some_and(|o| o.target_session) {
-                return Err("session: a bot may set the effort only of the task sessions it created".into());
-            }
-            let Some(target) = self.header(session_id).await else {
-                return Err(format!("session: {session_id} is unavailable"));
-            };
-            let rows = self.catalog.rows().await?;
-            level = Some(check_effort(effort, &clean(target.get("provider")), &clean(target.get("model")), &rows)?);
-        }
-        // The effort goes on first, then the service takes the prompt: a session it does not hold is refused there
-        // (`submitSession`), after the effort check.
+        let level = self.requested_effort(args, room.is_some(), session_id, this, caller).await?;
         let in_room = room.is_some();
-        let apply_effort = |level: Option<Option<String>>| async move {
-            if let Some(level) = level {
-                self.effort.set_effort(&ThreadId::from(session_id), level.as_deref()).await?;
-            }
-            if !in_room && self.header(session_id).await.is_none() {
-                return Err(format!("session {session_id} is not available"));
-            }
-            Ok(())
-        };
         let turn_hop = self.chains.hop(caller);
         if let Some(origin) = origin.as_mut() {
             let hop = chained_hop(if origin.target_session { turn_hop + 1 } else { turn_hop }, (self.hop_limit)())?;
@@ -465,7 +432,7 @@ impl SessionSend {
             if !origin.target_session {
                 self.rebind.rebind(session_id, caller).await?;
             }
-            apply_effort(level).await?;
+            self.apply_effort(session_id, level, in_room).await?;
             let sent = match submit {
                 Some(submit) => self.tasks.send_through(&turn_session, &prompt, origin, submit).await?,
                 None => self.tasks.send(session_id, &prompt, origin).await?,
@@ -482,7 +449,7 @@ impl SessionSend {
             return Ok(Value::Object(out));
         }
         let hop = if turn_hop > 0 { chained_hop(turn_hop + 1, (self.hop_limit)())? } else { 0 };
-        apply_effort(level).await?;
+        self.apply_effort(session_id, level, in_room).await?;
         let accepted = match submit {
             // The member's turn carries only the hop (`submit({ transcriptMeta: { hop } })`).
             Some(submit) => {
@@ -499,6 +466,34 @@ impl SessionSend {
             }
         };
         Ok(unreported(session_id, to, accepted, hop))
+    }
+
+    /// The menu's effort pick on the target: checked now, applied just before the prompt is queued.
+    async fn requested_effort(&self, args: &Value, in_room: bool, session_id: &str, this: &str, caller: &str) -> Result<Option<Option<String>>, String> {
+        let Some(effort) = args.get("effort") else { return Ok(None) };
+        if in_room {
+            return Err("session: effort applies to a session, not a group room".into());
+        }
+        if !this.is_empty() && self.report_origin(session_id, this, caller).await.is_some_and(|o| o.target_session) {
+            return Err("session: a bot may set the effort only of the task sessions it created".into());
+        }
+        let Some(target) = self.header(session_id).await else {
+            return Err(format!("session: {session_id} is unavailable"));
+        };
+        let rows = self.catalog.rows().await?;
+        Ok(Some(check_effort(effort, &clean(target.get("provider")), &clean(target.get("model")), &rows)?))
+    }
+
+    /// The effort goes on first, then the service takes the prompt: a session it does not hold is refused there
+    /// (`submitSession`), after the effort check.
+    async fn apply_effort(&self, session_id: &str, level: Option<Option<String>>, in_room: bool) -> Result<(), String> {
+        if let Some(level) = level {
+            self.effort.set_effort(&ThreadId::from(session_id), level.as_deref()).await?;
+        }
+        if !in_room && self.header(session_id).await.is_none() {
+            return Err(format!("session {session_id} is not available"));
+        }
+        Ok(())
     }
 
     /// `roomAddressee(sessionId, args)`: the member a send to room log `session_id` addresses,

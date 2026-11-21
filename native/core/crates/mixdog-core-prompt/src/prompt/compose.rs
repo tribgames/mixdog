@@ -1,7 +1,7 @@
-//! `composeSystemPrompt` (`role-instructions.mjs`): the four blocks from their slices.
+//! The four blocks from their slices.
 //!
 //! BP1 `baseRules`, BP2 `stableSystemContext`, BP3 `sessionMarkerCore`, and the volatile
-//! `sessionEnvironment`. Every slice is the text Node passes; an absent slice is the empty string.
+//! `sessionEnvironment`. An absent slice is the empty string.
 
 use mixdog_js::js_trim;
 
@@ -65,21 +65,42 @@ fn join(parts: &[&str]) -> String {
     parts.iter().copied().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(PART_SEPARATOR)
 }
 
+/// The role text `composeSystemPrompt` asks the sources for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoleSource<'a> {
+    None,
+    /// `mixy_role_section()`.
+    Mixy,
+    /// `role_catalog(agent, provider)`.
+    Catalog(Option<&'a str>, Option<&'a str>),
+}
+
+/// Which role text the slices ask for.
+pub fn role_source<'a>(skip_role_catalog: bool, agent: Option<&'a str>, provider: Option<&'a str>) -> RoleSource<'a> {
+    if skip_role_catalog {
+        RoleSource::None
+    } else if agent == Some("lead") {
+        RoleSource::Mixy
+    } else {
+        RoleSource::Catalog(agent.filter(|a| !a.is_empty()), provider.filter(|p| !p.is_empty()))
+    }
+}
+
+/// The agent whose persona the slices ask for.
+pub fn persona_agent(skip_persona: bool, agent: Option<&str>) -> Option<&str> {
+    agent.filter(|a| !a.is_empty() && !skip_persona)
+}
+
 pub fn compose_system_prompt(slices: &Slices, sources: &dyn PromptSources) -> Composed {
     let stable =
         join(&[trimmed(slices.meta_context), if slices.skip.skills { "" } else { trimmed(slices.skill_manifest) }, trimmed(slices.deferred_tool_manifest)]);
 
-    let role_instructions = if slices.skip_role_catalog {
-        String::new()
-    } else if slices.agent == Some("lead") {
-        sources.mixy_role_section()
-    } else {
-        sources.role_catalog(slices.agent.filter(|a| !a.is_empty()), slices.provider.filter(|p| !p.is_empty()))
+    let role_instructions = match role_source(slices.skip_role_catalog, slices.agent, slices.provider) {
+        RoleSource::None => String::new(),
+        RoleSource::Mixy => sources.mixy_role_section(),
+        RoleSource::Catalog(agent, provider) => sources.role_catalog(agent, provider),
     };
-    let persona = match slices.agent.filter(|a| !a.is_empty()) {
-        Some(agent) if !slices.skip_persona => sources.persona_section(agent),
-        _ => String::new(),
-    };
+    let persona = persona_agent(slices.skip_persona, slices.agent).map(|agent| sources.persona_section(agent)).unwrap_or_default();
     let memory = if slices.skip.memory { "" } else { trimmed(slices.core_memory_context) };
     let instruction_files = if slices.skip.claudemd { "" } else { trimmed(slices.instruction_files_context) };
     let memory_block = if memory.is_empty() { String::new() } else { format!("# Core Memory\n{memory}") };

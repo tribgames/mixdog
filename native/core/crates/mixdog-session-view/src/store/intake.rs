@@ -192,7 +192,7 @@ impl SessionStore {
             });
         let Some((_, wire)) = asked else { return Ok(false) };
         let mut answer = decision.as_object().cloned().unwrap_or_default();
-        answer.remove("device");
+        answer.shift_remove("device");
         let owner = wire["params"]["threadId"].as_str().map_or(thread, str::to_owned);
         let params = json!({ "threadId": owner, "approvalId": id_text(&wire["id"]), "result": answer });
         let reply = self.inner.client.call_raw("thread/approval/answer", params, CallOptions::default()).await?;

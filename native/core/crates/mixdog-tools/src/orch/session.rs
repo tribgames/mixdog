@@ -10,6 +10,7 @@ use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::tool::SurfaceKind;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
+use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
@@ -211,19 +212,7 @@ impl SessionTool {
 
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn control(&self, ctx: &ToolContext, args: &Value, action: &str, target: &str) -> ToolOutcome {
-        if matches!(action, "read" | "send" | "cancel" | "delete") && target.is_empty() {
-            return Err(invalid("session_id", format!("session: session_id is required for action={action}")));
-        }
-        let required_text = match action {
-            "send" => Some("prompt"),
-            "create" => Some("brief"),
-            _ => None,
-        };
-        if let Some(key) = required_text
-            && !args.get(key).and_then(Value::as_str).is_some_and(|s| !mixdog_js::js_trim(s).is_empty())
-        {
-            return Err(invalid(key, format!("session: {key} is required for action={action}")));
-        }
+        check_control_arguments(args, action, target)?;
         let caller = self.port.caller(&ctx.thread_id).await;
         if action == "create" && caller.attended_agent.is_empty() {
             return Err(denied(
@@ -274,6 +263,24 @@ impl SessionTool {
     }
 }
 
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+fn check_control_arguments(args: &Value, action: &str, target: &str) -> Result<(), ToolError> {
+    if matches!(action, "read" | "send" | "cancel" | "delete") && target.is_empty() {
+        return Err(invalid("session_id", format!("session: session_id is required for action={action}")));
+    }
+    let required_text = match action {
+        "send" => Some("prompt"),
+        "create" => Some("brief"),
+        _ => None,
+    };
+    if let Some(key) = required_text
+        && !args.get(key).and_then(Value::as_str).is_some_and(|s| !mixdog_js::js_trim(s).is_empty())
+    {
+        return Err(invalid(key, format!("session: {key} is required for action={action}")));
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl Tool for SessionTool {
     fn spec(&self) -> &ToolSpec {
@@ -299,32 +306,43 @@ impl Tool for SessionTool {
             };
             return Err(refused("heartbeat", format!("session: {why}")));
         }
-        let lead = || {
-            if is_top_level(ctx.surface) { Ok(()) } else { Err(denied(format!("session: {action} belongs to the Lead session"))) }
-        };
         if CONTROL_ACTIONS.contains(&action) || (action == "status" && !target.is_empty()) {
-            lead()?;
+            require_lead(ctx, action)?;
             return self.control(ctx, &args, action, &target).await;
         }
         if action == "suggest" {
-            lead()?;
-            let caller = self.port.caller(thread).await;
-            if !caller.is_mixy_chat && !self.facts.is_heartbeat(thread).await {
-                return Err(denied("session: suggest belongs to Mixy's chat"));
-            }
-            let receipt = self.port.suggest(&field(&args, "key"), &field(&args, "title"), args.get("value") == Some(&Value::Bool(false))).await?;
-            return text(pretty(&Suggested { action, receipt: &receipt }));
+            require_lead(ctx, action)?;
+            return self.suggest(ctx, &args).await;
         }
         if !target.is_empty() {
-            lead()?;
+            require_lead(ctx, action)?;
             if target != thread.as_str() {
                 return Err(denied(format!("session: action={action} only applies to the current session")));
             }
         }
+        self.act_on_current_session(ctx, &args, action).await
+    }
+}
+
+impl SessionTool {
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+    async fn suggest(&self, ctx: &ToolContext, args: &Value) -> ToolOutcome {
+        let thread = &ctx.thread_id;
+        let caller = self.port.caller(thread).await;
+        if !caller.is_mixy_chat && !self.facts.is_heartbeat(thread).await {
+            return Err(denied("session: suggest belongs to Mixy's chat"));
+        }
+        let receipt = self.port.suggest(&field(args, "key"), &field(args, "title"), args.get("value") == Some(&Value::Bool(false))).await?;
+        text(pretty(&Suggested { action: "suggest", receipt: &receipt }))
+    }
+
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+    async fn act_on_current_session(&self, ctx: &ToolContext, args: &Value, action: &str) -> ToolOutcome {
+        let thread = &ctx.thread_id;
         let session_id = thread.as_str();
         match action {
             "favorite" | "archive" => {
-                lead()?;
+                require_lead(ctx, action)?;
                 let Some(value) = args.get("value").and_then(Value::as_bool) else {
                     return Err(invalid("value", format!("session: value (boolean) is required for action={action}")));
                 };
@@ -340,7 +358,7 @@ impl Tool for SessionTool {
                 text(pretty(&Sidebar { action, session_id, favorite, archived }))
             }
             "rename" => {
-                lead()?;
+                require_lead(ctx, action)?;
                 if !self.port.caller(thread).await.ai_titles_enabled {
                     return Err(refused("ai-titles", "session: AI session titles are disabled in settings"));
                 }
@@ -355,26 +373,26 @@ impl Tool for SessionTool {
                 }
             }
             "compact" => {
-                lead()?;
+                require_lead(ctx, action)?;
                 self.port.schedule_compact(thread).await?;
                 text(pretty(&Compacting { action, session_id, scheduled: true, note: "Compaction runs right after the current turn finishes." }))
             }
             "fork" => {
-                lead()?;
+                require_lead(ctx, action)?;
                 let (new_id, compacted) = self.port.fork(thread, args.get("compact") == Some(&Value::Bool(true))).await?;
                 text(pretty(&Forked { action, source_session_id: session_id, session_id: &new_id, compacted }))
             }
             "status" => {
-                lead()?;
+                require_lead(ctx, action)?;
                 text(pretty(&self.port.status(thread, &ctx.cwd).await))
             }
             "list-projects" => {
-                lead()?;
+                require_lead(ctx, action)?;
                 let projects = self.port.list_projects().await;
                 text(pretty(&Projects { cwd: &ctx.cwd.as_path().to_string_lossy(), projects: &projects }))
             }
             "set-project" => {
-                lead()?;
+                require_lead(ctx, action)?;
                 let raw = clean(args.get("path"));
                 if raw.is_empty() {
                     return Err(invalid("path", "session: path is required for action=set-project"));
@@ -385,6 +403,10 @@ impl Tool for SessionTool {
             other => Err(invalid("action", format!("session: unknown action \"{other}\""))),
         }
     }
+}
+
+fn require_lead(ctx: &ToolContext, action: &str) -> Result<(), ToolError> {
+    if is_top_level(ctx.surface) { Ok(()) } else { Err(denied(format!("session: {action} belongs to the Lead session"))) }
 }
 
 fn port_reason(error: &PortError) -> String {

@@ -100,6 +100,9 @@ mod tests {
                 Start::Exits { .. } => Ok(SpawnedProcess { handle: request.handle, pid: 1 }),
             }
         }
+        fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            self.subscribe(handle, from_seq)
+        }
         fn subscribe(&self, _handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
             let Start::Exits { code, stderr } = self.0 else { return Err(ProcessError::UnknownHandle) };
             Ok(Box::new(VecSource::new([
@@ -178,6 +181,28 @@ mod tests {
             texts,
             ["gh could not star the repository.", "gh could not star the repository.", "gh could not star the repository.", "HTTP 401: Bad credentials"]
         );
+    }
+}
+
+fn package_manager_command(label: &str, homepage: &str, winget_id: &str, brew_args: &[&str]) -> Result<(&'static str, &'static str, Vec<String>), ScmFailure> {
+    let owned = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect();
+    if cfg!(windows) {
+        let args = [
+            "install",
+            "--id",
+            winget_id,
+            "--exact",
+            "--source",
+            "winget",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+            "--disable-interactivity",
+        ];
+        Ok(("winget", "winget", owned(&args)))
+    } else if cfg!(target_os = "macos") {
+        Ok(("brew", "Homebrew", owned(brew_args)))
+    } else {
+        Err(ScmFailure::refused("INSTALL_UNSUPPORTED", format!("Automatic install is not supported on this platform. Install {label} from {homepage}.")))
     }
 }
 
@@ -327,33 +352,7 @@ impl Scm {
         winget_id: &str,
         brew_args: &[&str],
     ) -> Result<(), ScmFailure> {
-        let (program, manager, args): (&str, &str, Vec<String>) = if cfg!(windows) {
-            (
-                "winget",
-                "winget",
-                [
-                    "install",
-                    "--id",
-                    winget_id,
-                    "--exact",
-                    "--source",
-                    "winget",
-                    "--accept-package-agreements",
-                    "--accept-source-agreements",
-                    "--disable-interactivity",
-                ]
-                .iter()
-                .map(|arg| (*arg).to_owned())
-                .collect(),
-            )
-        } else if cfg!(target_os = "macos") {
-            ("brew", "Homebrew", brew_args.iter().map(|arg| (*arg).to_owned()).collect())
-        } else {
-            return Err(ScmFailure::refused(
-                "INSTALL_UNSUPPORTED",
-                format!("Automatic install is not supported on this platform. Install {label} from {homepage}."),
-            ));
-        };
+        let (program, manager, args) = package_manager_command(label, homepage, winget_id, brew_args)?;
         let mut spec = ExecSpec::new(program, process_dir());
         let spec_args = args.clone();
         spec.args = args;

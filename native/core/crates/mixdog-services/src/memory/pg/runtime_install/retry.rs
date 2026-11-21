@@ -1,7 +1,6 @@
-//! Node's `downloadToFileWithRetry` schedule (`src/runtime/shared/bounded-download.mjs`):
-//! every attempt has 180 s in all (`AbortSignal.timeout(timeoutMs)` covers the request and the
-//! body); a failure other than a 4xx answer waits 1 s, 3 s, then 9 s and tries again, so at
-//! most four attempts; a cancel ends an attempt and any wait at once.
+//! The download retry schedule: every attempt has 180 s in all (request and body); a failure
+//! other than a 4xx answer waits 1 s, 3 s, then 9 s and tries again, so at most four attempts;
+//! a cancel ends an attempt and any wait at once.
 
 use std::future::Future;
 use std::time::Duration;

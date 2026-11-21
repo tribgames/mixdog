@@ -23,10 +23,6 @@ enum Route {
     Refused(&'static str, &'static str),
 }
 
-/// Picks the route (Do-SetValue :580-595). A window known to raise itself
-/// on an accessibility write takes the keyboard, which honours the element's
-/// own state first; with no keyboard target of its own, or one that drops
-/// sent keys, nothing was sent and the accessibility write runs once.
 fn route(activates: bool, enabled: bool, read_only: bool, preferred: Wid, keyboard_ok: impl FnOnce() -> bool) -> Route {
     if !activates {
         return Route::Pattern;
@@ -70,10 +66,6 @@ fn note_activation(known: &mut HashMap<Wid, String>, top: Wid, raised: bool, ide
     }
 }
 
-/// Whether a write raised its window: only a call the person stayed out of,
-/// made while they were in another window, tells; `None` otherwise, and a
-/// later change is never attributed to the write. `outside` says the
-/// foreground before was a real window other than the target.
 fn raised_by_write(before: &Snapshot, after: &Snapshot, outside: bool, inside_after: bool) -> Option<bool> {
     let unchanged = before.ready && after.ready && before.generation == after.generation && before.sequence == after.sequence;
     (unchanged && outside).then_some(inside_after)
@@ -89,10 +81,6 @@ enum Replaced {
     Typed,
 }
 
-/// Selects all, deletes, proves the control empty, then types (the sends of
-/// Write-ValueByKeys). No key that deletes goes out until the control itself
-/// reports its whole text selected, and nothing is typed until it reports
-/// itself empty. `deleted` says whether Delete may have gone out.
 fn replace_text(background: &dyn Background, top: Wid, preferred: Wid, has_text: bool, typed: &str, deleted: &Cell<bool>) -> Res<Replaced> {
     let end = background.select_all(top, preferred, has_text)?;
     if end < 0 {
@@ -172,8 +160,11 @@ impl Host {
                 return Ok(result);
             }
         }
-        // The observer brackets the foreground reads, so user input anywhere
-        // between the two baselines shows up as a changed sequence.
+        self.write_by_pattern(&reference, &*element, top, text, id)
+    }
+
+    fn write_by_pattern(&self, reference: &str, element: &dyn Element, top: Wid, text: &str, id: Option<String>) -> Res<Obj> {
+        let identity = |window: Wid| self.desktop.window_owner_identity(window);
         let input_before = self.observer.read();
         let foreground_before = self.desktop.foreground();
         element.set_value(text)?;
@@ -193,7 +184,7 @@ impl Host {
             sleep_ms(25);
         }
         let (prefix, tree) = self.semantic_words();
-        let (verified, message) = written_value_verdict(&reference, &format!("through {tree}"), actual == text, self.is_web_page(top));
+        let (verified, message) = written_value_verdict(reference, &format!("through {tree}"), actual == text, self.is_web_page(top));
         Ok(self.action_result("set_value", &format!("{prefix}_value"), effect(verified), verified, &message, None, "background", id))
     }
 
@@ -220,13 +211,6 @@ impl Host {
         Ok(self.action_result("set_value", "msaa_value", effect(verified), verified, &message, None, "background", id))
     }
 
-    /// Replaces the value through the control's keyboard, in one inactive
-    /// scope: the sent keys are handled by the control as typing, so its
-    /// read-only state, length limit and change notifications all apply. The
-    /// one readback after the send must equal the requested text; anything
-    /// else is reported unverified and never written again. `None` when the
-    /// selection could not be proved, so the caller may write another way
-    /// (Write-ValueByKeys).
     #[allow(clippy::too_many_arguments)]
     fn write_by_keys(
         &self,

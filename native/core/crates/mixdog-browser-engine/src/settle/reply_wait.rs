@@ -1,8 +1,3 @@
-//! Owner: s4-engine-settle
-//! Waiting for the page to settle and for a postcondition to become true (`reply-wait.ts`). The waits run together: a postcondition
-//! that turns true may cut the settle short, unless it was already true before the gesture, in which case it proves nothing about
-//! this one and may never shorten the wait.
-
 use std::fmt;
 use std::time::Duration;
 

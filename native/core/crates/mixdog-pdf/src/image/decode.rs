@@ -247,6 +247,205 @@ fn parse_jpx_properties(bytes: &[u8]) -> Result<(f64, f64, usize)> {
     Err(PdfError::Unknown("No size marker found in JPX stream".to_owned()))
 }
 
+/// What the image codec itself reports (`image.width`, `image.numComps`, ...) of the first filter.
+struct CodecProbe {
+    size: Option<(f64, f64)>,
+    comps: Option<usize>,
+    bpc: Option<u32>,
+    jpx: Option<JpxOptions>,
+}
+
+fn probe_codec(xref: &Xref, dict: &Dict, bytes: &[u8]) -> Result<CodecProbe> {
+    let first_filter = match xref.get2(dict, "F", "Filter")? {
+        Obj::Name(name) => Some(name.to_string()),
+        Obj::Array(items) => match items.first() {
+            Some(first) => match xref.fetch_if_ref(first, false)? {
+                Obj::Name(name) => Some(name.to_string()),
+                _ => None,
+            },
+            None => None,
+        },
+        _ => None,
+    };
+    let mut probe = CodecProbe { size: None, comps: None, bpc: None, jpx: None };
+    match first_filter.as_deref() {
+        Some("JPXDecode") => {
+            let (w, h, comps) = parse_jpx_properties(bytes)?;
+            probe.size = Some((w, h));
+            probe.comps = Some(comps);
+            probe.bpc = Some(8);
+            probe.jpx =
+                Some(JpxOptions { num_components: 0, is_indexed: false, smask_in_data: number(&xref.get(dict, "SMaskInData")?).is_some_and(|n| n >= 1.0) });
+        }
+        Some("JBIG2Decode") => {
+            probe.bpc = Some(1);
+            probe.comps = Some(1);
+        }
+        _ => {}
+    }
+    Ok(probe)
+}
+
+/// The size of an image as the dictionary, the codec and the parent image give it; `width_f` and `height_f` are the
+/// numbers before they are made buffer sizes.
+struct ImageSize {
+    width: usize,
+    height: usize,
+    width_f: f64,
+    height_f: f64,
+}
+
+fn resolve_size(xref: &Xref, dict: &Dict, codec_size: Option<(f64, f64)>, fallback_dims: Option<(f64, f64)>) -> Result<ImageSize> {
+    let mut width = number(&xref.get2(dict, "W", "Width")?);
+    let mut height = number(&xref.get2(dict, "H", "Height")?);
+    let is_valid = |n: f64| n.is_finite() && n.fract() == 0.0 && n > 0.0;
+    if let Some((cw, ch)) = codec_size
+        && is_valid(cw)
+        && is_valid(ch)
+        && (Some(cw) != width || Some(ch) != height)
+    {
+        tracing::warn!("PDFImage - using the Width/Height of the image data, rather than the image dictionary.");
+        width = Some(cw);
+        height = Some(ch);
+    } else {
+        let valid_width = width.is_some_and(|w| w > 0.0);
+        let valid_height = height.is_some_and(|h| h > 0.0);
+        if !valid_width || !valid_height {
+            let Some((fw, fh)) = fallback_dims else {
+                return Err(format_error(format!(
+                    "Invalid image width: {} or height: {}",
+                    width.map_or("undefined".to_owned(), |w| w.to_string()),
+                    height.map_or("undefined".to_owned(), |h| h.to_string())
+                )));
+            };
+            tracing::warn!("PDFImage - using the Width/Height of the parent image, for SMask/Mask data.");
+            if !valid_width {
+                width = Some(fw);
+            }
+            if !valid_height {
+                height = Some(fh);
+            }
+        }
+    }
+    let (width_f, height_f) = (width.unwrap_or(f64::NAN), height.unwrap_or(f64::NAN));
+    let to_size = |n: f64| -> Result<usize> {
+        if n.is_finite() && n >= 0.0 && n < MAX_LENGTH as f64 { Ok(n as usize) } else { Err(format_error("Invalid typed array length")) }
+    };
+    Ok(ImageSize { width: to_size(width_f)?, height: to_size(height_f)?, width_f, height_f })
+}
+
+fn resolve_bpc(xref: &Xref, dict: &Dict, codec_bpc: Option<u32>, image_mask: bool) -> Result<u32> {
+    if let Some(bpc) = codec_bpc.filter(|bpc| *bpc != 0) {
+        return Ok(bpc);
+    }
+    let declared = number(&xref.get2(dict, "BPC", "BitsPerComponent")?).filter(|n| *n != 0.0 && !n.is_nan());
+    match declared {
+        Some(n) => Ok(n as u32),
+        None if image_mask => Ok(1),
+        None => Err(format_error(format!("Bits per component missing in image: {image_mask}"))),
+    }
+}
+
+/// The colour space of an image and what follows from it for the components and the premultiplied alpha of JPX data.
+struct ResolvedSpace {
+    colour_space: Option<Arc<ColorSpace>>,
+    num_comps: usize,
+    jpx_premultiplied: bool,
+    preblend_matte: Option<[u8; 3]>,
+}
+
+fn resolve_colour_space(
+    xref: &Xref,
+    dict: &Dict,
+    resources: Option<&Dict>,
+    codec_comps: Option<usize>,
+    jpx_options: &mut Option<JpxOptions>,
+    matte: Option<&[f64]>,
+) -> Result<ResolvedSpace> {
+    let raw = raw_either(dict, "CS", "ColorSpace").cloned();
+    let has_colour_space = raw.is_some();
+    let mut jpx_premultiplied = false;
+    let mut preblend_matte = None;
+    if let Some(options) = jpx_options
+        && options.smask_in_data
+        && number(&xref.get(dict, "SMaskInData")?) == Some(2.0)
+    {
+        jpx_premultiplied = true;
+        if let Some(matte) = matte {
+            let matte_space = match &raw {
+                Some(cs) => parse_colour_space(cs, xref, resources)?,
+                None => parse_colour_space(&Obj::name("DeviceRGB"), xref, resources)?,
+            };
+            preblend_matte = Some(matte_space.get_rgb(matte, 0)?);
+        }
+    }
+    let space_obj = if !has_colour_space {
+        if jpx_options.is_some() {
+            Obj::name("DeviceRGBA")
+        } else {
+            match codec_comps {
+                Some(1) => Obj::name("DeviceGray"),
+                Some(3) => Obj::name("DeviceRGB"),
+                Some(4) => Obj::name("DeviceCMYK"),
+                other => {
+                    return Err(format_error(format!(
+                        "Images with {} color components not supported.",
+                        other.map_or("undefined".to_owned(), |n| n.to_string())
+                    )));
+                }
+            }
+        }
+    } else if jpx_options.is_some_and(|o| o.smask_in_data) {
+        Obj::name("DeviceRGBA")
+    } else {
+        raw.unwrap_or(Obj::Null)
+    };
+    let space = parse_colour_space(&space_obj, xref, resources)?;
+    let num_comps = space.num_comps();
+    if let Some(options) = jpx_options.as_mut() {
+        options.num_components = if has_colour_space { num_comps } else { 0 };
+        options.is_indexed = space.name() == "Indexed";
+    }
+    Ok(ResolvedSpace { colour_space: Some(space), num_comps, jpx_premultiplied, preblend_matte })
+}
+
+/// What the `Decode` array asks of the components: the coefficient and addend of each (`needsDecode` when it differs
+/// from the colour space's default).
+struct DecodeArrays {
+    needs_decode: bool,
+    coefficients: Vec<f64>,
+    addends: Vec<f64>,
+}
+
+fn resolve_decode(xref: &Xref, dict: &Dict, colour_space: Option<&ColorSpace>, bpc: u32, is_mask: bool) -> Result<DecodeArrays> {
+    let mut arrays = DecodeArrays { needs_decode: false, coefficients: Vec::new(), addends: Vec::new() };
+    let Some(decode) = number_array(xref, dict, "D", "Decode")? else {
+        return Ok(arrays);
+    };
+    let default_for_space = match colour_space {
+        Some(space) => Some(space.is_default_decode(Some(decode.as_slice()), f64::from(bpc))?),
+        None => None,
+    };
+    let mask_not_default = is_mask && !ColorSpace::gray().is_default_decode(Some(decode.as_slice()), 1.0)?;
+    if default_for_space == Some(false) || mask_not_default {
+        arrays.needs_decode = true;
+        let max = max_value(bpc);
+        let is_indexed = colour_space.is_some_and(|s| s.name() == "Indexed");
+        for pair in decode.chunks(2) {
+            let dmin = pair[0];
+            let dmax = pair.get(1).copied().unwrap_or(f64::NAN);
+            if is_indexed {
+                arrays.coefficients.push((dmax - dmin) / max);
+                arrays.addends.push(dmin);
+            } else {
+                arrays.coefficients.push(dmax - dmin);
+                arrays.addends.push(max * dmin);
+            }
+        }
+    }
+    Ok(arrays)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -316,75 +515,9 @@ impl PdfImage {
         let codec = chain.last().map_or(Codec::None, |f| codec_of(&f.name));
         let params = chain.last().and_then(|f| f.params.clone());
         let bytes = image.decode(xref.filters().as_ref(), xref.guard())?;
-        let first_filter = match xref.get2(dict, "F", "Filter")? {
-            Obj::Name(name) => Some(name.to_string()),
-            Obj::Array(items) => match items.first() {
-                Some(first) => match xref.fetch_if_ref(first, false)? {
-                    Obj::Name(name) => Some(name.to_string()),
-                    _ => None,
-                },
-                None => None,
-            },
-            _ => None,
-        };
-        // The dimensions and components the codec itself reports (`image.width`, `image.numComps`, ...).
-        let mut codec_width: Option<f64> = None;
-        let mut codec_height: Option<f64> = None;
-        let mut codec_comps: Option<usize> = None;
-        let mut codec_bpc: Option<u32> = None;
-        let mut jpx_options: Option<JpxOptions> = None;
-        match first_filter.as_deref() {
-            Some("JPXDecode") => {
-                let (w, h, comps) = parse_jpx_properties(&bytes)?;
-                codec_width = Some(w);
-                codec_height = Some(h);
-                codec_comps = Some(comps);
-                codec_bpc = Some(8);
-                jpx_options =
-                    Some(JpxOptions { num_components: 0, is_indexed: false, smask_in_data: number(&xref.get(dict, "SMaskInData")?).is_some_and(|n| n >= 1.0) });
-            }
-            Some("JBIG2Decode") => {
-                codec_bpc = Some(1);
-                codec_comps = Some(1);
-            }
-            _ => {}
-        }
-        let mut width = number(&xref.get2(dict, "W", "Width")?);
-        let mut height = number(&xref.get2(dict, "H", "Height")?);
-        let is_valid = |n: f64| n.is_finite() && n.fract() == 0.0 && n > 0.0;
-        if let (Some(cw), Some(ch)) = (codec_width, codec_height)
-            && is_valid(cw)
-            && is_valid(ch)
-            && (Some(cw) != width || Some(ch) != height)
-        {
-            tracing::warn!("PDFImage - using the Width/Height of the image data, rather than the image dictionary.");
-            width = Some(cw);
-            height = Some(ch);
-        } else {
-            let valid_width = width.is_some_and(|w| w > 0.0);
-            let valid_height = height.is_some_and(|h| h > 0.0);
-            if !valid_width || !valid_height {
-                let Some((fw, fh)) = fallback_dims else {
-                    return Err(format_error(format!(
-                        "Invalid image width: {} or height: {}",
-                        width.map_or("undefined".to_owned(), |w| w.to_string()),
-                        height.map_or("undefined".to_owned(), |h| h.to_string())
-                    )));
-                };
-                tracing::warn!("PDFImage - using the Width/Height of the parent image, for SMask/Mask data.");
-                if !valid_width {
-                    width = Some(fw);
-                }
-                if !valid_height {
-                    height = Some(fh);
-                }
-            }
-        }
-        let (width_f, height_f) = (width.unwrap_or(f64::NAN), height.unwrap_or(f64::NAN));
-        let to_size = |n: f64| -> Result<usize> {
-            if n.is_finite() && n >= 0.0 && n < MAX_LENGTH as f64 { Ok(n as usize) } else { Err(format_error("Invalid typed array length")) }
-        };
-        let (width, height) = (to_size(width_f)?, to_size(height_f)?);
+        let probe = probe_codec(xref, dict, &bytes)?;
+        let size = resolve_size(xref, dict, probe.size, fallback_dims)?;
+        let (width, height) = (size.width, size.height);
         let interpolate = match xref.get2(dict, "I", "Interpolate")? {
             Obj::Bool(b) => Some(b),
             Obj::Null => None,
@@ -395,107 +528,25 @@ impl PdfImage {
             Obj::Array(items) => Some(items.iter().map(|o| number(o).unwrap_or(f64::NAN)).collect()),
             _ => None,
         };
-        let mut bpc = codec_bpc.unwrap_or(0);
-        if bpc == 0 {
-            let declared = number(&xref.get2(dict, "BPC", "BitsPerComponent")?).filter(|n| *n != 0.0 && !n.is_nan());
-            match declared {
-                Some(n) => bpc = n as u32,
-                None if image_mask => bpc = 1,
-                None => {
-                    return Err(format_error(format!("Bits per component missing in image: {image_mask}")));
-                }
-            }
-        }
-        let resources = if is_inline { res } else { None };
-        let mut jpx_premultiplied = false;
-        let mut preblend_matte = None;
-        let mut colour_space: Option<Arc<ColorSpace>> = None;
-        let num_comps;
-        if !image_mask {
-            let raw = raw_either(dict, "CS", "ColorSpace").cloned();
-            let has_colour_space = raw.is_some();
-            if let Some(options) = jpx_options
-                && options.smask_in_data
-                && number(&xref.get(dict, "SMaskInData")?) == Some(2.0)
-            {
-                jpx_premultiplied = true;
-                if let Some(matte) = &matte {
-                    let matte_space = match &raw {
-                        Some(cs) => parse_colour_space(cs, xref, resources)?,
-                        None => parse_colour_space(&Obj::name("DeviceRGB"), xref, resources)?,
-                    };
-                    preblend_matte = Some(matte_space.get_rgb(matte, 0)?);
-                }
-            }
-            let space_obj = if !has_colour_space {
-                if jpx_options.is_some() {
-                    Obj::name("DeviceRGBA")
-                } else {
-                    match codec_comps {
-                        Some(1) => Obj::name("DeviceGray"),
-                        Some(3) => Obj::name("DeviceRGB"),
-                        Some(4) => Obj::name("DeviceCMYK"),
-                        other => {
-                            return Err(format_error(format!(
-                                "Images with {} color components not supported.",
-                                other.map_or("undefined".to_owned(), |n| n.to_string())
-                            )));
-                        }
-                    }
-                }
-            } else if jpx_options.is_some_and(|o| o.smask_in_data) {
-                Obj::name("DeviceRGBA")
-            } else {
-                raw.clone().unwrap_or(Obj::Null)
-            };
-            let space = parse_colour_space(&space_obj, xref, resources)?;
-            num_comps = space.num_comps();
-            if let Some(options) = jpx_options.as_mut() {
-                options.num_components = if has_colour_space { num_comps } else { 0 };
-                options.is_indexed = space.name() == "Indexed";
-            }
-            colour_space = Some(space);
+        let bpc = resolve_bpc(xref, dict, probe.bpc, image_mask)?;
+        let mut jpx_options = probe.jpx;
+        let space = if image_mask {
+            ResolvedSpace { colour_space: None, num_comps: 1, jpx_premultiplied: false, preblend_matte: None }
         } else {
-            num_comps = 1;
-        }
-        let decode = number_array(xref, dict, "D", "Decode")?;
-        let mut needs_decode = false;
-        let mut decode_coefficients = Vec::new();
-        let mut decode_addends = Vec::new();
-        if let Some(decode) = &decode {
-            let default_for_space = match &colour_space {
-                Some(space) => Some(space.is_default_decode(Some(decode.as_slice()), f64::from(bpc))?),
-                None => None,
-            };
-            let mask_not_default = is_mask && !ColorSpace::gray().is_default_decode(Some(decode.as_slice()), 1.0)?;
-            if default_for_space == Some(false) || mask_not_default {
-                needs_decode = true;
-                let max = max_value(bpc);
-                let is_indexed = colour_space.as_ref().is_some_and(|s| s.name() == "Indexed");
-                for pair in decode.chunks(2) {
-                    let dmin = pair[0];
-                    let dmax = pair.get(1).copied().unwrap_or(f64::NAN);
-                    if is_indexed {
-                        decode_coefficients.push((dmax - dmin) / max);
-                        decode_addends.push(dmin);
-                    } else {
-                        decode_coefficients.push(dmax - dmin);
-                        decode_addends.push(max * dmin);
-                    }
-                }
-            }
-        }
+            resolve_colour_space(xref, dict, if is_inline { res } else { None }, probe.comps, &mut jpx_options, matte.as_deref())?
+        };
+        let decode = resolve_decode(xref, dict, space.colour_space.as_deref(), bpc, is_mask)?;
         let mut result = PdfImage {
             width,
             height,
             interpolate,
             matte,
             bpc,
-            num_comps,
-            colour_space,
-            needs_decode,
-            decode_coefficients,
-            decode_addends,
+            num_comps: space.num_comps,
+            colour_space: space.colour_space,
+            needs_decode: decode.needs_decode,
+            decode_coefficients: decode.coefficients,
+            decode_addends: decode.addends,
             smask: None,
             mask: MaskKind::None,
             stream: image.clone(),
@@ -503,10 +554,10 @@ impl PdfImage {
             codec,
             params,
             jpx: jpx_options,
-            jpx_premultiplied,
-            preblend_matte,
+            jpx_premultiplied: space.jpx_premultiplied,
+            preblend_matte: space.preblend_matte,
         };
-        let dims = Some((width_f, height_f));
+        let dims = Some((size.width_f, size.height_f));
         if let Some(smask) = smask {
             result.smask = Some(Box::new(PdfImage::new(xref, res, smask, is_inline, None, None, false, dims)?));
         } else if let Some(mask) = mask {
@@ -585,78 +636,85 @@ impl PdfImage {
             }
             data
         };
-        let dict = &self.stream.dict;
         match self.codec {
             Codec::None => Ok(truncate(self.bytes.clone())),
-            Codec::Dct => {
-                let data = skip_useless_bytes(&self.bytes);
-                let transform = match &self.params {
-                    Some(p) => match xref.get(p, "ColorTransform")? {
-                        Obj::Num(n) if n.fract() == 0.0 => Some(n as i64),
-                        _ => None,
-                    },
-                    None => None,
-                };
-                let jpeg = JpegImage::parse(data, transform)?;
-                let draw_width = options.draw_width.unwrap_or(self.width);
-                let draw_height = options.draw_height.unwrap_or(self.height);
-                // The largest buffer `getData` allocates: the interleaved components, or the RGB(A) widening.
-                let output_channels = if options.force_rgba {
-                    4
-                } else if options.force_rgb {
-                    3
-                } else {
-                    1
-                };
-                buffer_length(&[draw_width, draw_height, jpeg.num_components().max(output_channels)])?;
-                Ok(truncate(jpeg.get_data(draw_width, draw_height, options.force_rgba, options.force_rgb)?))
-            }
-            Codec::Ccitt => {
-                let params = self.params.as_deref();
-                let int = |key: &str| -> Result<Option<f64>> {
-                    Ok(match params {
-                        Some(p) => number(&xref.get(p, key)?).filter(|n| *n != 0.0 && !n.is_nan()),
-                        None => None,
-                    })
-                };
-                let flag = |key: &str| -> Result<bool> {
-                    Ok(match params {
-                        Some(p) => truthy(&xref.get(p, key)?),
-                        None => false,
-                    })
-                };
-                let ccitt = CcittParams {
-                    k: codec::to_int32(int("K")?.unwrap_or(0.0)),
-                    end_of_line: flag("EndOfLine")?,
-                    encoded_byte_align: flag("EncodedByteAlign")?,
-                    columns: codec::to_int32(int("Columns")?.unwrap_or(1728.0)),
-                    rows: codec::to_int32(int("Rows")?.unwrap_or(0.0)),
-                    black_is_1: flag("BlackIs1")?,
-                };
-                let width = number(&xref.get2(dict, "W", "Width")?).unwrap_or(f64::NAN);
-                let height = number(&xref.get2(dict, "H", "Height")?).unwrap_or(f64::NAN);
-                codec::ccitt::decode(&self.bytes, codec::to_int32(width), codec::to_int32(height), &ccitt).map_err(codec_error)
-            }
-            Codec::Jbig2 => {
-                let globals = match &self.params {
-                    Some(p) => match xref.get(p, "JBIG2Globals")? {
-                        Obj::Stream(stream) => {
-                            let bytes = stream.decode(xref.filters().as_ref(), xref.guard())?;
-                            Some(jbig2::strip_file_header(&bytes).to_vec())
-                        }
-                        _ => None,
-                    },
-                    None => None,
-                };
-                let width = number(&xref.get(dict, "Width")?).unwrap_or(f64::NAN);
-                let height = number(&xref.get(dict, "Height")?).unwrap_or(f64::NAN);
-                jbig2::decode(jbig2::strip_file_header(&self.bytes), codec::to_int32(width), codec::to_int32(height), globals.as_deref()).map_err(codec_error)
-            }
+            Codec::Dct => Ok(truncate(self.dct_bytes(xref, options)?)),
+            Codec::Ccitt => self.ccitt_bytes(xref),
+            Codec::Jbig2 => self.jbig2_bytes(xref),
             Codec::Jpx => {
                 let options = self.jpx.unwrap_or(JpxOptions { num_components: 4, is_indexed: false, smask_in_data: false });
                 jpx_pixels(&self.bytes, options)
             }
         }
+    }
+
+    fn dct_bytes(&self, xref: &Xref, options: BytesOptions) -> Result<Vec<u8>> {
+        let data = skip_useless_bytes(&self.bytes);
+        let transform = match &self.params {
+            Some(p) => match xref.get(p, "ColorTransform")? {
+                Obj::Num(n) if n.fract() == 0.0 => Some(n as i64),
+                _ => None,
+            },
+            None => None,
+        };
+        let jpeg = JpegImage::parse(data, transform)?;
+        let draw_width = options.draw_width.unwrap_or(self.width);
+        let draw_height = options.draw_height.unwrap_or(self.height);
+        // The largest buffer `getData` allocates: the interleaved components, or the RGB(A) widening.
+        let output_channels = if options.force_rgba {
+            4
+        } else if options.force_rgb {
+            3
+        } else {
+            1
+        };
+        buffer_length(&[draw_width, draw_height, jpeg.num_components().max(output_channels)])?;
+        jpeg.get_data(draw_width, draw_height, options.force_rgba, options.force_rgb)
+    }
+
+    fn ccitt_bytes(&self, xref: &Xref) -> Result<Vec<u8>> {
+        let params = self.params.as_deref();
+        let int = |key: &str| -> Result<Option<f64>> {
+            Ok(match params {
+                Some(p) => number(&xref.get(p, key)?).filter(|n| *n != 0.0 && !n.is_nan()),
+                None => None,
+            })
+        };
+        let flag = |key: &str| -> Result<bool> {
+            Ok(match params {
+                Some(p) => truthy(&xref.get(p, key)?),
+                None => false,
+            })
+        };
+        let ccitt = CcittParams {
+            k: codec::to_int32(int("K")?.unwrap_or(0.0)),
+            end_of_line: flag("EndOfLine")?,
+            encoded_byte_align: flag("EncodedByteAlign")?,
+            columns: codec::to_int32(int("Columns")?.unwrap_or(1728.0)),
+            rows: codec::to_int32(int("Rows")?.unwrap_or(0.0)),
+            black_is_1: flag("BlackIs1")?,
+        };
+        let dict = &self.stream.dict;
+        let width = number(&xref.get2(dict, "W", "Width")?).unwrap_or(f64::NAN);
+        let height = number(&xref.get2(dict, "H", "Height")?).unwrap_or(f64::NAN);
+        codec::ccitt::decode(&self.bytes, codec::to_int32(width), codec::to_int32(height), &ccitt).map_err(codec_error)
+    }
+
+    fn jbig2_bytes(&self, xref: &Xref) -> Result<Vec<u8>> {
+        let globals = match &self.params {
+            Some(p) => match xref.get(p, "JBIG2Globals")? {
+                Obj::Stream(stream) => {
+                    let bytes = stream.decode(xref.filters().as_ref(), xref.guard())?;
+                    Some(jbig2::strip_file_header(&bytes).to_vec())
+                }
+                _ => None,
+            },
+            None => None,
+        };
+        let dict = &self.stream.dict;
+        let width = number(&xref.get(dict, "Width")?).unwrap_or(f64::NAN);
+        let height = number(&xref.get(dict, "Height")?).unwrap_or(f64::NAN);
+        jbig2::decode(jbig2::strip_file_header(&self.bytes), codec::to_int32(width), codec::to_int32(height), globals.as_deref()).map_err(codec_error)
     }
 
     // ---- components --------------------------------------------------------------------------------------------
@@ -756,52 +814,10 @@ impl PdfImage {
         let mut result = ImageData { width: draw_width, height: draw_height, interpolate: self.interpolate, kind: ImageKind::Grayscale1bpp, data: Vec::new() };
         let space_name = space.name();
         let no_mask = !self.has_mask();
-        if no_mask && space_name == "DeviceRGBA" {
-            result.kind = ImageKind::Rgba32;
-            let length = buffer_length(&[height, width, 4])?;
-            let mut data = self.image_bytes(xref, length, BytesOptions::default())?;
-            if self.jpx_premultiplied {
-                let matte = self.preblend_matte.unwrap_or([0, 0, 0]);
-                undo_preblend(&mut data, matte);
-            }
+        if let Some((kind, data)) = self.direct_pixels(xref, space_name, force_rgba, row_bytes)? {
+            result.kind = kind;
             result.data = data;
             return Ok(result);
-        }
-        if !force_rgba && no_mask {
-            let kind = if space_name == "DeviceGray" && bpc == 1 {
-                Some(ImageKind::Grayscale1bpp)
-            } else if space_name == "DeviceRGB" && bpc == 8 && !self.needs_decode {
-                Some(ImageKind::Rgb24)
-            } else {
-                None
-            };
-            if let Some(kind) = kind
-                && draw_width == width
-                && draw_height == height
-            {
-                let mut data = self.image_bytes(xref, buffer_length(&[height, row_bytes])?, BytesOptions::default())?;
-                result.kind = kind;
-                if self.needs_decode {
-                    for byte in &mut data {
-                        *byte ^= 0xff;
-                    }
-                }
-                result.data = data;
-                return Ok(result);
-            }
-            if self.codec == Codec::Dct && !self.needs_decode && matches!(space_name, "DeviceGray" | "DeviceRGB" | "DeviceCMYK") {
-                let mut length = buffer_length(&[height, row_bytes])?;
-                if space_name == "DeviceGray" {
-                    length *= 3;
-                }
-                result.kind = ImageKind::Rgb24;
-                result.data = self.image_bytes(
-                    xref,
-                    length,
-                    BytesOptions { draw_width: Some(draw_width), draw_height: Some(draw_height), force_rgba: false, force_rgb: true },
-                )?;
-                return Ok(result);
-            }
         }
         let image_bytes = self.image_bytes(xref, buffer_length(&[height, row_bytes])?, BytesOptions::default())?;
         let actual_height = if row_bytes == 0 { 0 } else { (image_bytes.len() as f64 / row_bytes as f64 * draw_height as f64 / height as f64) as usize };
@@ -834,6 +850,56 @@ impl PdfImage {
         }
         result.data = data;
         Ok(result)
+    }
+
+    /// The pixels of an image without a mask whose stream bytes are already (or are asked from the codec as) the
+    /// image data, or `None` when the components have to be converted.
+    fn direct_pixels(&self, xref: &Xref, space_name: &str, force_rgba: bool, row_bytes: usize) -> Result<Option<(ImageKind, Vec<u8>)>> {
+        if self.has_mask() {
+            return Ok(None);
+        }
+        let (width, height, bpc) = (self.width, self.height, self.bpc);
+        if space_name == "DeviceRGBA" {
+            let length = buffer_length(&[height, width, 4])?;
+            let mut data = self.image_bytes(xref, length, BytesOptions::default())?;
+            if self.jpx_premultiplied {
+                let matte = self.preblend_matte.unwrap_or([0, 0, 0]);
+                undo_preblend(&mut data, matte);
+            }
+            return Ok(Some((ImageKind::Rgba32, data)));
+        }
+        if force_rgba {
+            return Ok(None);
+        }
+        let (draw_width, draw_height) = (self.draw_width(), self.draw_height());
+        let kind = if space_name == "DeviceGray" && bpc == 1 {
+            Some(ImageKind::Grayscale1bpp)
+        } else if space_name == "DeviceRGB" && bpc == 8 && !self.needs_decode {
+            Some(ImageKind::Rgb24)
+        } else {
+            None
+        };
+        if let Some(kind) = kind
+            && draw_width == width
+            && draw_height == height
+        {
+            let mut data = self.image_bytes(xref, buffer_length(&[height, row_bytes])?, BytesOptions::default())?;
+            if self.needs_decode {
+                for byte in &mut data {
+                    *byte ^= 0xff;
+                }
+            }
+            return Ok(Some((kind, data)));
+        }
+        if self.codec == Codec::Dct && !self.needs_decode && matches!(space_name, "DeviceGray" | "DeviceRGB" | "DeviceCMYK") {
+            let mut length = buffer_length(&[height, row_bytes])?;
+            if space_name == "DeviceGray" {
+                length *= 3;
+            }
+            let options = BytesOptions { draw_width: Some(draw_width), draw_height: Some(draw_height), force_rgba: false, force_rgb: true };
+            return Ok(Some((ImageKind::Rgb24, self.image_bytes(xref, length, options)?)));
+        }
+        Ok(None)
     }
 
     /// The bytes a stencil mask paints (`PDFImage.createMask`'s `getImageData`), at most `length` of them. A DCT

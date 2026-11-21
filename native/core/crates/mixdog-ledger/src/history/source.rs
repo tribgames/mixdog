@@ -1,9 +1,3 @@
-//! The surviving originals read from the data directory: the rotated agent trace, the gateway
-//! usage store, the legacy rollup document and the read-only database's pid file. Nothing is
-//! written or rewritten; a file that is absent is absence, one that cannot be read is an error,
-//! and one that is damaged is skipped with a warning and leaves the import unmarked so that a
-//! repair is retried.
-
 #![allow(clippy::disallowed_methods, reason = "a maintenance-lane job body: it runs on the lane's thread, not an async task")]
 
 use std::io::ErrorKind;

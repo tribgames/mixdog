@@ -1,6 +1,5 @@
-//! The panel the provider setup and the onboarding wizard paint: the props of the picker (`pickers` of the Node factories) plus
-//! what each row means. The Node panels carried `onSelect` / `onCancel` / `onHighlight` closures; here every panel names its
-//! [`PanelOwner`] and every row its [`RowKind`], and the application answers a key by calling `provider::select`, `cancel`,
+//! The panel the provider setup and the onboarding wizard paint: the props of the picker plus what each row means. Every panel names
+//! its [`PanelOwner`] and every row its [`RowKind`], and the application answers a key by calling `provider::select`, `cancel`,
 //! `highlight` or `confirm` with the row index, which is the one place the meaning of a row is decided.
 
 use mixdog_tui_widgets::confirm_bar::ConfirmButton;

@@ -18,10 +18,6 @@ pub(super) fn complete_operand_files(
     keep_warm: bool,
 ) -> Result<(Arc<Vec<PathBuf>>, bool, usize, Vec<String>, bool), String> {
     let watched = store.watch_root(operand_path);
-    // A walk abandoned by cache invalidation restarts from scratch. Under
-    // continuous writes under the root that can repeat until the request
-    // deadline, so cap it: after one restart the partial snapshot is served
-    // instead of burning the whole budget on re-walks.
     const MAX_WALK_RESTARTS: usize = 1;
     let mut restarts = 0usize;
     loop {
@@ -59,9 +55,6 @@ pub(super) enum LiveBatch {
     TimedOut,
 }
 
-/// Everything the walker published past `cursor`, waiting in short slices
-/// while the walk runs. Cancellation and a failed walk are errors; a finished
-/// walk and an expired deadline are outcomes each caller reports its own way.
 pub(super) fn next_live_batch(live: &LiveWalk, cursor: &mut usize, cancelled: &AtomicBool, deadline_at: Option<Instant>) -> Result<LiveBatch, String> {
     let mut files = lock_recover(&live.files);
     while *cursor >= files.len() {
@@ -86,10 +79,6 @@ pub(super) fn next_live_batch(live: &LiveWalk, cursor: &mut usize, cancelled: &A
     Ok(LiveBatch::Files(batch))
 }
 
-/// The next batch a live walk published for an inventory consumer, or the
-/// reason the stream ended. Unlike [`LiveBatch`], a finished enumeration ends
-/// the stream before the walk settles, and an abandoned walk is an outcome
-/// rather than an error; a failed walk and cancellation are errors.
 pub(super) enum StreamBatch<T> {
     Items(T),
     Complete,
@@ -132,14 +121,6 @@ pub(super) fn next_stream_batch<T>(
     Ok(StreamBatch::Items(batch))
 }
 
-/// Scan one content operand. Output is in inventory path order (`PathBuf`
-/// order, the order the cached inventory is sorted in), so identical requests
-/// return identical windows and offset pages neither repeat nor skip.
-/// A cached inventory is scanned in order with an early stop. A live walk is
-/// scanned as it publishes — a bounded window only until it has enough lines
-/// in walk order — and once the walk settles its sorted inventory is scanned
-/// in order, reusing those results; if the deadline cuts the walk short, the
-/// blocks found so far are returned sorted by path.
 pub(super) fn scan_operand(
     store: &Arc<FileListStore>,
     scope: &OperandScope<'_>,
@@ -405,10 +386,6 @@ fn handle_content_search(
     let mut emitted_blocks = 0usize;
     let mut timed_out = false;
     let scan_errors = AtomicUsize::new(0);
-    // Observability for silent-empty diagnosis: how many files the scan loops
-    // actually opened. An empty result with filesScanned=0 on a scope that
-    // demonstrably contains files is a server-state anomaly, not a no-match
-    // (observed once in the wild; JS retries that signature once).
     let files_scanned = AtomicUsize::new(0);
     let mut walk_error_details = Vec::new();
     let mut cache_safe = true;
@@ -440,13 +417,6 @@ fn handle_content_search(
             break;
         }
     }
-    // scan_standard/scan_summary swallow a mid-file soft-deadline expiry: the
-    // CancellableReader's TimedOut error surfaces as `None`, indistinguishable
-    // from "no matches in this file", and the between-chunks deadline checks
-    // never run again after the LAST file. Re-check the deadline once after
-    // every scan loop so that expiry is reported as a partial, timed-out
-    // response instead of a silent (possibly empty) complete one — observed
-    // in the wild as a false "(no matches)" under 8-way host saturation.
     let timed_out = timed_out || deadline_expired(deadline_at);
     // Files that failed to open/read mid-walk were skipped, not searched:
     // surface the count so the caller can distinguish "no matches" from

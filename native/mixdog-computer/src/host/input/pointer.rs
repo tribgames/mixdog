@@ -1,5 +1,6 @@
 //! Click, drag and scroll, background and foreground routes.
 
+use super::Point;
 use crate::a11y::Element;
 use crate::host::{Host, Res, parse_modifiers, sleep_ms};
 use crate::keys::Mod;
@@ -64,41 +65,7 @@ impl Host {
                     false,
                 ));
             }
-            let id = Some(window_id(target));
-            let background = match self.background_or_unsupported(&action, id.clone()) {
-                Ok(background) => background,
-                Err(result) => return Ok(result),
-            };
-            self.authorize(req, target)?;
-            self.announce_background_target(point.x, point.y);
-            // A held button keeps its window non-activatable until the matching
-            // release, so the press, the gap and the release share one hold.
-            let hold = if kind == "press" {
-                match background.hold(target) {
-                    Ok(root) => root,
-                    Err(error) => return self.background_failure(&action, &error, id, false),
-                }
-            } else {
-                0
-            };
-            return match background.pointer(target, point.x, point.y, kind, &modifiers) {
-                Ok(message_target) => {
-                    self.report_pointer(point.x, point.y, kind == "press", if kind == "press" { "press" } else { "release" });
-                    if matches!(kind, "press" | "release") {
-                        if let Err(error) = self.record_held_pointer(background, target, (point.x, point.y), kind == "press", hold) {
-                            return self.background_failure(&action, &error, id, false);
-                        }
-                    }
-                    let message = format!("{action} delivered as a native pointer event");
-                    Ok(self.complete_native_action(&action, &message_target, id, before, element.as_ref(), &message))
-                }
-                Err(error) => {
-                    // Only a press that did not land still owns its hold; the
-                    // press's own failure is the one reported.
-                    let _ = background.release_hold(hold);
-                    self.background_failure(&action, &error, id, false)
-                }
-            };
+            return self.click_background(req, &action, kind, &point, target, &modifiers, element.as_ref(), before);
         }
         let reference = req.str("ref");
         let mut body = || -> Res<()> {
@@ -116,20 +83,73 @@ impl Host {
                 }
             }
             self.glide(target, x, y)?;
-            self.with_modifiers(&modifiers, || match kind {
-                "click" => self.fg_click(Button::Left, x, y, 1),
-                "double" => self.fg_click(Button::Left, x, y, 2),
-                "right" => self.fg_click(Button::Right, x, y, 1),
-                "middle" => self.fg_click(Button::Middle, x, y, 1),
-                "triple" => self.fg_click(Button::Left, x, y, 3),
-                _ => {
-                    self.fg_move(x, y)?;
-                    sleep_ms(16);
-                    self.assert_cursor_at(x, y)
-                }
-            })
+            self.with_modifiers(&modifiers, || self.fg_pointer_kind(kind, x, y))
         };
         self.foreground_input(target, &action, true, &mut body)
+    }
+
+    fn fg_pointer_kind(&self, kind: &str, x: i32, y: i32) -> Res<()> {
+        match kind {
+            "click" => self.fg_click(Button::Left, x, y, 1),
+            "double" => self.fg_click(Button::Left, x, y, 2),
+            "right" => self.fg_click(Button::Right, x, y, 1),
+            "middle" => self.fg_click(Button::Middle, x, y, 1),
+            "triple" => self.fg_click(Button::Left, x, y, 3),
+            _ => {
+                self.fg_move(x, y)?;
+                sleep_ms(16);
+                self.assert_cursor_at(x, y)
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn click_background(
+        &self,
+        req: &Req,
+        action: &str,
+        kind: &str,
+        point: &Point,
+        target: Wid,
+        modifiers: &[Mod],
+        element: Option<&Rc<dyn Element>>,
+        before: Option<String>,
+    ) -> Res<Obj> {
+        let id = Some(window_id(target));
+        let background = match self.background_or_unsupported(action, id.clone()) {
+            Ok(background) => background,
+            Err(result) => return Ok(result),
+        };
+        self.authorize(req, target)?;
+        self.announce_background_target(point.x, point.y);
+        // A held button keeps its window non-activatable until the matching
+        // release, so the press, the gap and the release share one hold.
+        let hold = if kind == "press" {
+            match background.hold(target) {
+                Ok(root) => root,
+                Err(error) => return self.background_failure(action, &error, id, false),
+            }
+        } else {
+            0
+        };
+        return match background.pointer(target, point.x, point.y, kind, modifiers) {
+            Ok(message_target) => {
+                self.report_pointer(point.x, point.y, kind == "press", if kind == "press" { "press" } else { "release" });
+                if matches!(kind, "press" | "release") {
+                    if let Err(error) = self.record_held_pointer(background, target, (point.x, point.y), kind == "press", hold) {
+                        return self.background_failure(action, &error, id, false);
+                    }
+                }
+                let message = format!("{action} delivered as a native pointer event");
+                Ok(self.complete_native_action(action, &message_target, id, before, element, &message))
+            }
+            Err(error) => {
+                // Only a press that did not land still owns its hold; the
+                // press's own failure is the one reported.
+                let _ = background.release_hold(hold);
+                self.background_failure(action, &error, id, false)
+            }
+        };
     }
 
     /// Record-HeldPointer (input-pointer.ps1:149-165): a press records the
@@ -155,33 +175,45 @@ impl Host {
         let allowed = req.strings("allowed_window_ids");
         let waypoints = req.list("waypoints");
         if !waypoints.is_empty() {
-            if waypoints.len() < 2 {
-                return Err("waypoint drag requires at least two points".into());
-            }
-            if !req.has("window_id") && !req.has("window") {
-                return Ok(self.background_unavailable("drag", "waypoint drag requires an exact window_id-bound frame", None, "target_required", false));
-            }
-            let info = self.resolve_window(req)?;
-            let points: Vec<(i32, i32)> = waypoints
-                .iter()
-                .map(|point| {
-                    let point = Req(point.clone());
-                    (point.int("x").unwrap_or(0) as i32, point.int("y").unwrap_or(0) as i32)
-                })
-                .collect();
-            return self.drag_points(req, info.handle, &points, &modifiers, button, &allowed, None);
+            return self.drag_waypoints(req, &waypoints, &modifiers, button, &allowed);
         }
         if req.has("x") || req.has("y") || req.has("to_x") || req.has("to_y") {
-            let (Some(x1), Some(y1), Some(x2), Some(y2)) = (req.int("x"), req.int("y"), req.int("to_x"), req.int("to_y")) else {
-                return Err("coordinate drag requires x, y, to_x, and to_y from one frame_id".into());
-            };
-            if !req.has("window_id") && !req.has("window") {
-                return Ok(self.background_unavailable("drag", "coordinate drag requires an exact window_id-bound frame", None, "target_required", false));
-            }
-            let info = self.resolve_window(req)?;
-            let points = [(x1 as i32, y1 as i32), (x2 as i32, y2 as i32)];
-            return self.drag_points(req, info.handle, &points, &modifiers, button, &allowed, None);
+            return self.drag_coordinates(req, &modifiers, button, &allowed);
         }
+        self.drag_refs(req, &modifiers, button, &allowed)
+    }
+
+    fn drag_waypoints(&self, req: &Req, waypoints: &[serde_json::Value], modifiers: &[Mod], button: Button, allowed: &[String]) -> Res<Obj> {
+        if waypoints.len() < 2 {
+            return Err("waypoint drag requires at least two points".into());
+        }
+        if !req.has("window_id") && !req.has("window") {
+            return Ok(self.background_unavailable("drag", "waypoint drag requires an exact window_id-bound frame", None, "target_required", false));
+        }
+        let info = self.resolve_window(req)?;
+        let points: Vec<(i32, i32)> = waypoints
+            .iter()
+            .map(|point| {
+                let point = Req(point.clone());
+                (point.int("x").unwrap_or(0) as i32, point.int("y").unwrap_or(0) as i32)
+            })
+            .collect();
+        self.drag_points(req, info.handle, &points, modifiers, button, allowed, None)
+    }
+
+    fn drag_coordinates(&self, req: &Req, modifiers: &[Mod], button: Button, allowed: &[String]) -> Res<Obj> {
+        let (Some(x1), Some(y1), Some(x2), Some(y2)) = (req.int("x"), req.int("y"), req.int("to_x"), req.int("to_y")) else {
+            return Err("coordinate drag requires x, y, to_x, and to_y from one frame_id".into());
+        };
+        if !req.has("window_id") && !req.has("window") {
+            return Ok(self.background_unavailable("drag", "coordinate drag requires an exact window_id-bound frame", None, "target_required", false));
+        }
+        let info = self.resolve_window(req)?;
+        let points = [(x1 as i32, y1 as i32), (x2 as i32, y2 as i32)];
+        self.drag_points(req, info.handle, &points, modifiers, button, allowed, None)
+    }
+
+    fn drag_refs(&self, req: &Req, modifiers: &[Mod], button: Button, allowed: &[String]) -> Res<Obj> {
         let Some(to) = req.str("to") else {
             return Err("drag requires to (destination ref)".into());
         };
@@ -203,7 +235,7 @@ impl Host {
         }
         if !req.delivery_foreground() {
             let points = [(a.x, a.y), (b.x, b.y)];
-            return self.drag_points(req, a.target, &points, &modifiers, button, &allowed, Some(&element));
+            return self.drag_points(req, a.target, &points, modifiers, button, allowed, Some(&element));
         }
         let target = a.target;
         let mut body = || -> Res<()> {
@@ -212,8 +244,8 @@ impl Host {
             if a.target != target || b.target != target {
                 return Err("target_mismatch|drag endpoints changed after focus; no input sent".into());
             }
-            self.assert_drag_points(req, target, &[(a.x, a.y), (b.x, b.y)], &allowed)?;
-            self.with_modifiers(&modifiers, || self.fg_drag_path(target, &[(a.x, a.y), (b.x, b.y)], button))
+            self.assert_drag_points(req, target, &[(a.x, a.y), (b.x, b.y)], allowed)?;
+            self.with_modifiers(modifiers, || self.fg_drag_path(target, &[(a.x, a.y), (b.x, b.y)], button))
         };
         self.foreground_input(target, "drag", true, &mut body)
     }
@@ -318,22 +350,8 @@ impl Host {
 
     pub(in crate::host) fn do_scroll(&self, req: &Req) -> Res<Obj> {
         let direction = req.text("direction").to_lowercase();
-        let amount = if let Some(amount) = req.int("amount") {
-            amount.abs().clamp(1, 100)
-        } else if let Some(dy) = req.int("dy") {
-            dy.abs().clamp(1, 100)
-        } else {
-            3
-        } as i32;
         let horizontal = matches!(direction.as_str(), "left" | "right");
-        let signed = match direction.as_str() {
-            "up" | "left" => -amount,
-            "down" | "right" => amount,
-            _ if req.int("dy").is_some_and(|dy| dy < 0) => -amount,
-            _ => amount,
-        };
-        // Positive clicks move content down/right on the wire the platforms share.
-        let clicks = signed;
+        let clicks = scroll_clicks(req, &direction);
         let modifiers = parse_modifiers(&req.text("modifiers"))?;
         let foreground = req.delivery_foreground();
         if req.has("x") || req.has("y") {
@@ -347,40 +365,7 @@ impl Host {
             return self.scroll_at(req, info.handle, x as i32, y as i32, clicks, horizontal, &modifiers, &direction, None);
         }
         if let Some(reference) = req.str("ref") {
-            let (element, _) = self.ref_record(&reference)?;
-            if !foreground && modifiers.is_empty() {
-                self.show_reference_pointer(&reference, "scroll");
-                let increments = (clicks.abs() * 3).min(30) * clicks.signum();
-                if let Some((before, after)) = self.scroll_by_increments(element.as_ref(), horizontal, increments)? {
-                    let verified = before != after;
-                    // uia_scroll / "through UIA" on Windows (input-pointer.ps1).
-                    let (prefix, tree) = self.semantic_words();
-                    let message = format!("scrolled {reference} {direction} {} increments through {tree}", increments.abs());
-                    return Ok(self.action_result(
-                        "scroll",
-                        &format!("{prefix}_scroll"),
-                        crate::host::windows::effect(verified),
-                        verified,
-                        &message,
-                        None,
-                        "background",
-                        Some(window_id(element.window())),
-                    ));
-                }
-            }
-            let point = self.el_point(&reference, false)?;
-            if !foreground {
-                return self.scroll_at(req, point.target, point.x, point.y, clicks, horizontal, &modifiers, &direction, Some(&element));
-            }
-            let target = point.target;
-            let mut body = || -> Res<()> {
-                let focused = self.el_point(&reference, true)?;
-                if focused.target != target {
-                    return Err("target_mismatch|scroll target changed after focus; no input sent".into());
-                }
-                self.fg_wheel(target, focused.x, focused.y, clicks, horizontal, &modifiers)
-            };
-            return self.foreground_input(target, "scroll", true, &mut body);
+            return self.scroll_ref(req, &reference, clicks, horizontal, &modifiers, &direction);
         }
         if !foreground && !req.has("window_id") && !req.has("window") {
             return Ok(self.background_unavailable("scroll", "background scroll requires an exact ref or window_id", None, "target_required", false));
@@ -389,6 +374,44 @@ impl Host {
         let x = info.x + info.width / 2;
         let y = info.y + info.height / 2;
         self.scroll_at(req, info.handle, x, y, clicks, horizontal, &modifiers, &direction, None)
+    }
+
+    fn scroll_ref(&self, req: &Req, reference: &str, clicks: i32, horizontal: bool, modifiers: &[Mod], direction: &str) -> Res<Obj> {
+        let foreground = req.delivery_foreground();
+        let (element, _) = self.ref_record(reference)?;
+        if !foreground && modifiers.is_empty() {
+            self.show_reference_pointer(reference, "scroll");
+            let increments = (clicks.abs() * 3).min(30) * clicks.signum();
+            if let Some((before, after)) = self.scroll_by_increments(element.as_ref(), horizontal, increments)? {
+                let verified = before != after;
+                // uia_scroll / "through UIA" on Windows (input-pointer.ps1).
+                let (prefix, tree) = self.semantic_words();
+                let message = format!("scrolled {reference} {direction} {} increments through {tree}", increments.abs());
+                return Ok(self.action_result(
+                    "scroll",
+                    &format!("{prefix}_scroll"),
+                    crate::host::windows::effect(verified),
+                    verified,
+                    &message,
+                    None,
+                    "background",
+                    Some(window_id(element.window())),
+                ));
+            }
+        }
+        let point = self.el_point(reference, false)?;
+        if !foreground {
+            return self.scroll_at(req, point.target, point.x, point.y, clicks, horizontal, modifiers, direction, Some(&element));
+        }
+        let target = point.target;
+        let mut body = || -> Res<()> {
+            let focused = self.el_point(reference, true)?;
+            if focused.target != target {
+                return Err("target_mismatch|scroll target changed after focus; no input sent".into());
+            }
+            self.fg_wheel(target, focused.x, focused.y, clicks, horizontal, modifiers)
+        };
+        self.foreground_input(target, "scroll", true, &mut body)
     }
 
     /// UIA scrolls one increment at a time, authorizing each (input-pointer.ps1:
@@ -592,5 +615,21 @@ mod tests {
         assert_eq!(steps.get(), 3);
         assert_eq!(seen, Ok(Some(("x".into(), "y".into()))));
         assert_eq!(step_scroll(2, || Ok(()), |_| Ok(None)), Ok(None));
+    }
+}
+
+fn scroll_clicks(req: &Req, direction: &str) -> i32 {
+    let amount = if let Some(amount) = req.int("amount") {
+        amount.abs().clamp(1, 100)
+    } else if let Some(dy) = req.int("dy") {
+        dy.abs().clamp(1, 100)
+    } else {
+        3
+    } as i32;
+    match direction {
+        "up" | "left" => -amount,
+        "down" | "right" => amount,
+        _ if req.int("dy").is_some_and(|dy| dy < 0) => -amount,
+        _ => amount,
     }
 }

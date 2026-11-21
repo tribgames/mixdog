@@ -1,11 +1,3 @@
-//! `prepareOfficeFonts()` of `runtime/office/portable/font-provisioner.mjs`: the Noto faces the
-//! office tools measure with, downloaded once (size and sha256 checked) into the user's font
-//! folder and registered with the OS.
-//!
-//! The provisioner is `mixdog_fonts::install` (the extension-host worker runs the same one after
-//! `document.installLibreOffice`); this file is the daemon's host for it: a face is fetched through
-//! the daemon's asset fetcher and the registration command runs under its process manager.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 

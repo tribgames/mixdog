@@ -1,8 +1,3 @@
-//! The thread route methods (feature tests, inline inputs): `thread/continueInModel` over a route service
-//! case, and `thread/quotaResume/schedule` / `cancel` over the
-//! quota-resume store, with the transcript facts a recording session supplies. The app-server's
-//! routing of these methods to this service is tested in its `dispatch` tests.
-
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};

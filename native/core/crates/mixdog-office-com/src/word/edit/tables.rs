@@ -378,9 +378,8 @@ fn apply_row_styles(table: &Com, rows: i32, row_styles: &[Value]) -> Result<()> 
     Ok(())
 }
 
-/// `add_table`.
-pub(super) fn add_table(document: &Obj, op: &Value) -> Result<Value> {
-    let values = pipeline_items(&prop(op, "values"));
+/// The rows and columns of a new table: as asked, else as the values are shaped, else one.
+fn table_dimensions(op: &Value, values: &[Value]) -> Result<(i32, i32)> {
     let rows_given = prop(op, "rows");
     let rows = if truthy(&rows_given) {
         cast_int(&rows_given)?
@@ -397,45 +396,110 @@ pub(super) fn add_table(document: &Obj, op: &Value) -> Result<Value> {
     } else {
         1
     };
-    let range = table_insertion_range(document, op)?;
-    let table = document.get("Tables")?.call_member("Add", &[range, Com::I4(rows), Com::I4(columns)])?;
-    fill_cells(&table, &values, rows, columns)?;
-    let props = prop(op, "properties");
+    Ok((rows, columns))
+}
+
+/// The table's style and type: the named styles, the face, size, colour and spacing of every cell, and the line pitch.
+/// Answers the styles the document does not hold.
+fn format_table_text(table: &Com, props: &Value) -> Result<Vec<String>> {
     let mut style_not_found: Vec<String> = Vec::new();
-    if truthy(&prop(&props, "style")) {
-        style_not_found.extend(formatting::set_style(&table, &text_of(&prop(&props, "style"))));
+    if truthy(&prop(props, "style")) {
+        style_not_found.extend(formatting::set_style(table, &text_of(&prop(props, "style"))));
     }
-    if truthy(&prop(&props, "textStyle")) {
-        style_not_found.extend(formatting::set_style(&table.member("Range")?, &text_of(&prop(&props, "textStyle"))));
+    if truthy(&prop(props, "textStyle")) {
+        style_not_found.extend(formatting::set_style(&table.member("Range")?, &text_of(&prop(props, "textStyle"))));
     }
-    if truthy(&prop(&props, "fontName")) {
-        formatting::set_latin_font(&table.member("Range")?.member("Font")?, &text_of(&prop(&props, "fontName")))?;
+    if truthy(&prop(props, "fontName")) {
+        formatting::set_latin_font(&table.member("Range")?.member("Font")?, &text_of(&prop(props, "fontName")))?;
     }
-    if truthy(&prop(&props, "fontNameEastAsia")) {
-        table.member("Range")?.member("Font")?.set_member("NameFarEast", Com::from(text_of(&prop(&props, "fontNameEastAsia"))))?;
+    if truthy(&prop(props, "fontNameEastAsia")) {
+        table.member("Range")?.member("Font")?.set_member("NameFarEast", Com::from(text_of(&prop(props, "fontNameEastAsia"))))?;
     }
-    let font_size = prop(&props, "fontSize");
+    let font_size = prop(props, "fontSize");
     if truthy(&font_size) {
         table.member("Range")?.member("Font")?.set_member("Size", r4(&font_size)?)?;
     }
-    if truthy(&prop(&props, "color")) {
-        table.member("Range")?.member("Font")?.set_member("Color", color_of(&prop(&props, "color"))?)?;
+    if truthy(&prop(props, "color")) {
+        table.member("Range")?.member("Font")?.set_member("Color", color_of(&prop(props, "color"))?)?;
     }
-    if !prop(&props, "spacingAfter").is_null() {
-        table.member("Range")?.member("ParagraphFormat")?.set_member("SpaceAfter", r4(&prop(&props, "spacingAfter"))?)?;
+    if !prop(props, "spacingAfter").is_null() {
+        table.member("Range")?.member("ParagraphFormat")?.set_member("SpaceAfter", r4(&prop(props, "spacingAfter"))?)?;
     }
     // The portable writer's line pitch: one exact line of 1.3x the size in every cell.
     table.member("Range")?.member("ParagraphFormat")?.set_member("LineSpacingRule", Com::I4(4))?;
     let pitch = line_pitch(if truthy(&font_size) { cast_single(&font_size)? } else { 11.0 });
     table.member("Range")?.member("ParagraphFormat")?.set_member("LineSpacing", pitch)?;
-    // The portable writer's widow and orphan control, row by row. The rows the header takes: a two-level header is two.
-    let header_rows = if truthy(&prop(&props, "headerRows")) { 1_i32.max((rows - 1).min(cast_int(&prop(&props, "headerRows"))?)) } else { 1 };
+    Ok(style_not_found)
+}
+
+/// The portable writer's widow and orphan control, row by row.
+fn keep_rows_together(table: &Com, props: &Value, rows: i32, header_rows: i32) -> Result<()> {
     for row in 1..=rows {
-        let keep = if row < rows { rows <= 6 || row <= header_rows + 1 || row == rows - 1 } else { truthy(&prop(&props, "keepWithNext")) };
+        let keep = if row < rows { rows <= 6 || row <= header_rows + 1 || row == rows - 1 } else { truthy(&prop(props, "keepWithNext")) };
         if keep {
             super::item(&table.member("Rows")?, row)?.member("Range")?.member("ParagraphFormat")?.set_member("KeepWithNext", Com::I4(-1))?;
         }
     }
+    Ok(())
+}
+
+/// A layout grid: every rule off, no fill, no style (the portable writer's isLayoutTable).
+fn is_layout_grid(props: &Value) -> bool {
+    if truthy(&prop(props, "borders")) && !truthy(&prop(props, "style")) && !truthy(&prop(props, "shading")) {
+        let borders = prop(props, "borders");
+        return eq_false(&prop(&borders, "enabled"))
+            || SIDES.iter().all(|(side, _)| {
+                let spec = prop(&borders, side);
+                !spec.is_null() && eq_false(&prop(&spec, "enabled"))
+            });
+    }
+    false
+}
+
+/// Room before a column of words that follows a column of figures, as the portable writer gives it.
+fn pad_words_after_figures(table: &Com, props: &Value, rows: i32, columns: i32) {
+    let alignments: Vec<String> = pipeline_items(&prop(props, "columnAlignments")).iter().map(|name| lower(&text_of(name))).collect();
+    for column in 2..=columns.min(alignments.len() as i32) {
+        if alignments[(column - 2) as usize] == "right" && matches!(alignments[(column - 1) as usize].as_str(), "left" | "justify") {
+            for row in 1..=rows {
+                let _ = table.call_member("Cell", &[Com::I4(row), Com::I4(column)]).and_then(|cell| cell.set_member("LeftPadding", Com::R4(13.4)));
+            }
+        }
+    }
+}
+
+/// The column widths and row heights asked for; with no widths, the columns share the page.
+fn size_table(table: &Com, props: &Value, rows: i32, columns: i32) -> Result<()> {
+    let widths = pipeline_items(&prop(props, "columnWidths"));
+    if truthy(&prop(props, "columnWidths")) {
+        for column in 1..=columns.min(widths.len() as i32) {
+            super::item(&table.member("Columns")?, column)?.set_member("Width", r4(&widths[(column - 1) as usize])?)?;
+        }
+    } else if columns > 1 {
+        // Columns.AutoFit measures at once: AutoFitBehavior alone leaves a hidden Word's widths unchanged.
+        let _ = share_column_widths(table, columns);
+    }
+    if truthy(&prop(props, "rowHeights")) {
+        let heights = pipeline_items(&prop(props, "rowHeights"));
+        for row in 1..=rows.min(heights.len() as i32) {
+            super::item(&table.member("Rows")?, row)?.call_member("SetHeight", &[r4(&heights[(row - 1) as usize])?, Com::I4(1)])?;
+        }
+    }
+    Ok(())
+}
+
+/// `add_table`.
+pub(super) fn add_table(document: &Obj, op: &Value) -> Result<Value> {
+    let values = pipeline_items(&prop(op, "values"));
+    let (rows, columns) = table_dimensions(op, &values)?;
+    let range = table_insertion_range(document, op)?;
+    let table = document.get("Tables")?.call_member("Add", &[range, Com::I4(rows), Com::I4(columns)])?;
+    fill_cells(&table, &values, rows, columns)?;
+    let props = prop(op, "properties");
+    let style_not_found = format_table_text(&table, &props)?;
+    // The rows the header takes: a two-level header is two.
+    let header_rows = if truthy(&prop(&props, "headerRows")) { 1_i32.max((rows - 1).min(cast_int(&prop(&props, "headerRows"))?)) } else { 1 };
+    keep_rows_together(&table, &props, rows, header_rows)?;
     // A row reads from its top, and the header row sits on its rule (bottom).
     let _ = table.member("Range").and_then(|range| range.member("Cells")).and_then(|cells| cells.set_member("VerticalAlignment", Com::I4(0)));
     let repeat_header = prop(&props, "repeatHeader");
@@ -462,43 +526,12 @@ pub(super) fn add_table(document: &Obj, op: &Value) -> Result<Value> {
     if truthy(&prop(&props, "columnAlignments")) {
         set_column_alignments(&table, &prop(&props, "columnAlignments"))?;
     }
-    // A layout grid: every rule off, no fill, no style (the portable writer's isLayoutTable).
-    let mut layout_grid = false;
-    if truthy(&prop(&props, "borders")) && !truthy(&prop(&props, "style")) && !truthy(&prop(&props, "shading")) {
-        let borders = prop(&props, "borders");
-        layout_grid = eq_false(&prop(&borders, "enabled"))
-            || SIDES.iter().all(|(side, _)| {
-                let spec = prop(&borders, side);
-                !spec.is_null() && eq_false(&prop(&spec, "enabled"))
-            });
-    }
-    // Room before a column of words that follows a column of figures, as the portable writer gives it. Set before the
-    // widths, so Word's measure counts it.
+    let layout_grid = is_layout_grid(&props);
+    // Set before the widths, so Word's measure counts it.
     if truthy(&prop(&props, "columnAlignments")) && !layout_grid {
-        let alignments: Vec<String> = pipeline_items(&prop(&props, "columnAlignments")).iter().map(|name| lower(&text_of(name))).collect();
-        for column in 2..=columns.min(alignments.len() as i32) {
-            if alignments[(column - 2) as usize] == "right" && matches!(alignments[(column - 1) as usize].as_str(), "left" | "justify") {
-                for row in 1..=rows {
-                    let _ = table.call_member("Cell", &[Com::I4(row), Com::I4(column)]).and_then(|cell| cell.set_member("LeftPadding", Com::R4(13.4)));
-                }
-            }
-        }
+        pad_words_after_figures(&table, &props, rows, columns);
     }
-    let widths = pipeline_items(&prop(&props, "columnWidths"));
-    if truthy(&prop(&props, "columnWidths")) {
-        for column in 1..=columns.min(widths.len() as i32) {
-            super::item(&table.member("Columns")?, column)?.set_member("Width", r4(&widths[(column - 1) as usize])?)?;
-        }
-    } else if columns > 1 {
-        // Columns.AutoFit measures at once: AutoFitBehavior alone leaves a hidden Word's widths unchanged.
-        let _ = share_column_widths(&table, columns);
-    }
-    if truthy(&prop(&props, "rowHeights")) {
-        let heights = pipeline_items(&prop(&props, "rowHeights"));
-        for row in 1..=rows.min(heights.len() as i32) {
-            super::item(&table.member("Rows")?, row)?.call_member("SetHeight", &[r4(&heights[(row - 1) as usize])?, Com::I4(1)])?;
-        }
-    }
+    size_table(&table, &props, rows, columns)?;
     if truthy(&prop(&props, "borders")) {
         set_borders(&table, &prop(&props, "borders"))?;
     }
@@ -538,7 +571,6 @@ pub(super) fn add_table(document: &Obj, op: &Value) -> Result<Value> {
     }
     Ok(ordered(pairs))
 }
-
 /// `set_table_cell`.
 pub(super) fn set_table_cell(document: &Obj, op: &Value) -> Result<Value> {
     let table = table_at(document, &prop(op, "table"))?;

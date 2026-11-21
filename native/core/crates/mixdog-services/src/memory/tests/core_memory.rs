@@ -173,3 +173,45 @@ async fn a_folder_scope_change_rejects_add_and_move_without_touching_other_instr
         ]
     );
 }
+
+async fn core_context_over<'a>(db: &'a crate::memory::pg::db::Db, data_dir: &'a std::path::Path, revision: &'a AtomicU64) -> CoreContext<'a> {
+    CoreContext { db, data_dir, session_cwd: None, snapshot_revision: revision, lane: mixdog_rt::testing::tokens().durability_io }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+async fn a_category_only_edit_keeps_the_text_and_an_unchanged_edit_is_refused() {
+    use crate::memory::core::access::MemoryCaller;
+    use crate::memory::core::store::{self, Edit};
+
+    let pg = TestPg::start().await;
+    let db = pg.db(Schema::Memory).await;
+    ensure_memory_schema(&db, 384, &Value::Null).await.expect("schema");
+    let caller = MemoryCaller::from_value(None);
+    let entry = store::add(&db, &json!({ "element": "E", "summary": "S", "category": "fact" }), None, None, &caller).await.expect("add");
+    let input = json!({ "category": "rule" });
+    let request = || Edit { input: &input, expected_project_id: None, expected_agent_id: None, target_project_id: None, caller: &caller };
+    let edited = store::edit(&db, entry.id, request()).await.expect("category edit");
+    assert_eq!((edited.element.as_str(), edited.summary.as_str(), edited.category.as_str()), ("E", "S", "rule"));
+    let stored = db.query("SELECT category FROM core_entries WHERE id = $1", &[&entry.id]).await.unwrap();
+    assert_eq!(stored[0].get::<_, String>(0), "rule");
+    let again = store::edit(&db, entry.id, request()).await.expect_err("nothing changed");
+    assert!(again.message().contains("no change"), "{}", again.message());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+async fn the_all_projects_scope_is_refused_for_add_and_delete_but_not_list() {
+    let pg = TestPg::start().await;
+    let db = pg.db(Schema::Memory).await;
+    ensure_memory_schema(&db, 384, &Value::Null).await.expect("schema");
+    let revision = AtomicU64::new(0);
+    let data_dir = pg.dir.path().join("data");
+    let ctx = core_context_over(&db, &data_dir, &revision).await;
+    let added = run(&ctx, &json!({ "op": "add", "project_id": "*", "summary": "x" })).await;
+    assert!(added.is_error && added.text.contains("only valid for op=\"list\""), "{}", added.text);
+    let deleted = run(&ctx, &json!({ "op": "delete", "project_id": "*", "id": 1, "index_revision": "r" })).await;
+    assert!(deleted.is_error && deleted.text.contains("only valid for op=\"list\""), "{}", deleted.text);
+    let listed = run(&ctx, &json!({ "op": "list", "project_id": "*" })).await;
+    assert!(!listed.is_error, "{}", listed.text);
+}

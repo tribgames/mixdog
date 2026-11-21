@@ -18,17 +18,11 @@
 // Files above the documented size cap are intentionally omitted. Every I/O,
 // protocol and serialization failure is fatal so callers never cache a graph
 // that only looks complete. There is no JS parse fallback.
-//
-// MODULES
-// -------
-// This file owns the record shape, the walk/parse/emit pipeline and the CLI
-// dispatch. The library's `resolve` owns the import-resolution layer that
-// turns a record's `rawImports` into `resolvedImports`/`importedBy`; it enters
-// through the single `resolve_and_link` call the two graph modes below make.
 
 use std::collections::HashSet;
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process;
 
@@ -50,28 +44,14 @@ use mixdog_graph::{walk_classified_files, write_jsonl};
 // here so large repos don't pay full parse cost before truncation.
 const MAX_FILES: usize = 10_000;
 
-// The walk, the `--files` path and the symbol search share the one cap the
-// library defines, so the scan can never disagree with them about which files
-// are too large to index.
 use mixdog_graph::MAX_FILE_BYTES;
 
-// Task Manager's Processes tab groups rows by AppUserModelID — not by the
-// parent/child chain, and not by the version resource build.rs stamps. This
-// helper is spawned by a Mixdog session shard and is resident for the life of
-// a search session, so with no identity of its own it advertised none and sat
-// at the top level as an unrelated row beside the app that owns it (user:
-// 카테고리 안으로 들어오게). Claiming the desktop app's AUMID — the same
-// io.mixdog.desktop that electron-builder.yml declares as `appId` and that
-// main/index.ts passes to app.setAppUserModelId on Windows — folds it into the
-// existing Mixdog group.
-//
-// Purely cosmetic and best-effort: the identity affects taskbar/Task Manager
-// grouping only, so a failing or unsupported call just leaves the previous
-// ungrouped presentation in place and never blocks the engine from starting.
+// Task Manager groups rows by AppUserModelID, so claiming the desktop app's
+// (`appId` in electron-builder.yml) folds this helper into the Mixdog group.
+// Cosmetic and best-effort: a failing call is ignored.
 #[cfg(windows)]
 fn adopt_desktop_app_identity() {
     use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
-    // PCWSTR: UTF-16 and NUL-terminated. Built once, borrowed for the call.
     let app_id: Vec<u16> = "io.mixdog.desktop\0".encode_utf16().collect();
     let _ = unsafe { SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr()) };
 }
@@ -79,8 +59,6 @@ fn adopt_desktop_app_identity() {
 #[cfg(not(windows))]
 fn adopt_desktop_app_identity() {}
 
-// The emitted record. The library's `resolve` reads the declared metadata and
-// writes the two edge lists back through `ImportRecord`.
 #[derive(Serialize)]
 struct FileRecord {
     rel: String,
@@ -173,9 +151,6 @@ struct ReusedMeta {
     top_level_types: Vec<String>,
 }
 
-// Build a lightweight FileRecord from a reused-node meta: carries just
-// enough (rel/lang/imports/package/types) for GraphIndex construction and
-// import resolution. tokens/symbols stay empty — they aren't re-emitted.
 fn record_from_reused(meta: ReusedMeta) -> FileRecord {
     FileRecord {
         rel: meta.rel,
@@ -192,7 +167,6 @@ fn record_from_reused(meta: ReusedMeta) -> FileRecord {
         resolved_imports: Vec::new(),
         imported_by: Vec::new(),
         symbols: Vec::new(),
-        // Reused nodes are not parsed here; JS already holds their calls.
         calls: None,
     }
 }
@@ -216,19 +190,45 @@ struct SearchHit {
     text: String,
 }
 
-// `mixdog-graph <root> <symbol>`: every occurrence of `symbol` AS AN
-// IDENTIFIER, one JSONL hit per occurrence.
-//
-// Stage 3-D replaced the masked-text regex scan with the parse tree: a hit is
-// an identifier node whose text IS the symbol, which is the same answer the
-// word-boundary regex gave on masked text, minus the masking approximations —
-// comments and string bodies cannot produce a node of an identifier kind, and
-// an identifier inside a string interpolation still does.
-fn run_search(root: &Path, symbol: &str) -> Result<(), String> {
-    if symbol.is_empty() {
-        return Ok(());
+fn search_file(path: &Path, root: &Path, symbol: &str) -> Vec<SearchHit> {
+    let Some(ext) = path.extension().and_then(|s| s.to_str()) else {
+        return Vec::new();
+    };
+    if lang_for(ext).is_none() {
+        return Vec::new();
     }
+    let Some(scan_lang) = scan_lang_for_path(path) else {
+        return Vec::new();
+    };
+    let Ok(relative) = path.strip_prefix(root) else {
+        return Vec::new();
+    };
+    let rel = relative.to_string_lossy().replace('\\', "/");
+    let Ok(meta) = fs::metadata(path) else {
+        return Vec::new();
+    };
+    if meta.len() > MAX_FILE_BYTES {
+        return Vec::new();
+    }
+    let Ok(text) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    if !text.contains(symbol) {
+        return Vec::new();
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    let mut hits: Vec<SearchHit> = outline::identifier_hits(&text, scan_lang, symbol)
+        .into_iter()
+        .map(|(line, col)| {
+            let display = lines.get(line as usize - 1).map(|s| s.trim()).unwrap_or("");
+            SearchHit { rel: rel.clone(), line, col, text: display.chars().take(80).collect() }
+        })
+        .collect();
+    hits.sort_by_key(|hit| (hit.line, hit.col));
+    hits
+}
 
+fn search_hits(root: &Path, symbol: &str) -> Vec<SearchHit> {
     let mut entries: Vec<_> = WalkBuilder::new(root)
         .standard_filters(true)
         .hidden(false)
@@ -237,69 +237,16 @@ fn run_search(root: &Path, symbol: &str) -> Result<(), String> {
         .filter(|d| d.file_type().map(|t| t.is_file()).unwrap_or(false))
         .collect();
     entries.sort_by(|a, b| a.path().cmp(b.path()));
-
-    let hits: Vec<SearchHit> = entries
-        .par_iter()
-        .flat_map(|entry| {
-            let path = entry.path();
-            let ext = match path.extension().and_then(|s| s.to_str()) {
-                Some(e) => e,
-                None => return Vec::new(),
-            };
-            if lang_for(ext).is_none() {
-                return Vec::new();
-            }
-            let Some(scan_lang) = scan_lang_for_path(path) else {
-                return Vec::new();
-            };
-            let rel = match path.strip_prefix(root) {
-                Ok(p) => p.to_string_lossy().replace('\\', "/"),
-                Err(_) => return Vec::new(),
-            };
-            let meta = match fs::metadata(path) {
-                Ok(m) => m,
-                Err(_) => return Vec::new(),
-            };
-            if meta.len() > MAX_FILE_BYTES {
-                return Vec::new();
-            }
-            let text = match fs::read_to_string(path) {
-                Ok(t) => t,
-                Err(_) => return Vec::new(),
-            };
-            if !text.contains(symbol) {
-                return Vec::new();
-            }
-            let original_lines: Vec<&str> = text.lines().collect();
-            let mut out: Vec<SearchHit> = outline::identifier_hits(&text, scan_lang, symbol)
-                .into_iter()
-                .map(|(line, col)| {
-                    let display = original_lines.get(line as usize - 1).map(|s| s.trim()).unwrap_or("");
-                    // One trimmed, 80-character preview of the hit's line.
-                    let trimmed: String = display.chars().take(80).collect();
-                    SearchHit { rel: rel.clone(), line, col, text: trimmed }
-                })
-                .collect();
-            out.sort_by_key(|hit| (hit.line, hit.col));
-            out
-        })
-        .collect();
-
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
-    emit_search_hits(&hits, &mut handle)
+    entries.par_iter().flat_map(|entry| search_file(entry.path(), root, symbol)).collect()
 }
 
-// Every serialization and write failure is fatal, like the graph emitter: a
-// dropped hit would otherwise leave the caller with a silently short list and
-// exit code 0.
-fn emit_search_hits(hits: &[SearchHit], out: &mut impl std::io::Write) -> Result<(), String> {
-    write_jsonl(hits, "hit", out)
+fn run_search(root: &Path, symbol: &str) -> Result<(), String> {
+    if symbol.is_empty() {
+        return Ok(());
+    }
+    write_jsonl(&search_hits(root, symbol), "hit", &mut std::io::stdout().lock())
 }
 
-// A source file discovered by the walk, with its metadata read exactly once.
-// Parsing reuses size/mtime/rel/lang so stat happens a single time (collect),
-// not twice (collect + parse).
 struct SrcFile {
     path: PathBuf,
     rel: String,
@@ -308,10 +255,6 @@ struct SrcFile {
     mtime_ms: u64,
 }
 
-// Stat one candidate path into a SrcFile: the size cap, the repo-relative
-// `rel` and the mtime the fingerprint keys on, all from ONE metadata call.
-// `Ok(None)` means the file is over the cap and is not indexed. Both the walk
-// and the `--files` path go through here, so neither can drift from the other.
 fn src_file_from(path: &Path, root: &Path, lang: &'static str) -> Result<Option<SrcFile>, String> {
     let meta = fs::metadata(path).map_err(|err| format!("metadata failed for {}: {err}", path.display()))?;
     let size = meta.len();
@@ -323,20 +266,13 @@ fn src_file_from(path: &Path, root: &Path, lang: &'static str) -> Result<Option<
     Ok(Some(SrcFile { path: path.to_path_buf(), rel, lang, size, mtime_ms }))
 }
 
-// Full parse (tokens/imports/symbols) from an already-collected SrcFile.
-// Unreadable files fail the build; unsupported encodings produce a parse-error
-// record without claiming that call extraction ran.
 fn parse_file_from(src: &SrcFile) -> Result<FileRecord, String> {
     let lang = src.lang;
     let bytes = fs::read(&src.path).map_err(|err| format!("read failed for {}: {err}", src.path.display()))?;
-    let decoded = decode_source_text(bytes);
-    let (text, parse_error) = match decoded {
+    let (text, parse_error) = match String::from_utf8(bytes) {
         Ok(text) => (text, String::new()),
-        Err(error) => (String::new(), error.to_string()),
+        Err(_) => (String::new(), "unsupported source encoding; file not indexed".to_string()),
     };
-    // ONE ast-grep parse per file feeds tokens, imports, symbols, call sites
-    // and the package/namespace metadata; the grammar comes from the registry
-    // (`.tsx` is parsed as tsx, reported as typescript).
     let outline = match scan_lang_for_path(&src.path) {
         Some(scan_lang) => outline::extract(&text, lang, scan_lang),
         None => outline::Extraction::default(),
@@ -344,9 +280,6 @@ fn parse_file_from(src: &SrcFile) -> Result<FileRecord, String> {
     let tokens = outline.tokens;
     let raw_imports = outline.imports;
     let symbols = outline.symbols;
-    // A file that never decoded was not parsed, so its call list is unknown
-    // (key omitted) rather than known-empty — `outline::extract` saw an empty
-    // source here, not the file's real contents.
     let calls = if parse_error.is_empty() { outline.calls } else { None };
     let package_name = outline.package_name;
     let namespace_name = outline.namespace_name;
@@ -371,12 +304,6 @@ fn parse_file_from(src: &SrcFile) -> Result<FileRecord, String> {
     })
 }
 
-fn decode_source_text(bytes: Vec<u8>) -> Result<String, &'static str> {
-    String::from_utf8(bytes).map_err(|_| "unsupported source encoding; file not indexed")
-}
-
-// Stat-and-parse a single path (used by --files, where paths come from the
-// caller, not the walk). One metadata read, then parse_file_from.
 fn parse_file(path: &Path, root: &Path) -> Result<Option<FileRecord>, String> {
     let Some(lang) = path.extension().and_then(|s| s.to_str()).and_then(lang_for) else {
         return Ok(None);
@@ -397,11 +324,7 @@ fn emit_records(records: &[FileRecord]) -> Result<(), String> {
 // it and run_manifest takes it whole, so run_walk parses exactly the first
 // MAX_FILES of the manifest (JS `indexed`).
 fn collect_source_files(root: &Path) -> Result<Vec<SrcFile>, String> {
-    // Phase 1 (sequential walk, no stat): gather candidate paths + lang. The
-    // ignore-crate walk is inherently sequential, but doing zero I/O here keeps
-    // it cheap.
     let candidates = walk_classified_files(root, |path| path.extension().and_then(|s| s.to_str()).and_then(lang_for))?;
-    // Phase 2 (parallel): one stat per candidate for size/mtime + the 2MB gate.
     let file_results: Vec<Result<Option<SrcFile>, String>> = candidates.par_iter().map(|(path, lang)| src_file_from(path, root, lang)).collect();
     let mut files = Vec::with_capacity(file_results.len());
     for result in file_results {
@@ -415,71 +338,50 @@ fn collect_source_files(root: &Path) -> Result<Vec<SrcFile>, String> {
 
 fn run_walk(root: &Path) -> Result<(), String> {
     let mut files = collect_source_files(root)?;
-    // Cap cold parse work at MAX_FILES so large repos never pay the full
-    // native parse cost just to be truncated afterwards.
     files.truncate(MAX_FILES);
     let parsed: Vec<Result<FileRecord, String>> = files.par_iter().map(parse_file_from).collect();
     let mut records: Vec<FileRecord> = parsed.into_iter().collect::<Result<_, _>>()?;
-    // fileSet = every parsed record's rel; resolve imports + dependents.
     let file_set: HashSet<String> = records.iter().map(|r| r.rel.clone()).collect();
     resolve_and_link(&mut records, root, &file_set);
     emit_records(&records)
+}
+
+/// `--files` stdin protocol: one JSON `ReusedMeta` per line for every node the caller reuses, so resolution
+/// sees the whole graph. Malformed input is fatal because dropping a reused node corrupts graph edges.
+fn parse_reused_jsonl(input: &str) -> Result<Vec<FileRecord>, String> {
+    let mut records = Vec::new();
+    for (index, line) in input.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let meta = serde_json::from_str::<ReusedMeta>(line).map_err(|err| format!("invalid reused JSONL at line {}: {err}", index + 1))?;
+        if meta.rel.is_empty() {
+            return Err(format!("invalid reused JSONL at line {}: rel is empty", index + 1));
+        }
+        records.push(record_from_reused(meta));
+    }
+    Ok(records)
 }
 
 fn run_files(root: &Path, files: &[String]) -> Result<(), String> {
-    // Path::join replaces the root when a path is absolute.
     let paths: Vec<PathBuf> = files.iter().map(|f| root.join(f)).collect();
-    // Full-parse the fresh subset (tokens/symbols/imports/package/types).
     let fresh_results: Vec<Result<Option<FileRecord>, String>> = paths.par_iter().map(|p| parse_file(p.as_path(), root)).collect();
-    let mut fresh = Vec::with_capacity(fresh_results.len());
+    let mut records = Vec::with_capacity(fresh_results.len());
     for result in fresh_results {
         if let Some(record) = result? {
-            fresh.push(record);
+            records.push(record);
         }
     }
 
-    // Design-A protocol: stdin is JSONL, ONE LINE PER REUSED NODE, each a
-    // ReusedMeta (rel/lang/rawImports/package/namespace/goPackage/types).
-    // Deserialize into lightweight records so the GraphIndex + resolution
-    // see the WHOLE graph, not just the freshly-parsed subset. Malformed input
-    // is fatal because silently dropping a reused node corrupts graph edges.
-    let reused: Vec<FileRecord> = {
-        use std::io::Read;
-        let mut buf = String::new();
-        std::io::stdin().read_to_string(&mut buf).map_err(|err| format!("stdin read failed: {err}"))?;
-        let mut records = Vec::new();
-        for (index, line) in buf.lines().enumerate() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let meta = serde_json::from_str::<ReusedMeta>(line).map_err(|err| format!("invalid reused JSONL at line {}: {err}", index + 1))?;
-            if meta.rel.is_empty() {
-                return Err(format!("invalid reused JSONL at line {}: rel is empty", index + 1));
-            }
-            records.push(record_from_reused(meta));
-        }
-        records
-    };
+    let mut stdin = String::new();
+    std::io::stdin().read_to_string(&mut stdin).map_err(|err| format!("stdin read failed: {err}"))?;
+    records.extend(parse_reused_jsonl(&stdin)?);
 
-    // ALL nodes = fresh parsed + reused metas. Index + resolution run over
-    // the union so reused nodes resolve and the package/type index is whole.
-    let mut records: Vec<FileRecord> = fresh;
-    records.extend(reused);
-
-    // fileSet = every node's rel (fresh + reused). Empty stdin means this is an
-    // explicitly requested standalone subset.
     let file_set: HashSet<String> = records.iter().map(|r| r.rel.clone()).collect();
-
     resolve_and_link(&mut records, root, &file_set);
-
-    // Fresh nodes emit a full FileRecord; reused nodes emit a lightweight
-    // record (rel + resolvedImports — empty tokens/symbols/rawImports are
-    // skipped by serde, importedBy is ignored by JS).
     emit_records(&records)
 }
 
-// Manifest mode: emit fp/rel/size/lang only, no text parsing. Reuses the
-// metadata already read by collect_source_files.
 fn parse_meta_from(src: &SrcFile) -> FileRecord {
     FileRecord {
         rel: src.rel.clone(),
@@ -496,7 +398,6 @@ fn parse_meta_from(src: &SrcFile) -> FileRecord {
         resolved_imports: Vec::new(),
         imported_by: Vec::new(),
         symbols: Vec::new(),
-        // Manifest mode reads no text at all, so calls stay unknown.
         calls: None,
     }
 }
@@ -524,8 +425,6 @@ fn exit_on_usage_error(result: Result<(), scan::ScanError>) -> Result<(), String
 }
 
 fn main() {
-    // Before any work: the identity has to be in place while Task Manager is
-    // free to sample this process, and it costs nothing on the CLI paths.
     adopt_desktop_app_identity();
     let args: Vec<String> = env::args().collect();
     let cwd = match args.get(1) {
@@ -545,12 +444,7 @@ fn main() {
     let result = match args.get(2) {
         Some(flag) if flag == "--files" => run_files(root, &args[3..]),
         Some(flag) if flag == "--manifest" => run_manifest(root),
-        // Structural ast-grep scan. Usage / rule-parse problems exit 2 like
-        // the other argument errors; everything else falls through to the
-        // exit-1 internal error path below.
         Some(flag) if flag == "--scan" => exit_on_usage_error(scan::run(root, &args[3..])),
-        // Outline debug dump: the raw rule output per file, for validating
-        // outline rule files against real sources.
         Some(flag) if flag == "--outline" => exit_on_usage_error(outline::run(root, &args[3..])),
         Some(flag) if flag == "--langs" => scan::run_langs(),
         Some(flag) if flag == "--serve-search" => {
@@ -592,10 +486,6 @@ mod tests {
         }
     }
 
-    /// The file header promises that every I/O and serialization failure is
-    /// fatal. `run_search` used to `continue` past a serialization error and
-    /// ignore the write result, so a broken pipe produced a TRUNCATED hit list
-    /// with exit code 0 — a caller could cache that as the whole answer.
     #[test]
     fn a_failed_hit_write_is_fatal_instead_of_dropping_the_hit() {
         let hits = vec![
@@ -604,13 +494,39 @@ mod tests {
         ];
 
         let mut all = Vec::new();
-        emit_search_hits(&hits, &mut all).expect("a healthy writer takes every hit");
+        write_jsonl(&hits, "hit", &mut all).expect("a healthy writer takes every hit");
         assert_eq!(all.iter().filter(|byte| **byte == b'\n').count(), 2);
 
-        // The pipe closes after the first line: the second hit cannot be
-        // written, and that has to surface as an error, not a short list.
         let mut broken = FailingWriter { ok_lines: 1, lines: 0 };
-        let error = emit_search_hits(&hits, &mut broken).expect_err("a write failure is fatal");
+        let error = write_jsonl(&hits, "hit", &mut broken).expect_err("a write failure is fatal");
         assert!(error.starts_with("stdout write failed for hit 1"), "{error}");
+    }
+
+    fn scratch_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("mixdog-graph-main-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn search_hits_lists_identifier_occurrences_only_with_a_trimmed_preview() {
+        let dir = scratch_dir("search");
+        fs::write(dir.join("a.rs"), "fn run() {}\n// run\n    run();\n").unwrap();
+        fs::write(dir.join("notes.txt"), "run\n").unwrap();
+        let hits = search_hits(&dir, "run");
+        let _ = fs::remove_dir_all(&dir);
+        let seen: Vec<_> = hits.iter().map(|hit| (hit.rel.as_str(), hit.line, hit.col, hit.text.as_str())).collect();
+        assert_eq!(seen, vec![("a.rs", 1, 3, "fn run() {}"), ("a.rs", 3, 4, "run();")]);
+    }
+
+    #[test]
+    fn reused_jsonl_skips_blank_lines_and_rejects_malformed_or_nameless_nodes() {
+        let records = parse_reused_jsonl("{\"rel\":\"a.ts\",\"lang\":\"typescript\",\"rawImports\":[\"./b\"]}\n\n{\"rel\":\"b.ts\"}\n").unwrap();
+        assert_eq!(records.iter().map(|record| record.rel.as_str()).collect::<Vec<_>>(), vec!["a.ts", "b.ts"]);
+        assert_eq!(records[0].raw_imports, vec!["./b".to_string()]);
+        assert!(records[0].calls.is_none());
+        assert_eq!(parse_reused_jsonl("{\"lang\":\"go\"}\n").err().as_deref(), Some("invalid reused JSONL at line 1: rel is empty"));
+        assert!(parse_reused_jsonl("{\"rel\":\"a\"}\nnot json\n").err().unwrap().starts_with("invalid reused JSONL at line 2:"));
     }
 }

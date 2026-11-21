@@ -36,6 +36,7 @@ use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::ItemId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::TurnId;
+use mixdog_core_base::support::on_lane_wait;
 use mixdog_protocol::ItemStatus;
 use mixdog_protocol::RoomRowKind;
 use mixdog_protocol::ThreadItem;
@@ -44,7 +45,6 @@ use mixdog_protocol::TurnEndStatus;
 use mixdog_protocol::TurnError;
 use mixdog_protocol::TurnStatus;
 use mixdog_rt::CancellationToken;
-use mixdog_rt::LaneToken;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use serde_json::json;
@@ -127,12 +127,10 @@ pub(super) struct History {
 
 pub(super) async fn history(deps: &SessionDeps, id: &ThreadId) -> Result<History, CoreError> {
     let token = CancellationToken::new();
-    let dropped = || CoreError::Internal { incident_id: "session-history-job-dropped".into() };
     deps.store.unheld().await;
     let (store, thread) = (deps.store.clone(), id.clone());
     // The whole history is its newest rows without a bound, marked as every page of it is.
-    let (rev, records, decor, _) =
-        deps.lanes.io.submit(&token, move |lane| store.history_tail_decor(lane, &thread, usize::MAX))?.await.map_err(|_| dropped())??;
+    let (rev, records, decor, _) = on_lane_wait(deps.lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, usize::MAX)).await??;
     Ok(History { rev, rows: display_rows(deps, records, decor).await? })
 }
 
@@ -143,11 +141,10 @@ async fn display_rows(
 ) -> Result<Vec<(ThreadItem, usize)>, CoreError> {
     let token = CancellationToken::new();
     let transcript = deps.transcript.clone();
-    let rows = deps
-        .lanes
-        .cpu
-        .submit(&token, move |lane| records.iter().enumerate().flat_map(|(at, record)| decorated(transcript.rows(lane, record), decor.get(at))).collect())?;
-    rows.await.map_err(|_| CoreError::Internal { incident_id: "session-history-job-dropped".into() })
+    on_lane_wait(deps.lanes.cpu, &token, move |lane| {
+        records.iter().enumerate().flat_map(|(at, record)| decorated(transcript.rows(lane, record), decor.get(at))).collect()
+    })
+    .await
 }
 
 /// The rows from a cursor's row back (`ThreadStore::history_before`): the cursor's record's rows are `rows[from..]`.
@@ -169,14 +166,13 @@ pub(super) async fn history_before(
     records: usize,
 ) -> Result<Option<Before>, CoreError> {
     let token = CancellationToken::new();
-    let dropped = || CoreError::Internal { incident_id: "session-history-job-dropped".into() };
     store.unheld().await;
     let (store, thread) = (store.clone(), id.clone());
-    let Some(read) = lanes.io.submit(&token, move |lane| store.history_before(lane, &thread, &anchor, records))?.await.map_err(|_| dropped())?? else {
+    let Some(read) = on_lane_wait(lanes.io, &token, move |lane| store.history_before(lane, &thread, &anchor, records)).await?? else {
         return Ok(None);
     };
     let transcript = transcript.clone();
-    let shown = lanes.cpu.submit(&token, move |lane| {
+    let shown = on_lane_wait(lanes.cpu, &token, move |lane| {
         let mut rows: Vec<(ThreadItem, usize)> = Vec::new();
         let mut from = 0;
         for (at, record) in read.records.iter().enumerate() {
@@ -184,8 +180,8 @@ pub(super) async fn history_before(
             rows.extend(decorated(transcript.rows(lane, record), read.decor.get(at)));
         }
         Before { rev: read.rev, rows, from, complete: read.complete, named: read.named }
-    })?;
-    Ok(Some(shown.await.map_err(|_| dropped())?))
+    });
+    Ok(Some(shown.await?))
 }
 
 /// The `ext` member a row carries the compaction dividers shown after it under: the items of each divider (its row, then
@@ -222,16 +218,15 @@ pub(super) async fn history_tail(
     rows: usize,
 ) -> Result<(History, bool), CoreError> {
     let token = CancellationToken::new();
-    let dropped = || CoreError::Internal { incident_id: "session-history-job-dropped".into() };
     store.unheld().await;
     let (store, thread) = (store.clone(), id.clone());
-    let (rev, records, decor, complete) =
-        lanes.io.submit(&token, move |lane| store.history_tail_decor(lane, &thread, rows))?.await.map_err(|_| dropped())??;
+    let (rev, records, decor, complete) = on_lane_wait(lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, rows)).await??;
     let transcript = transcript.clone();
-    let rows = lanes
-        .cpu
-        .submit(&token, move |lane| records.iter().enumerate().flat_map(|(at, record)| decorated(transcript.rows(lane, record), decor.get(at))).collect())?;
-    Ok((History { rev, rows: rows.await.map_err(|_| dropped())? }, complete))
+    let rows = on_lane_wait(lanes.cpu, &token, move |lane| {
+        records.iter().enumerate().flat_map(|(at, record)| decorated(transcript.rows(lane, record), decor.get(at))).collect()
+    })
+    .await?;
+    Ok((History { rev, rows }, complete))
 }
 
 /// `thread/items/list`: the page around the cursor's row. The cursor names a row by its id, so a
@@ -251,15 +246,8 @@ pub(super) fn items_window(
     items_window_in(id, rev, rows, complete, false, p)
 }
 
-/// [`items_window`]; with `anchored`, `rows` end with the cursor's row and run back from it, which is all an older page reads.
-fn items_window_in(
-    id: &ThreadId,
-    rev: u64,
-    rows: &[(ThreadItem, usize)],
-    complete: bool,
-    anchored: bool,
-    p: &ThreadItemsListParams,
-) -> Result<Option<Reply>, CoreError> {
+/// The validated row limit, byte budget and anchor row id of a `thread/items/list` request.
+fn window_request(p: &ThreadItemsListParams) -> Result<(usize, Option<u64>, Option<&str>), CoreError> {
     let limit = match p.limit {
         None => MAX_ROWS,
         Some(n) if (1..=MAX_ROWS as u32).contains(&n) => n as usize,
@@ -276,6 +264,19 @@ fn items_window_in(
         Some(ItemsCursor::Item { kind, item_id }) if kind == "item" => Some(item_id.as_str()),
         Some(ItemsCursor::Item { .. }) => return Err(invalid("cursor.type", "item")),
     };
+    Ok((limit, budget, anchor))
+}
+
+/// [`items_window`]; with `anchored`,`rows` end with the cursor's row and run back from it, which is all an older page reads.
+fn items_window_in(
+    id: &ThreadId,
+    rev: u64,
+    rows: &[(ThreadItem, usize)],
+    complete: bool,
+    anchored: bool,
+    p: &ThreadItemsListParams,
+) -> Result<Option<Reply>, CoreError> {
+    let (limit, budget, anchor) = window_request(p)?;
     let turn: Vec<&(ThreadItem, usize)> = rows
         .iter()
         .filter(|(item, _)| p.turn_id.as_ref().is_none_or(|turn| meta(item).turn_id.as_ref().is_some_and(|t| t.as_str() == turn.as_str())))
@@ -511,6 +512,14 @@ fn row_kind(item: &ThreadItem) -> &str {
     }
 }
 
+fn turn_end_status_name(status: &TurnEndStatus) -> &'static str {
+    match status {
+        TurnEndStatus::Done => "done",
+        TurnEndStatus::Failed => "failed",
+        TurnEndStatus::Cancelled => "cancelled",
+    }
+}
+
 /// The Node transcript row (`kind`, `id`, `at`, ...) an item stands for, with the fields the
 /// reads here consult: the attachments of a user or room row, an assistant row's text and
 /// `streaming`, a turn end's `status`, `finalAssistantId` and `reacted`.
@@ -541,11 +550,7 @@ pub(super) fn display_row(item: &ThreadItem) -> Value {
             row["streaming"] = json!(meta.status == Some(ItemStatus::InProgress));
         }
         ThreadItem::TurnEnd { status, final_assistant_id, meta, .. } => {
-            row["status"] = json!(match status {
-                TurnEndStatus::Done => "done",
-                TurnEndStatus::Failed => "failed",
-                TurnEndStatus::Cancelled => "cancelled",
-            });
+            row["status"] = json!(turn_end_status_name(status));
             if let Some(id) = final_assistant_id {
                 row["finalAssistantId"] = json!(id.as_str());
             }
@@ -618,12 +623,7 @@ pub fn transcript_row(item: &ThreadItem) -> Value {
             }
         }
         ThreadItem::TurnEnd { status, detail, .. } => {
-            let status = match status {
-                TurnEndStatus::Done => "done",
-                TurnEndStatus::Failed => "failed",
-                TurnEndStatus::Cancelled => "cancelled",
-            };
-            row.insert("status".into(), json!(status));
+            row.insert("status".into(), json!(turn_end_status_name(status)));
             if let Some(detail) = detail {
                 row.insert("detail".into(), json!(detail));
             }
@@ -789,8 +789,6 @@ impl TurnMetadata {
 }
 
 async fn read_turn_metadata(deps: &SessionDeps, id: &ThreadId, cancel: &CancellationToken) -> Result<Option<TurnMetadata>, CoreError> {
-    use mixdog_core_base::support::on_lane_wait;
-
     let mut scan = TurnMetadata::default();
     let mut after = None;
     loop {
@@ -1048,15 +1046,24 @@ mod tests {
 }
 
 impl DirInner {
-    /// Answers one of the reads for the thread its params name, loaded or not.
+    /// Answers one of the reads for the thread its params name, loaded or not. A cancelled request drops its read where
+    /// it waits: a lane admission still pending is withdrawn with it.
     pub(super) async fn serve_read(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let id = req.params.get("threadId").and_then(Value::as_str).map(ThreadId::from).ok_or_else(|| invalid("threadId", "a thread id"))?;
+        let cancel = &req.ctx.cancel;
+        let result = mixdog_rt::Scope::new().cancel(cancel).run(self.read_of(req, &id)).await.done().ok_or_else(turn_read_cancelled)?;
+        // A read can finish in a single poll after cancellation.
+        check_turn_read_cancel(cancel)?;
+        result
+    }
+
+    async fn read_of(&self, req: &CoreRequest, id: &ThreadId) -> Result<Reply, CoreError> {
         if req.method.as_str() == "thread/items/list" {
             let p: ThreadItemsListParams = params(req, "ThreadItemsListParams")?;
             let deps = &self.deps;
-            let thread = &id;
+            let thread = id;
             return list_from_tail(
-                &id,
+                id,
                 &p,
                 |rows| async move {
                     let (History { rev, rows }, complete) = history_tail(&deps.store, &deps.transcript, deps.lanes, thread, rows).await?;
@@ -1067,45 +1074,41 @@ impl DirInner {
             .await;
         }
         if req.method.as_str() == "thread/finalAnswer/read" {
-            let p: ThreadFinalAnswerReadParams = params(req, "ThreadFinalAnswerReadParams")?;
-            // The desktop asks after every turn and again while the answer is pending: the answer is in the rows of
-            // the newest turn, so only as much of the history as shows them is read (a busy thread has none to read).
-            let mut want = FIRST_TAIL_ROWS;
-            loop {
-                if self.busy(&id) {
-                    // Still the thread's existence is the history's to say.
-                    history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, &id, 1).await?;
-                    return Ok(Reply::Value(Value::Null));
-                }
-                let (History { rev: _, rows }, complete) = history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, &id, want).await?;
-                let shown: Vec<Value> = rows.iter().map(|(item, _)| display_row(item)).collect();
-                if complete || holds_final_turn(&shown) {
-                    return Ok(Reply::Value(final_answer(&shown, self.busy(&id), p.started_at).unwrap_or(Value::Null)));
-                }
-                want = want.saturating_mul(2);
-            }
+            return self.read_final_answer(id, params(req, "ThreadFinalAnswerReadParams")?).await;
         }
         if req.method.as_str() == "thread/turns/list" {
-            let p: ThreadTurnsListParams = params(req, "ThreadTurnsListParams")?;
-            let cancel = &req.ctx.cancel;
-            let result = mixdog_rt::Scope::new().cancel(cancel).run(self.read_turns(&id, p, cancel)).await.done().ok_or_else(turn_read_cancelled)?;
-            // Grouping and serialization can finish in a single poll after cancellation.
-            check_turn_read_cancel(cancel)?;
-            return result;
+            return self.read_turns(id, params(req, "ThreadTurnsListParams")?, &req.ctx.cancel).await;
         }
-        let History { rev: _, rows } = history(&self.deps, &id).await?;
+        let History { rev: _, rows } = history(&self.deps, id).await?;
         let items: Vec<ThreadItem> = rows.iter().map(|(item, _)| item.clone()).collect();
         match req.method.as_str() {
-            "thread/items/read" => items_read(&id, &items, params(req, "ThreadItemsReadParams")?),
+            "thread/items/read" => items_read(id, &items, params(req, "ThreadItemsReadParams")?),
             "thread/attachment/list" => attachment_list(&items, params(req, "ThreadPageParams")?),
-            "thread/modelMessages/list" => self.model_messages_list(&id, params(req, "ThreadModelMessagesListParams")?).await,
+            "thread/modelMessages/list" => self.model_messages_list(id, params(req, "ThreadModelMessagesListParams")?).await,
             _ => unreachable!("`serves` admits only these methods"),
         }
     }
 
-    async fn read_turns(&self, id: &ThreadId, p: ThreadTurnsListParams, cancel: &CancellationToken) -> Result<Reply, CoreError> {
-        use mixdog_core_base::support::on_lane_wait;
+    /// The desktop asks after every turn and again while the answer is pending: the answer is in the rows of
+    /// the newest turn, so only as much of the history as shows them is read (a busy thread has none to read).
+    async fn read_final_answer(&self, id: &ThreadId, p: ThreadFinalAnswerReadParams) -> Result<Reply, CoreError> {
+        let mut want = FIRST_TAIL_ROWS;
+        loop {
+            if self.busy(id) {
+                // Still the thread's existence is the history's to say.
+                history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, id, 1).await?;
+                return Ok(Reply::Value(Value::Null));
+            }
+            let (History { rev: _, rows }, complete) = history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, id, want).await?;
+            let shown: Vec<Value> = rows.iter().map(|(item, _)| display_row(item)).collect();
+            if complete || holds_final_turn(&shown) {
+                return Ok(Reply::Value(final_answer(&shown, self.busy(id), p.started_at).unwrap_or(Value::Null)));
+            }
+            want = want.saturating_mul(2);
+        }
+    }
 
+    async fn read_turns(&self, id: &ThreadId, p: ThreadTurnsListParams, cancel: &CancellationToken) -> Result<Reply, CoreError> {
         self.deps.store.unheld().await;
         if p.items_view != Some(true)
             && let Some(scan) = read_turn_metadata(&self.deps, id, cancel).await?

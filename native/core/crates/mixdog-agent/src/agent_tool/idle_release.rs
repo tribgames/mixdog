@@ -1,9 +1,9 @@
-//! Idle release (Node `agent-tool/close-flow/idle-release.mjs`): an agent idle with its result delivered is parked (its
+//! Idle release: an agent idle with its result delivered is parked (its
 //! runtime released, the agent kept open and listed) after [`IDLE_RELEASE_MS`] without a send. One deadline per idle
 //! agent, armed when its row is seen idle and cleared when it stops being idle: nothing is due while no agent is idle. A
 //! release that did not happen (a busy session, a result not delivered yet) is tried again one period later.
 //!
-//! This is the bookkeeping only: Node keeps a timer per session, the host here keeps one wait for the earliest deadline
+//! This is the bookkeeping only: the host keeps one wait for the earliest deadline
 //! ([`IdleRelease::next_due`]) and asks again whenever the worker rows may have changed.
 
 use std::collections::HashMap;
@@ -23,7 +23,7 @@ pub struct IdleRelease {
 }
 
 impl IdleRelease {
-    /// `check()`, called when the worker rows may have changed. `idle`: every open idle row's session with its
+    /// Called when the worker rows may have changed. `idle`: every open idle row's session with its
     /// `workerRowTime`. The deadline of a session no longer idle is cleared, and an idle one without a deadline gets one a
     /// period after its row's time (at once when that has passed: a restart finds every old idle agent due). Answers the
     /// parked agents that stopped being idle (a send resumed them): they can be parked again later.

@@ -1,6 +1,6 @@
-//! `ingest_session` (`session-ingest-runtime.mjs` and `ingest/`): stores a live
-//! transcript's conversation as recall entries, so a recall can find what was
-//! said before a compaction dropped it from the live window.
+//! `ingest_session`: stores a live transcript's conversation as recall entries,
+//! so a recall can find what was said before a compaction dropped it from the
+//! live window.
 //!
 //! One call: pick the messages (the whole array is walked so a subset
 //! re-ingest reproduces the references a full one would), give every row its
@@ -27,7 +27,9 @@ use crate::memory::clean::clean_memory_text;
 use crate::memory::error::{MemoryError, Result};
 use crate::memory::ingest::embed_flush::RawEmbedFlush;
 use crate::memory::ingest::ordinals::{OrdinalStore, PriorMatcher, SessionState, identity_hash};
-use crate::memory::ingest_shape::{normalize_ingest_role, session_message_content_for_ingest, should_exclude_ingest_message, stable_session_source_ref};
+use crate::memory::ingest_shape::{
+    normalize_ingest_role, raw_ts, session_message_content_for_ingest, should_exclude_ingest_message, stable_session_source_ref, truthy,
+};
 use crate::memory::pg::db::Db;
 use crate::memory::project::resolve_project_scope;
 
@@ -86,26 +88,11 @@ struct Prepared {
     untimestamped: bool,
 }
 
-/// `m.ts ?? m.timestamp`.
-fn raw_ts(message: &Value) -> Option<&Value> {
-    message.get("ts").filter(|v| !v.is_null()).or_else(|| message.get("timestamp"))
-}
-
 /// A usable original timestamp: a finite number or a non-blank string.
 fn is_untimestamped(message: &Value) -> bool {
     match raw_ts(message) {
         Some(Value::Number(_)) => false,
         Some(Value::String(text)) => js_trim(text).is_empty(),
-        _ => true,
-    }
-}
-
-fn truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(flag) => *flag,
-        Value::String(text) => !text.is_empty(),
-        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0),
         _ => true,
     }
 }
@@ -215,7 +202,7 @@ impl SessionIngest {
     }
 
     pub(crate) async fn ingest_session_cancellable(&self, args: &Value, request: &CancellationToken) -> Result<String> {
-        let named = |key: &str| args.get(key).filter(|v| truthy(v)).map(value_to_string);
+        let named = |key: &str| args.get(key).filter(|v| truthy(Some(v))).map(value_to_string);
         let session_id = js_trim(&named("sessionId").or_else(|| named("session_id")).unwrap_or_else(|| format!("session-{}", (self.0.now)()))).to_owned();
         let _turn = tokio::select! {
             biased;
@@ -318,10 +305,10 @@ impl SessionIngest {
 
     /// Embeds this call's rows (awaited, so a recall that follows sees them in
     /// its dense leg unless the caller opts out) and sweeps the backlog in the
-    /// background. The flush runs to completion or failure; nothing waits on a
-    /// clock, and a model that is absent leaves the rows to the text lanes.
-    /// Every flush is work of the database's scope, registered before it starts (a child of the ingest when the ingest is scope work): a caller that
-    /// stops waiting leaves it owned, and a scope that refuses it (sealed) refuses before any access.
+    /// background. The flush runs to completion or failure, and a model that is
+    /// absent leaves the rows to the text lanes. Every flush is work of the
+    /// database's scope, registered before it starts: a caller that stops waiting
+    /// leaves it owned, and a sealed scope refuses it before any access.
     async fn flush_after_ingest(&self, ids: Vec<i64>, defer_own: bool) {
         if !ids.is_empty() {
             let this = self.clone();

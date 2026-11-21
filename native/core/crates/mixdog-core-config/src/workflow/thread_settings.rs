@@ -1,14 +1,3 @@
-//! The thread settings methods that change a conversation's workflow, orchestration mode and
-//! output style, and the desktop context switch: `thread/setWorkflow`,
-//! `thread/setOrchestrationMode`, `thread/setOutputStyle`, `thread/switchContext`.
-//!
-//! Node: `setWorkflow` (`workflow-agents-api/workflow-packs.mjs`), `setOrchestrationMode` and
-//! `setOutputStyle` (`workflow-agents-api/style-and-mode.mjs`) and `switchContext`
-//! (`lifecycle/session-switch/context-switch.mjs`). The configured value is written here, through
-//! the same config path as the `config/` methods; what the choice does to the thread's session
-//! (`switchSessionWorkflow`, `switchSessionOrchestrationMode`, `settingsReachCurrentSession`, the
-//! context switch itself) is [`SessionSwitches`] and [`ContextSwitch`], the session owner's.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

@@ -1,30 +1,4 @@
-//! The Lead pool row follows the Lead's workspace (1.4.5 `lead-worker-index.mjs`
-//! `updateLeadWorkerCwd`).
-//!
-//! 1.4.5 keeps Lead rows in `lead-workers.json`; here a Lead's row is the `worker` map of its own
-//! session header (migration folds the file in verbatim). Node takes every row of that file as a
-//! Lead row whatever its `agent` (`normalizeLeadRows` stamps `agent: 'lead'`), so a folded row
-//! may have no `agent`, or no `tag`. The session's own map is therefore its Lead row unless the
-//! registry reads it as a worker row ([`normalize_row`]: a tag, a session id and an agent that is
-//! not `lead`); an agent's map always has its tag. The registry excludes Lead rows from every
-//! other read and write, so this is its one Lead-row writer: it moves the `cwd` of an existing
-//! row and leaves every other field as it is. No row, nothing to write.
-//!
-//! 1.4.5's writer rewrites the document through `normalizeLeadRows`, so the row it leaves is the
-//! normalized one (`tag`, `ownerSessionId`, `agent`, `status`, `stage`, `updatedAt`, `reapAt`
-//! filled in), moved or not; the row written here is the same.
-//!
-//! A Lead's turns write its row (1.4.5 `lead-worker-index.mjs` `upsertLeadSession`, called by `turn-prepare.mjs:174` and
-//! `turn-settle.mjs:105`): `running` as a turn starts, `idle` as it settles. The pool lists a Lead's agents under its row,
-//! and drops a settled agent of a Lead that has none (`prune_orphans`), so a Lead with no row loses its finished agents and
-//! every agent its listing does not see running. A Lead that has no row yet gets one at its next turn. A settled row
-//! leaves at its reap deadline (1.4.5 `reap-timers.mjs`: the provider's terminal reap window, never before the pane's
-//! hour from its finish), through the registry's deadline timer.
-//!
-//! Those rows live where 1.4.5 kept them, in a Lead index of their own (`WorkerStore::write_lead`, the core state's
-//! `agent-lead-row:<session>`), not in the session's header: a write there is no change of the session's record, so it
-//! re-reads no thread's agent status and only the pool is told. A row migrated into a header (above) is still read, moved
-//! and reaped where it is, and a Lead's row in the index stands in for it.
+//! A Lead's pool row lives in the Lead index (`WorkerStore::write_lead`). A header `worker` map the registry does not read as a worker row ([`normalize_row`]) is a Lead row migrated from 1.4.5 `lead-workers.json`: it is still read, moved and reaped where it is.
 
 use mixdog_agent::agent_tool::scope::positive_int;
 use mixdog_agent::agent_tool::stamp::iso_from_ms;
@@ -211,10 +185,6 @@ impl AgentRegistry {
         self.write_lead(st, id, None);
     }
 
-    /// When a Lead row leaves (`reap-timers.mjs` `schedule`): at its reap deadline, never before the pane's hour from its
-    /// finish; a row with no finish stamp is settled from its last update, as the boot recovery settles a row its runtime
-    /// left running. A row with neither stamp (one migrated from 1.4.5 without them) is due at once: a cleanup of the core's,
-    /// as 1.4.5 scheduled no reap for a row without `reapAt`. Never while the Lead's turn runs here.
     fn lead_reap_deadline(&self, id: &str, row: &Row) -> f64 {
         if self.live.running(id) {
             return f64::INFINITY;

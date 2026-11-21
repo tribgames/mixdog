@@ -1,8 +1,3 @@
-//! The PowerPoint editor (`Apply-PowerPointOperation`, 46 operations) against the replaying fake dispatch object: an operation
-//! must make the calls the script makes, in its order, and answer the record the script answers.
-//!
-//! The call logs below are written by hand from `office-com-host.ps1`.
-
 use mixdog_office_com::com::Obj;
 use mixdog_office_com::com::fake::Fake;
 use mixdog_office_com::format::EditContext;
@@ -459,5 +454,214 @@ fn a_background_chart_window_that_hides_lets_the_chart_be_made() {
     let answer = apply_in(&world, &fake.object(1), &json!({"op": "add_chart", "slide": 1}), false);
     assert_eq!(answer, Ok("{\"op\":\"add_chart\",\"changed\":true,\"shape\":\"Chart 3\",\"categories\":0,\"series\":1}".to_owned()));
     assert!(!world.platform.windows().iter().any(|window| window.hwnd == 77 && window.visible), "the window was hidden");
+    fake.finish();
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Tables.
+
+fn table_cell(log: &mut Log, row: i32, column: i32, cell: u64, shape: u64) {
+    log.get(5, "Table", obj(6));
+    log.call(6, "Cell", vec![i4(row), i4(column)], obj(cell));
+    log.get(cell, "Shape", obj(shape));
+}
+
+fn table_cell_borders(log: &mut Log, row: i32, column: i32, border: i32) {
+    log.get(5, "Table", obj(6));
+    log.call(6, "Cell", vec![i4(row), i4(column)], obj(31));
+    log.get(31, "Borders", obj(32));
+    log.get_with(32, "Item", vec![i4(border)], obj(if border == 3 { 60 } else { 61 }));
+}
+
+#[test]
+fn add_table_sizes_the_grid_fills_the_cells_and_rules_the_edges_in_a_second_pass() {
+    let mut log = Log::default();
+    log.slide(1, 3);
+    log.get(3, "Shapes", obj(4));
+    log.call(4, "AddTable", vec![i4(2), i4(2), r4(72.0), r4(72.0), r4(480.0), r4(180.0)], obj(5));
+    log.get(5, "Table", obj(6));
+    log.call(6, "ApplyStyle", vec![s("{2D5ABB26-0587-4C30-8999-92F81FD0307C}"), b(false)], empty());
+    // columnWidths of 1 and 3 share the 480 pt frame.
+    for (column, width) in [(1, 120.0), (2, 360.0)] {
+        log.get(5, "Table", obj(6));
+        log.get(6, "Columns", obj(7));
+        log.get_with(7, "Item", vec![i4(column)], obj(8));
+        log.put(8, "Width", r4(width));
+    }
+    log.get(5, "Table", obj(6));
+    log.get(6, "Rows", obj(9));
+    log.get_with(9, "Item", vec![i4(2)], obj(10));
+    log.put(10, "Height", r4(20.0));
+    for (row, column, text) in [(1, 1, "Name"), (1, 2, "Revenue"), (2, 1, "A"), (2, 2, "1,200")] {
+        table_cell(&mut log, row, column, 30, 40);
+        log.get(40, "TextFrame", obj(50));
+        log.get(50, "TextRange", obj(51));
+        log.put(51, "Text", s(text));
+        log.get(40, "TextFrame", obj(50));
+        log.put(50, "VerticalAnchor", i4(3));
+        if row == 1 {
+            log.get(40, "TextFrame", obj(50));
+            log.get(50, "TextRange", obj(51));
+            log.get(51, "Font", obj(52));
+            log.put(52, "Bold", i4(-1));
+        }
+        // The column of figures stands on the right edge.
+        if column == 2 {
+            log.get(40, "TextFrame", obj(50));
+            log.get(50, "TextRange", obj(51));
+            log.get(51, "ParagraphFormat", obj(53));
+            log.put(53, "Alignment", i4(3));
+        }
+    }
+    for row in 1..=2 {
+        let (rgb, weight) = if row == 1 { (0x00AD_A39A, i4(1)) } else { (0x00E0_DCD8, r8(0.5)) };
+        for column in 1..=2 {
+            // The rule goes on the bottom edge of this cell and the top edge of the cell below it.
+            table_cell_borders(&mut log, row, column, 3);
+            if row < 2 {
+                table_cell_borders(&mut log, row + 1, column, 1);
+            }
+            for edge in if row < 2 { vec![60, 61] } else { vec![60] } {
+                log.put(edge, "Visible", i4(-1));
+                log.put(edge, "Transparency", i4(0));
+                log.get(edge, "ForeColor", obj(62));
+                log.put(62, "RGB", i4(rgb));
+                log.put(edge, "Weight", weight.clone());
+            }
+        }
+    }
+    log.get(5, "Name", s("Table 4"));
+    let fake = log.fake();
+    let answer = apply(
+        &fake,
+        &json!({
+            "op": "add_table", "slide": 1, "rows": 2, "columns": 2,
+            "values": [["Name", "Revenue"], ["A", "1,200"]],
+            "properties": {"columnWidths": [1, 3], "bodyRowHeight": 20}
+        }),
+    );
+    assert_eq!(answer, Ok("{\"op\":\"add_table\",\"changed\":true,\"shape\":\"Table 4\",\"rows\":2,\"columns\":2}".to_owned()));
+    fake.finish();
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Chart data.
+
+/// The calls of `set_chart_data` up to the chart type: the shape, the accents read before the refresh (none: no series), the
+/// one point written to the embedded workbook and bound, the series, and the chart's type.
+fn chart_data_written(log: &mut Log, chart_type: i32) {
+    log.slide(1, 3);
+    log.shape(3, 1, 4, 5);
+    log.get(5, "HasChart", b(true));
+    log.get(5, "Chart", obj(6));
+    log.call(6, "SeriesCollection", vec![], obj(7));
+    log.get(7, "Count", i4(0));
+    log.get(6, "ChartData", obj(8));
+    log.call(8, "Activate", vec![], empty());
+    log.get(8, "Workbook", obj(9));
+    log.get(9, "Worksheets", obj(10));
+    log.get(10, "Count", i4(1));
+    log.get_with(10, "Item", vec![i4(1)], obj(11));
+    log.get(11, "Cells", obj(12));
+    log.call(12, "Clear", vec![], empty());
+    log.call(11, "Range", vec![s("A1:B2")], obj(13));
+    log.put(13, "Value2", json!({"t": "array", "dims": [[0, 2], [0, 2]], "data": [s("Category"), s("A"), s("S"), i4(1)]}));
+    log.get(11, "Name", s("Sheet1"));
+    log.call(6, "SetSourceData", vec![s("='Sheet1'!$A$1:$B$2"), i4(2)], empty());
+    log.get(9, "Application", obj(14));
+    log.get(14, "Hwnd", i4(0));
+    log.call(6, "Refresh", vec![], empty());
+    log.call(6, "Axes", vec![i4(1), i4(1)], obj(15));
+    log.put(15, "CategoryType", i4(2));
+    log.put(15, "TickLabelPosition", i4(4));
+    log.get(15, "TickLabels", obj(16));
+    log.put(16, "Orientation", i4(0));
+    log.call(6, "SeriesCollection", vec![], obj(7));
+    log.get(7, "Count", i4(1));
+    log.call(6, "SeriesCollection", vec![], obj(7));
+    log.get_with(7, "Item", vec![i4(1)], obj(17));
+    log.call(9, "Close", vec![b(true)], empty());
+    log.get(6, "ChartType", i4(chart_type));
+}
+
+/// The calls after the chart's own fields: the data sheet closed and the points' colours (none given).
+fn chart_data_closed(log: &mut Log) {
+    log.get(6, "ChartData", obj(8));
+    log.get(8, "Workbook", obj(9));
+    log.get(9, "Application", obj(14));
+    log.call(6, "SeriesCollection", vec![], obj(7));
+    log.get(7, "Count", i4(1));
+    log.call(9, "Close", vec![b(true)], empty());
+    log.get(14, "Workbooks", obj(19));
+    log.get(19, "Count", i4(1));
+    log.call(6, "SeriesCollection", vec![], obj(7));
+    log.get(7, "Count", i4(1));
+}
+
+fn chart_data_op(extra: Json) -> Json {
+    let mut op = json!({"op": "set_chart_data", "slide": 1, "shape": 1, "categories": ["A"], "series": [{"name": "S", "values": [1]}]});
+    for (key, value) in extra.as_object().expect("fields") {
+        op[key] = value.clone();
+    }
+    op
+}
+
+#[test]
+fn set_chart_data_turns_a_bar_chart_over_restyles_the_value_axis_and_retitles() {
+    let mut log = Log::default();
+    chart_data_written(&mut log, 57);
+    log.call(6, "Axes", vec![i4(1)], obj(18));
+    log.put(18, "ReversePlotOrder", b(true));
+    log.put(18, "Crosses", i4(2));
+    log.call(6, "Axes", vec![i4(2), i4(1)], obj(20));
+    log.put(20, "MinimumScale", i4(0));
+    log.put(6, "HasTitle", b(true));
+    log.get(6, "ChartTitle", obj(22));
+    log.put(22, "Text", s("Revenue"));
+    chart_data_closed(&mut log);
+    let fake = log.fake();
+    let answer = apply(&fake, &chart_data_op(json!({"categoryOrder": "Top-Down", "zeroBaseline": true, "title": "Revenue"})));
+    assert_eq!(answer, Ok("{\"op\":\"set_chart_data\",\"changed\":true,\"shape\":1,\"categories\":1,\"series\":1}".to_owned()));
+    fake.finish();
+}
+
+#[test]
+fn set_chart_data_puts_the_bottom_up_note_on_a_bar_chart_left_as_it_was_and_clears_a_title_given_empty() {
+    let mut log = Log::default();
+    chart_data_written(&mut log, 57);
+    log.put(6, "HasTitle", b(false));
+    chart_data_closed(&mut log);
+    log.call(6, "Axes", vec![i4(1)], obj(18));
+    log.get(18, "ReversePlotOrder", b(false));
+    let fake = log.fake();
+    let answer = apply(&fake, &chart_data_op(json!({"title": ""})));
+    assert_eq!(
+        answer,
+        Ok("{\"op\":\"set_chart_data\",\"changed\":true,\"shape\":1,\"categories\":1,\"series\":1,\"readingOrder\":\"bottomUp\",\"note\":\"The bars read from the bottom up, the first category lowest, as this chart was authored; categoryOrder:\\u0027topDown\\u0027 lists them from the top in the order given.\"}".to_owned())
+    );
+    fake.finish();
+}
+
+#[test]
+fn set_chart_data_refuses_a_category_order_it_does_not_know() {
+    let mut log = Log::default();
+    chart_data_written(&mut log, 57);
+    let fake = log.fake();
+    assert_eq!(
+        apply(&fake, &chart_data_op(json!({"categoryOrder": "sideways"}))),
+        Err("set_chart_data categoryOrder must be 'topDown' or 'bottomUp'".to_owned())
+    );
+    fake.finish();
+}
+
+#[test]
+fn set_chart_data_refuses_a_category_order_on_a_chart_that_is_not_horizontal_bars() {
+    let mut log = Log::default();
+    chart_data_written(&mut log, 51);
+    let fake = log.fake();
+    assert_eq!(
+        apply(&fake, &chart_data_op(json!({"categoryOrder": "bottomUp"}))),
+        Err("set_chart_data categoryOrder orders a horizontal bar chart's categories; this chart is not one".to_owned())
+    );
     fake.finish();
 }

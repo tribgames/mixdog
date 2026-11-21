@@ -1,25 +1,13 @@
-//! Real implementations of four `TurnPath` inputs over process services:
-//!
-//! - [`BotRouteStore`]: the hop's `bots` (`BotRoutes`), Node's `agent-store.mjs`
-//!   (`readBotRoute`, `readMixyRoute`, `storedBotRoute`). Node reads these through a file-watching
-//!   cache on route paths that invalidates on every change; this reads the small `agent.json`
-//!   files afresh on each call, on the IO lane, with the same last-good-copy fallback.
-//! - [`CatalogCeilings`]: `OutputCeilingSource`, Node's `provider.escalatedMaxTokens(model, opts)`
-//!   (`anthropic-max-tokens.mjs` `resolveAnthropicEscalatedMaxTokens`). Only the two Anthropic
-//!   providers define it; every other provider answers `null`. The turn's `opts` never carry
-//!   `modelMaxOutputTokens` (a gateway adds its own inside the provider), so `model_max` is `None`.
-//! - [`CatalogVision`]: `ModelVision`, Node's `pdfReadModes` `seesImages` (`tool-exec/dispatch.mjs`).
-//! - the usage sink is [`LedgerSink`](super::accounting_scope::LedgerSink), tested below.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use mixdog_agent::compact::blob_reads::{LaneFault, turn_cancel};
 use mixdog_agent::env::ModelVision;
 use mixdog_ai::catalog::CatalogService;
 use mixdog_ai::providers::custom::reasoning::is_custom_provider_name;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_config::config::{AGENT_SECTION, Config, is_store_bot};
-use mixdog_rt::{CancellationToken, InLane, InteractiveIo};
+use mixdog_rt::{InLane, InteractiveIo};
 use mixdog_store::schema::record::Header;
 use serde_json::{Map, Value};
 
@@ -48,7 +36,9 @@ impl BotRouteStore {
     /// different model.
     async fn on_lane<T: Send + 'static>(&self, read: impl FnOnce(&BotReads, &InLane<InteractiveIo>) -> T + Send + 'static) -> Result<T, RouteReadUnavailable> {
         let reads = self.reads.clone();
-        mixdog_core_base::support::on_lane_wait(self.io, &CancellationToken::new(), move |lane| read(&reads, lane)).await.map_err(|_| RouteReadUnavailable)
+        mixdog_core_base::support::on_lane_wait(self.io, &turn_cancel(), move |lane| read(&reads, lane))
+            .await
+            .map_err(|error| RouteReadUnavailable(LaneFault::of(&error)))
     }
 }
 

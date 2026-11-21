@@ -497,22 +497,26 @@ impl JobBoard {
         }
     }
 
-    pub fn register(&self, job: NewJob) -> Result<String, String> {
-        let mut state = self.lock();
-        self.prune(&mut state, &Scope::default(), false);
-        let explicit = job.task_id.as_deref().map(js_trim).filter(|s| !s.is_empty()).map(str::to_owned);
+    fn allocate_id(&self, state: &mut State, requested: Option<&str>) -> Result<String, String> {
+        let explicit = requested.map(js_trim).filter(|s| !s.is_empty()).map(str::to_owned);
         let exists = |state: &State, id: &str| state.tasks.iter().any(|t| t.task_id == id);
-        let id = match explicit {
-            Some(id) if exists(&state, &id) => return Err(format!("background task already exists: {id}")),
-            Some(id) => id,
+        match explicit {
+            Some(id) if exists(state, &id) => Err(format!("background task already exists: {id}")),
+            Some(id) => Ok(id),
             None => loop {
                 state.seq += 1;
                 let id = format!("task_agent_{}_{}", base36(self.now().max(0) as u64), base36(state.seq));
-                if !exists(&state, &id) {
-                    break id;
+                if !exists(state, &id) {
+                    break Ok(id);
                 }
             },
-        };
+        }
+    }
+
+    pub fn register(&self, job: NewJob) -> Result<String, String> {
+        let mut state = self.lock();
+        self.prune(&mut state, &Scope::default(), false);
+        let id = self.allocate_id(&mut state, job.task_id.as_deref())?;
         let registered = self.now();
         let started = match job.started_at_ms {
             Some(requested) if requested > 0 => requested.min(registered),

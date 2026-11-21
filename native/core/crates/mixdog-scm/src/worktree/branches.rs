@@ -267,20 +267,7 @@ impl Worktrees {
             Some(point) => Some(self.commit_by_id(&cwd, point, cancel).await?),
             None => None,
         };
-        let mut branch = requested.clone();
-        let mut tracking: Option<String> = None;
-        if request.remote {
-            let tip = git
-                .outcome(cancel, &cwd, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/{requested}^{{commit}}")], &RunOptions::default())
-                .await?;
-            if !tip.success() {
-                return Err(ScmFailure::invalid("branch", format!("an existing remote branch, not {requested}")));
-            }
-            branch = requested.split_once('/').map_or(requested.clone(), |(_, rest)| rest.to_owned());
-            if self.branch_commit(&cwd, &branch, cancel).await?.is_none() {
-                tracking = Some(requested.clone());
-            }
-        }
+        let (branch, tracking) = if request.remote { self.resolve_remote_branch(&cwd, &requested, cancel).await? } else { (requested, None) };
         if !self.valid_branch_name(&cwd, &branch, cancel).await? {
             return Err(ScmFailure::invalid("branch", format!("a valid branch name, not {branch}")));
         }
@@ -288,24 +275,7 @@ impl Worktrees {
         if current.as_deref() == Some(branch.as_str()) && !request.create {
             return Ok(json!({ "branch": branch, "changed": false, "commit": facts.head }));
         }
-        let mut holder: Option<GitWorktree> = self
-            .list_git_worktrees(&cwd, cancel)
-            .await?
-            .into_iter()
-            .find(|w| w.branch.as_deref() == Some(branch.as_str()) && !same(&w.path, &facts.top_level.to_string_lossy()));
-        // A stale (prunable) unmanaged registration: drop exactly that one and go on.
-        if holder.as_ref().is_some_and(|h| h.prunable) {
-            let path = holder.as_ref().map(|h| h.path.clone()).unwrap_or_default();
-            if self.find_by_path(&path, cancel).await?.is_none() {
-                git.outcome(cancel, &cwd, &["worktree", "prune"], &RunOptions::default()).await?;
-                holder = None;
-            }
-        }
-        if let Some(holder) = holder {
-            let record = self.find_by_path(&holder.path, cancel).await?;
-            let owner = record.and_then(|r| r.owner_session_id);
-            return Err(errors::branch_occupied(branch, Some(holder.path), Some(if owner.is_some() { "session" } else { "external" }), owner));
-        }
+        self.assert_branch_unoccupied(&facts, &branch, cancel).await?;
         self.assert_project_folder_clean(&facts, cancel).await?;
         let mut args: Vec<&str> = vec!["switch", &branch];
         if request.create {
@@ -324,6 +294,44 @@ impl Worktrees {
             out["tracking"] = json!(tracking);
         }
         Ok(out)
+    }
+
+    /// The local branch a remote-tracking `origin/x` checks out as, and the remote branch to track when no local one exists.
+    async fn resolve_remote_branch(&self, cwd: &Path, requested: &str, cancel: &CancellationToken) -> Result<(String, Option<String>), ScmFailure> {
+        let tip = self
+            .scm()
+            .git
+            .outcome(cancel, cwd, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/{requested}^{{commit}}")], &RunOptions::default())
+            .await?;
+        if !tip.success() {
+            return Err(ScmFailure::invalid("branch", format!("an existing remote branch, not {requested}")));
+        }
+        let branch = requested.split_once('/').map_or(requested, |(_, rest)| rest).to_owned();
+        let tracking = if self.branch_commit(cwd, &branch, cancel).await?.is_none() { Some(requested.to_owned()) } else { None };
+        Ok((branch, tracking))
+    }
+
+    async fn assert_branch_unoccupied(&self, facts: &RepoFacts, branch: &str, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        let cwd = &facts.project_path;
+        let mut holder: Option<GitWorktree> = self
+            .list_git_worktrees(cwd, cancel)
+            .await?
+            .into_iter()
+            .find(|w| w.branch.as_deref() == Some(branch) && !same(&w.path, &facts.top_level.to_string_lossy()));
+        // A stale (prunable) unmanaged registration: drop exactly that one and go on.
+        if holder.as_ref().is_some_and(|h| h.prunable) {
+            let path = holder.as_ref().map(|h| h.path.clone()).unwrap_or_default();
+            if self.find_by_path(&path, cancel).await?.is_none() {
+                self.scm().git.outcome(cancel, cwd, &["worktree", "prune"], &RunOptions::default()).await?;
+                holder = None;
+            }
+        }
+        if let Some(holder) = holder {
+            let record = self.find_by_path(&holder.path, cancel).await?;
+            let owner = record.and_then(|r| r.owner_session_id);
+            return Err(errors::branch_occupied(branch.to_owned(), Some(holder.path), Some(if owner.is_some() { "session" } else { "external" }), owner));
+        }
+        Ok(())
     }
 
     /// Merges a worktree's branch into the project folder's checked-out `target`. `project_path`
@@ -507,69 +515,106 @@ impl Worktrees {
                 return Err(errors::busy(errors::RefusalReason::WorkspaceLease));
             }
         }
-        let git = &self.scm().git;
-        let project = facts.project_path.clone();
         if removing {
-            let Some(record) = record.filter(|r| {
-                state.kind == "managed"
-                    && Path::new(&r.path).exists()
-                    && (r.state == "ready" || (r.state == "deleting" && r.extra.get("deleting").and_then(|d| d.get("safeOnly")) == Some(&Value::Bool(true))))
-            }) else {
-                // Node's `worktreeError` with its own text and no details (branch-management.mjs).
-                return Err(errors::coded_text(errors::WORKTREE_PATH_UNSAFE, "Only an unused Mixdog-managed worktree can be removed."));
-            };
-            let mut users: Vec<String> = Vec::new();
-            for id in record.owner_session_id.iter().chain(record.shared_session_ids.iter()) {
-                if admitted.retained_session_ids.contains(id) && !users.contains(id) {
-                    users.push(id.clone());
-                }
-            }
-            if !users.is_empty() {
-                return Err(errors::retained_by(users));
-            }
-            // Node's `assertWorktreeRemovable({ entryId })` leaves `sessionId` undefined, which
-            // defaults to the owner: only other sessions' references refuse.
-            Self::assert_not_shared(&record, record.owner_session_id.as_deref())?;
-            self.assert_removable(&record, cancel).await?;
+            let removal = self.removable_worktree_request(record, &state, &admitted.retained_session_ids, cancel).await?;
             drop(_lock);
-            // `removeManagedWorktree({ entryId, safeOnly: true })`: the branch-row removal keeps
-            // the branch.
-            let request = crate::worktree::removal::RemoveRequest { entry_id: record.id.clone(), safe_only: true, ..Default::default() };
-            return self.remove_managed(request, cancel).await;
+            return self.remove_managed(removal, cancel).await;
         }
         let Some(target) = request.target.clone().filter(|t| *t != request.branch) else {
             return Err(errors::target_mismatch_text("Select a different source branch.".to_owned(), None, None, None, None));
         };
         if request.action == "delete-branch" {
-            if state.path.is_some() {
-                return Err(errors::branch_checkout_held());
-            }
-            let common = facts.common_dir.to_string_lossy().into_owned();
-            let held =
-                self.all_records(cancel).await?.into_iter().any(|r| r.branch.as_deref() == Some(request.branch.as_str()) && same(&r.repo_common_dir, &common));
-            if held {
-                return Err(errors::branch_retained());
-            }
-            let target_commit = request.target_commit.clone().unwrap_or_default();
-            let merged = git.outcome(cancel, &project, &["merge-base", "--is-ancestor", &request.commit, &target_commit], &RunOptions::default()).await?;
-            if merged.success() {
-                self.checked_git(cancel, &project, &["branch", "-d", "--", &request.branch]).await?;
-                repo.touched();
-                return Ok(json!({ "deleted": true, "branch": request.branch }));
-            }
-            if !request.force {
-                return Err(errors::branch_unmerged(request.commit.clone(), &target));
-            }
-            // Unmerged work the user confirmed dropping: only while the branch is still at the
-            // commit the user saw.
-            self.force_delete_branch(&project, &request.branch, &request.commit, cancel).await?;
-            repo.touched();
-            return Ok(json!({ "deleted": true, "branch": request.branch, "forced": true }));
+            return self.delete_project_branch(&request, &state, &facts, &target, &repo, cancel).await;
         }
+        let merged = self.merge_managed_branch(&request, &state, record.as_ref(), &facts, &target, cancel).await?;
+        repo.touched();
+        Ok(merged)
+    }
+
+    /// The safe-only removal of the managed worktree a branch row stands for, once it is unused and no session retains it.
+    async fn removable_worktree_request(
+        &self,
+        record: Option<crate::worktree::registry::WorktreeRecord>,
+        state: &ProjectBranchState,
+        retained_session_ids: &[String],
+        cancel: &CancellationToken,
+    ) -> Result<crate::worktree::removal::RemoveRequest, ScmFailure> {
+        let Some(record) = record.filter(|r| {
+            state.kind == "managed"
+                && Path::new(&r.path).exists()
+                && (r.state == "ready" || (r.state == "deleting" && r.extra.get("deleting").and_then(|d| d.get("safeOnly")) == Some(&Value::Bool(true))))
+        }) else {
+            // Node's `worktreeError` with its own text and no details (branch-management.mjs).
+            return Err(errors::coded_text(errors::WORKTREE_PATH_UNSAFE, "Only an unused Mixdog-managed worktree can be removed."));
+        };
+        let mut users: Vec<String> = Vec::new();
+        for id in record.owner_session_id.iter().chain(record.shared_session_ids.iter()) {
+            if retained_session_ids.contains(id) && !users.contains(id) {
+                users.push(id.clone());
+            }
+        }
+        if !users.is_empty() {
+            return Err(errors::retained_by(users));
+        }
+        // Node's `assertWorktreeRemovable({ entryId })` leaves `sessionId` undefined, which
+        // defaults to the owner: only other sessions' references refuse.
+        Self::assert_not_shared(&record, record.owner_session_id.as_deref())?;
+        self.assert_removable(&record, cancel).await?;
+        // `removeManagedWorktree({ entryId, safeOnly: true })`: the branch-row removal keeps
+        // the branch.
+        Ok(crate::worktree::removal::RemoveRequest { entry_id: record.id.clone(), safe_only: true, ..Default::default() })
+    }
+
+    async fn delete_project_branch(
+        &self,
+        request: &ManageRequest,
+        state: &ProjectBranchState,
+        facts: &RepoFacts,
+        target: &str,
+        repo: &crate::engine::Repo,
+        cancel: &CancellationToken,
+    ) -> Result<Value, ScmFailure> {
+        let project = &facts.project_path;
+        if state.path.is_some() {
+            return Err(errors::branch_checkout_held());
+        }
+        let common = facts.common_dir.to_string_lossy().into_owned();
+        let held =
+            self.all_records(cancel).await?.into_iter().any(|r| r.branch.as_deref() == Some(request.branch.as_str()) && same(&r.repo_common_dir, &common));
+        if held {
+            return Err(errors::branch_retained());
+        }
+        let target_commit = request.target_commit.clone().unwrap_or_default();
+        let merged = self.scm().git.outcome(cancel, project, &["merge-base", "--is-ancestor", &request.commit, &target_commit], &RunOptions::default()).await?;
+        if merged.success() {
+            self.checked_git(cancel, project, &["branch", "-d", "--", &request.branch]).await?;
+            repo.touched();
+            return Ok(json!({ "deleted": true, "branch": request.branch }));
+        }
+        if !request.force {
+            return Err(errors::branch_unmerged(request.commit.clone(), target));
+        }
+        // Unmerged work the user confirmed dropping: only while the branch is still at the
+        // commit the user saw.
+        self.force_delete_branch(project, &request.branch, &request.commit, cancel).await?;
+        repo.touched();
+        Ok(json!({ "deleted": true, "branch": request.branch, "forced": true }))
+    }
+
+    async fn merge_managed_branch(
+        &self,
+        request: &ManageRequest,
+        state: &ProjectBranchState,
+        record: Option<&crate::worktree::registry::WorktreeRecord>,
+        facts: &RepoFacts,
+        target: &str,
+        cancel: &CancellationToken,
+    ) -> Result<Value, ScmFailure> {
+        let project = &facts.project_path;
         if let Some(source_path) = &state.path {
             let source = Path::new(source_path);
             let operation = self.scm().open(source, cancel).await.ok().and_then(|r| crate::repo::operation_in_progress(&r.identity.git_dir));
-            let dirty = match &record {
+            let dirty = match record {
                 Some(record) => self.dirty_paths(record, cancel).await?,
                 None => self.scm().uncommitted_paths(cancel, source).await?,
             };
@@ -577,17 +622,16 @@ impl Worktrees {
                 return Err(errors::merge_source_dirty(operation.map_or("", crate::repo::operation_verb), dirty.len() as u64));
             }
         }
-        let merged = self.scm().merge_branch_into_checkout(cancel, &project, &request.branch, Some(&target), true, None).await?;
+        let merged = self.scm().merge_branch_into_checkout(cancel, project, &request.branch, Some(target), true, None).await?;
         // A managed worktree remembers where it was merged (its later removal checks against it).
         if merged.merged
             && let Some(id) = &state.worktree_id
             && let Some(mut current) = self.record(cancel, id).await?
-            && current.merge_target.as_deref() != Some(target.as_str())
+            && current.merge_target.as_deref() != Some(target)
         {
-            current.merge_target = Some(target.clone());
+            current.merge_target = Some(target.to_owned());
             self.put_record(cancel, current).await?;
         }
-        repo.touched();
         Ok(merged.to_json())
     }
 

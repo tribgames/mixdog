@@ -446,6 +446,10 @@ impl Book {
             // A sparse answer confirms the transcript was sent, not that any cache entry was read or written.
             self.settle_sent(permit, evidence != Evidence::Untouched);
         }
+        self.record_evidence(permit, tail, evidence);
+    }
+
+    fn record_evidence(&mut self, permit: &Permit, tail: &mixdog_core_api::domain::cache_tail::Marker, evidence: Evidence) {
         match evidence {
             Evidence::Wrote { extent } => {
                 let existing = self.receipts.iter_mut().find(|r| r.route == permit.route && r.block == tail.block && r.digest == tail.digest);

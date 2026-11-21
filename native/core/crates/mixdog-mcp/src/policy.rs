@@ -98,26 +98,31 @@ impl GmailCardEnricher {
         // A reply with any part that is not text reaches Node's `JSON.parse` as an object, not a
         // string, and fails there.
         let texts = output.parts.iter().map(|p| if let ToolPart::Text(t) = p { Some(t.as_str()) } else { None }).collect::<Option<Vec<_>>>()?;
-        let text = texts.join("\n");
-        let parsed: Value = serde_json::from_str(&text).ok()?;
-        // `const { account, emails } = JSON.parse(raw)` throws on null.
-        if parsed.is_null() {
-            return None;
-        }
-        let account = truthy_text(parsed.get("account")).unwrap_or_default();
-        let mut messages = Vec::new();
-        for mail in parsed.get("emails").and_then(Value::as_array).into_iter().flatten() {
-            // `mail.from` on null throws, which leaves the card as it was.
-            if mail.is_null() {
-                return None;
-            }
-            // `filter(Boolean)` keeps a truthy value even when its text is empty (`[]`).
-            let date = truthy_text(mail.get("date")).map(|d| mixdog_js::slice_utf16(&d, 10)).filter(|d| !d.is_empty());
-            let parts = [truthy_text(mail.get("from")), truthy_text(mail.get("subject")), date];
-            messages.push(parts.into_iter().flatten().collect::<Vec<_>>().join(" · "));
-        }
+        let parsed: Value = serde_json::from_str(&texts.join("\n")).ok()?;
+        let (account, messages) = card_messages(&parsed)?;
         Some((account, messages, ids.len().saturating_sub(shown.len())))
     }
+}
+
+/// The account and the one-line summaries of the emails of a `describe_emails` reply.
+fn card_messages(parsed: &Value) -> Option<(String, Vec<String>)> {
+    // `const { account, emails } = JSON.parse(raw)` throws on null.
+    if parsed.is_null() {
+        return None;
+    }
+    let account = truthy_text(parsed.get("account")).unwrap_or_default();
+    let mut messages = Vec::new();
+    for mail in parsed.get("emails").and_then(Value::as_array).into_iter().flatten() {
+        // `mail.from` on null throws, which leaves the card as it was.
+        if mail.is_null() {
+            return None;
+        }
+        // `filter(Boolean)` keeps a truthy value even when its text is empty (`[]`).
+        let date = truthy_text(mail.get("date")).map(|d| mixdog_js::slice_utf16(&d, 10)).filter(|d| !d.is_empty());
+        let parts = [truthy_text(mail.get("from")), truthy_text(mail.get("subject")), date];
+        messages.push(parts.into_iter().flatten().collect::<Vec<_>>().join(" · "));
+    }
+    Some((account, messages))
 }
 
 /// The JS string of `value` when it is truthy; falsy values (absent, null, false, 0, "") are None.

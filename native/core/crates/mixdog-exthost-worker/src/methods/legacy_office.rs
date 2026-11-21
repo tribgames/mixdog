@@ -1,8 +1,7 @@
 //! `media.legacyOffice` (`convertLegacyOfficeBuffer` of `src/runtime/attachments/legacy-office.mjs`): a legacy Office attachment
 //! (`.doc`, `.xls`, `.ppt`, an OLE compound file) saved by LibreOffice as the OOXML package of `kind`, so the text extraction and
 //! every later lowering see an ordinary package. The bytes arrive base64 as a message part carries them and go back the same way;
-//! no path of the user's is touched. The conversion runs in a private scratch folder, removed once the converter has returned, on
-//! the maintenance lane of this process, so a conversion in progress holds a worker but no other session's turn.
+//! no path of the user's is touched.
 //!
 //! A failure (LibreOffice missing, a damaged or protected file, bytes that are not a legacy Office file) answers with the
 //! converter's own message, the scratch path taken out; the caller puts that text in front of the model.

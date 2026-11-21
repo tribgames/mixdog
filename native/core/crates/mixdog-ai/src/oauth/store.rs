@@ -10,6 +10,7 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every std::fs call in this module is the body of a lane job")]
 
 use std::fs;
+use std::future::Future;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
@@ -61,6 +62,37 @@ impl CredentialIo {
     /// Runs `body` as a durability-lane job; it takes its own file locks.
     pub(crate) async fn write_job<R: Send + 'static>(&self, body: impl FnOnce(&InLane<DurabilityIo>) -> io::Result<R> + Send + 'static) -> io::Result<R> {
         let job = self.write.submit(&CancellationToken::new(), body).map_err(|_| io::Error::other(LaneUnrun))?;
+        job.await.map_err(|_| io::Error::other(LaneUnrun))?
+    }
+
+    /// [`Self::read_job`] for a read a send cannot go on without (the credential it carries, the account it goes out
+    /// on): a full lane is waited out in arrival order, never refused. [`LaneUnrun`] only when the lane cannot run it.
+    // The `Send` bound is stated, not inferred: the job's higher-ranked `&InLane` signature otherwise defeats the
+    // `Send` proof of a caller behind `async_trait`.
+    pub(crate) fn read_required<R: Send + 'static>(
+        &self,
+        body: impl FnOnce(&InLane<InteractiveIo>) -> io::Result<R> + Send + 'static,
+    ) -> impl Future<Output = io::Result<R>> + Send {
+        required(self.read, body)
+    }
+
+    /// [`Self::write_job`] for the recovery a required read needs under the file's lock: waited out like it.
+    pub(crate) fn write_required<R: Send + 'static>(
+        &self,
+        body: impl FnOnce(&InLane<DurabilityIo>) -> io::Result<R> + Send + 'static,
+    ) -> impl Future<Output = io::Result<R>> + Send {
+        required(self.write, body)
+    }
+}
+
+fn required<L: LaneToken, R: Send + 'static>(
+    lane: L,
+    body: impl FnOnce(&InLane<L>) -> io::Result<R> + Send + 'static,
+) -> impl Future<Output = io::Result<R>> + Send {
+    async move {
+        // Nothing cancels the wait but its caller going away, which drops it.
+        let cancel = CancellationToken::new();
+        let job = lane.submit_wait(&cancel, body).await.map_err(|_| io::Error::other(LaneUnrun))?;
         job.await.map_err(|_| io::Error::other(LaneUnrun))?
     }
 }
@@ -186,10 +218,8 @@ impl CredentialFile {
             return Probe::Absent;
         }
         let path = self.path_now().await;
-        match self.io.read.submit(&CancellationToken::new(), move |_| read_document(&path)) {
-            Ok(job) => job.await.unwrap_or(Probe::Unreadable),
-            Err(_) => Probe::Unreadable,
-        }
+        // A busy lane says nothing about the file: the read waits for room.
+        self.io.read_required(move |_| Ok(read_document(&path))).await.unwrap_or(Probe::Unreadable)
     }
 
     pub async fn load_document(&self) -> Probe<Document> {

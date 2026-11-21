@@ -1,9 +1,3 @@
-//! Every turn's workspace admission (`admitTurnWorkspace`, `turn-prepare.mjs:100`): the turn's
-//! loop runs only once its session is admitted, the admission is released when the turn settles
-//! (`releaseWorkspace` of `settleTurn`), and a refused admission fails the turn unrun. The
-//! admitted turn then passes the workspace gate (`prepareTurnWorkspace`, `turn-prepare.mjs:110`)
-//! before its loop.
-
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;

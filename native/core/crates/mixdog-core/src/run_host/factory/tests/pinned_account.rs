@@ -1,9 +1,3 @@
-// A session's continuation through real turns: the registered `openai-oauth` adapter (built by the product's builder
-// over a stand-in endpoint) answers a first turn with A's credential, the session stores the answer, and the roster's
-// selection moves from A to B while the second turn's request is out. The Codex route keeps no provider state: the
-// continuation is the stored answer's replay (its encrypted reasoning), which the next turn's requests carry. What each
-// credential that reached the wire was sent, and whose the stored answers are.
-
 use bytes::Bytes;
 use mixdog_ai::accounts::AccountChange;
 use mixdog_ai::accounts::AccountStore;

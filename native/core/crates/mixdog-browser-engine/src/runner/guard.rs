@@ -1,11 +1,3 @@
-//! Owner: s4-engine-runner
-//! The two checks every command passes at the engine's door: the secret guard (`guardBrowserSecrets` of `agent-bridge.ts`) and the
-//! revalidation of the command before any page work (`prepareBrowserCommand` of `command-runner.ts`).
-//!
-//! The guard is the one place a reply leaves the engine: whatever the core filled into a page for this session (a password, a one-time
-//! code, an ask_user or agent-typed secret; never a username, which the agent may read) is replaced by a fixed marker in the reply's text
-//! and in an error's message. The values belong to the core's secret input; the engine only asks it through [`SecretGuard`].
-
 use serde_json::Map;
 use serde_json::Value;
 

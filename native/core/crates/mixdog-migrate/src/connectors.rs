@@ -10,15 +10,6 @@
 //! - `ensureConnectorAccountIds()` (`connector-accounts-mcp.mjs:115`): every account stored
 //!   without an id gets one, and the accounts-in-use records from before identities are bound
 //!   to the account under their name.
-//!
-//! One `config/agent.mcpServers` item does both in the late wave, after the stores are
-//! verified. Its stage computes every rewritten file from the files as they are and keeps them
-//! with an index; publishing renames each into place (one already in place is skipped), so a
-//! resumed run lands the same bytes. A file the 1.4.5 start would fail on (one that does not
-//! parse, a policy of neither shape) is left as it is, as is every file of a quarantined store;
-//! the pending record is this item's source and goes with it. Ids are derived from the config
-//! bytes, the server and the account's position (a random v4 id each in 1.4.5), so a resumed
-//! run gives the same ones.
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -126,6 +117,36 @@ fn with_key(value: Value, key: &str, field: Value) -> Value {
     Value::Object(map)
 }
 
+/// The accounts of the servers in `order`, the first of each name, address and connection
+/// only; a merged server that was off keeps its accounts off, unless the whole connector
+/// (`off`) is.
+fn distinct_accounts(servers: &Map<String, Value>, order: &[String], off: bool) -> Vec<Value> {
+    let mut accounts = Vec::new();
+    let mut seen_names = HashSet::new();
+    let mut seen_addresses = HashSet::new();
+    let mut seen_connections = HashSet::new();
+    for name in order {
+        let cfg = &servers[name.as_str()];
+        let own = if cfg.get("accounts").is_some_and(Value::is_array) { accounts_of(cfg) } else { vec![account_entry(name, cfg)] };
+        let server_off = !off && cfg.get("enabled") == Some(&Value::Bool(false));
+        for account in own {
+            let account_name = account.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
+            let address = gmail_app_password_account(&account_server(cfg, &account));
+            let connection = connection_of(cfg, &account);
+            if seen_names.contains(&account_name) || (!address.is_empty() && seen_addresses.contains(&address)) || seen_connections.contains(&connection) {
+                continue;
+            }
+            seen_names.insert(account_name);
+            if !address.is_empty() {
+                seen_addresses.insert(address);
+            }
+            seen_connections.insert(connection);
+            accounts.push(if server_off { with_key(account, "enabled", Value::Bool(false)) } else { account });
+        }
+    }
+    accounts
+}
+
 /// The servers with every catalog connector's servers merged into one holding the accounts,
 /// and the groups merged; none when nothing changes (`mergeConnectorAccountServers`).
 pub fn merge_servers(input: Option<&Value>) -> (Map<String, Value>, Vec<Group>) {
@@ -152,31 +173,7 @@ pub fn merge_servers(input: Option<&Value>) -> (Map<String, Value>, Vec<Group>) 
         };
         let order: Vec<String> = std::iter::once(target.clone()).chain(names.iter().filter(|name| **name != target).cloned()).collect();
         let off = order.iter().all(|name| servers[name.as_str()].get("enabled") == Some(&Value::Bool(false)));
-        let mut accounts = Vec::new();
-        let mut seen_names = HashSet::new();
-        let mut seen_addresses = HashSet::new();
-        let mut seen_connections = HashSet::new();
-        for name in &order {
-            let cfg = &servers[name.as_str()];
-            let own = if cfg.get("accounts").is_some_and(Value::is_array) { accounts_of(cfg) } else { vec![account_entry(name, cfg)] };
-            // A merged server that was off keeps its accounts off, unless the whole connector
-            // is off.
-            let server_off = !off && cfg.get("enabled") == Some(&Value::Bool(false));
-            for account in own {
-                let account_name = account.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
-                let address = gmail_app_password_account(&account_server(cfg, &account));
-                let connection = connection_of(cfg, &account);
-                if seen_names.contains(&account_name) || (!address.is_empty() && seen_addresses.contains(&address)) || seen_connections.contains(&connection) {
-                    continue;
-                }
-                seen_names.insert(account_name);
-                if !address.is_empty() {
-                    seen_addresses.insert(address);
-                }
-                seen_connections.insert(connection);
-                accounts.push(if server_off { with_key(account, "enabled", Value::Bool(false)) } else { account });
-            }
-        }
+        let accounts = distinct_accounts(&servers, &order, off);
         let mut server = server_settings(&servers[target.as_str()]);
         server.shift_remove("enabled");
         for name in &order {

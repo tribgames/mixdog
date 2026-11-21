@@ -38,7 +38,7 @@ use mixdog_core_api::thread::Decision;
 use mixdog_core_api::thread::Stop;
 use mixdog_core_api::thread::stop_reply;
 use mixdog_core_base::support::on_lane;
-use mixdog_rt::LaneToken;
+use mixdog_core_base::support::on_lane_wait;
 use mixdog_rt::Scope;
 use mixdog_tools::policy::SessionSurface;
 use serde_json::Value;
@@ -272,12 +272,6 @@ impl SessionHandle {
         super::SessionDirectory::over(directory).seat_session(&self.id).await
     }
 
-    /// `materializePromptSubmission(prompt, options)` at intake (`session-turns.mjs:112-113`, [`super::prompt_submission`]), before the PDF
-    /// intake and the claim of the staged originals, as Node runs it: the pasted texts are stored and the prompt's text tokens become
-    /// the stored texts they stand for, so the model reads each pasted text; an image or file sent inline is stored and named by
-    /// reference (a file relabelled a PDF by its bytes then meets the PDF limits); the pasted images name their stored images; the
-    /// prompt's text is held to 1 MiB. The message lists each among its attachments (`attachmentsForIntake`) and its row keeps no
-    /// bytes. A refusal is Node's sentence and the submit's answer. A submission that asks nothing of the store runs no lane job.
     async fn take_in_prompt(&self, req: &mut CoreRequest, cancel: &mixdog_rt::CancellationToken) -> Result<(), CoreError> {
         let Some(input) = req.params.get("input").filter(|input| input.is_object()) else { return Ok(()) };
         let (prompt, options) = (input.get("prompt").cloned(), input.get("options").cloned().unwrap_or(Value::Null));
@@ -285,7 +279,7 @@ impl SessionHandle {
         let long_text = LongText::Inline;
         let taken = if touches_store(&prompt, &options, long_text) {
             let store = self.deps.attachments.clone();
-            on_lane(self.deps.lanes.io, cancel, move |lane| {
+            on_lane_wait(self.deps.lanes.io, cancel, move |lane| {
                 materialize_prompt_submission(&LaneAttachments { store: &store, lane }, &prompt, &options, long_text)
             })
             .await?
@@ -303,11 +297,6 @@ impl SessionHandle {
         Ok(())
     }
 
-    /// `daemonWorkGate.deferring` (`daemon-work-gate.mjs`), which `submitSession` wraps around `admitted`: an in-core start (a
-    /// routine's, a channel's, an agent's) waits out the core's hold on turn starts (`hold{on}`, LR §5.1) before it enters the
-    /// turn gate, so the wait holds no admission; it is refused once the drain commit closed the hold, and its caller's cancel
-    /// ends the wait. A client's start is the actor's to refuse under the hold. The wait keeps the thread loaded: Node's start opens
-    /// its session after the wait (`submitAdmitted`'s `entryForSession`), while here the caller's start is on this thread's cell.
     async fn deferring(&self, ctx: &CallContext) -> Result<(), CoreError> {
         if matches!(ctx.caller, Caller::Connection(_)) {
             return Ok(());
@@ -322,10 +311,6 @@ impl SessionHandle {
         }
     }
 
-    /// `turn/start` (`session-turns.mjs` `submitAdmitted`): the prompt is taken in ([`Self::take_in_prompt`]) and its PDFs
-    /// admitted, then each original a composer staged for the message's images is looked up in the store; the ones that are
-    /// not there are recorded for the actor, which drops them from the message it builds, leaving the resized copy. Sends are
-    /// not interleaved.
     async fn turn_start(&self, mut req: CoreRequest) -> Result<Reply, CoreError> {
         self.deferring(&req.ctx).await?;
         // A thread just opened is still reading its history for images; the send is judged on that answer.
@@ -353,11 +338,9 @@ impl SessionHandle {
             let originals = self.deps.staged_originals.clone();
             // Only an original whose bytes are not in the store leaves the message; a look that cannot run keeps them all
             // (nothing deletes a staged original, so the message keeps what it was sent with).
-            missing = mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &req.ctx.cancel, move |lane| {
-                named.into_iter().filter(|r| !originals.stored(lane, r)).collect()
-            })
-            .await
-            .unwrap_or_default();
+            missing = on_lane_wait(self.deps.lanes.io, &req.ctx.cancel, move |lane| named.into_iter().filter(|r| !originals.stored(lane, r)).collect())
+                .await
+                .unwrap_or_default();
         }
         // The fact is the core's own, made at this acceptance (a replay of an accepted send joins that first record, so it is
         // told once); what a caller put on the params under that name is replaced.
@@ -452,7 +435,7 @@ impl SessionHandle {
         // The read's `window` (the desktop asks `lastItems: 32`) selects as a resume's snapshot does; none sends the whole view.
         let window = req.params.get("window").cloned().and_then(|w| serde_json::from_value::<ResumeWindow>(w).ok()).map(|w| window_of(&w));
         // A read waits for room on a full lane, bounded by the caller's cancel (never `QueueFull`).
-        mixdog_core_base::support::on_lane_wait(self.deps.lanes.cpu, &req.ctx.cancel, move |_lane| {
+        on_lane_wait(self.deps.lanes.cpu, &req.ctx.cancel, move |_lane| {
             let (items, has_older) = match &window {
                 Some(window) => {
                     let items = view.select(window);
@@ -473,11 +456,6 @@ impl SessionHandle {
         .map(Reply::Value)
     }
 
-    /// `thread/reactions/set {agentId, emoji, messagesBack?, othersKeep?}`: a bot's reaction
-    /// (`emoji` null removes it) on the user message `messagesBack` user messages before the
-    /// newest in the conversation (`reactInSession`), stored on that message and shown at once.
-    /// Answers `{changed, messageId, reactions}`; no such message, or an emoji another bot already
-    /// left in a room, is a domain error carrying Node's text. Internal callers only.
     async fn reactions_set(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let params = &req.params;
         let invalid = |path: &str, expected: &str| CoreError::InvalidParams { path: path.into(), expected: expected.into() };
@@ -554,14 +532,14 @@ impl SessionHandle {
         self.deps.store.unheld().await;
         let (store, thread) = (self.deps.store.clone(), self.id.clone());
         // The reaction is a bot's data: a full lane is waited out, never refused.
-        let found = mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &ctx.cancel, {
+        let found = on_lane_wait(self.deps.lanes.io, &ctx.cancel, {
             let iid = iid.clone();
             move |lane| store.history_row(lane, &thread, &iid)
         });
         let (_, mut row) = found.await??.ok_or_else(|| CoreError::ItemNotFound { thread_id: self.id.clone(), item_id: item.clone() })?;
         row.body = mixdog_store::schema::blob::Slot::Inline(message.clone());
         let transcript = self.deps.transcript.clone();
-        let shown = mixdog_core_base::support::on_lane_wait(self.deps.lanes.cpu, &ctx.cancel, {
+        let shown = on_lane_wait(self.deps.lanes.cpu, &ctx.cancel, {
             let row = row.clone();
             move |lane| transcript.items(lane, &row)
         });
@@ -585,10 +563,6 @@ impl SessionHandle {
         Ok(())
     }
 
-    /// `thread/roomRows/append {messages}`: a room post (`agent-room-delivery.mjs` `commit`). A
-    /// message whose `meta.transcript.messageId` the conversation already holds, or an earlier
-    /// message of the post carries, is skipped; the rest are stored as rows of no turn, each
-    /// shown live as it lands. Answers `{added}`. Internal callers only.
     async fn room_rows_append(&self, req: CoreRequest, dedupe: bool) -> Result<Reply, CoreError> {
         let messages = req
             .params
@@ -611,7 +585,7 @@ impl SessionHandle {
         }
         // Each row's facts read the prompt-attachment store: an io-lane job.
         let store = self.deps.attachments.clone();
-        let read = self.deps.lanes.io.submit(&req.ctx.cancel, move |lane| {
+        let rows = on_lane_wait(self.deps.lanes.io, &req.ctx.cancel, move |lane| {
             fresh
                 .into_iter()
                 .map(|mut body| {
@@ -619,8 +593,8 @@ impl SessionHandle {
                     json!({ "body": body, "visible": facts.visible, "prompt": facts.prompt })
                 })
                 .collect::<Vec<Value>>()
-        })?;
-        let rows = read.await.map_err(|_| CoreError::Internal { incident_id: "session-room-facts-dropped".into() })?;
+        })
+        .await?;
         let set = req.params.get("set").cloned().unwrap_or(Value::Null);
         let unset = req.params.get("unset").cloned().unwrap_or(Value::Null);
         // The room's view with these rows rides the commit, so the actor takes both in one plan.
@@ -851,12 +825,6 @@ impl SessionHandle {
                 return Err(mixdog_core_base::support::failed("session", "The conversation could not be cleared."));
             }
         }
-        // A person's clear keeps the outgoing conversation as a resumable session of its own (`forkOutgoingTranscript`);
-        // the core's own resets (an agent home, a room member) keep or drop their copy themselves (`archiveAs`, `fork: false`).
-        // While the scheduled compaction holds the thread (`afterCompaction`), an idle plan waits at the actor's gate and is
-        // answered when the gate opens or the session closes: the copy is of the conversation the compaction left. That wait
-        // is outside the submit order, which a prompt sent meanwhile must not wait behind; a plan the gate held keeps the
-        // thread's turns from starting until it is dropped (`ClearHold`), so a prompt queued behind this clear runs after it.
         let reply = if matches!(req.ctx.caller, Caller::Connection(_)) {
             let _waited = if self.cell.gated.load(std::sync::atomic::Ordering::SeqCst) { Some(self.fork_source(true).await?) } else { None };
             let _serial = self.submits.enter(&req.ctx.cancel).await.map_err(caller_cancelled)?;
@@ -887,13 +855,40 @@ impl SessionHandle {
     }
 }
 
-/// `inheritSession` (`session-host-lifecycle.ts:968-978`): `resolveSessionWorkspace(sessionProjectPath(source))`. The source's
-/// Project is the deepest registered one holding its stored Project, folder or workspace (`sessionProjectKey`); the heir takes
-/// that Project as `cwd` and `{project, projectPath}`, or the task workspace and `{task, null}`, and no `workspace` record.
-/// Only a source the desktop classified is moved: a thread of another client keeps its header.
-/// A heir is a session of its own, created fresh and given the source's conversation (`createSession` then `inheritFrom`): it
-/// holds none of what the source measured or ran. Its usage totals start at zero, its context readings, step list, close
-/// provenance, transcript identity and the source's own name and title are not carried (the carry gives the heir the source's title), and its compaction is the configuration alone, without the source's checks.
+fn run_stop_reply(
+    turn: &TurnId,
+    decision: &stop::Decision,
+    restore_id: Option<String>,
+    restored: Option<&Value>,
+    unreadable: Option<String>,
+    facts: &stop::Facts,
+) -> Value {
+    let mut reply = stop_reply(Some(turn), true);
+    reply["restoreText"] = json!(decision.restore_text);
+    reply["restoredSubmissionIds"] = json!(decision.restored_ids);
+    if let Some(id) = restore_id.filter(|_| !decision.restore_text.is_empty()) {
+        reply["restoreId"] = json!(id);
+    }
+    if let Some(restored) = restored {
+        for key in ["pastedImages", "pastedTexts", "content", "notice"] {
+            if let Some(value) = restored.get(key) {
+                reply[key] = value.clone();
+            }
+        }
+    }
+    if let Some(message) = unreadable {
+        reply["notice"] = json!(format!("Could not restore the attachments ({message}); the prompt was kept."));
+    }
+    for (key, pointer, discard) in
+        [("discardPastedImages", "/options/pastedImages", decision.discard_images), ("discardPastedTexts", "/options/pastedTexts", decision.discard_texts)]
+    {
+        if discard {
+            reply[key] = facts.entry.pointer(pointer).cloned().unwrap_or(Value::Null);
+        }
+    }
+    reply
+}
+
 fn fresh_heir_state(header: &mut mixdog_store::schema::record::Header) {
     const COMPACTION_CONFIG: [&str; 9] =
         ["auto", "model", "summaryModel", "timeoutMs", "memoryTimeoutMs", "bufferTokens", "mainBufferTokens", "reservedTokens", "boundaryTokens"];
@@ -1091,10 +1086,6 @@ impl FeedSource for SessionHandle {
     }
 }
 
-/// The thread feed with its subscriptions counted on the control cell (Node's `addSubscriber`, and `unsubscribeSession` for
-/// the last view): a watched thread is off the idle clock, and the last detach puts it back on it. Each subscription is
-/// counted once: not again for a lag recovery of it or another attach under its id, and a detach of one it never counted
-/// changes nothing.
 pub(crate) struct CountedFeed {
     cell: Arc<ControlCell>,
     feed: Arc<dyn Feed>,
@@ -1120,10 +1111,6 @@ impl CountedFeed {
     }
 }
 
-/// The thread feed of a subscribing reply whose attach was admitted when the reply was made ([`ControlCell::subscribing`], taken
-/// by the directory under the shard lock the unload takes): no close is admitted between the reply and its attach, so the first
-/// attach of the reply cannot meet `threadClosing` from an unload. A reply never attached gives its admission back when it is
-/// dropped, as a detach would, so the thread goes back on its idle clock.
 pub(crate) struct AdmittedFeed {
     feed: Arc<CountedFeed>,
     admitted: std::sync::atomic::AtomicBool,
@@ -1256,7 +1243,13 @@ impl SessionHandle {
         let (tx, rx) = oneshot::channel();
         self.inbox.send(Inbox::RewindPreview { item: params.item_id, tx }).await.map_err(|_| self.closing())?;
         let preview = rx.await.map_err(|_| self.closing())??;
-        let restore = self.rewind_restore(&preview, params.restore_files != Some(false)).await?;
+        // Nothing is committed yet: a cancelled request leaves the restore's reads where they wait.
+        let restore = mixdog_rt::Scope::new()
+            .cancel(&req.ctx.cancel)
+            .run(self.rewind_restore(&preview, params.restore_files != Some(false)))
+            .await
+            .done()
+            .ok_or_else(super::seams::turn_read_cancelled)??;
         let (reply, restore) = match (self.commit_history(req, preview.revision).await?, restore) {
             (Reply::Value(value), Some(restore)) => (value, restore),
             (reply, _) => return Ok(reply),
@@ -1288,17 +1281,12 @@ impl SessionHandle {
             return Ok(None);
         };
         let (store, text) = (self.deps.attachments.clone(), preview.text.clone());
-        mixdog_core_base::support::on_lane(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| {
+        on_lane_wait(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| {
             super::restore_hydrate::rewind_restore(&store, lane, &content, &text, restore_files)
         })
         .await?
     }
 
-    /// `abort` while the scheduled compaction holds the turns back: the prompt submitted meanwhile is Node's ask waiting on
-    /// the gate (`abort.mjs:92`, nothing to abort): the reply hands the prompt back (`aborted: false`, its text and submission).
-    /// Unlike Node, a prompt handed back is not also runnable: the actor freezes the entry under a recorded Stop, so it leaves the
-    /// queue and never runs, and the reply waits for that record to be durable (a failed save answers the storage error).
-    /// `None` when no editable prompt waits, or the stop does not want it back.
     async fn stop_gated(&self, restore_prompt: Option<bool>, ctx: &CallContext) -> Option<Result<Value, CoreError>> {
         if !self.cell.gated.load(std::sync::atomic::Ordering::SeqCst) || restore_prompt == Some(false) {
             return None;
@@ -1306,14 +1294,12 @@ impl SessionHandle {
         let queued = self.cell.queue.load().iter().rev().find(|queued| super::control::is_editable_entry(&queued.entry)).cloned()?;
         let raw = super::actor::restored_reply(&[super::actor::Taken::of(&queued)], None);
         let store = self.deps.attachments.clone();
+        // Refused on a full lane: the Stop goes on by the ungated path, never behind a read.
         let hydrated = on_lane(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| super::restore_hydrate::hydrate(&store, lane, raw)).await;
         let Ok(Ok(restored)) = hydrated else {
             return None;
         };
-        let canceller = match &ctx.caller {
-            Caller::Connection(connection) => self.deps.devices.describe(*connection).device,
-            Caller::Internal(_) => String::new(),
-        };
+        let canceller = self.canceller_of(ctx);
         let (tx, rx) = oneshot::channel();
         self.cell.deliver(Ctl::StopQueued { qid: queued.qid.clone(), canceller, reply: tx });
         let (restore_id, wait) = match rx.await {
@@ -1342,10 +1328,6 @@ impl SessionHandle {
         Some(Ok(reply))
     }
 
-    /// `abort` while no run is published: Node's `busy` covers the whole span a turn holds the session (reserved, starting,
-    /// settling, compacting), so the actor stops what it finds there through its owner. Only a session with nothing under
-    /// way takes the idle path (Node's exact `aborted: false`, no `reason`); a span whose owner cannot be stopped answers
-    /// `aborted: false` with `reason: "could-not-stop"` and a `notice` naming the stage.
     async fn stop_busy(&self, submission: Option<String>, ctx: CallContext) -> Result<Value, CoreError> {
         let (tx, rx) = oneshot::channel();
         self.cell.deliver(Ctl::StopBusy(tx));
@@ -1481,39 +1463,16 @@ impl SessionHandle {
                 return self.stop_busy(submission_id, ctx).await;
             }
         };
-        let canceller = match &ctx.caller {
-            Caller::Connection(connection) => self.deps.devices.describe(*connection).device,
-            Caller::Internal(_) => String::new(),
-        };
+        let canceller = self.canceller_of(&ctx);
         let facts = run.prompt.snapshot();
         let steering = self.cell.queue.load().iter().any(|queued| super::control::is_editable_entry(&queued.entry));
-        // A handed-back prompt's attachments are read before the turn is stopped, so a read that fails keeps the prompt
-        // (`hydrateTolerantly`). A prompt with none reads nothing and the stop is not delayed.
-        let mut restored = None;
-        let mut unreadable = None;
-        if stop::wants_restore(&facts, restore_prompt, &canceller, steering) && facts.has_attachments() {
-            let queued = Queued { qid: String::new(), entry: facts.entry.clone(), display: Value::Null };
-            let raw = super::actor::restored_reply(&[super::actor::Taken::of(&queued)], None);
-            let store = self.deps.attachments.clone();
-            let read = on_lane(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| {
-                let mut raw = raw;
-                if let Some(texts) = raw.get_mut("pastedTexts") {
-                    super::restore_hydrate::materialize_texts(&store, lane, texts)?;
-                }
-                super::restore_hydrate::hydrate(&store, lane, raw)
-            })
-            .await;
-            match read {
-                Ok(Ok(hydrated)) => restored = Some(hydrated),
-                Ok(Err(error)) | Err(error) => unreadable = Some(error.to_string()),
-            }
-        }
+        let (restored, unreadable) = if stop::wants_restore(&facts, restore_prompt, &canceller, steering) && facts.has_attachments() {
+            self.read_handback(&facts).await
+        } else {
+            (None, None)
+        };
         #[cfg(any(test, feature = "test-support"))]
         run.prompt.paused().await;
-        // The actor decides against the prompt's facts as they are when it takes the Stop, recorded in the same hold of the prompt's
-        // lock, so an output commit cannot land between the two; it aborts the run at once (`abortGoalTurn`'s reason, `user-cancel`
-        // for a plain Stop, `abort.mjs:118`), appends the Stop's record, and answers with the decision and the record's
-        // durable-only waiter. A run whose end is already in is no longer this Stop's: the busy span answers.
         let (tx, rx) = oneshot::channel();
         self.cell.deliver(Ctl::StopRun { turn: run.turn.clone(), named: named_turn, restore_prompt, canceller, unreadable: unreadable.is_some(), reply: tx });
         let (decision, wait, restore_id) = match rx.await.map_err(|_| self.closing())? {
@@ -1521,35 +1480,34 @@ impl SessionHandle {
             super::control::RunStop::NotActive => return Err(CoreError::TurnNotActive { thread_id: self.id.clone(), turn_id: Some(run.turn.clone()) }),
             super::control::RunStop::Busy(busy) => return self.busy_reply(busy, submission_id, ctx).await,
         };
-        // Success only once the Stop's record is durable; a failed save answers the storage error, never `aborted` nor the
-        // restored text (the cancellation fired and stands).
         self.stop_saved(vec![wait]).await?;
-        let mut reply = stop_reply(Some(&run.turn), true);
-        reply["restoreText"] = json!(decision.restore_text);
-        reply["restoredSubmissionIds"] = json!(decision.restored_ids);
-        // The hand-back's id rides the restored text, the same id the session state would publish it under: a composer that
-        // saw both applies it once.
-        if let Some(id) = restore_id.filter(|_| !decision.restore_text.is_empty()) {
-            reply["restoreId"] = json!(id);
+        Ok(run_stop_reply(&run.turn, &decision, restore_id, restored.as_ref(), unreadable, &facts))
+    }
+
+    fn canceller_of(&self, ctx: &CallContext) -> String {
+        match &ctx.caller {
+            Caller::Connection(connection) => self.deps.devices.describe(*connection).device,
+            Caller::Internal(_) => String::new(),
         }
-        if let Some(restored) = &restored {
-            for key in ["pastedImages", "pastedTexts", "content", "notice"] {
-                if let Some(value) = restored.get(key) {
-                    reply[key] = value.clone();
-                }
+    }
+
+    async fn read_handback(&self, facts: &stop::Facts) -> (Option<Value>, Option<String>) {
+        let queued = Queued { qid: String::new(), entry: facts.entry.clone(), display: Value::Null };
+        let raw = super::actor::restored_reply(&[super::actor::Taken::of(&queued)], None);
+        let store = self.deps.attachments.clone();
+        // Refused on a full lane: the turn is stopped at once and the reply says its attachments were not read back.
+        let read = on_lane(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            let mut raw = raw;
+            if let Some(texts) = raw.get_mut("pastedTexts") {
+                super::restore_hydrate::materialize_texts(&store, lane, texts)?;
             }
+            super::restore_hydrate::hydrate(&store, lane, raw)
+        })
+        .await;
+        match read {
+            Ok(Ok(hydrated)) => (Some(hydrated), None),
+            Ok(Err(error)) | Err(error) => (None, Some(error.to_string())),
         }
-        if let Some(message) = unreadable {
-            reply["notice"] = json!(format!("Could not restore the attachments ({message}); the prompt was kept."));
-        }
-        for (key, pointer, discard) in
-            [("discardPastedImages", "/options/pastedImages", decision.discard_images), ("discardPastedTexts", "/options/pastedTexts", decision.discard_texts)]
-        {
-            if discard {
-                reply[key] = facts.entry.pointer(pointer).cloned().unwrap_or(Value::Null);
-            }
-        }
-        Ok(reply)
     }
 
     async fn request_inner(&self, req: CoreRequest) -> Result<Reply, CoreError> {
@@ -1587,10 +1545,10 @@ impl SessionHandle {
                     return Err(CoreError::InvalidParams { path: "reply".into(), expected: "a value".into() });
                 };
                 let store = self.deps.attachments.clone();
-                let hydrated = mixdog_core_base::support::on_lane(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| {
-                    super::restore_hydrate::hydrate(&store, lane, raw)
-                })
-                .await??;
+                // The actor has taken the entries out: their attachments are read back whether or not the caller still waits.
+                let hydrated =
+                    on_lane_wait(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| super::restore_hydrate::hydrate(&store, lane, raw))
+                        .await??;
                 Ok(Reply::Value(hydrated))
             }
             _ => self.to_actor(req).await,

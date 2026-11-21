@@ -9,6 +9,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use mixdog_core_api::domain::common::AbsPath;
+use mixdog_core_api::domain::common::EventSource;
 use mixdog_core_api::domain::process::CommandSpec;
 use mixdog_core_api::domain::process::EnvSpec;
 use mixdog_core_api::domain::process::ExitStatus;
@@ -17,6 +18,7 @@ use mixdog_core_api::domain::process::OutputMode;
 use mixdog_core_api::domain::process::OutputStream;
 use mixdog_core_api::domain::process::ProcessError;
 use mixdog_core_api::domain::process::ProcessEvent;
+use mixdog_core_api::domain::process::ProcessExit;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::process::ProcessOwner;
 use mixdog_core_api::domain::process::SpawnRequest;
@@ -139,7 +141,7 @@ impl Exec {
         let asked = std::time::Instant::now();
         let handle = self.handle();
         let stdin_piped = spec.stdin.is_some();
-        let (time_limit, mut deadline) = crate::seam::run_limit(spec.time_limit, attempt);
+        let (time_limit, deadline) = crate::seam::run_limit(spec.time_limit, attempt);
         let program = spec.program.clone();
         // Node's runners word a deadline or an overflow with the command as `git status -z` (git-runner.ts gitTimeout).
         let command = command_label(&spec.program, &spec.args);
@@ -159,7 +161,7 @@ impl Exec {
         let timing = SpawnTiming { queue_ms: starting.duration_since(asked).as_secs_f64() * 1000.0, spawn_ms: starting.elapsed().as_secs_f64() * 1000.0 };
         attempt.spawned(spawned.is_ok());
         spawned.map_err(|error| spawn_failure(error, &program, timing))?;
-        let mut events = self.processes.subscribe(&handle, Some(0)).map_err(|error| spawn_failure(error, &program, timing))?;
+        let events = self.processes.subscribe_holding(&handle, Some(0)).map_err(|error| spawn_failure(error, &program, timing))?;
         if let Some(input) = spec.stdin {
             // A child that exits before reading its input reports through its exit status.
             if !input.is_empty() {
@@ -167,46 +169,8 @@ impl Exec {
             }
             let _ = self.processes.close_stdin(&handle);
         }
-        let mut out = ExecOutput { timing, ..ExecOutput::default() };
-        let mut exit = None;
-        let mut killed = false;
-        let mut cancelled = false;
-        let mut too_large = false;
-        // A virtual run limit (a replay's debug seam) reached: the child is killed here, as the process manager kills at a real one.
-        let mut limit_reached = false;
-        loop {
-            tokio::select! {
-                biased;
-                _ = cancel.cancelled(), if !cancelled => {
-                    cancelled = true;
-                    let _ = self.processes.kill(&handle);
-                }
-                () = deadline.fired(), if !limit_reached => {
-                    limit_reached = true;
-                    let _ = self.processes.kill(&handle);
-                }
-                event = events.next() => match event {
-                    Some(ProcessEvent::Output { stream, bytes, .. }) => {
-                        match stream {
-                            OutputStream::Stderr => out.stderr.extend_from_slice(&bytes),
-                            OutputStream::Stdout | OutputStream::Pty => out.stdout.extend_from_slice(&bytes),
-                        }
-                        if !killed
-                            && (out.stdout.len() + out.stderr.len()) as u64 > spec.max_output
-                        {
-                            too_large = true;
-                            killed = true;
-                            let _ = self.processes.kill(&handle);
-                        }
-                    }
-                    Some(ProcessEvent::Exited { exit: done, .. }) => {
-                        exit = Some(done);
-                        break;
-                    }
-                    None => break,
-                },
-            }
-        }
+        let drained = self.drain(&handle, events, cancel, deadline, spec.max_output, timing).await;
+        let Drained { mut out, exit, cancelled, too_large, limit_reached } = drained;
         if cancelled {
             return Err(ScmFailure::Cancelled);
         }
@@ -223,6 +187,60 @@ impl Exec {
         };
         Ok(out)
     }
+
+    async fn drain(
+        &self,
+        handle: &ProcessHandle,
+        mut events: Box<dyn EventSource<ProcessEvent>>,
+        cancel: &CancellationToken,
+        mut deadline: crate::seam::Deadline,
+        max_output: u64,
+        timing: SpawnTiming,
+    ) -> Drained {
+        let mut drained = Drained { out: ExecOutput { timing, ..ExecOutput::default() }, exit: None, cancelled: false, too_large: false, limit_reached: false };
+        let mut killed = false;
+        loop {
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled(), if !drained.cancelled => {
+                    drained.cancelled = true;
+                    let _ = self.processes.kill(handle);
+                }
+                () = deadline.fired(), if !drained.limit_reached => {
+                    drained.limit_reached = true;
+                    let _ = self.processes.kill(handle);
+                }
+                event = events.next() => match event {
+                    Some(ProcessEvent::Output { stream, bytes, .. }) => {
+                        let out = &mut drained.out;
+                        match stream {
+                            OutputStream::Stderr => out.stderr.extend_from_slice(&bytes),
+                            OutputStream::Stdout | OutputStream::Pty => out.stdout.extend_from_slice(&bytes),
+                        }
+                        if !killed && (out.stdout.len() + out.stderr.len()) as u64 > max_output {
+                            drained.too_large = true;
+                            killed = true;
+                            let _ = self.processes.kill(handle);
+                        }
+                    }
+                    Some(ProcessEvent::Exited { exit, .. }) => {
+                        drained.exit = Some(exit);
+                        break;
+                    }
+                    None => break,
+                },
+            }
+        }
+        drained
+    }
+}
+
+struct Drained {
+    out: ExecOutput,
+    exit: Option<ProcessExit>,
+    cancelled: bool,
+    too_large: bool,
+    limit_reached: bool,
 }
 
 /// The program as the child was started with it (the resolved path of git, as `gitCommand()` gives it), then its arguments:

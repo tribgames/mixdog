@@ -1,12 +1,9 @@
 //! Pairing: the browser registration, the approval handoff and the six-digit codes a phone, another PC or a browser uses to find a
-//! desktop route (`lib/relay-pairing.mjs`, and the HTTP and frame parts of `lib/pair-codes.mjs`). The relay routes and stores; it
-//! never authorizes: the desktop decides, and the pairing material it returns is sealed to the browser's throwaway public key, so
-//! this hop forwards a box it cannot open.
+//! desktop route. The relay routes and stores; it never authorizes: the desktop decides, and the pairing material it returns is
+//! sealed to the browser's throwaway public key, so this hop forwards a box it cannot open.
 //!
-//! One [`Pairing`] per process holds the pending claims and the live codes. The router of the server sends `/client/register` to
-//! [`Pairing::handle_registration`], `/claim` and `/claim/<id>` to [`Pairing::handle_claim`] and `/pair-code/...` to
-//! [`Pairing::handle_pair_code`]; [`Pairing::register`] puts the four desktop frames (`claim-approve`, `claim-deny`,
-//! `pair-code-request`, `pair-code-clear`) and the close of a live leg onto the hub's dispatch.
+//! One [`Pairing`] per process holds the pending claims and the live codes. [`Pairing::register`] puts the four desktop frames
+//! (`claim-approve`, `claim-deny`, `pair-code-request`, `pair-code-clear`) and the close of a live leg onto the hub's dispatch.
 
 pub mod claims;
 pub mod codes;

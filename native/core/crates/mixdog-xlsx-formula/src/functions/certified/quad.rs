@@ -173,6 +173,55 @@ pub(super) fn local_series<F: Family>(fam: &F, v0: &B, x: &B, dir: i64, m: usize
     s
 }
 
+/// Drop tests that overlap (D >= 1 certainly / D < 2 certainly), so no equality stalls a search; a value decided by
+/// neither is an enclosure too wide at this precision, answered by the whole line (`certify` raises the precision).
+fn ge1(d: &B) -> bool {
+    d.is_finite() && d.lo().cmp(&Fl::from_i64(1)) != Ordering::Less
+}
+
+fn lt2(d: &B) -> bool {
+    d.is_finite() && d.hi().cmp(&Fl::from_i64(2)) == Ordering::Less
+}
+
+/// `(j, D(2^(j-1)))` with D(2^j) >= 1 and D(2^(j-1)) < 2, both certain, searched from `j`; `None` when undecided.
+/// D is convex, increasing and zero at 0, so walking down reaches D < 2 and walking up reaches D >= 1 (D grows
+/// without bound on an infinite flank; a finite one shorter than its unit drop is handled by the caller) after
+/// finitely many doublings.
+fn unit_drop_scale(dfun: &dyn Fn(&Fl) -> B, mut j: i64) -> Option<(i64, B)> {
+    let mut dj = dfun(&Fl::pow2(j));
+    // a start past an overflow (tiny shapes: the curvature scale 2^333 of a = 1e-200 on the upper flank, where
+    // D = a e^s is no finite ball): walk down to the first finite drop, which the searches below then refine
+    while !dj.is_finite() && j > -2200 {
+        j -= 1;
+        dj = dfun(&Fl::pow2(j));
+    }
+    if ge1(&dj) {
+        loop {
+            let dl = dfun(&Fl::pow2(j - 1));
+            if lt2(&dl) {
+                return Some((j, dl));
+            }
+            if !ge1(&dl) {
+                return None;
+            }
+            j -= 1;
+        }
+    }
+    if !lt2(&dj) {
+        return None;
+    }
+    loop {
+        j += 1;
+        let d = dfun(&Fl::pow2(j));
+        if ge1(&d) {
+            return Some((j, dj));
+        }
+        if !lt2(&d) {
+            return None;
+        }
+        dj = d;
+    }
+}
 /// ln of the integral of `exp(G(v0 + dir s) - G(v0))` over s in [0, len) (len `None`: to infinity), a decreasing
 /// flank; `None` for an empty interval.
 pub fn flank_log<F: Family>(fam: &F, v0: &B, dir: i64, len: Option<&Fl>) -> Option<B> {
@@ -180,11 +229,7 @@ pub fn flank_log<F: Family>(fam: &F, v0: &B, dir: i64, len: Option<&Fl>) -> Opti
         return None;
     }
     let dfun = |s: &Fl| fam.diff(v0, &B::exact(if dir < 0 { s.neg() } else { s.clone() })).neg();
-    // overlapping drop tests (D >= 1 certainly / D < 2 certainly), so no equality stalls the search; a value
-    // decided by neither is an enclosure too wide at this precision, answered by the whole line (`certify` raises
-    // the precision)
-    let ge1 = |d: &B| d.is_finite() && d.lo().cmp(&Fl::from_i64(1)) != Ordering::Less;
-    let lt2 = |d: &B| d.is_finite() && d.hi().cmp(&Fl::from_i64(2)) == Ordering::Less;
+
     // a finite flank shorter than its unit drop: the whole of it, with the lower area len e^-D(len) >= len e^-2
     if let Some(len) = len {
         let dl = dfun(len);
@@ -204,48 +249,12 @@ pub fn flank_log<F: Family>(fam: &F, v0: &B, dir: i64, len: Option<&Fl>) -> Opti
     };
     let j_slope = est(&c[0]).map(|t| -t);
     let j_curv = est(&c[1]).map(|t| -t / 2);
-    let mut j = match (j_slope, j_curv) {
+    let j = match (j_slope, j_curv) {
         (Some(a), Some(b)) => a.min(b),
         (Some(a), None) | (None, Some(a)) => a,
         (None, None) => 0,
     };
-    // j with D(2^j) >= 1 and D(2^(j-1)) < 2, both certain. D is convex, increasing and zero at 0, so walking down
-    // reaches D < 2 and walking up reaches D >= 1 (D grows without bound on an infinite flank; a finite one shorter
-    // than its unit drop was taken above) after finitely many doublings
-    let mut dj = dfun(&Fl::pow2(j));
-    // a start past an overflow (tiny shapes: the curvature scale 2^333 of a = 1e-200 on the upper flank, where
-    // D = a e^s is no finite ball): walk down to the first finite drop, which the searches below then refine
-    while !dj.is_finite() && j > -2200 {
-        j -= 1;
-        dj = dfun(&Fl::pow2(j));
-    }
-    if ge1(&dj) {
-        loop {
-            let dl = dfun(&Fl::pow2(j - 1));
-            if lt2(&dl) {
-                dj = dl;
-                break;
-            }
-            if !ge1(&dl) {
-                return Some(B::whole());
-            }
-            j -= 1;
-        }
-    } else if lt2(&dj) {
-        loop {
-            j += 1;
-            let d = dfun(&Fl::pow2(j));
-            if ge1(&d) {
-                break;
-            }
-            if !lt2(&d) {
-                return Some(B::whole());
-            }
-            dj = d;
-        }
-    } else {
-        return Some(B::whole());
-    }
+    let Some((j, dj)) = unit_drop_scale(&dfun, j) else { return Some(B::whole()) };
     // dj = D(h/2) < 2; h = 2^j
     let h = Fl::pow2(j);
     let half_h = Fl::pow2(j - 1);
@@ -399,8 +408,6 @@ pub fn lattice_log<F: Family>(fam: &F, v0: &B, dir: i64, len: &Fl) -> B {
         return B::zero();
     }
     let dfun = |j: &Fl| fam.diff(v0, &B::exact(if dir < 0 { j.neg() } else { j.clone() })).neg();
-    let ge1 = |d: &B| d.is_finite() && d.lo().cmp(&Fl::from_i64(1)) != Ordering::Less;
-    let lt2 = |d: &B| d.is_finite() && d.hi().cmp(&Fl::from_i64(2)) == Ordering::Less;
     // h = 2^e (e >= 0) with D(h) >= 1 and, for h >= 2, D(h/2) < 2; started from the curvature at v0
     let c = fam.coeffs(v0, 2);
     let last = len.sub(&Fl::from_i64(1));

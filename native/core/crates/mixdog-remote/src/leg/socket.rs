@@ -204,10 +204,8 @@ where
     let mut beat = mixdog_rt::time::interval(config.heartbeat);
     beat.tick().await;
     let mut alive = true;
-    // A write that fails does not end the leg on the spot. Node's `ws` reads the socket whatever the
-    // writes do, so a close frame the relay sent before the write failed still gives the leg its code
-    // (remote-relay-connection.ts `ws.on('close', (code) => ...)`): the code decides an immediate redial. A
-    // write error means the transport is gone, so the read side ends right after what it already holds.
+    // Node's `ws` keeps reading after a failed write, so a close code the relay sent first still decides the redial
+    // (remote-relay-connection.ts `ws.on('close', (code) => ...)`).
     let mut write_failed = false;
     loop {
         tokio::select! {

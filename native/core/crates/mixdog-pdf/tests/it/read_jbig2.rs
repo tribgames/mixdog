@@ -306,15 +306,6 @@ fn encode_shifted(coder: &mut MqEncoder, base: usize, target: &[Vec<u8>], refere
     }
 }
 
-fn iaid(coder: &mut MqEncoder, base: usize, bits: usize, id: usize) {
-    let mut previous = 1usize;
-    for shift in (0..bits).rev() {
-        let bit = ((id >> shift) & 1) as u8;
-        coder.encode(base + previous, bit);
-        previous = (previous << 1) | usize::from(bit);
-    }
-}
-
 /// An arithmetic coded text region segment of `kind` (4 intermediate, 6 immediate, 7 immediate lossless).
 fn arithmetic_text(number: u32, kind: u8, text: &Text, symbols: &[Vec<Vec<u8>>], instances: &[Instance], referred: &[u32]) -> Vec<u8> {
     let bits = code_length(symbols.len());
@@ -1013,7 +1004,6 @@ struct Refagg<'a> {
 /// A dictionary of refined and aggregated symbols (6.5.8.2) in either coding mode: the segment, the states of the
 /// refinement contexts at its end, and the symbols it exports.
 fn refagg_dictionary(d: &Refagg, contexts: Option<&[(usize, u8)]>) -> (Vec<u8>, Vec<(usize, u8)>, Vec<Vec<Vec<u8>>>) {
-    let total = d.inputs.len() + d.new.len();
     let template = refinement_template(d.r_template);
     let mut known: Vec<Vec<Vec<u8>>> = d.inputs.to_vec();
     let mut heights_of = Vec::new();
@@ -1039,113 +1029,133 @@ fn refagg_dictionary(d: &Refagg, contexts: Option<&[(usize, u8)]>) -> (Vec<u8>, 
     }
     data.extend(be32(exported.len() as u32));
     data.extend(be32(d.new.len() as u32));
-    let states;
-    if d.huffman {
-        let code_len = (1..).find(|&n| (1usize << n) >= total).unwrap();
-        let id_codes: Vec<String> = (0..total).map(|id| format!("{id:0code_len$b}")).collect();
-        let (b4, b2, b1, b15) = (standard(0, B4, false), standard(0, B2, true), standard(0, B1, false), standard(1, B15, false));
-        let tables = Tables::standard(0, 0, 0, 1);
-        let counts = d.agg.cloned().unwrap_or_else(|| standard(0, B1, false));
-        let mut out = BitOut::default();
-        let mut refinement = MqEncoder::new(1 << 13, &[]);
-        let (mut class_height, mut index) = (0usize, 0);
-        while index < d.new.len() {
-            let height = heights_of[index];
-            out.put(&code(&b4, Some((height - class_height) as i64)));
-            class_height = height;
-            let mut width = 0i64;
-            while index < d.new.len() && heights_of[index] == height {
-                let bitmap = &known[d.inputs.len() + index];
-                out.put(&code(&b2, Some(bitmap[0].len() as i64 - width)));
-                width = bitmap[0].len() as i64;
-                match &d.new[index] {
-                    New::Refine { from, bitmap } => {
-                        out.put(&code(&counts, Some(1)));
-                        out.put(&id_codes[*from]);
-                        out.put(&code(&b15, Some(0)));
-                        out.put(&code(&b15, Some(0)));
-                        encode_shifted(&mut refinement, 0, bitmap, &known[*from], (0, 0), &template);
-                        let bytes = refinement.terminate_jbig2();
-                        out.put(&code(&b1, Some(bytes.len() as i64)));
-                        out.align();
-                        out.bytes.extend(bytes);
-                    }
-                    New::Aggregate { parts, width, height } => {
-                        out.put(&code(&counts, Some(parts.len() as i64)));
-                        let text = Text { refine: true, r_template: d.r_template, ..Text::new(*width, *height) };
-                        let instances: Vec<Instance> = parts.iter().map(|&(id, x)| at(id, x, 0)).collect();
-                        let seen = &known[..d.inputs.len() + index];
-                        huffman_strips(&mut out, &text, seen, &instances, &id_codes, &tables, &mut refinement);
-                    }
-                }
-                index += 1;
-            }
-            out.put(&code(&b2, None));
-        }
-        for run in export_runs(d.exports) {
-            out.put(&code(&b1, Some(run)));
-        }
-        data.extend(out.finish());
-        states = Vec::new();
+    let (body, states) = if d.huffman {
+        (refagg_huffman_body(d, &known, &heights_of, &template), Vec::new())
     } else {
-        let bits = code_length(total);
-        let [heights, widths, exports, counts, time, first, delta, flag, rdw, rdh, rdx, rdy] =
-            [0usize, 512, 1024, 1536, 2048, 2560, 3072, 4096, 4608, 5120, 5632, 6144];
-        let ids = 6656usize;
-        let refinement = ids + (2usize << bits);
-        let size = 1usize << template.0.len() + template.1.len();
-        let mut coder = MqEncoder::new(refinement + size, &[]);
-        if let Some(states) = contexts {
-            coder.load_states(refinement, states);
-        }
-        let (mut class_height, mut index) = (0usize, 0);
-        while index < d.new.len() {
-            let height = heights_of[index];
-            encode_integer(&mut coder, heights, Some((height - class_height) as i64));
-            class_height = height;
-            let mut width = 0i64;
-            while index < d.new.len() && heights_of[index] == height {
-                let bitmap = &known[d.inputs.len() + index];
-                encode_integer(&mut coder, widths, Some(bitmap[0].len() as i64 - width));
-                width = bitmap[0].len() as i64;
-                match &d.new[index] {
-                    New::Refine { from, bitmap } => {
-                        encode_integer(&mut coder, counts, Some(1));
-                        iaid(&mut coder, ids, bits, *from);
-                        encode_integer(&mut coder, rdx, Some(0));
-                        encode_integer(&mut coder, rdy, Some(0));
-                        encode_shifted(&mut coder, refinement, bitmap, &known[*from], (0, 0), &template);
-                    }
-                    New::Aggregate { parts, .. } => {
-                        encode_integer(&mut coder, counts, Some(parts.len() as i64));
-                        encode_integer(&mut coder, time, Some(0));
-                        encode_integer(&mut coder, time, Some(0));
-                        let mut cursor = 0;
-                        for (k, &(id, x)) in parts.iter().enumerate() {
-                            if k == 0 {
-                                encode_integer(&mut coder, first, Some(x));
-                            } else {
-                                encode_integer(&mut coder, delta, Some(x - cursor));
-                            }
-                            iaid(&mut coder, ids, bits, id);
-                            encode_integer(&mut coder, flag, Some(0));
-                            cursor = x + known[id][0].len() as i64 - 1;
-                        }
-                        encode_integer(&mut coder, delta, None);
-                    }
-                }
-                index += 1;
-            }
-            encode_integer(&mut coder, widths, None);
-        }
-        let _ = (rdw, rdh);
-        for run in export_runs(d.exports) {
-            encode_integer(&mut coder, exports, Some(run));
-        }
-        states = coder.states()[refinement..].to_vec();
-        data.extend(coder.finish(true));
-    }
+        refagg_arithmetic_body(d, &known, &heights_of, &template, contexts)
+    };
+    data.extend(body);
     (segment_many(d.number, 0, d.referred, &data), states, exported)
+}
+
+type Bitmaps = Vec<Vec<Vec<u8>>>;
+
+/// The class and symbol codes of the new symbols of a Huffman coded refinement/aggregate dictionary, then the export runs.
+fn refagg_huffman_body(d: &Refagg, known: &Bitmaps, heights_of: &[usize], template: &RefinementTemplate) -> Vec<u8> {
+    let total = d.inputs.len() + d.new.len();
+    let code_len = (1..).find(|&n| (1usize << n) >= total).unwrap();
+    let id_codes: Vec<String> = (0..total).map(|id| format!("{id:0code_len$b}")).collect();
+    let (b4, b2, b1, b15) = (standard(0, B4, false), standard(0, B2, true), standard(0, B1, false), standard(1, B15, false));
+    let tables = Tables::standard(0, 0, 0, 1);
+    let counts = d.agg.cloned().unwrap_or_else(|| standard(0, B1, false));
+    let mut out = BitOut::default();
+    let mut refinement = MqEncoder::new(1 << 13, &[]);
+    let (mut class_height, mut index) = (0usize, 0);
+    while index < d.new.len() {
+        let height = heights_of[index];
+        out.put(&code(&b4, Some((height - class_height) as i64)));
+        class_height = height;
+        let mut width = 0i64;
+        while index < d.new.len() && heights_of[index] == height {
+            let bitmap = &known[d.inputs.len() + index];
+            out.put(&code(&b2, Some(bitmap[0].len() as i64 - width)));
+            width = bitmap[0].len() as i64;
+            match &d.new[index] {
+                New::Refine { from, bitmap } => {
+                    out.put(&code(&counts, Some(1)));
+                    out.put(&id_codes[*from]);
+                    out.put(&code(&b15, Some(0)));
+                    out.put(&code(&b15, Some(0)));
+                    encode_shifted(&mut refinement, 0, bitmap, &known[*from], (0, 0), &template);
+                    let bytes = refinement.terminate_jbig2();
+                    out.put(&code(&b1, Some(bytes.len() as i64)));
+                    out.align();
+                    out.bytes.extend(bytes);
+                }
+                New::Aggregate { parts, width, height } => {
+                    out.put(&code(&counts, Some(parts.len() as i64)));
+                    let text = Text { refine: true, r_template: d.r_template, ..Text::new(*width, *height) };
+                    let instances: Vec<Instance> = parts.iter().map(|&(id, x)| at(id, x, 0)).collect();
+                    let seen = &known[..d.inputs.len() + index];
+                    huffman_strips(&mut out, &text, seen, &instances, &id_codes, &tables, &mut refinement);
+                }
+            }
+            index += 1;
+        }
+        out.put(&code(&b2, None));
+    }
+    for run in export_runs(d.exports) {
+        out.put(&code(&b1, Some(run)));
+    }
+    out.finish()
+}
+
+/// The class and symbol codes of the new symbols of an arithmetic coded refinement/aggregate dictionary, the export
+/// runs, and the states of the refinement contexts at the end.
+fn refagg_arithmetic_body(
+    d: &Refagg,
+    known: &Bitmaps,
+    heights_of: &[usize],
+    template: &RefinementTemplate,
+    contexts: Option<&[(usize, u8)]>,
+) -> (Vec<u8>, Vec<(usize, u8)>) {
+    let total = d.inputs.len() + d.new.len();
+    let bits = code_length(total);
+    let [heights, widths, exports, counts, time, first, delta, flag, rdw, rdh, rdx, rdy] =
+        [0usize, 512, 1024, 1536, 2048, 2560, 3072, 4096, 4608, 5120, 5632, 6144];
+    let ids = 6656usize;
+    let refinement = ids + (2usize << bits);
+    let size = 1usize << template.0.len() + template.1.len();
+    let mut coder = MqEncoder::new(refinement + size, &[]);
+    if let Some(states) = contexts {
+        coder.load_states(refinement, states);
+    }
+    let (mut class_height, mut index) = (0usize, 0);
+    while index < d.new.len() {
+        let height = heights_of[index];
+        encode_integer(&mut coder, heights, Some((height - class_height) as i64));
+        class_height = height;
+        let mut width = 0i64;
+        while index < d.new.len() && heights_of[index] == height {
+            let bitmap = &known[d.inputs.len() + index];
+            encode_integer(&mut coder, widths, Some(bitmap[0].len() as i64 - width));
+            width = bitmap[0].len() as i64;
+            match &d.new[index] {
+                New::Refine { from, bitmap } => {
+                    encode_integer(&mut coder, counts, Some(1));
+                    iaid(&mut coder, ids, bits, *from);
+                    encode_integer(&mut coder, rdx, Some(0));
+                    encode_integer(&mut coder, rdy, Some(0));
+                    encode_shifted(&mut coder, refinement, bitmap, &known[*from], (0, 0), &template);
+                }
+                New::Aggregate { parts, .. } => {
+                    encode_integer(&mut coder, counts, Some(parts.len() as i64));
+                    encode_integer(&mut coder, time, Some(0));
+                    encode_integer(&mut coder, time, Some(0));
+                    let mut cursor = 0;
+                    for (k, &(id, x)) in parts.iter().enumerate() {
+                        if k == 0 {
+                            encode_integer(&mut coder, first, Some(x));
+                        } else {
+                            encode_integer(&mut coder, delta, Some(x - cursor));
+                        }
+                        iaid(&mut coder, ids, bits, id);
+                        encode_integer(&mut coder, flag, Some(0));
+                        cursor = x + known[id][0].len() as i64 - 1;
+                    }
+                    encode_integer(&mut coder, delta, None);
+                }
+            }
+            index += 1;
+        }
+        encode_integer(&mut coder, widths, None);
+    }
+    let _ = (rdw, rdh);
+    for run in export_runs(d.exports) {
+        encode_integer(&mut coder, exports, Some(run));
+    }
+    let states = coder.states()[refinement..].to_vec();
+    (coder.finish(true), states)
 }
 
 /// The default adaptive pixels of generic template 0, as the bytes a segment carries.

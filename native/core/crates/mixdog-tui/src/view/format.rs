@@ -1,9 +1,3 @@
-//! The pure formatting helpers of the application shell (`src/tui/app/app-format.mjs`): the centred lines of the welcome
-//! banner, the tool approval text, the starter tips of the welcome screen and the provider-setup test behind the "no
-//! provider" tip. The provider row labels, the session labels and the workflow notices of the same Node module live with
-//! their pickers ([`crate::pickers`], [`crate::slash::notices`]); the hint colour of a tone is
-//! [`mixdog_tui_widgets::hint_overprint::prompt_status_key`].
-
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
 

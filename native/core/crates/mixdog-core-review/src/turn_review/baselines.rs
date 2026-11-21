@@ -447,6 +447,59 @@ fn touch(state: &mut State, at: f64, side: &Side, touched: &mut bool) {
     }
 }
 
+/// Redundant sides of `op` no baseline or missing entry knows: recorded as missing. `true` when any was.
+fn note_missing(state: &mut State, op: &Op, at: f64) -> bool {
+    let mut changed = false;
+    for change in &op.changes {
+        if !change.redundant || state.files.contains_key(&change.source.key) || state.missing.contains_key(&change.source.key) {
+            continue;
+        }
+        let Side { key, path, root } = change.source.clone();
+        if state.missing.len() < MAX_FILES_PER_SESSION {
+            state.missing.insert(key.clone(), Missing { key, path, root, at: Some(at) });
+        }
+        state.inc.mark(at);
+        changed = true;
+    }
+    changed
+}
+
+/// First seen wins; returns the entry it stored.
+fn add_first_seen(
+    state: &mut State,
+    at: f64,
+    side: &Side,
+    make: &mut dyn FnMut(&mut State) -> Made,
+    writes: &mut IndexMap<String, Vec<u8>>,
+    dirty: &mut bool,
+    touched: &mut bool,
+) -> Option<Entry> {
+    let existing = state.files.get(&side.key).cloned();
+    if let Some(existing) = &existing
+        && at.partial_cmp(&existing.at) != Some(std::cmp::Ordering::Less)
+    {
+        touch(state, at, side, touched);
+        return None;
+    }
+    if existing.is_none() && state.files.len() >= MAX_FILES_PER_SESSION {
+        *dirty |= !state.inc.flag || at > state.inc.at;
+        state.inc.mark(at);
+        return None;
+    }
+    let made = make(state);
+    let latest = existing.as_ref().map_or(0.0, |e| e.touched.unwrap_or(0.0).max(e.at));
+    let mut entry = made.entry;
+    if latest > entry.at {
+        entry.touched = Some(latest);
+    }
+    state.files.insert(side.key.clone(), entry.clone());
+    if let (Some(bytes), Some(blob)) = (made.bytes, &entry.blob) {
+        writes.insert(blob.clone(), bytes);
+    }
+    *dirty = true;
+    Some(entry)
+}
+
 /// Fold one capture batch into the state. `None` when nothing changed, else the blobs to write
 /// and the capture reduced to what can still become a baseline.
 fn apply_capture(state: &mut State, op: &Op, blobs: Option<&IndexMap<String, Vec<u8>>>, next_id: &mut u64) -> Option<Applied> {
@@ -463,39 +516,6 @@ fn apply_capture(state: &mut State, op: &Op, blobs: Option<&IndexMap<String, Vec
     let mut touched = false;
     let mut kept: Vec<SideChange> = Vec::new();
     let mut events: Vec<Event> = Vec::new();
-    // `add`: first seen wins; returns the entry it stored.
-    let add = |state: &mut State,
-               side: &Side,
-               make: &mut dyn FnMut(&mut State) -> Made,
-               writes: &mut IndexMap<String, Vec<u8>>,
-               dirty: &mut bool,
-               touched: &mut bool|
-     -> Option<Entry> {
-        let existing = state.files.get(&side.key).cloned();
-        if let Some(existing) = &existing
-            && at.partial_cmp(&existing.at) != Some(std::cmp::Ordering::Less)
-        {
-            touch(state, at, side, touched);
-            return None;
-        }
-        if existing.is_none() && state.files.len() >= MAX_FILES_PER_SESSION {
-            *dirty |= !state.inc.flag || at > state.inc.at;
-            state.inc.mark(at);
-            return None;
-        }
-        let made = make(state);
-        let latest = existing.as_ref().map_or(0.0, |e| e.touched.unwrap_or(0.0).max(e.at));
-        let mut entry = made.entry;
-        if latest > entry.at {
-            entry.touched = Some(latest);
-        }
-        state.files.insert(side.key.clone(), entry.clone());
-        if let (Some(bytes), Some(blob)) = (made.bytes, &entry.blob) {
-            writes.insert(blob.clone(), bytes);
-        }
-        *dirty = true;
-        Some(entry)
-    };
     for change in &op.changes {
         if change.redundant {
             touch(state, at, &change.source, &mut touched);
@@ -504,8 +524,9 @@ fn apply_capture(state: &mut State, op: &Op, blobs: Option<&IndexMap<String, Vec
             None
         } else {
             let change_ref = change;
-            add(
+            add_first_seen(
                 state,
+                at,
                 &change.source,
                 &mut |state: &mut State| match &change_ref.entry {
                     None => baseline_entry(&change_ref.source, &change_ref.before, at),
@@ -538,21 +559,13 @@ fn apply_capture(state: &mut State, op: &Op, blobs: Option<&IndexMap<String, Vec
         });
         if let Some(destination) = &change.destination {
             let dest = destination.clone();
-            add(state, destination, &mut |_| baseline_entry(&dest, &ReviewContent::Absent, at), &mut writes, &mut dirty, &mut touched);
+            add_first_seen(state, at, destination, &mut |_| baseline_entry(&dest, &ReviewContent::Absent, at), &mut writes, &mut dirty, &mut touched);
             events.push(Event { at, key: change.source.key.clone(), to: Some(destination.key.clone()) });
         } else if change.replaced {
             events.push(Event { at, key: change.source.key.clone(), to: None });
         }
     }
-    for change in &op.changes {
-        if !change.redundant || state.files.contains_key(&change.source.key) || state.missing.contains_key(&change.source.key) {
-            continue;
-        }
-        let Side { key, path, root } = change.source.clone();
-        if state.missing.len() < MAX_FILES_PER_SESSION {
-            state.missing.insert(key.clone(), Missing { key, path, root, at: Some(at) });
-        }
-        state.inc.mark(at);
+    if note_missing(state, op, at) {
         dirty = true;
     }
     if place_rename_events(state, at, events) {
@@ -564,27 +577,31 @@ fn apply_capture(state: &mut State, op: &Op, blobs: Option<&IndexMap<String, Vec
         if (state.pending.is_empty() && !touched) || kept.is_empty() {
             return None;
         }
-        let mut new_op = Op { id, at, changes: kept };
-        let keys: Vec<String> = new_op.changes.iter().map(|c| c.source.key.clone()).collect();
-        for key in keys {
-            if let Some(prior_id) = state.held_redundant.get(&key).copied() {
-                if prior_id == id {
-                    new_op.changes.retain(|held| held.source.key != key);
-                } else if let Some(index) = state.pending.iter().position(|p| p.id == prior_id) {
-                    state.pending[index].changes.retain(|held| held.source.key != key);
-                    if state.pending[index].changes.is_empty() {
-                        state.pending.remove(index);
-                    }
-                }
-            }
-            state.held_redundant.insert(key, id);
-        }
-        return Some(Applied { writes, op: new_op });
+        return Some(Applied { writes, op: hold_redundant(state, Op { id, at, changes: kept }) });
     }
     if state.created_at == 0.0 {
         state.created_at = at;
     }
     Some(Applied { writes, op: Op { id, at, changes: kept } })
+}
+
+/// A batch that only touched known files: each of its keys moves to this op, leaving the op that held it before.
+fn hold_redundant(state: &mut State, mut op: Op) -> Op {
+    let keys: Vec<String> = op.changes.iter().map(|c| c.source.key.clone()).collect();
+    for key in keys {
+        if let Some(prior_id) = state.held_redundant.get(&key).copied() {
+            if prior_id == op.id {
+                op.changes.retain(|held| held.source.key != key);
+            } else if let Some(index) = state.pending.iter().position(|p| p.id == prior_id) {
+                state.pending[index].changes.retain(|held| held.source.key != key);
+                if state.pending[index].changes.is_empty() {
+                    state.pending.remove(index);
+                }
+            }
+        }
+        state.held_redundant.insert(key, op.id);
+    }
+    op
 }
 
 fn hold_capture(state: &mut State, applied: Option<Applied>) {
@@ -648,6 +665,11 @@ fn read_state(fs: &dyn ReadFs, path: &Path, session_id: &str) -> State {
         state.inc.flag = true;
         return state;
     };
+    fill_from_index(&mut state, &parsed);
+    state
+}
+
+fn fill_from_index(state: &mut State, parsed: &Value) {
     state.inc.flag = parsed.get("incomplete") == Some(&Value::Bool(true));
     state.created_at = num(parsed.get("createdAt"));
     state.inc.at = num(parsed.get("incompleteAt"));
@@ -683,9 +705,8 @@ fn read_state(fs: &dyn ReadFs, path: &Path, session_id: &str) -> State {
         }
     }
     state.events.sort_by(|a, b| a.at.partial_cmp(&b.at).unwrap_or(std::cmp::Ordering::Equal));
-    state.renames = refold(&mut state);
-    compact_events(&mut state);
-    state
+    state.renames = refold(state);
+    compact_events(state);
 }
 
 fn write_index(fs: &dyn BlockingFs, path: &Path, state: &mut State, now: f64) -> std::io::Result<()> {

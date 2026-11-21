@@ -7,12 +7,6 @@
 //! not keep, 1 none, 2 by the ids of `compaction_dropped`, run through `ArchivedRows` over
 //! the row's facets. A row is archived when every part it stands for was taken out by some
 //! compaction.
-//!
-//! The divider of a compaction sits where the compaction happened: at its own record, in
-//! its own session's rows. (1.4.5 put it before the oldest row the replacement kept, which
-//! is where its stored view began the live rows. A compaction keeps the user's requests
-//! from anywhere in the conversation, so that place could be far above the stretch that was
-//! summarized, and it was not where the live view showed the same divider.)
 #![allow(clippy::disallowed_types, reason = "mixdog-store::archive_index reads the sqlite projection")]
 
 use std::collections::{HashMap, HashSet};
@@ -89,14 +83,9 @@ impl<'a> Compactions<'a> {
         Ok(self.levels[j].as_deref().unwrap_or_default())
     }
 
-    /// The verdict for the model message row `iid` at `ordinal` of lineage level `level`.
-    pub fn verdict(&mut self, level: usize, ordinal: u64, iid: &str, facets: &Facets) -> rusqlite::Result<Verdict> {
-        let parts = facets.rows(iid);
-        let mut text = false;
-        let mut calls = vec![false; parts.calls.len()];
-        let mut everything = false;
-        let mut ids: Vec<Compaction> = Vec::new();
-        let mut all: Vec<Compaction> = Vec::new();
+    /// The compactions that apply to a row at `ordinal` of `level`, split by how they decide: `(drop_mode All, drop_mode Ids)`.
+    fn later_than(&mut self, level: usize, ordinal: u64) -> rusqlite::Result<(Vec<Compaction>, Vec<Compaction>)> {
+        let (mut all, mut ids) = (Vec::new(), Vec::new());
         for j in 0..=level {
             for comp in self.level(j)? {
                 if j == level && comp.ordinal <= ordinal {
@@ -109,8 +98,45 @@ impl<'a> Compactions<'a> {
                 }
             }
         }
-        // Every row before the compaction (all of these are) that its replacement did not
-        // keep: a kept row stays live.
+        Ok((all, ids))
+    }
+
+    /// Per `(lineage level, compaction ordinal)` of `ids`: the message and call ids of the row `iid` that compaction dropped.
+    fn dropped_by_ids(&self, ids: &[Compaction], iid: &str, facets: &Facets, has_text: bool) -> rusqlite::Result<HashMap<(usize, u64), IdSets>> {
+        let iid = facets.id_of(iid);
+        let call_ids: Vec<&str> = facets.calls.iter().map(String::as_str).collect();
+        let call_json = serde_json::to_string(&call_ids).expect("strings serialize");
+        let mut hits: HashMap<(usize, u64), IdSets> = HashMap::new();
+        let sessions: HashSet<usize> = ids.iter().map(|c| c.session_level).collect();
+        for j in sessions {
+            let session = &self.lineage[j].session;
+            if has_text {
+                let mut stmt = self.c.prepare_cached("SELECT ordinal FROM compaction_dropped WHERE session = ?1 AND kind = 0 AND id = ?2")?;
+                for o in stmt.query_map(params![session, iid], |r| r.get::<_, i64>(0))? {
+                    hits.entry((j, o? as u64)).or_default().messages.insert(iid.to_owned());
+                }
+            }
+            if !call_ids.is_empty() {
+                let mut stmt = self.c.prepare_cached(
+                    "SELECT id, ordinal FROM compaction_dropped WHERE session = ?1 AND kind = 1
+                     AND id IN (SELECT value FROM json_each(?2))",
+                )?;
+                for hit in stmt.query_map(params![session, call_json], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+                    let (id, o) = hit?;
+                    hits.entry((j, o as u64)).or_default().calls.insert(id);
+                }
+            }
+        }
+        Ok(hits)
+    }
+
+    /// The verdict for the model message row `iid` at `ordinal` of lineage level `level`.
+    pub fn verdict(&mut self, level: usize, ordinal: u64, iid: &str, facets: &Facets) -> rusqlite::Result<Verdict> {
+        let parts = facets.rows(iid);
+        let mut text = false;
+        let mut calls = vec![false; parts.calls.len()];
+        let mut everything = false;
+        let (all, ids) = self.later_than(level, ordinal)?;
         for comp in all {
             let clamp = |v: u64| v.min(i64::MAX as u64) as i64;
             let kept: bool =
@@ -121,31 +147,7 @@ impl<'a> Compactions<'a> {
             text = parts.text.is_some();
             calls.iter_mut().for_each(|d| *d = true);
         } else if !ids.is_empty() {
-            let iid = facets.id_of(iid);
-            let call_ids: Vec<&str> = facets.calls.iter().map(String::as_str).collect();
-            let call_json = serde_json::to_string(&call_ids).expect("strings serialize");
-            // Per session of the lineage: the compactions whose ids hold a part of this row.
-            let mut hits: HashMap<(usize, u64), IdSets> = HashMap::new();
-            let sessions: HashSet<usize> = ids.iter().map(|c| c.session_level).collect();
-            for j in sessions {
-                let session = &self.lineage[j].session;
-                if parts.text.is_some() {
-                    let mut stmt = self.c.prepare_cached("SELECT ordinal FROM compaction_dropped WHERE session = ?1 AND kind = 0 AND id = ?2")?;
-                    for o in stmt.query_map(params![session, iid], |r| r.get::<_, i64>(0))? {
-                        hits.entry((j, o? as u64)).or_default().messages.insert(iid.to_owned());
-                    }
-                }
-                if !call_ids.is_empty() {
-                    let mut stmt = self.c.prepare_cached(
-                        "SELECT id, ordinal FROM compaction_dropped WHERE session = ?1 AND kind = 1
-                         AND id IN (SELECT value FROM json_each(?2))",
-                    )?;
-                    for hit in stmt.query_map(params![session, call_json], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
-                        let (id, o) = hit?;
-                        hits.entry((j, o as u64)).or_default().calls.insert(id);
-                    }
-                }
-            }
+            let hits = self.dropped_by_ids(&ids, iid, facets, parts.text.is_some())?;
             for comp in &ids {
                 let Some(sets) = hits.get(&(comp.session_level, comp.ordinal)) else { continue };
                 let rows = |row: &ArchiveRow| ArchivedRows::new(Dropped::Ids(sets.clone())).archived(row);

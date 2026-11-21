@@ -44,10 +44,6 @@ pub(crate) fn has_signed_thinking(message: &AgentMessage) -> bool {
             || message.message.provider_replay().iter().any(|r| has_thinking(Some(&r.items))))
 }
 
-/// A replay-free copy of one assistant message, or `None` when it carries
-/// nothing the API could have objected to. Only thinking and empty text blocks
-/// are removed; every other recorded form (another provider's envelope,
-/// Gemini metadata) stays as it was.
 pub(crate) fn without_thinking_replay(message: &AgentMessage) -> Option<AgentMessage> {
     if message.role() != Role::Assistant {
         return None;
@@ -116,12 +112,6 @@ fn open_round(messages: &[AgentMessage]) -> Option<(usize, usize)> {
     Some((start, latest))
 }
 
-/// After a rewrite of `original` into `messages` (the request that is sent
-/// next): signed thinking is kept only before the first difference on the
-/// wire, where the prefix it was signed over is unchanged. The trailing tool
-/// round is ended when it lost thinking here, or when a signed step of the
-/// original's open round is not kept unchanged (omitted or rewritten by an
-/// earlier edit). `true` when a turn changed.
 pub(crate) fn rebind_thinking(original: &[AgentMessage], messages: &mut Vec<AgentMessage>) -> bool {
     let from = messages.iter().zip(original).position(|(kept, was)| visible(kept) != visible(was)).unwrap_or(messages.len().min(original.len()));
     // Up to `from` the result is the original message for message; a signed step from there on is gone or changed.
@@ -129,23 +119,11 @@ pub(crate) fn rebind_thinking(original: &[AgentMessage], messages: &mut Vec<Agen
     drop_stale_thinking(messages, from, round_lost, false)
 }
 
-/// Repairs a transcript whose request the provider refused over its reasoning
-/// replay, in place: signed thinking goes from the newest compaction marker on,
-/// or from the whole transcript when there is none, and an open tool round is
-/// always ended (the rejection's own index can point past the transcript row
-/// it concerns, so the thinking a round would continue from is not trusted).
-/// `true` when a turn changed.
 pub(crate) fn repair_rejected_thinking(messages: &mut Vec<AgentMessage>) -> bool {
     let from = messages.iter().rposition(|m| matches!(m.source, Some(Source::CompactExecutionRecovery | Source::CompactSummary))).unwrap_or(0);
     drop_stale_thinking(messages, from, true, true)
 }
 
-/// Drops the signed thinking of every assistant turn from `from` on, in place:
-/// those turns follow a prefix that was rewritten, which the signatures are
-/// bound to. A turn before `from` keeps its blocks. The trailing tool round is
-/// ended (see [`end_open_round`]) when it lost thinking here or `end_round`.
-/// `repair`: a send is in progress, so empty text blocks go too and the ended
-/// round is continued by a user turn. `true` when a turn changed.
 pub(crate) fn drop_stale_thinking(messages: &mut Vec<AgentMessage>, from: usize, end_round: bool, repair: bool) -> bool {
     let mut stripped = Vec::new();
     let mut changed = false;
@@ -166,13 +144,6 @@ pub(crate) fn drop_stale_thinking(messages: &mut Vec<AgentMessage>, from: usize,
     changed || ended
 }
 
-/// A tool round whose thinking was dropped can no longer be continued: the
-/// API wants the final turn of a round to start with its thinking. It is ended
-/// by a context ack after its last tool result, so the next request opens a
-/// new turn. `continue_round`: nothing follows the round yet (a send in
-/// progress), so the user's continuation closes the new turn as well, since a
-/// request must not end on an assistant turn. The round is ended when `force`,
-/// or when one of the `stripped` turns is in it. `true` when it was ended.
 pub(crate) fn end_open_round(messages: &mut Vec<AgentMessage>, force: bool, stripped: &[usize], continue_round: bool) -> bool {
     let Some((start, latest)) = open_round(messages) else {
         return false;

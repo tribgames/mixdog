@@ -155,6 +155,31 @@ const POLL: Duration = Duration::from_millis(2);
 /// How long the stdout reader may take to finish once the child is gone.
 const DRAIN: Duration = Duration::from_millis(500);
 
+/// Reads `pipe` on its own thread; the data is sent when the pipe ends, or once it passes `limit`, which raises `overflow`.
+fn capture_stdout(mut pipe: std::process::ChildStdout, limit: Option<usize>, overflow: Arc<AtomicBool>) -> mpsc::Receiver<Vec<u8>> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let mut data = Vec::new();
+        let mut chunk = [0u8; 8192];
+        loop {
+            match pipe.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(count) => {
+                    data.extend_from_slice(&chunk[..count]);
+                    if limit.is_some_and(|limit| data.len() > limit) {
+                        overflow.store(true, Ordering::SeqCst);
+                        break;
+                    }
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+        let _ = sender.send(data);
+    });
+    receiver
+}
+
 impl Runner for SystemRunner {
     fn run(&self, command: &HelperCommand) -> Outcome {
         let mut process = std::process::Command::new(&command.program);
@@ -178,31 +203,7 @@ impl Runner for SystemRunner {
             });
         }
         let overflow = Arc::new(AtomicBool::new(false));
-        let reader = child.stdout.take().map(|mut pipe| {
-            let (sender, receiver) = mpsc::channel();
-            let flag = Arc::clone(&overflow);
-            let limit = command.max_stdout;
-            thread::spawn(move || {
-                let mut data = Vec::new();
-                let mut chunk = [0u8; 8192];
-                loop {
-                    match pipe.read(&mut chunk) {
-                        Ok(0) => break,
-                        Ok(count) => {
-                            data.extend_from_slice(&chunk[..count]);
-                            if limit.is_some_and(|limit| data.len() > limit) {
-                                flag.store(true, Ordering::SeqCst);
-                                break;
-                            }
-                        }
-                        Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-                        Err(_) => break,
-                    }
-                }
-                let _ = sender.send(data);
-            });
-            receiver
-        });
+        let reader = child.stdout.take().map(|pipe| capture_stdout(pipe, command.max_stdout, Arc::clone(&overflow)));
         let started = Instant::now();
         let status = loop {
             match child.try_wait() {

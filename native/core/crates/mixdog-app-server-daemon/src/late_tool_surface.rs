@@ -1,13 +1,3 @@
-//! The tool surface the MCP side reads (`DaemonMcpSurface.surface`) before the session directory
-//! exists.
-//!
-//! `mcp_services` builds the MCP surface with the pool, and the surface answers `tool_names` from
-//! `ToolSurfaceStatus::surface(None)` (`getTools()`), whose production form is
-//! `SessionToolStatus::new(SessionThreads::new(directory), host)`: a true cycle through the
-//! directory, as for `LateSetupUi`. The cell is bound once, right after `TurnPath::new`, and the
-//! composition verifies it before the listener accepts. `tool_names` is asked by a client's
-//! skills or MCP call, so none reads it earlier; unbound it is the capability error.
-
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;

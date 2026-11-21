@@ -186,21 +186,27 @@ impl Tier1 {
             }
         }
 
-        if roi_shift > 0 {
-            if roi_shift >= 31 {
-                self.data.fill(0);
-            } else {
-                let thresh = 1i32 << roi_shift;
-                for v in &mut self.data {
-                    let mag = v.abs();
-                    if mag >= thresh {
-                        let m = mag >> roi_shift;
-                        *v = if *v < 0 { -m } else { m };
-                    }
-                }
+        self.undo_roi_shift(roi_shift);
+        Ok(&self.data)
+    }
+
+    /// Scales the samples of the region of interest back down by `roi_shift` bits.
+    fn undo_roi_shift(&mut self, roi_shift: u8) {
+        if roi_shift == 0 {
+            return;
+        }
+        if roi_shift >= 31 {
+            self.data.fill(0);
+            return;
+        }
+        let thresh = 1i32 << roi_shift;
+        for v in &mut self.data {
+            let mag = v.abs();
+            if mag >= thresh {
+                let m = mag >> roi_shift;
+                *v = if *v < 0 { -m } else { m };
             }
         }
-        Ok(&self.data)
     }
 
     // ---- MQ and raw decoding ------------------------------------------------------------------------------------

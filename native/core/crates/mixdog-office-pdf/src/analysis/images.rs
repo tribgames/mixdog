@@ -76,12 +76,32 @@ fn png_of(image: &ImageData) -> Result<Option<Vec<u8>>, AnalysisError> {
         .map_err(|error| AnalysisError::plain(error.message()))
 }
 
+/// The pixels of a painted image. A failure of the reader on one image leaves it out, as pdf.js hands the page an empty
+/// object for it; only a fatal one ends the extraction.
+fn decode_painted_image(document: &Document, resources: &Dict, op: &Op) -> Result<Option<ImageData>, AnalysisError> {
+    let xref = document.xref();
+    let decoded = match op {
+        Op::PaintInlineImage(small) => image::decode_small_inline_image(xref, Some(resources), &small.source),
+        Op::PaintImage(reference) => {
+            // A large inline image is painted as an image XObject; it names its colour space in the resources,
+            // and has no object number of its own.
+            let inline = reference.source.dict.obj_id.is_none();
+            image::decode_image(xref, if inline { Some(resources) } else { None }, &reference.source, inline)
+        }
+        _ => return Ok(None),
+    };
+    match decoded {
+        Ok(decoded) => Ok(Some(decoded)),
+        Err(error) if error.is_fatal() => Err(AnalysisError::from_pdf_or_cancelled(&error, CANCELLED)),
+        Err(_) => Ok(None),
+    }
+}
+
 fn collect_page_images(document: &Document, page: &Page, number: usize, images: &mut Vec<ExtractedImage>) -> Result<(), AnalysisError> {
     let reader = |error: PdfError| AnalysisError::from_pdf_or_cancelled(&error, CANCELLED);
     let list = oplist::get_operator_list(document, page, None).map_err(reader)?;
     let viewport = page.viewport(1.0);
     let resources = page.resources(document).map_err(reader)?;
-    let xref = document.xref();
     let mut seen: HashMap<String, usize> = HashMap::new();
     for (index, (ctm, op)) in list.with_transforms().into_iter().enumerate() {
         let key = match op {
@@ -93,22 +113,8 @@ fn collect_page_images(document: &Document, page: &Page, number: usize, images: 
             images[*at].placements += 1;
             continue;
         }
-        // A failure of the reader on one image leaves it out, as pdf.js hands the page an empty object for it.
-        let decoded = match op {
-            Op::PaintInlineImage(small) => image::decode_small_inline_image(xref, Some(&*resources), &small.source),
-            Op::PaintImage(reference) => {
-                // A large inline image is painted as an image XObject; it names its colour space in the resources,
-                // and has no object number of its own.
-                let inline = reference.source.dict.obj_id.is_none();
-                let resources: Option<&Dict> = if inline { Some(&*resources) } else { None };
-                image::decode_image(xref, resources, &reference.source, inline)
-            }
-            _ => continue,
-        };
-        let decoded = match decoded {
-            Ok(decoded) => decoded,
-            Err(error) if error.is_fatal() => return Err(reader(error)),
-            Err(_) => continue,
+        let Some(decoded) = decode_painted_image(document, &resources, &op)? else {
+            continue;
         };
         let Some(png) = png_of(&decoded)? else {
             continue;

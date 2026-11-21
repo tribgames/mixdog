@@ -67,20 +67,17 @@ fn upgrade_and_build(path: &Path, expect: Prepared) -> Connection {
     conn
 }
 
-/// A v3 ledger whose routes differ only by the 1-hour cache-write count in their rates becomes one route per real
-/// route: the counts move to `usage_event_cache_1h`, the day sums follow the records, and a record appended after
-/// lands on the merged route.
-#[test]
-fn v3_routes_split_by_the_1h_count_merge_into_one() {
+fn v3_route(tokens: Option<u32>) -> String {
+    let rates = match tokens {
+        Some(t) => format!(r#"{{"pricingModel":"m","cacheWrite1hTokens":{t},"inputCostPerM":8}}"#),
+        None => r#"{"pricingModel":"m","inputCostPerM":8}"#.to_owned(),
+    };
+    mixdog_js::json_stringify(&serde_json::json!(["p", "m", "oauth", "lead", "subscription", rates, "live", 0]))
+}
+
+fn v3_ledger_with_split_routes() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ledger.sqlite");
-    let route = |tokens: Option<u32>| {
-        let rates = match tokens {
-            Some(t) => format!(r#"{{"pricingModel":"m","cacheWrite1hTokens":{t},"inputCostPerM":8}}"#),
-            None => r#"{"pricingModel":"m","inputCostPerM":8}"#.to_owned(),
-        };
-        mixdog_js::json_stringify(&serde_json::json!(["p", "m", "oauth", "lead", "subscription", rates, "live", 0]))
-    };
     {
         let mut conn = Connection::open(&path).unwrap();
         for script in mixdog_store::schema::sql::LEDGER_NEW_SCRIPTS {
@@ -90,7 +87,7 @@ fn v3_routes_split_by_the_1h_count_merge_into_one() {
         conn.execute("INSERT INTO usage_sessions(value) VALUES ('a'),('b')", []).unwrap();
         // Routes 1..=3 carry counts 100, 200, 300; route 4 has none (the merged one already exists).
         for tokens in [Some(100), Some(200), Some(300), None] {
-            conn.execute("INSERT INTO usage_routes(signature) VALUES (?1)", [route(tokens)]).unwrap();
+            conn.execute("INSERT INTO usage_routes(signature) VALUES (?1)", [v3_route(tokens)]).unwrap();
         }
         for i in 0..8u8 {
             conn.execute(
@@ -102,13 +99,21 @@ fn v3_routes_split_by_the_1h_count_merge_into_one() {
         while !build_sums_step(&mut conn, 200).unwrap() {}
         assert_sums_match_events(&conn);
     }
+    (dir, path)
+}
+
+/// A v3 ledger whose routes differ only by the 1-hour cache-write count in their rates becomes one route per real
+/// route: the counts move to `usage_event_cache_1h` and the day sums follow the records.
+#[test]
+fn v3_routes_split_by_the_1h_count_merge_into_one() {
+    let (_dir, path) = v3_ledger_with_split_routes();
     let mut conn = Connection::open(&path).unwrap();
     assert_eq!(prepare(&mut conn).unwrap(), Prepared::UpgradedV3);
     assert_eq!(classify(&conn).unwrap(), LedgerState::Current);
     assert_eq!(counts(&conn), (20, 7, 1, 32));
     let routes: Vec<String> =
         conn.prepare("SELECT signature FROM usage_routes").unwrap().query_map([], |r| r.get(0)).unwrap().collect::<Result<_, _>>().unwrap();
-    assert_eq!(routes, vec![route(None)]);
+    assert_eq!(routes, vec![v3_route(None)]);
     let events: i64 = conn.query_row("SELECT COUNT(*) FROM usage_events WHERE route=4", [], |r| r.get(0)).unwrap();
     assert_eq!(events, 8);
     let counts_1h: Vec<f64> =
@@ -116,6 +121,13 @@ fn v3_routes_split_by_the_1h_count_merge_into_one() {
     // Events 0..8 used routes 1,2,3,4,1,2,3,4: the six on routes 1-3 keep their counts.
     assert_eq!(counts_1h, vec![100.0, 200.0, 300.0, 100.0, 200.0, 300.0]);
     assert_sums_match_events(&conn);
+}
+
+#[test]
+fn a_record_appended_after_the_1h_merge_lands_on_the_merged_route() {
+    let (_dir, path) = v3_ledger_with_split_routes();
+    let mut conn = Connection::open(&path).unwrap();
+    assert_eq!(prepare(&mut conn).unwrap(), Prepared::UpgradedV3);
     let record: UsageRecord = serde_json::from_value(serde_json::json!({
         "id": "r-1", "ts": 2000, "day": "2026-01-01", "provider": "p", "model": "m", "kind": "oauth",
         "sessionId": "a", "sourceType": "lead", "input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 5,

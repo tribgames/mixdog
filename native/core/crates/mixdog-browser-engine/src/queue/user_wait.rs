@@ -1,7 +1,6 @@
-//! Owner: s4-engine-queue
 //! Time a Browser Use command spends waiting for the person (an approval card) is not the page being slow. The command's
 //! ceiling ([`crate::limits::COMMAND_TIMEOUT`]) stands still while any such wait is open and runs again, with what was left,
-//! when the last one closes; cancelling the command still ends it at once. [`bounded`] is that ceiling (`cdp-bounded.ts`).
+//! when the last one closes; cancelling the command still ends it at once. [`bounded`] is that ceiling.
 
 use std::future::Future;
 use std::future::poll_fn;

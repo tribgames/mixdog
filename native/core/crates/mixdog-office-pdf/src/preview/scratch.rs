@@ -1,14 +1,3 @@
-//! The scratch directories of a preview.
-//!
-//! Every directory created here holds document content: a private copy for Microsoft Office, a decrypted package, an unlocked
-//! PDF. Each is tracked from its creation, while its render still runs, until its removal is confirmed; whatever is still
-//! tracked when the process ends (a removal that kept failing, a render still running) is removed then by
-//! [`remove_tracked_preview_scratch_sync`], which the process calls as it shuts down.
-//!
-//! A cancelled render can return while the host (and so Office) still holds the copy open. The first removal is immediate; if it
-//! fails, ownership moves to a background task that waits for the host to exit and retries a bounded number of times with
-//! growing delays. The caller never waits on it. The directory stays tracked until a removal succeeds.
-
 use std::collections::BTreeSet;
 use std::io;
 use std::path::{Path, PathBuf};

@@ -256,9 +256,6 @@ fn diagnostics_frame() -> Bytes {
     Bytes::from(serde_json::to_vec(&frame).unwrap())
 }
 
-/// The reviewer's load: on an idle, reading connection one diagnostics event larger than the whole
-/// control reserve is written and the connection stays open (before the fix the ordered event
-/// held the 512 KiB control reserve, failed its reservation and closed the connection with 4000).
 #[tokio::test]
 async fn one_diagnostics_event_larger_than_the_control_reserve_is_written_and_the_connection_stays_open() {
     install_rt();

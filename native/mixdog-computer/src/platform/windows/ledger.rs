@@ -1,8 +1,3 @@
-//! The ledger of no-activate holds: one line per bit this host added to
-//! another application's window or took off again, replayed from a fresh
-//! process to clear what a killed host left (MixWin32InactiveLedger.cs;
-//! RecoverLedgers, backend/program.ts:40-73).
-
 use super::native::{self, hwnd};
 use crate::platform::Wid;
 use std::collections::BTreeMap;

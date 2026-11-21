@@ -49,8 +49,18 @@ pub enum RoomPrompt {
     Parts(Vec<Value>),
 }
 
-fn str_of<'a>(row: &'a Value, field: &str) -> &'a str {
+pub(crate) fn str_of<'a>(row: &'a Value, field: &str) -> &'a str {
     row.get(field).and_then(Value::as_str).unwrap_or("")
+}
+
+/// JS truthiness of an optional value.
+pub(crate) fn js_truthy(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => false,
+        Some(Value::String(text)) => !text.is_empty(),
+        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
+        Some(_) => true,
+    }
 }
 
 /// A JS truthy string field.
@@ -59,12 +69,7 @@ fn text_field<'a>(row: &'a Value, field: &str) -> Option<&'a str> {
 }
 
 fn truthy(row: &Value, field: &str) -> bool {
-    match row.get(field) {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => false,
-        Some(Value::String(text)) => !text.is_empty(),
-        Some(Value::Number(number)) => number.as_f64().is_some_and(|number| number != 0.0),
-        Some(_) => true,
-    }
+    js_truthy(row.get(field))
 }
 
 /// `row.name || row.speaker`.

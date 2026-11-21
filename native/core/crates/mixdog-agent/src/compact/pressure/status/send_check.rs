@@ -1,8 +1,5 @@
-//! The telemetry of a pre-send check that compacts nothing (`session/pre-send-compact.mjs`
-//! `runPreSendCompactPass` → `compactTelemetry(ctx, 'pre_send_check')`, which is
-//! `loop/compact-policy.mjs` `rememberCompactTelemetry`): the decision's numbers on
-//! `session.compaction`, the ring of the last eight checks, and the window the policy resolved on the
-//! session itself.
+//! The telemetry of a pre-send check that compacts nothing: the decision's numbers on `session.compaction`,
+//! the ring of the last eight checks, and the window the policy resolved on the session itself.
 
 use super::*;
 use crate::compact::pressure::HeaderPatch;
@@ -70,20 +67,17 @@ pub fn pre_send_check(input: &StatusInput<'_>, now: f64, reactive: bool) -> Opti
     compact_telemetry(input, now, reactive, "pre_send_check", &StageMeta::default())
 }
 
-/// The pressure of the send about to go out when the provider's reading prices it, the figure its check records
-/// (`resolveContextTokensWithSource`): the reading that still describes its prefix plus the growth after it (`provider`),
-/// else an unanchored session's last actual reading (`provider_resume`). `None` when the session has no worker policy
-/// that compacts or the estimate prices it.
+/// The pressure of the send about to go out when the provider's reading prices it: the reading that still
+/// describes its prefix plus the growth after it (`provider`), else an unanchored session's last actual
+/// reading (`provider_resume`). `None` when the session has no worker policy that compacts or the estimate prices it.
 pub fn provider_pressure(input: &StatusInput<'_>) -> Option<f64> {
     let Some(Worker::Policy(policy)) = worker_policy(input.env, input.session, &input.request_tools, input.agent_mode) else { return None };
     baseline_pressure_tokens(input.session, input.messages, &policy, input).or_else(|| resume_tokens(input.session))
 }
 
-/// The header change of `rememberCompactTelemetry(session, policy, { stage, .. })`
-/// for the send about to go out: `input` is the session header with the transcript and the tools of
-/// that request. `None` when the session has no worker policy that compacts (Node records nothing
-/// then). `reactive`: a context-overflow retry is pending, which floors the pressure at the trigger
-/// (`compactionTelemetryPressureTokens`).
+/// The header change recording `stage` for the send about to go out: `input` is the session header with
+/// the transcript and the tools of that request. `None` when the session has no worker policy that
+/// compacts. `reactive`: a context-overflow retry is pending, which floors the pressure at the trigger.
 pub fn compact_telemetry(input: &StatusInput<'_>, now: f64, reactive: bool, stage: &str, meta: &StageMeta<'_>) -> Option<HeaderPatch> {
     let session = input.session;
     let Some(Worker::Policy(policy)) = worker_policy(input.env, session, &input.request_tools, input.agent_mode) else { return None };
@@ -165,45 +159,10 @@ pub fn compact_telemetry(input: &StatusInput<'_>, now: f64, reactive: bool, stag
         ("singleShotConsumed", json!((policy.single_shot && stage == "compacting") || prev.get("singleShotConsumed") == Some(&Value::Bool(true)))),
     ];
 
-    // `recentCompactChecks`: the decision beside the live baseline, for a missed-trigger postmortem.
-    let mut recent = prev.get("recentChecks").and_then(Value::as_array).cloned().unwrap_or_default();
-    let baseline_at = number_or_zero(get(session, "contextPressureBaselineUpdatedAt"));
-    let baseline_at = if baseline_at != 0.0 { num(baseline_at) } else { Value::Null };
-    let baseline = positive_int(get(session, "contextPressureBaselineTokens")).map_or(Value::Null, num);
-    let check_trigger = or_none(first_nonzero(Some(trigger), Some(boundary)).unwrap_or(0.0));
-    recent.push(json!({
-        "at": num(now),
-        "stage": stage,
-        "pressure": num(pressure),
-        "est": num(estimate),
-        "trigger": check_trigger,
-        "baseline": baseline,
-        "baselineAt": baseline_at,
-    }));
-    let excess = recent.len().saturating_sub(RECENT_CHECKS);
-    recent.drain(..excess);
+    let recent = recent_checks(&prev, session, RecentCheck { now, stage, pressure, estimate, trigger, boundary });
 
     // `withLiveCompactionConfig(prev, telemetry)`: the config-owned fields stay the live ones.
-    let live_auto = prev.get("auto") != Some(&Value::Bool(false));
-    let mut record = prev.clone();
-    record.insert("auto".into(), Value::Bool(live_auto));
-    for (key, value) in telemetry {
-        record.insert(key.to_owned(), value);
-    }
-    for key in super::commit::CONFIG_KEYS {
-        if key == "auto" || key == "bufferTokens" || key == "bufferRatio" {
-            continue;
-        }
-        match prev.get(key) {
-            Some(value) => {
-                record.insert(key.to_owned(), value.clone());
-            }
-            None => {
-                record.shift_remove(key);
-            }
-        }
-    }
-    record.insert("auto".into(), Value::Bool(live_auto));
+    let mut record = super::commit::with_live_config(&prev, telemetry);
     record.insert("recentChecks".into(), Value::Array(recent));
     // A changed transcript stamps the compaction's time (the baseline is voided by the caller).
     if meta.changed {
@@ -211,17 +170,58 @@ pub fn compact_telemetry(input: &StatusInput<'_>, now: f64, reactive: bool, stag
         record.insert("lastCompactAt".into(), num(now));
     }
 
+    Some(persisted_policy_patch(session, record, &policy, raw_context_window, auto_limit, effective_percent))
+}
+
+struct RecentCheck<'a> {
+    now: f64,
+    stage: &'a str,
+    pressure: f64,
+    estimate: f64,
+    trigger: f64,
+    boundary: f64,
+}
+
+fn recent_checks(prev: &Map<String, Value>, session: &Header, check: RecentCheck<'_>) -> Vec<Value> {
+    let mut recent = prev.get("recentChecks").and_then(Value::as_array).cloned().unwrap_or_default();
+    let baseline_at = number_or_zero(get(session, "contextPressureBaselineUpdatedAt"));
+    let baseline_at = if baseline_at != 0.0 { num(baseline_at) } else { Value::Null };
+    let baseline = positive_int(get(session, "contextPressureBaselineTokens")).map_or(Value::Null, num);
+    let check_trigger = or_none(first_nonzero(Some(check.trigger), Some(check.boundary)).unwrap_or(0.0));
+    recent.push(json!({
+        "at": num(check.now),
+        "stage": check.stage,
+        "pressure": num(check.pressure),
+        "est": num(check.estimate),
+        "trigger": check_trigger,
+        "baseline": baseline,
+        "baselineAt": baseline_at,
+    }));
+    let excess = recent.len().saturating_sub(RECENT_CHECKS);
+    recent.drain(..excess);
+    recent
+}
+
+fn persisted_policy_patch(
+    session: &Header,
+    record: Map<String, Value>,
+    policy: &Policy,
+    raw_context_window: Option<f64>,
+    auto_limit: Option<f64>,
+    effective_percent: Option<f64>,
+) -> HeaderPatch {
     let mut patch = HeaderPatch::default();
     patch.put("compaction", Value::Object(record));
     // `persistCompactPolicy`: the policy's window and boundary on the session itself. Only a
     // sub-boundary explicit limit is kept, so a stale boundary-sized one is cleared here rather than
     // carried to re-collapse the buffer next turn.
-    if let Some(window) = context_window.filter(|w| *w != 0.0) {
+    if let Some(window) = policy.context_window.filter(|w| *w != 0.0) {
         patch.put("contextWindow", num(window));
     }
     if let Some(window) = raw_context_window.filter(|w| *w != 0.0) {
         patch.put("rawContextWindow", num(window));
     }
+    let boundary = policy.boundary_tokens.unwrap_or(0.0);
     if boundary != 0.0 {
         patch.put("compactBoundaryTokens", num(boundary));
     }
@@ -231,5 +231,5 @@ pub fn compact_telemetry(input: &StatusInput<'_>, now: f64, reactive: bool, stag
     if let Some(percent) = effective_percent {
         patch.put("effectiveContextWindowPercent", num(percent));
     }
-    Some(patch)
+    patch
 }

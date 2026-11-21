@@ -96,10 +96,9 @@ struct WrittenPivot<'a> {
     table_part: &'a str,
 }
 
-/// The pivot's figures in the format their source column carries, as Excel lays them out: written plain, 7,043 read 7043 under
-/// a source column set #,##0. A pivot with a column field sums one value field across every data column; without one, each data
-/// column is its own value field. The value field carries the format too: Excel lays a pivot out again when it opens the file,
-/// from its definition, and the cells' own formats alone came back plain.
+/// The pivot's figures in the format their source column carries. A pivot with a column field sums one value field across
+/// every data column; without one, each data column is its own value field. The value field carries the format too: Excel
+/// lays a pivot out again when it opens the file, from its definition.
 fn format_pivot_values(zip: &mut Package, xml: &str, area: &Area, destination: &Sheet, anchor: &Area, layout: &WrittenPivot<'_>) -> Result<(), String> {
     let styles_xml = zip.text("xl/styles.xml");
     if styles_xml.is_empty() {
@@ -115,19 +114,8 @@ fn format_pivot_values(zip: &mut Package, xml: &str, area: &Area, destination: &
     if !formats.iter().any(|format| !format.is_empty()) {
         return Ok(());
     }
-    let mut sheet_xml = zip.text(&destination.path);
-    let header_rows = if layout.column_field >= 0 { 2.0 } else { 1.0 };
-    let mut refs: Vec<(String, &str)> = Vec::new();
-    let mut row = anchor.start_row + header_rows;
-    while row < anchor.start_row + layout.rows as f64 {
-        for offset in 1..layout.columns {
-            let format = if layout.column_field >= 0 { formats.first() } else { formats.get(offset - 1) };
-            if let Some(format) = format.filter(|format| !format.is_empty()) {
-                refs.push((format!("{}{}", column_label(anchor.start_col + offset as f64), number_to_string(row)), format.as_str()));
-            }
-        }
-        row += 1.0;
-    }
+    let refs = formatted_pivot_cells(anchor, layout, &formats);
+    let sheet_xml = zip.text(&destination.path);
     let names: Vec<&str> = refs.iter().map(|(reference, _)| reference.as_str()).collect();
     let current: HashMap<String, u64> = cell_style_indexes(&sheet_xml, &names)?.into_iter().collect();
     let mut next_styles = styles_xml;
@@ -149,12 +137,35 @@ fn format_pivot_values(zip: &mut Package, xml: &str, area: &Area, destination: &
         indexes.push(style.to_string());
     }
     let entries: Vec<CellStyle<'_>> = refs.iter().zip(&indexes).map(|((reference, _), style)| CellStyle { reference, style }).collect();
-    sheet_xml = set_cell_styles_in_sheet(&sheet_xml, &entries)?;
+    let sheet_xml = set_cell_styles_in_sheet(&sheet_xml, &entries)?;
     zip.set("xl/styles.xml", next_styles.clone().into_bytes());
     zip.set(&destination.path, sheet_xml.into_bytes());
-    let mut table = zip.text(layout.table_part);
-    for (position, field) in layout.value_fields.iter().enumerate() {
-        let id = number_format_id(&next_styles, &formats[position]);
+    let table = format_data_fields(&zip.text(layout.table_part), layout.value_fields, &formats, &next_styles)?;
+    zip.set(layout.table_part, table.into_bytes());
+    Ok(())
+}
+
+/// The data cells of the written pivot with the number format each takes.
+fn formatted_pivot_cells<'a>(anchor: &Area, layout: &WrittenPivot<'_>, formats: &'a [String]) -> Vec<(String, &'a str)> {
+    let header_rows = if layout.column_field >= 0 { 2.0 } else { 1.0 };
+    let mut refs = Vec::new();
+    let mut row = anchor.start_row + header_rows;
+    while row < anchor.start_row + layout.rows as f64 {
+        for offset in 1..layout.columns {
+            let format = if layout.column_field >= 0 { formats.first() } else { formats.get(offset - 1) };
+            if let Some(format) = format.filter(|format| !format.is_empty()) {
+                refs.push((format!("{}{}", column_label(anchor.start_col + offset as f64), number_to_string(row)), format.as_str()));
+            }
+        }
+        row += 1.0;
+    }
+    refs
+}
+
+fn format_data_fields(table: &str, value_fields: &[usize], formats: &[String], styles_xml: &str) -> Result<String, String> {
+    let mut table = table.to_owned();
+    for (position, field) in value_fields.iter().enumerate() {
+        let id = number_format_id(styles_xml, &formats[position]);
         if id == 0.0 || id.is_nan() {
             continue;
         }
@@ -168,8 +179,7 @@ fn format_pivot_values(zip: &mut Package, xml: &str, area: &Area, destination: &
             table.replace_range(whole, &text);
         }
     }
-    zip.set(layout.table_part, table.into_bytes());
-    Ok(())
+    Ok(table)
 }
 
 /// `addWorksheetPivotTable(zip, sheet, xml, op)`: one row field and one column field over a bounded source range.
@@ -234,8 +244,6 @@ pub fn add_worksheet_pivot_table<P: ReadProof>(
         &anchor,
         &WrittenPivot { value_fields: &value_fields, column_field, rows: written.rows, columns: written.columns, table_part: &written.table_part },
     )?;
-    // Excel fits a pivot's columns to what they hold when it lays the pivot out ("Autofit column widths on update" is on by
-    // default); written at the sheet default, "Channel Partners" and 11,388,173 were cut to ### on the page.
     let fit = area_reference(&Area {
         start_row: anchor.start_row,
         start_col: anchor.start_col,

@@ -41,10 +41,6 @@ impl ChildExits {
         let mut sigchld = signal(SignalKind::child()).map_err(ExtHostError::ChildExitSignal)?;
         let (tx, rx) = watch::channel(0u64);
         mixdog_rt::spawn("exthost.sigchld", mixdog_rt::TaskClass::Work, async move {
-            // Ends when every receiver is gone (the dispatcher, the browser service and every
-            // owner hold one, so while any child lives this keeps running). If the task is
-            // dropped instead (the runtime shuts down), receivers see `changed` fail; the
-            // owners then signal their still-unreaped leaders and reap (see `owner::Owner`).
             loop {
                 tokio::select! {
                     _ = sigchld.recv() => {

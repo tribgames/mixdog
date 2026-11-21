@@ -21,13 +21,10 @@ fn skill_md(name: &str, extra: &str) -> String {
     format!("---\nname: {name}\ndescription: {name} description\nwhen_to_use: use {name}\n{extra}---\n\nbody of {name}\n")
 }
 
-#[tokio::test]
-async fn skills_are_collected_in_precedence_with_folder_rules_and_gating() {
-    let tokens = mixdog_rt::testing::tokens();
-    let dir = tempfile::tempdir().unwrap();
-    let global = dir.path().join("global");
-    let plugin = dir.path().join("plug").join("skills");
-    let builtin = dir.path().join("builtin");
+async fn collect_fixture_skills(tokens: &mixdog_rt::LaneTokens, dir: &Path) -> (Vec<skills::Skill>, std::path::PathBuf) {
+    let global = dir.join("global");
+    let plugin = dir.join("plug").join("skills");
+    let builtin = dir.join("builtin");
     write(&global.join("alpha").join("SKILL.md"), &skill_md("alpha", ""));
     write(&global.join("wrong-folder").join("SKILL.md"), &skill_md("beta", ""));
     write(&global.join("needs-js").join("SKILL.md"), &skill_md("needs-js", "metadata:\n  requires: jsRuntime\n"));
@@ -38,7 +35,7 @@ async fn skills_are_collected_in_precedence_with_folder_rules_and_gating() {
         &global.join("alpha").join("agents").join("openai.yaml"),
         "dependencies:\n  tools:\n    - type: mcp\n      value: github\n    - type: tool\n      value: read\n",
     );
-    let data = dir.path().join("data");
+    let data = dir.join("data");
     let roots = vec![
         skills::SkillRoot { dir: global, source: skills::SkillSource::Global, plugin: None },
         skills::SkillRoot { dir: plugin, source: skills::SkillSource::Plugin, plugin: Some("plug".to_owned()) },
@@ -48,12 +45,27 @@ async fn skills_are_collected_in_precedence_with_folder_rules_and_gating() {
         let data = data.clone();
         tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| skills::collect_skills(lane, &data, &roots)).unwrap().await.unwrap()
     };
+    (found, data)
+}
+
+#[tokio::test]
+async fn skills_are_collected_in_precedence_with_folder_rules() {
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let (found, _) = collect_fixture_skills(&tokens, dir.path()).await;
     let names: Vec<&str> = found.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(names, vec!["alpha", "needs-js", "gamma"]);
     assert_eq!(found[0].tool_dependencies.manifest_names(), ["mcp:github", "read"]);
     assert_eq!(found[0].tool_dependencies.source, mixdog_mcp::skill_deps::DependencySource::Declaration);
+    assert_eq!(found[0].description, "alpha description", "the global skill shadows the bundled one");
+    assert_eq!(found[2].plugin.as_deref(), Some("plug"));
+}
 
-    // The user's override replaces the declaration, and null restores it.
+#[tokio::test]
+async fn a_users_dependency_override_replaces_the_declaration_and_null_restores_it() {
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let (found, data) = collect_fixture_skills(&tokens, dir.path()).await;
     let alpha = found[0].file_path.clone();
     let override_deps = json!([{"type": "tool", "value": "grep"}]);
     mixdog_mcp::skill_deps::save_skill_tool_dependencies(tokens.durability_io, &data, &alpha, Some(&override_deps)).await.unwrap();
@@ -69,36 +81,57 @@ async fn skills_are_collected_in_precedence_with_folder_rules_and_gating() {
     assert_eq!(after.manifest_names(), ["grep"]);
     assert_eq!(after.source, mixdog_mcp::skill_deps::DependencySource::Override);
     mixdog_mcp::skill_deps::save_skill_tool_dependencies(tokens.durability_io, &data, &alpha, None).await.unwrap();
-    assert_eq!(found[0].description, "alpha description", "the global skill shadows the bundled one");
-    assert_eq!(found[2].plugin.as_deref(), Some("plug"));
+    let restored = {
+        let (data, alpha) = (data.clone(), alpha.clone());
+        tokens
+            .maintenance_io
+            .submit(&CancellationToken::new(), move |lane| mixdog_mcp::skill_deps::read_skill_tool_dependencies(lane, &data, &alpha, &json!({})))
+            .unwrap()
+            .await
+            .unwrap()
+    };
+    assert_eq!(restored.source, mixdog_mcp::skill_deps::DependencySource::Declaration);
+}
 
+#[tokio::test]
+async fn a_skill_needing_a_feature_is_offered_only_while_it_is_active() {
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let (found, _) = collect_fixture_skills(&tokens, dir.path()).await;
     let mut gate = skills::SkillGate::default();
     assert_eq!(gate.offered(&found).len(), 2, "needs-js is hidden without the jsRuntime feature");
     gate.active_features = HashSet::from([skills::FEATURE_JS_RUNTIME.to_owned()]);
     assert_eq!(gate.offered(&found).len(), 3);
 }
 
-#[tokio::test]
-async fn plugin_declarations_merge_sources_and_report_errors_without_values() {
-    let tokens = mixdog_rt::testing::tokens();
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("p");
+async fn declared_plugin(tokens: &mixdog_rt::LaneTokens, dir: &Path) -> plugins::PluginMcpDeclarations {
+    let root = dir.join("p");
     write(&root.join(".mcp.json"), &json!({"mcpServers": {"a": {"command": "one"}, "bad": {"type": "stdio"}}}).to_string());
     write(&root.join("plugin.json"), &json!({"mcpServers": [{"b": {"url": "https://example.com/mcp"}}, "extra.json", "../escape.json"]}).to_string());
     write(&root.join("extra.json"), &json!({"a": {"command": "two"}}).to_string());
-    let declared = {
-        let root = root.clone();
-        tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| plugins::load_declarations(lane, &root)).unwrap().await.unwrap()
-    };
+    tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| plugins::load_declarations(lane, &root)).unwrap().await.unwrap()
+}
+
+#[tokio::test]
+async fn plugin_declarations_merge_sources_with_later_ones_overriding_by_key() {
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let declared = declared_plugin(&tokens, dir.path()).await;
     assert_eq!(declared.format, plugins::PluginFormat::Mixdog);
     let a = declared.servers.iter().find(|s| s.key == "a").unwrap();
     assert_eq!(a.config["command"], "two", "later sources override earlier ones by key");
     assert!(declared.servers.iter().any(|s| s.key == "b"));
+}
+
+#[tokio::test]
+async fn plugin_declaration_errors_name_the_problem_without_values() {
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let declared = declared_plugin(&tokens, dir.path()).await;
     let messages: Vec<&str> = declared.errors.iter().map(|e| e.message.as_str()).collect();
     assert!(messages.contains(&"stdio server requires \"command\""));
     assert!(messages.iter().any(|m| m.ends_with("MCP path must be relative and stay inside the plugin root")));
 }
-
 #[tokio::test]
 async fn registry_skills_roots_and_hook_catalog_load_from_disk() {
     let tokens = mixdog_rt::testing::tokens();

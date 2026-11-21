@@ -16,6 +16,7 @@ use sha2::Digest;
 use sha2::Sha256;
 
 use crate::builders::Args;
+use crate::record::or_null;
 use crate::record::truthy;
 use crate::text::slice_utf16;
 
@@ -700,13 +701,6 @@ pub struct ToolRecords {
     /// The `tool-failures.jsonl` row, when `resultKind === 'error'` and the failure is not an
     /// expected session close.
     pub failure: Option<Value>,
-}
-
-fn or_null(value: Option<&Value>) -> Value {
-    match value {
-        Some(v) if truthy(v) => v.clone(),
-        _ => Value::Null,
-    }
 }
 
 fn put(map: &mut Args, key: &str, value: Value) {

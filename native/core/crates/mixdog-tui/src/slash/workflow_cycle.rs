@@ -1,8 +1,4 @@
-//! Tab at the prompt advances to the next workflow (`src/tui/app/workflow-cycle.mjs`, `use-workflow-tab-cycle.mjs`).
-//!
-//! Holding Tab can generate key-repeat faster than a workflow switch can settle. Without a prompt-local guard every repeat
-//! starts (or rejects) a switch and pushes a toast, a rapid bottom-layout repaint storm that can tear the prompt box in
-//! Windows Terminal. [`CycleGuard`] is that guard; this module owns the cycle itself.
+//! Tab at the prompt advances to the next workflow; [`CycleGuard`] drops the repeats of a held Tab while a switch settles.
 
 use serde_json::{Value, json};
 

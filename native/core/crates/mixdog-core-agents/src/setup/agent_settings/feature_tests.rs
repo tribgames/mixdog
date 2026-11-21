@@ -207,13 +207,8 @@ impl mixdog_core_api::domain::approval::ApprovalGate for Gate {
     }
 }
 
-#[tokio::test]
-async fn a_widening_card_is_an_approval_request_on_the_turns_gate_and_its_answer_is_read_back() {
-    use mixdog_protocol::{ApprovalResolution, ConnectionKind, HumanGateResponse, ToolApprovalDecision, ToolCallId};
-    use mixdog_tools::orch::service::{CallApprovals, with_call_approvals};
-
-    let thread = ThreadId::from("thread-1");
-    let card = WidenCard {
+fn widen_card() -> WidenCard {
+    WidenCard {
         agent: "ada".into(),
         server: "gmail".into(),
         tool: "send".into(),
@@ -222,9 +217,12 @@ async fn a_widening_card_is_an_approval_request_on_the_turns_gate_and_its_answer
         choices: vec![Permission::Auto],
         args: json!({ "action": "set_agent_connector_tool" }),
         reason: "why".into(),
-    };
-    let decided = |approved: bool, scope: Option<&str>, response: HumanGateResponse| ApprovalResolution::Decided {
-        decision: ToolApprovalDecision {
+    }
+}
+
+fn decided(approved: bool, scope: Option<&str>, response: mixdog_protocol::HumanGateResponse) -> mixdog_protocol::ApprovalResolution {
+    mixdog_protocol::ApprovalResolution::Decided {
+        decision: mixdog_protocol::ToolApprovalDecision {
             approved,
             reason: None,
             answers: None,
@@ -235,9 +233,26 @@ async fn a_widening_card_is_an_approval_request_on_the_turns_gate_and_its_answer
             scope: scope.map(str::to_owned),
         },
         device: "phone".into(),
-        connection_kind: ConnectionKind::Phone,
+        connection_kind: mixdog_protocol::ConnectionKind::Phone,
         at: 1,
-    };
+    }
+}
+
+async fn settle(answer: mixdog_protocol::ApprovalResolution) -> CardOutcome {
+    use mixdog_protocol::ToolCallId;
+    use mixdog_tools::orch::service::{CallApprovals, with_call_approvals};
+
+    let gate = Arc::new(Gate { asks: Mutex::default(), answer });
+    with_call_approvals(CallApprovals { gate, call_id: ToolCallId::from("call-1") }, GateWidenCards.ask(&ThreadId::from("thread-1"), &widen_card())).await
+}
+
+#[tokio::test]
+async fn a_widening_card_is_an_approval_request_on_the_turns_gate_and_its_answer_is_read_back() {
+    use mixdog_protocol::{HumanGateResponse, ToolCallId};
+    use mixdog_tools::orch::service::{CallApprovals, with_call_approvals};
+
+    let thread = ThreadId::from("thread-1");
+    let card = widen_card();
     let gate = Arc::new(Gate { asks: Mutex::default(), answer: decided(true, Some("auto"), HumanGateResponse::Approve) });
     let outcome = with_call_approvals(CallApprovals { gate: gate.clone(), call_id: ToolCallId::from("call-1") }, GateWidenCards.ask(&thread, &card)).await;
     assert_eq!(
@@ -257,22 +272,35 @@ async fn a_widening_card_is_an_approval_request_on_the_turns_gate_and_its_answer
     assert_eq!(asks[0].payload["connector"], json!({ "server": "gmail", "tool": "send", "from": "needs_approval", "requested": "auto", "choices": ["auto"] }));
     assert_eq!(asks[0].payload["agentId"], "ada");
     assert!(asks[0].remember.is_empty() && asks[0].action_kind.is_none(), "nothing is remembered");
-    drop(asks);
+}
 
-    // Outside a turn's tool call there is no approval hook.
-    assert_eq!(GateWidenCards.ask(&thread, &card).await, CardOutcome::NoHook);
-    let settle = |answer: ApprovalResolution| {
-        let (card, thread) = (card.clone(), thread.clone());
-        async move {
-            let gate = Arc::new(Gate { asks: Mutex::default(), answer });
-            with_call_approvals(CallApprovals { gate, call_id: ToolCallId::from("call-1") }, GateWidenCards.ask(&thread, &card)).await
-        }
-    };
-    assert_eq!(settle(ApprovalResolution::Unavailable { at: 1 }).await, CardOutcome::NoHook, "a session with no approval surface asked nobody");
-    assert_eq!(settle(ApprovalResolution::TimedOut { at: 1 }).await, CardOutcome::Settled(Some(CardAnswer { timed_out: true, ..CardAnswer::default() })));
-    assert_eq!(settle(ApprovalResolution::Withdrawn { at: 1 }).await, CardOutcome::Settled(None));
+#[tokio::test]
+async fn outside_a_turns_tool_call_a_widening_card_has_no_approval_hook() {
+    assert_eq!(GateWidenCards.ask(&ThreadId::from("thread-1"), &widen_card()).await, CardOutcome::NoHook);
+}
+
+#[tokio::test]
+async fn a_session_with_no_approval_surface_asked_nobody() {
+    assert_eq!(settle(mixdog_protocol::ApprovalResolution::Unavailable { at: 1 }).await, CardOutcome::NoHook);
+}
+
+#[tokio::test]
+async fn a_timed_out_card_settles_as_timed_out() {
     assert_eq!(
-        settle(decided(false, None, HumanGateResponse::Deny)).await,
+        settle(mixdog_protocol::ApprovalResolution::TimedOut { at: 1 }).await,
+        CardOutcome::Settled(Some(CardAnswer { timed_out: true, ..CardAnswer::default() }))
+    );
+}
+
+#[tokio::test]
+async fn a_withdrawn_card_settles_without_an_answer() {
+    assert_eq!(settle(mixdog_protocol::ApprovalResolution::Withdrawn { at: 1 }).await, CardOutcome::Settled(None));
+}
+
+#[tokio::test]
+async fn a_denied_card_settles_as_denied_with_the_answering_device() {
+    assert_eq!(
+        settle(decided(false, None, mixdog_protocol::HumanGateResponse::Deny)).await,
         CardOutcome::Settled(Some(CardAnswer { approved: false, scope: None, timed_out: false, response: Some("deny".into()), device: Some("phone".into()) }))
     );
 }

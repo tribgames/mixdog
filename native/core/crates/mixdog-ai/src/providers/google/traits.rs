@@ -1,8 +1,3 @@
-//! What the request builder needs to know about a model: the family test and the
-//! budget-only contract of the Gemini 2.5 models are Node's own rules over the
-//! wire id (`gemini-family.mjs`, `gemini-thinking.mjs`); the levels a model
-//! declares come from the catalog.
-
 use std::sync::LazyLock;
 
 use mixdog_js::JsRegex;
@@ -32,10 +27,7 @@ pub enum ThinkingControl {
     Budget(BudgetSpec),
 }
 
-/// `isGeminiFamilyModel`: an id in the Gemini wire family (`gemini-4-argon`,
-/// `models/gemini-3.1-pro`, `google/gemini-3-pro`). It names the family only, never a generation,
-/// and is the one test every route uses (a Gemini model behind an OpenAI-compatible gateway
-/// included).
+/// An id in the Gemini wire family (`gemini-4-argon`, `models/gemini-3.1-pro`, `google/gemini-3-pro`); names the family, never a generation.
 pub fn is_gemini_family_model(model: &str) -> bool {
     GEMINI_FAMILY.is_match(model)
 }
@@ -80,12 +72,6 @@ fn budget_spec(model: &str) -> Option<BudgetSpec> {
     })
 }
 
-/// A Google-served model's traits. The family is the wire id's (`isGeminiFamilyModel`), never
-/// the catalog's word, so an uncatalogued Claude or GPT-OSS model behind an Antigravity gateway
-/// is not Gemini; a 2.5 model's thinking is the mandatory budget-only contract; the levels of
-/// any other model are the first of sources (the providers that serve
-/// Gemini models: gemini, ertex-ai, ntigravity-oauth) whose row states it. A model whose
-/// ladder no source declares is left to the server.
 pub struct CatalogGoogleTraits(pub Vec<std::sync::Arc<dyn crate::catalog::ModelTraits>>);
 
 impl ModelTraits for CatalogGoogleTraits {

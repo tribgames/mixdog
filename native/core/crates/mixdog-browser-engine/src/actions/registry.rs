@@ -1,8 +1,5 @@
-//! Owner: s4-engine-runner
-//! The registry of the Browser Use actions: the 33 names of the command contract (the table of `mixdog-tools` `desktop/browser.rs`,
-//! `contracts()`), each one a variant the runner dispatches on. The session bookkeeping actions (`list_tabs`, `downloads`,
-//! `close_tab`, `hide`) are answered without a page; every other one addresses a page and is handled by the module that owns it
-//! (`pointer`, `forms`, `upload`, `observe`, `navigation`, `flow`, `diagnostics`, `page`, `emulation`, `sequence`).
+//! The 33 names of the command contract (the table of `mixdog-tools` `desktop/browser.rs`, `contracts()`), each one a variant the
+//! runner dispatches on.
 
 use crate::limits::TABLESS_ACTIONS;
 

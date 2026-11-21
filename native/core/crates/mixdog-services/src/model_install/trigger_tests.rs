@@ -1,9 +1,3 @@
-//! When the judge and the embedder fetch, load and repair: the first judged
-//! step's refresh, the one repair per load failure until files are replaced,
-//! the judge's refusals, and the memory runtime's explicit installation. Files
-//! come from a local HTTP server; the background work is awaited through the
-//! state tick the product publishes, never through sleeps.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

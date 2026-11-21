@@ -1,7 +1,5 @@
-//! The production agent dispatch host: Node's `makeAgentDispatch` (`agent-runtime/agent-dispatch.mjs`
-//! and `agent-dispatch/{preset,session-prep,watchdog,abort-link,turn,ask-args}.mjs`) behind
-//! [`mixdog_agent::subagent::dispatch`], and the inline host's `agentDispatch(payload, { signal })`
-//! (`session-runtime-inline-host/agent-dispatch.mjs`) in front of it.
+//! The production agent dispatch host behind [`mixdog_agent::subagent::dispatch`], and the inline
+//! host's `agentDispatch(payload, { signal })` in front of it.
 //!
 //! One dispatch is one ephemeral hidden-role session: the preset is resolved (the call's route or
 //! preset name, else the hidden role's configured route, else Main), an agent admission lease is
@@ -9,8 +7,7 @@
 //! watched by the progress watchdog (`run_host::watchdog`, policy `agent_tool::watchdog`), asked,
 //! and closed `ephemeral-done` or `ephemeral-error`. The session manager and the config are the
 //! [`DispatchSessions`] / [`DispatchWorld`] seams; everything the dispatch decides is here and is
-//! compared with the Node conversation recorded in `fixtures/agent-dispatch`
-//! (`benchmarks/rust-core/recorders/record-agent-dispatch.mjs`).
+//! compared with the Node conversation recorded in `fixtures/agent-dispatch`.
 //!
 //! Divergences from Node: the diagnostic lines go to [`DispatchWorld::diagnostic`] instead of
 //! stderr; a dispatch with no parent signal still has a (never-aborted) cancel; the
@@ -150,27 +147,8 @@ impl HiddenRoleRunner {
         let config = self.world.config();
         let hidden = self.world.hidden_agent(agent);
         let (preset, preset_name) = resolve_preset(first_set(request.preset.as_ref(), request.default_preset.as_ref()), agent, &config, self.world.as_ref())?;
-        let runtime_spec = self.world.runtime_spec(&preset, agent);
-        // `nonEmptyString(callCwd) || nonEmptyString(opts.cwd)`.
         let cwd = non_empty(&request.cwd).or_else(|| non_empty(&request.default_cwd));
-        let context =
-            if truthy(preset.get("contextPercent")) || truthy(preset.get("contextTokens")) { self.world.context_selection(&preset) } else { Map::new() };
-        let spec = PrepareSpec {
-            agent: agent.to_owned(),
-            preset_name: preset_name.clone(),
-            preset: preset.clone(),
-            runtime_spec,
-            context,
-            permission: session_permission(agent, hidden.as_ref(), request.default_permission.as_deref()),
-            cwd: cwd.clone(),
-            source_type: non_empty(&request.source_type),
-            source_name: non_empty(&request.source_name).or_else(|| non_empty(&request.default_source_name)),
-            task_type: non_empty(&request.task_type),
-            parent_session_id: parent_of(request),
-            owner_session_id: owner_of(request),
-            skip_role_reminder: hidden.is_some(),
-            schema_allowed_tools: hidden.as_ref().and_then(|hidden| schema_allowed_tools(hidden, self.world.as_ref())),
-        };
+        let spec = self.prepare_spec(request, hidden.as_ref(), &preset, &preset_name, cwd.clone());
         let session = self.sessions.prepare(spec).await?;
         self.world.diagnostic(&format!("[agent-dispatch] agent={agent} tool-list ({}): {}", session.tools.len(), session.tools.join(",")));
         let budget = session.first_response_budget;
@@ -178,47 +156,7 @@ impl HiddenRoleRunner {
         self.sessions.set_status(&id, "running").await;
 
         let clock = self.world.clock();
-        let policy = resolve_policy(
-            AgentKind {
-                name: Some(agent),
-                hidden: hidden.is_some(),
-                stall_cap_idle_seconds: hidden.as_ref().and_then(|hidden| hidden.pointer("/stallCap/idleSeconds")).and_then(Value::as_i64),
-            },
-            Overrides {
-                // `Number.isFinite(call) ? call : opts.idleTimeoutMs`.
-                idle_timeout_ms: [request.idle_timeout_ms, request.default_idle_timeout_ms]
-                    .into_iter()
-                    .flatten()
-                    .find(|ms| ms.is_finite())
-                    .filter(|ms| *ms >= 0.0)
-                    .map(|ms| ms.floor() as i64),
-                provider_first_byte_timeout_ms: budget.map(|b| b.transport_ms),
-                provider_first_output_timeout_ms: budget.map(|b| b.semantic_ms),
-                ..Overrides::default()
-            },
-            &|name: &str| self.world.env(name),
-        );
-        let stopped = Cancel::new();
-        let watchdog = Watchdog::arm(
-            true,
-            policy,
-            stopped.clone(),
-            clock.clone(),
-            {
-                let (sessions, id) = (self.sessions.clone(), id.clone());
-                move |now| sessions.progress(&id, now)
-            },
-            {
-                // `startDispatchWatchdog`: the stop is recorded with the clocks it judged, then the turn's own timeout is armed, then the abort.
-                let (sessions, world, id, agent) = (self.sessions.clone(), self.world.clone(), id.clone(), agent.to_owned());
-                let anchor_ts = clock.now_ms();
-                move |snapshot: &Snapshot, message: &str, now: i64| {
-                    let site = StallSite::Dispatch { iteration: sessions.last_iteration_index(&id).unwrap_or(Value::Null) };
-                    world.record_stall_abort(stall_abort_ctx(&id, Some(&agent), &site, &policy, anchor_ts, snapshot, message, now));
-                    sessions.arm_turn_timeout(&id);
-                }
-            },
-        );
+        let (watchdog, stopped) = self.arm_watchdog(request, hidden.as_ref(), &id, budget, &clock);
         // One composite survives the ask's controller swap: the caller's abort and the watchdog's
         // both reach the provider call, the first one to fire keeping its reason.
         let link = Cancel::linked(&[cancel.clone(), stopped]);
@@ -244,6 +182,82 @@ impl HiddenRoleRunner {
         self.sessions.set_status(&id, if settled.is_ok() { "idle" } else { "error" }).await;
         self.sessions.close(&id, if settled.is_ok() { "ephemeral-done" } else { "ephemeral-error" }).await;
         settled
+    }
+
+    fn prepare_spec(&self, request: &DispatchRequest, hidden: Option<&Value>, preset: &Value, preset_name: &str, cwd: Option<String>) -> PrepareSpec {
+        let agent = request.agent.as_str();
+        let context =
+            if truthy(preset.get("contextPercent")) || truthy(preset.get("contextTokens")) { self.world.context_selection(preset) } else { Map::new() };
+        PrepareSpec {
+            agent: agent.to_owned(),
+            preset_name: preset_name.to_owned(),
+            preset: preset.clone(),
+            runtime_spec: self.world.runtime_spec(preset, agent),
+            context,
+            permission: session_permission(agent, hidden, request.default_permission.as_deref()),
+            cwd,
+            source_type: non_empty(&request.source_type),
+            source_name: non_empty(&request.source_name).or_else(|| non_empty(&request.default_source_name)),
+            task_type: non_empty(&request.task_type),
+            parent_session_id: parent_of(request),
+            owner_session_id: owner_of(request),
+            skip_role_reminder: hidden.is_some(),
+            schema_allowed_tools: hidden.and_then(|hidden| schema_allowed_tools(hidden, self.world.as_ref())),
+        }
+    }
+
+    /// The progress watchdog of one dispatch and the cancel it fires.
+    fn arm_watchdog(
+        &self,
+        request: &DispatchRequest,
+        hidden: Option<&Value>,
+        id: &str,
+        budget: Option<mixdog_core_api::domain::provider::FirstResponseBudget>,
+        clock: &Arc<dyn Clock>,
+    ) -> (Option<Watchdog>, Cancel) {
+        let agent = request.agent.as_str();
+        let policy = resolve_policy(
+            AgentKind {
+                name: Some(agent),
+                hidden: hidden.is_some(),
+                stall_cap_idle_seconds: hidden.and_then(|hidden| hidden.pointer("/stallCap/idleSeconds")).and_then(Value::as_i64),
+            },
+            Overrides {
+                // `Number.isFinite(call) ? call : opts.idleTimeoutMs`.
+                idle_timeout_ms: [request.idle_timeout_ms, request.default_idle_timeout_ms]
+                    .into_iter()
+                    .flatten()
+                    .find(|ms| ms.is_finite())
+                    .filter(|ms| *ms >= 0.0)
+                    .map(|ms| ms.floor() as i64),
+                provider_first_byte_timeout_ms: budget.map(|b| b.transport_ms),
+                provider_first_output_timeout_ms: budget.map(|b| b.semantic_ms),
+                ..Overrides::default()
+            },
+            &|name: &str| self.world.env(name),
+        );
+        let stopped = Cancel::new();
+        let watchdog = Watchdog::arm(
+            true,
+            policy,
+            stopped.clone(),
+            clock.clone(),
+            {
+                let (sessions, id) = (self.sessions.clone(), id.to_owned());
+                move |now| sessions.progress(&id, now)
+            },
+            {
+                // `startDispatchWatchdog`: the stop is recorded with the clocks it judged, then the turn's own timeout is armed, then the abort.
+                let (sessions, world, id, agent) = (self.sessions.clone(), self.world.clone(), id.to_owned(), agent.to_owned());
+                let anchor_ts = clock.now_ms();
+                move |snapshot: &Snapshot, message: &str, now: i64| {
+                    let site = StallSite::Dispatch { iteration: sessions.last_iteration_index(&id).unwrap_or(Value::Null) };
+                    world.record_stall_abort(stall_abort_ctx(&id, Some(&agent), &site, &policy, anchor_ts, snapshot, message, now));
+                    sessions.arm_turn_timeout(&id);
+                }
+            },
+        );
+        (watchdog, stopped)
     }
 }
 

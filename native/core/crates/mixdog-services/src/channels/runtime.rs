@@ -1,8 +1,3 @@
-//! The owned-runtime lifecycle (owned-runtime/*.mjs): bridge activation, the automation
-//! runtime (scheduler + webhook receiver) and config reload. In the core these run in-process,
-//! so there is no worker to attach to; the scheduler and the receiver live exactly as long as
-//! an automation or the bridge is started.
-
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
@@ -237,16 +232,13 @@ impl ChannelRuntime {
         self.start_gate.run(epoch, self.start_automation_turn()).await.unwrap_or(Ok(()))
     }
 
-    /// `scheduleChannelStart` / `onChannelStartTimer`: returns at once and starts the automation
-    /// afterwards, when `active` (Node's `hasActiveAutomation`, asked when the deferred callback
-    /// runs, not now) says something is enabled. A start already scheduled or running, or a
-    /// shutdown, schedules nothing. The task is bound to the epoch current now, so a stop
-    /// ends it wherever it is, and to the shutdown, which cancels and joins it.
+    /// Returns at once and starts the automation afterwards, when `active` (asked when the deferred
+    /// callback runs, not now) says something is enabled. A start already scheduled or running, or
+    /// a shutdown, schedules nothing. The task is bound to the epoch current now, so a stop ends it
+    /// wherever it is, and to the shutdown, which cancels and joins it.
     ///
-    /// `busy_aware` is `scheduleChannelStart` (a save): a turn running or a session being created
-    /// parks the start until the next wake (`channel-start.mjs:50-56`, `timer-arm.mjs` `park`/`wake`),
-    /// then the whole callback runs again. The boot autostart (`scheduleAutomationAutostart`,
-    /// `channel-start.mjs:75-95`) does not look at the busy state.
+    /// `busy_aware` (a save): a turn running or a session being created parks the start until the
+    /// next wake, then the whole callback runs again. The boot autostart does not look at the busy state.
     pub fn schedule_automation_start(self: &Arc<Self>, closing: &CancellationToken, active: ActiveProbe, busy_aware: bool) {
         let mut st = self.state.lock().unwrap();
         if closing.is_cancelled() || self.shutdown.is_cancelled() || st.scheduled_start.as_ref().is_some_and(|task| !task.is_finished()) {
@@ -385,9 +377,8 @@ impl ChannelRuntime {
     /// Re-reads the stores and re-arms the scheduler (and the receiver) when the runtime is
     /// supposed to be running; otherwise tears the receiver down.
     ///
-    /// Reloads overlap, as Node's (`config-reload.mjs`): only the newest started one applies, so a
-    /// slower read of older stores never lands over a newer one; an older caller answers with the
-    /// newest reload's outcome.
+    /// Reloads overlap: only the newest started one applies, so a slower read of older stores never
+    /// lands over a newer one; an older caller answers with the newest reload's outcome.
     pub async fn reload_runtime(&self) -> Result<(), String> {
         let epoch = self.epoch();
         let ticket = self.reloads_started.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;

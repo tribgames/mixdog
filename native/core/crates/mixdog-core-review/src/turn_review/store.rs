@@ -86,6 +86,16 @@ struct Scope {
 }
 
 impl Scope {
+    fn new(root: &str, baseline_tree: &str, tool_files: Vec<String>, baseline_files: &[Value], updated_at: f64) -> Self {
+        Self {
+            root: root.to_owned(),
+            baseline_tree: baseline_tree.to_owned(),
+            tool_files,
+            baseline_files: baseline_files.iter().map(|f| (file_path_key(f), f.clone())).collect(),
+            updated_at,
+        }
+    }
+
     fn serialize(&self) -> Value {
         let mut o = Obj::new();
         o.insert("root".into(), Value::String(self.root.clone()));
@@ -125,6 +135,20 @@ fn strings(value: Option<&Value>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn nan_as_zero(n: f64) -> f64 {
+    if n.is_nan() { 0.0 } else { n }
+}
+
+fn distinct(values: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for value in values {
+        if !out.contains(&value) {
+            out.push(value);
+        }
+    }
+    out
+}
+
 fn session_scopes(record: Option<&Obj>) -> Vec<Scope> {
     let mut scopes: Vec<Scope> = Vec::new();
     let mut add = |entry: &Obj| {
@@ -136,28 +160,13 @@ fn session_scopes(record: Option<&Obj>) -> Vec<Scope> {
         let key = root_key(root);
         let files = strings(entry.get("toolFiles"));
         let baseline_files: Vec<Value> = entry.get("baselineFiles").and_then(Value::as_array).cloned().unwrap_or_default();
-        let updated = {
-            let n = obj_f64(entry, "updatedAt");
-            if n.is_nan() { 0.0 } else { n }
-        };
+        let updated = nan_as_zero(obj_f64(entry, "updatedAt"));
         if let Some(existing) = scopes.iter_mut().find(|s| root_key(&s.root) == key) {
             merge_scope_files(existing, &baseline_files, &files);
             existing.updated_at = existing.updated_at.max(updated);
             return;
         }
-        let mut tool_files: Vec<String> = Vec::new();
-        for f in files {
-            if !tool_files.contains(&f) {
-                tool_files.push(f);
-            }
-        }
-        scopes.push(Scope {
-            root: root.to_owned(),
-            baseline_tree: baseline_tree.to_owned(),
-            tool_files,
-            baseline_files: baseline_files.iter().map(|f| (file_path_key(f), f.clone())).collect(),
-            updated_at: updated,
-        });
+        scopes.push(Scope::new(root, baseline_tree, distinct(files), &baseline_files, updated));
     };
     let stored = record.and_then(|r| r.get("sessionScopes")).and_then(Value::as_array).cloned().unwrap_or_default();
     if !stored.is_empty() {
@@ -327,21 +336,10 @@ impl Store {
         self.sweep_records().await;
         let path = self.record_path(id);
         let existing = self.read_record_file(&path).await;
-        let generation = {
-            let n = obj_f64(turn, "generation");
-            if n.is_nan() { 0.0 } else { n }
-        };
+        let generation = nan_as_zero(obj_f64(turn, "generation"));
         let mut turns: Vec<Obj> =
             obj_list(existing.as_ref().unwrap_or(&Obj::new()), "turns").into_iter().filter(|entry| obj_f64(entry, "generation") != generation).collect();
-        let tool_files: Vec<String> = {
-            let mut out: Vec<String> = Vec::new();
-            for f in strings(turn.get("toolFiles")) {
-                if !out.contains(&f) {
-                    out.push(f);
-                }
-            }
-            out
-        };
+        let tool_files = distinct(strings(turn.get("toolFiles")));
         let baseline_files: Vec<Value> = turn.get("baselineFiles").and_then(Value::as_array).cloned().unwrap_or_default();
         let updated_at = self.disk.now_ms();
         let mut next_turn = Obj::new();
@@ -356,8 +354,7 @@ impl Store {
         next_turn.insert("updatedAt".into(), mixdog_js::json_number(updated_at));
         turns.push(next_turn);
         turns.sort_by(|l, r| {
-            let (a, b) = (obj_f64(l, "generation"), obj_f64(r, "generation"));
-            let (a, b) = (if a.is_nan() { 0.0 } else { a }, if b.is_nan() { 0.0 } else { b });
+            let (a, b) = (nan_as_zero(obj_f64(l, "generation")), nan_as_zero(obj_f64(r, "generation")));
             a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal)
         });
         let mut scopes = session_scopes(existing.as_ref());
@@ -366,13 +363,7 @@ impl Store {
                 merge_scope_files(scope, &baseline_files, &tool_files);
                 scope.updated_at = updated_at;
             }
-            None => scopes.push(Scope {
-                root: root.to_owned(),
-                baseline_tree: baseline_tree.to_owned(),
-                tool_files: tool_files.clone(),
-                baseline_files: baseline_files.iter().map(|f| (file_path_key(f), f.clone())).collect(),
-                updated_at,
-            }),
+            None => scopes.push(Scope::new(root, baseline_tree, tool_files.clone(), &baseline_files, updated_at)),
         }
         scopes.sort_by(|l, r| l.updated_at.partial_cmp(&r.updated_at).unwrap_or(std::cmp::Ordering::Equal));
         let kept_scopes: Vec<Value> = scopes.iter().skip(scopes.len().saturating_sub(MAX_SESSION_SCOPES)).map(Scope::serialize).collect();

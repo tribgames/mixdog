@@ -1,7 +1,5 @@
-//! Node's text for a failed system call, built from the OS error: `ENOENT: no such file or directory, open '<path>'`.
-//! The phone shows these words (and the error's `code`), so an editor, file or preview path that fails on the file system
-//! says what Node's `fs` said: libuv's name and description of the error, the call's name as Node's operation made it, and
-//! the path (a second path after ` -> ` for rename and copy). One table, used by every such path.
+//! Node's text for a failed system call, `ENOENT: no such file or directory, open '<path>'`, which the phone shows with the
+//! error's `code`: libuv's name and description, the call's name, and the path (a second one after ` -> ` for rename and copy).
 
 use std::io;
 use std::path::Path;

@@ -347,6 +347,38 @@ pub fn snapshot<P: ReadProof>(proof: &P, path: &Path, format: Format, options: &
     snapshot_rows(path, format, &rows, options)
 }
 
+/// The populated cells inside `bounds`, of the `(offset, limit)` window of them when there is one, with how many there are in all
+/// and how wide the widest row is.
+fn populated_cells(rows: &Rows, name: &str, bounds: Option<&XlsxRange>, window: Option<(f64, f64)>) -> (Vec<Value>, usize, usize) {
+    let mut cells: Vec<Value> = Vec::new();
+    let mut total_cells = 0_usize;
+    let mut columns = 0_usize;
+    for (row, values) in rows.iter().enumerate() {
+        columns = columns.max(values.len());
+        for (column, value) in values.iter().enumerate() {
+            if value.is_empty() || outside_bounds(bounds, row, column) {
+                continue;
+            }
+            if window.is_none_or(|(offset, limit)| total_cells as f64 >= offset && (cells.len() as f64) < limit) {
+                let reference = cell_ref(row, column);
+                let mut cell = json!({
+                    "path": format!("/sheet[{name}]/cell[{reference}]"),
+                    "ref": reference,
+                    "row": row + 1,
+                    "column": column + 1,
+                    "value": value,
+                });
+                if value.starts_with('=') {
+                    cell["formula"] = json!(value);
+                }
+                cells.push(cell);
+            }
+            total_cells += 1;
+        }
+    }
+    (cells, total_cells, columns)
+}
+
 fn snapshot_rows(path: &Path, format: Format, rows: &Rows, options: &Value) -> Result<Value, String> {
     let name = sheet_name(path, format);
     if options.is_null() {
@@ -364,33 +396,8 @@ fn snapshot_rows(path: &Path, format: Format, rows: &Rows, options: &Value) -> R
     let limit = if paged { or_default(to_number_of(options.get("limit")), 2_000.0).max(1.0) } else { f64::INFINITY };
     let range = options.get("range");
     let bounds = bounds_of(range)?;
-    let mut cells: Vec<Value> = Vec::new();
-    let mut total_cells = 0_usize;
-    let mut columns = 0_usize;
-    for (row, values) in rows.iter().enumerate() {
-        columns = columns.max(values.len());
-        for (column, value) in values.iter().enumerate() {
-            if value.is_empty() || outside_bounds(bounds.as_ref(), row, column) {
-                continue;
-            }
-            if !paged || (total_cells as f64 >= offset && (cells.len() as f64) < limit) {
-                let reference = cell_ref(row, column);
-                let mut cell = json!({
-                    "path": format!("/sheet[{name}]/cell[{reference}]"),
-                    "ref": reference,
-                    "row": row + 1,
-                    "column": column + 1,
-                    "value": value,
-                });
-                // A plain value carries no formula field: an empty one on every cell of a sheet was noise in each read.
-                if value.starts_with('=') {
-                    cell["formula"] = json!(value);
-                }
-                cells.push(cell);
-            }
-            total_cells += 1;
-        }
-    }
+    let window = if paged { Some((offset, limit)) } else { None };
+    let (cells, total_cells, columns) = populated_cells(rows, &name, bounds.as_ref(), window);
     let returned = cells.len();
     let mut snapshot = json!({
         "format": format.name(),
@@ -600,22 +607,10 @@ pub fn issues<P: ReadProof>(proof: &P, path: &Path, format: Format, options: &Va
     let mut found: Vec<Value> = Vec::new();
     for (row, values) in rows.iter().enumerate() {
         if values.len() != expected {
-            let extra = if values.len() > expected { " An unquoted separator inside a value splits it into an extra column." } else { "" };
-            found.push(json!({
-                "severity": "warning",
-                "code": "ragged_row",
-                "path": format!("/row[{}]", row + 1),
-                "message": format!("Row has {} column(s); the file's rows are {expected} wide.{extra}", values.len()),
-            }));
+            found.push(ragged_row_issue(row, values.len(), expected));
         }
         for (column, value) in values.iter().enumerate() {
-            if outside_bounds(bounds.as_ref(), row, column) {
-                continue;
-            }
-            // A leading =, +, - or @ is how a spreadsheet is tricked into evaluating a pasted value, but a negative
-            // figure starts the same way, and reporting every one of them buries the one cell that carries a formula.
-            let raw = js_trim(value);
-            if raw.starts_with(['=', '+', '-', '@']) && !string_to_number(raw).is_finite() {
+            if !outside_bounds(bounds.as_ref(), row, column) && is_formula_like(value) {
                 found.push(json!({
                     "severity": "warning",
                     "code": "formula_like_value",
@@ -626,6 +621,35 @@ pub fn issues<P: ReadProof>(proof: &P, path: &Path, format: Format, options: &Va
         }
     }
     let structure = delimited_structure(&text, &rows);
+    found.extend(encoding_issues(&structure));
+    let has_error = found.iter().any(|issue| issue["severity"] == "error");
+    Ok(json!({
+        "ok": structure.ok && !has_error,
+        "format": format.name(),
+        "issueCount": found.len(),
+        "issues": found,
+    }))
+}
+
+fn ragged_row_issue(row: usize, width: usize, expected: usize) -> Value {
+    let extra = if width > expected { " An unquoted separator inside a value splits it into an extra column." } else { "" };
+    json!({
+        "severity": "warning",
+        "code": "ragged_row",
+        "path": format!("/row[{}]", row + 1),
+        "message": format!("Row has {width} column(s); the file's rows are {expected} wide.{extra}"),
+    })
+}
+
+/// A leading =, +, - or @ is how a spreadsheet is tricked into evaluating a pasted value, but a negative figure starts the same
+/// way, so a value that reads as a finite number is not flagged.
+fn is_formula_like(value: &str) -> bool {
+    let raw = js_trim(value);
+    raw.starts_with(['=', '+', '-', '@']) && !string_to_number(raw).is_finite()
+}
+
+fn encoding_issues(structure: &Structure) -> Vec<Value> {
+    let mut found = Vec::new();
     if structure.invalid_encoding {
         found.push(json!({
             "severity": "error",
@@ -642,13 +666,7 @@ pub fn issues<P: ReadProof>(proof: &P, path: &Path, format: Format, options: &Va
             "message": format!("File contains {} NUL byte(s).", structure.nul_bytes),
         }));
     }
-    let has_error = found.iter().any(|issue| issue["severity"] == "error");
-    Ok(json!({
-        "ok": structure.ok && !has_error,
-        "format": format.name(),
-        "issueCount": found.len(),
-        "issues": found,
-    }))
+    found
 }
 
 #[cfg(test)]

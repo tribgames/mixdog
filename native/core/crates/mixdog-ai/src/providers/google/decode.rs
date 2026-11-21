@@ -1,13 +1,3 @@
-//! Gemini `streamGenerateContent?alt=sse` → [`StreamEvent`]s.
-//!
-//! One decoder serves the Gemini API, Vertex AI and Antigravity (whose chunks
-//! arrive wrapped in a `response` envelope). The wire's terminal predicate is
-//! the final candidate's `finishReason`; a stream that ends without one is
-//! truncated, except one that delivered whole function calls (the gateway
-//! ends a tool-use turn that way). Deltas are hints: the folded events at
-//! the end of the body — replay envelope, citations, usage, `Completed` — are
-//! the truth.
-
 use std::collections::HashSet;
 
 use mixdog_core_api::domain::provider::DeliveryState;
@@ -152,11 +142,6 @@ fn merge_usage(current: &mut Option<Value>, next: &serde_json::Map<String, Value
     }
 }
 
-/// `_resolveGeminiCacheUsage` (gemini-cache.mjs:245-285) as `normalizeGeminiUsage` reads it: the prompt is
-/// `promptTokenCount` plus the tool-use prompt when the field is present (an explicit 0 stays 0), else the total less
-/// the output; the cached count is the first of `cachedContentTokenCount` and its `totalCachedTokens` alias that is a
-/// number (a 0 is a measured miss), at most the prompt. The attached cache's size (`cachedFallbackTokens`) only feeds
-/// Node's cache trace: `normalizeGeminiUsage` (gemini-response.mjs:87-95) books the reported count.
 fn gemini_input_and_cache(um: &Value) -> (u64, u64) {
     let input = if let Some(prompt) = count(um, PROMPT) {
         prompt.saturating_add(count(um, TOOL_PROMPT).unwrap_or(0))
@@ -611,10 +596,6 @@ impl GeminiDecoder {
         err
     }
 
-    /// `retiredModelError` (`antigravity-stream.mjs:19-29`): a retired wire id answers with one plain-text notice and no
-    /// `finishReason`, which is a terminal answer about the model (HTTP 404, never resent), not a truncated stream. Only on
-    /// the Antigravity route, and only when the text the stream carried says the model is "no longer available" or
-    /// "no longer supported".
     fn retired_model(&self) -> Option<ProviderError> {
         self.dialect.errors.antigravity_endpoint.as_ref()?;
         let text = self.raw.trim();
@@ -679,9 +660,15 @@ impl GeminiDecoder {
                 out.push(StreamEvent::FinalContent(content));
             }
         }
-        // A continued hop's streamed answer is judged on its own before the hops merge: an unusable one is re-asked while
-        // asks remain (`runGeminiStreamAttempts`), and fails the turn once they are spent. The non-streaming re-issue's
-        // answer is never re-asked; the merged turn's finish judges it below, as any answer.
+        if let Some(err) = self.judge_hop(kind) {
+            return Err(err);
+        }
+        let stop = self.stop_reason(kind)?;
+        self.deliver(stop, &mut out);
+        Ok(out)
+    }
+
+    fn judge_hop(&mut self, kind: FinishKind) -> Option<ProviderError> {
         if self.hops > 0
             && self.hop_ask != HopAsk::Reissued
             && let Some(after_tool_result) = self.judge_hops
@@ -700,18 +687,19 @@ impl GeminiDecoder {
                 err
             };
             if spent {
-                // An empty answer that survives every ask is a failure, not an answer (`geminiInvalidStreamReask`); a
-                // malformed one is spent, and the loop must not multiply its asks.
                 err.recovery_exhausted = true;
                 err.recovery_terminal |= empty;
             }
-            return Err(err);
+            return Some(err);
         }
+        None
+    }
+
+    fn stop_reason(&self, kind: FinishKind) -> Result<Option<StopReason>, ProviderError> {
+        let label = self.dialect.errors.label;
         let whole_calls = self.whole_calls > 0 && !self.incomplete_call;
         let holds_calls = whole_calls || !self.leaked.is_empty();
-        // A delivered turn carries no stop reason (Node's Gemini results have
-        // none); only an output cutoff is named.
-        let stop = match kind {
+        Ok(match kind {
             // A stream that ends without a finish but carried whole calls of its own, none unfinished, is a delivered turn,
             // whichever hop it is; a hop with no calls of its own is truncated, whatever calls an earlier hop gathered.
             FinishKind::Unfinished if self.hop_whole_calls > 0 && !self.hop_incomplete_call => None,
@@ -768,11 +756,12 @@ impl GeminiDecoder {
                 err.recovery_exhausted = kind == FinishKind::InvalidToolCall && self.hop_ask == HopAsk::Reissued;
                 return Err(err);
             }
-        };
-        // The stream ended cleanly: nothing is held back, and the held calls are released.
+        })
+    }
+
+    fn deliver(&mut self, stop: Option<StopReason>, out: &mut Vec<StreamEvent>) {
         let recovered = !self.leaked.is_empty();
-        self.release_calls(&mut out);
-        // A recovered call has no part in the response, so the parts cannot be replayed.
+        self.release_calls(out);
         if recovered {
             self.parts.clear();
         }
@@ -789,7 +778,6 @@ impl GeminiDecoder {
         }
         out.push(StreamEvent::Completed { stop, pricing_model: None, request_ms: None });
         self.done = true;
-        Ok(out)
     }
 }
 

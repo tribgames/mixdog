@@ -423,10 +423,6 @@ async fn an_attempt_that_panics_frees_its_id() {
     .await;
     assert!(matches!(&next, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == "the next attempt ran"), "{next:?}");
 }
-/// At shutdown an attempt in flight is cut where it stands, as a process ending there: shutdown returns with nothing in flight,
-/// the receipt keeps the phase it had (not marked refused by the closed directory's refusal), and the next start resumes it. As in
-/// Node's quit, neither the caller in flight nor a request after shutdown gets an answer or a refusal: the request ends with its
-/// connection (`apps/desktop/src/main/index.ts:1662-1664` detaches the phones' carriers first and nothing ends the attempt).
 #[tokio::test(start_paused = true)]
 async fn shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it() {
     whole("shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it", |step| async move {
@@ -470,11 +466,6 @@ async fn shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it() {
     })
     .await;
 }
-/// A shutdown while the session's creation has written its record and not returned (Node: `client.create` pending, its daemon
-/// having made the session) ends the attempt before the `try` that refuses (session-host-lifecycle.ts:824-835): the receipt stays
-/// `reserved` at its address, unmarked. The caller gets no answer; the retry after the restart opens the session there and starts
-/// the task in it, as the recorded `retry-after-created` does: one task, one prompt, at the derived address. The draft names no
-/// route: a draft's route is Node's `setRoute`, awaited after `client.create` returned (see the quit tests below).
 #[tokio::test(start_paused = true)]
 async fn shutdown_while_the_creation_has_not_returned_keeps_the_reservation() {
     whole("shutdown_while_the_creation_has_not_returned_keeps_the_reservation", |step| async move {
@@ -618,4 +609,42 @@ async fn the_129th_request_in_flight_is_refused() {
     for task in held {
         within("a released request's answer", task).await.expect("joined").expect_err("released");
     }
+}
+
+struct RecordedDraftSettings {
+    calls: std::sync::Mutex<Vec<String>>,
+    missing: &'static str,
+}
+
+#[async_trait::async_trait]
+impl super::seams::DraftSettings for RecordedDraftSettings {
+    async fn set_workflow(&self, _: &mixdog_core_api::ids::ThreadId, workflow_id: &str) -> Result<(), CoreError> {
+        self.calls.lock().unwrap().push(format!("workflow:{workflow_id}"));
+        if workflow_id == self.missing {
+            return Err(CoreError::DomainError {
+                domain: "workflow".into(),
+                code: None,
+                message: Some(format!("workflow \"{workflow_id}\" not found").into()),
+                detail: None,
+            });
+        }
+        Ok(())
+    }
+
+    async fn set_orchestration_mode(&self, _: &mixdog_core_api::ids::ThreadId, mode: &str) -> Result<(), CoreError> {
+        self.calls.lock().unwrap().push(format!("mode:{mode}"));
+        Ok(())
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_new_tasks_draft_applies_its_workflow_then_mode_and_a_deleted_workflow_falls_back_to_default() {
+    let rig = Rig::new();
+    counting(&rig);
+    let settings = Arc::new(RecordedDraftSettings { calls: Default::default(), missing: "gone" });
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.draft_settings = settings.clone();
+    let directory = SessionDirectory::new(Arc::new(deps));
+    submit(&directory, "op-1", "sub-draft", "go", json!({ "workflowId": " gone ", "orchestrationMode": "swarm" })).await.expect("started");
+    assert_eq!(*settings.calls.lock().unwrap(), ["workflow:gone", "workflow:default", "mode:swarm"]);
 }

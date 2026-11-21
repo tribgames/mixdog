@@ -625,7 +625,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn login() {
+    async fn login_device_code_flow() {
         let device = MockLoginFlow::new(
             LoginTarget::Github,
             vec![
@@ -636,8 +636,16 @@ mod tests {
         );
         check_login_flow(&device).await;
         check_login_cancel(&device).await;
+    }
+
+    #[tokio::test]
+    async fn login_provider_cancel() {
         let provider = MockLoginFlow::new(LoginTarget::Provider(ProviderId::from("anthropic-oauth")), vec![LoginState::Waiting]);
         check_login_cancel(&provider).await;
+    }
+
+    #[tokio::test]
+    async fn login_verification_required() {
         let verify = MockLoginFlow::new(
             LoginTarget::Provider(ProviderId::from("antigravity")),
             vec![
@@ -1254,58 +1262,29 @@ pub async fn check_file_service(fs: &dyn FileService, lanes: FsLanes, root: AbsP
     let walked: Vec<_> = walked.into_iter().map(|e| e.expect("walk entry").path).collect();
     assert_eq!(walked, vec![b.clone()]);
 
-    let found = drain(
-        fs.search_text(
-            lanes.maintenance,
-            SearchRequest {
-                root: root.clone(),
-                pattern: "needle".into(),
-                regex: false,
-                case_sensitive: true,
-                include_globs: Vec::new(),
-                exclude_globs: Vec::new(),
-                include_hidden: false,
-                respect_ignore: false,
-                multiline: false,
-                pcre2: false,
-                binary_as_text: false,
-                limit: None,
-                first_per_file: false,
-                deadline: None,
-                class: SearchClass::Interactive,
-            },
-        )
-        .as_mut(),
-    )
-    .await;
+    let search = |pattern: &str, regex| SearchRequest {
+        root: root.clone(),
+        pattern: pattern.into(),
+        regex,
+        case_sensitive: true,
+        include_globs: Vec::new(),
+        exclude_globs: Vec::new(),
+        include_hidden: false,
+        respect_ignore: false,
+        multiline: false,
+        pcre2: false,
+        binary_as_text: false,
+        limit: None,
+        first_per_file: false,
+        deadline: None,
+        class: SearchClass::Interactive,
+    };
+    let found = drain(fs.search_text(lanes.maintenance, search("needle", false)).as_mut()).await;
     let found: Vec<_> = found.into_iter().map(|m| m.expect("match")).collect();
     assert_eq!(found.len(), 1);
     assert_eq!((found[0].line, found[0].column), (2, 1));
 
-    let invalid = drain(
-        fs.search_text(
-            lanes.maintenance,
-            SearchRequest {
-                root: root.clone(),
-                pattern: "(needle".into(),
-                regex: true,
-                case_sensitive: true,
-                include_globs: Vec::new(),
-                exclude_globs: Vec::new(),
-                include_hidden: false,
-                respect_ignore: false,
-                multiline: false,
-                pcre2: false,
-                binary_as_text: false,
-                limit: None,
-                first_per_file: false,
-                deadline: None,
-                class: SearchClass::Interactive,
-            },
-        )
-        .as_mut(),
-    )
-    .await;
+    let invalid = drain(fs.search_text(lanes.maintenance, search("(needle", true)).as_mut()).await;
     match invalid.as_slice() {
         [Err(FsError { kind: FsErrorKind::InvalidPattern { message }, .. })] => {
             assert!(message.starts_with("regex parse error"), "the parser's text passes through: {message}")

@@ -1,4 +1,4 @@
-//! The picker Enter latch and the index-mode carry-over (`app/picker-enter-latch.mjs`, `app/picker-index-mode.mjs`).
+//! The picker Enter latch and the index-mode carry-over.
 //!
 //! A picker opened from Enter shows its row indexes whatever its own mode says. The latch marks "the next picker opened is
 //! from Enter"; it is cleared when a picker consumes it, or by its expiry when the action opens none. Time is an input: the

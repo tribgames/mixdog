@@ -1,5 +1,4 @@
-//! The connection half of the webhook relay tunnel (`webhook/relay-tunnel.mjs`
-//! `startHookTunnel`): the install's hook identity, the relay URL policy, and one leg to the
+//! The connection half of the webhook relay tunnel: the install's hook identity, the relay URL policy, and one leg to the
 //! relay's `/hookleg` that replays each request frame against the local listener. The leg itself
 //! (dial, heartbeat, redial) is `mixdog_remote::leg::run_leg`.
 

@@ -105,7 +105,7 @@ use super::turn_path::TurnPathParts;
 pub type HopsBuilder = Box<dyn FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistry>) -> HopFactory>;
 
 /// HopSessions of a directory.
-pub type HopSessionsBuilder = Box<dyn FnOnce(&Arc<SessionDirectory>) -> Arc<dyn HopSessions>>;
+pub type HopSessionsBuilder = Box<dyn FnOnce(&Arc<SessionDirectory>) -> Arc<dyn HopSessions> + Send>;
 
 // ---- the late directory ----------------------------------------------------------------------
 
@@ -683,7 +683,7 @@ pub struct Owed {
     pub ext_pool: Arc<dyn ExtPool>,
     pub hook_bus: Arc<HookBus>,
     pub config: Arc<dyn ConfigSeams>,
-    pub deps: Box<dyn FnOnce(Arc<dyn RunFactory>) -> SessionDeps>,
+    pub deps: Box<dyn FnOnce(Arc<dyn RunFactory>) -> SessionDeps + Send>,
     /// `SessionCompactors::new(Arc::new(ProcessCompactionWorld::new(services)), clock)`, built by the composition with the world it keeps.
     pub compactors: Arc<super::compactors::SessionCompactors>,
     /// `HopSessions` over the directory.

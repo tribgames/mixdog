@@ -1,5 +1,4 @@
-//! The Context inspector's reading (`runtime-core/context-inspection.mjs`) and the readings kept for
-//! entry previews (`context-status-inspection.mjs`): every transcript message, system-prompt section,
+//! The Context inspector's reading and the readings kept for entry previews: every transcript message, system-prompt section,
 //! reminder, attachment, reasoning block and tool definition of the gauge's request as one priced
 //! entry, the entries summed per category, and the text of one entry on request.
 
@@ -20,6 +19,7 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
+use super::Header;
 use super::StatusInput;
 use super::num;
 use super::status::Coverage;
@@ -504,36 +504,40 @@ fn split_injected(message: &AgentMessage, row: &Value) -> Option<(AgentMessage, 
     if message.role() != Role::User {
         return None;
     }
-    if let Some(context) = row.pointer("/meta/runtimeUserContext")
-        && let (Some(prefix), Some(suffix)) = (context.get("prefix").and_then(Value::as_str), context.get("suffix").and_then(Value::as_str))
-    {
-        let injected = [prefix, suffix].into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join("\n");
-        let stripped = match (&message.message.content, row.get("content")) {
-            (Content::Text(text), Some(Value::String(_))) => (mixdog_js::utf16_len(text) >= mixdog_js::utf16_len(prefix) + mixdog_js::utf16_len(suffix)
-                && text.starts_with(prefix)
-                && text.ends_with(suffix))
-            .then(|| {
-                let inner = text[prefix.len()..text.len() - suffix.len()].to_owned();
-                (Content::Text(inner.clone()), Value::String(inner))
-            }),
-            (Content::Parts(parts), Some(Value::Array(items))) => {
-                let is_text = |item: Option<&Value>, want: &str| {
-                    item.is_some_and(|i| i.get("type").and_then(Value::as_str) == Some("text") && i.get("text").and_then(Value::as_str) == Some(want))
-                };
-                let (head, tail) = (usize::from(!prefix.is_empty()), usize::from(!suffix.is_empty()));
-                let fits =
-                    (prefix.is_empty() || is_text(items.first(), prefix)) && (suffix.is_empty() || is_text(items.last(), suffix)) && items.len() >= head + tail;
-                (fits && parts.len() == items.len())
-                    .then(|| (Content::Parts(parts[head..parts.len() - tail].to_vec()), Value::Array(items[head..items.len() - tail].to_vec())))
-            }
-            _ => None,
-        };
-        if let Some((content, json)) = stripped {
-            let mut row = row.clone();
-            row["content"] = json;
-            return Some((with_content(message, content), row, injected));
+    producer_context_split(message, row).or_else(|| reminder_edge_split(message, row))
+}
+
+fn producer_context_split(message: &AgentMessage, row: &Value) -> Option<(AgentMessage, Value, String)> {
+    let context = row.pointer("/meta/runtimeUserContext")?;
+    let (prefix, suffix) = (context.get("prefix").and_then(Value::as_str)?, context.get("suffix").and_then(Value::as_str)?);
+    let injected = [prefix, suffix].into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join("\n");
+    let stripped = match (&message.message.content, row.get("content")) {
+        (Content::Text(text), Some(Value::String(_))) => {
+            (mixdog_js::utf16_len(text) >= mixdog_js::utf16_len(prefix) + mixdog_js::utf16_len(suffix) && text.starts_with(prefix) && text.ends_with(suffix))
+                .then(|| {
+                    let inner = text[prefix.len()..text.len() - suffix.len()].to_owned();
+                    (Content::Text(inner.clone()), Value::String(inner))
+                })
         }
-    }
+        (Content::Parts(parts), Some(Value::Array(items))) => {
+            let is_text = |item: Option<&Value>, want: &str| {
+                item.is_some_and(|i| i.get("type").and_then(Value::as_str) == Some("text") && i.get("text").and_then(Value::as_str) == Some(want))
+            };
+            let (head, tail) = (usize::from(!prefix.is_empty()), usize::from(!suffix.is_empty()));
+            let fits =
+                (prefix.is_empty() || is_text(items.first(), prefix)) && (suffix.is_empty() || is_text(items.last(), suffix)) && items.len() >= head + tail;
+            (fits && parts.len() == items.len())
+                .then(|| (Content::Parts(parts[head..parts.len() - tail].to_vec()), Value::Array(items[head..items.len() - tail].to_vec())))
+        }
+        _ => None,
+    };
+    let (content, json) = stripped?;
+    let mut row = row.clone();
+    row["content"] = json;
+    Some((with_content(message, content), row, injected))
+}
+
+fn reminder_edge_split(message: &AgentMessage, row: &Value) -> Option<(AgentMessage, Value, String)> {
     let Some(Value::String(original)) = row.get("content") else { return None };
     let mut content = original.as_str();
     let mut injected = Vec::new();
@@ -632,6 +636,90 @@ fn tool_call_names(rows: &[Value]) -> std::collections::HashMap<String, String> 
     names
 }
 
+fn reasoning_draft(index: usize, tokens: f64, blocks: Vec<Value>) -> Draft {
+    Draft::new(
+        vec![
+            ("id", json!(format!("reasoning:{index}"))),
+            ("category", json!("reasoning")),
+            ("group", json!("assistant")),
+            ("label", json!("Reasoning tokens")),
+            ("kind", json!("reasoning")),
+            ("tokens", Value::Null),
+        ],
+        tokens,
+        Some(index),
+        Preview::Reasoning(blocks),
+    )
+}
+
+fn tool_result_draft(
+    index: usize,
+    row: &Value,
+    tokens: f64,
+    call_names: &std::collections::HashMap<String, String>,
+    next_ordinal: &mut impl FnMut(String) -> f64,
+) -> (Draft, String, f64) {
+    let call_id = row.get("toolCallId").map(mixdog_js::value_to_string).unwrap_or_default();
+    let fallback = row.get("name").filter(|n| truthy(Some(n))).map(mixdog_js::value_to_string);
+    let tool_name = label(&call_names.get(&call_id).cloned().or(fallback).unwrap_or_else(|| "tool".into()));
+    let ordinal = next_ordinal(format!("tool:{tool_name}"));
+    let draft = Draft::new(
+        vec![
+            ("id", json!(format!("message:{index}"))),
+            ("category", json!("toolResults")),
+            ("group", json!(tool_name)),
+            ("name", json!(tool_name)),
+            ("ordinal", num(ordinal)),
+            ("label", json!(label(&format!("{tool_name} · {}", mixdog_js::number_to_string(ordinal))))),
+            ("tokens", Value::Null),
+            ("kind", json!("toolResult")),
+        ],
+        tokens,
+        Some(index),
+        Preview::Message(row.clone()),
+    );
+    (draft, tool_name, ordinal)
+}
+
+fn conversation_draft(index: usize, role: Role, group: &str, ordinal: f64, name: &str, tokens: f64, row: &Value) -> Draft {
+    let role_text = role_name(role);
+    let category = if group == "summary" || role == Role::Developer {
+        "system"
+    } else if matches!(role, Role::System | Role::User) {
+        role_text
+    } else {
+        "assistant"
+    };
+    let ordinal_text = mixdog_js::number_to_string(ordinal);
+    let shown = if name.is_empty() { format!("{role_text} · {ordinal_text}") } else { format!("{role_text} · {ordinal_text} · {name}") };
+    let mut fields = vec![
+        ("id", json!(format!("message:{index}"))),
+        ("category", json!(category)),
+        ("group", json!(group)),
+        ("label", json!(label(&shown))),
+        ("role", json!(role_text)),
+        ("ordinal", num(ordinal)),
+    ];
+    if !name.is_empty() {
+        fields.push(("name", json!(label(name))));
+    }
+    fields.extend([("tokens", Value::Null), ("kind", json!("message"))]);
+    let mut draft = Draft::new(fields, tokens, Some(index), Preview::Message(without_reasoning(row)));
+    draft.results = Some(Vec::new());
+    draft
+}
+
+fn publish_tool_results(drafts: &mut [Draft]) {
+    for draft in drafts {
+        if let Some(results) = draft.results.take()
+            && !results.is_empty()
+        {
+            let list = results.into_iter().map(|(name, tokens)| json!({ "name": name, "tokens": num(tokens) })).collect();
+            draft.fields.insert("toolResults".into(), Value::Array(list));
+        }
+    }
+}
+
 /// `messageDrafts(messages)`: the drafts of every transcript message, turns numbered per role and tool results per tool.
 fn message_drafts(messages: &[AgentMessage], input: &StatusInput<'_>) -> Vec<Draft> {
     let rows: Vec<Value> = messages.iter().map(|m| input.signer.rows.row(m)).collect();
@@ -667,19 +755,7 @@ fn message_drafts(messages: &[AgentMessage], input: &StatusInput<'_>) -> Vec<Dra
             tokens = shares[1];
         }
         if !blocks.is_empty() {
-            drafts.push(Draft::new(
-                vec![
-                    ("id", json!(format!("reasoning:{index}"))),
-                    ("category", json!("reasoning")),
-                    ("group", json!("assistant")),
-                    ("label", json!("Reasoning tokens")),
-                    ("kind", json!("reasoning")),
-                    ("tokens", Value::Null),
-                ],
-                reasoning_tokens,
-                Some(index),
-                Preview::Reasoning(blocks),
-            ));
+            drafts.push(reasoning_draft(index, reasoning_tokens, blocks));
         }
         let text = skill_message_text(row.get("content"));
         let role = message.role();
@@ -693,25 +769,8 @@ fn message_drafts(messages: &[AgentMessage], input: &StatusInput<'_>) -> Vec<Dra
         }
         let role_text = role_name(role);
         if role == Role::Tool {
-            let call_id = row.get("toolCallId").map(mixdog_js::value_to_string).unwrap_or_default();
-            let fallback = row.get("name").filter(|n| truthy(Some(n))).map(mixdog_js::value_to_string);
-            let tool_name = label(&call_names.get(&call_id).cloned().or(fallback).unwrap_or_else(|| "tool".into()));
-            let ordinal = next_ordinal(format!("tool:{tool_name}"));
-            drafts.push(Draft::new(
-                vec![
-                    ("id", json!(format!("message:{index}"))),
-                    ("category", json!("toolResults")),
-                    ("group", json!(tool_name)),
-                    ("name", json!(tool_name)),
-                    ("ordinal", num(ordinal)),
-                    ("label", json!(label(&format!("{tool_name} · {}", mixdog_js::number_to_string(ordinal))))),
-                    ("tokens", Value::Null),
-                    ("kind", json!("toolResult")),
-                ],
-                tokens,
-                Some(index),
-                Preview::Message(row.clone()),
-            ));
+            let (draft, tool_name, ordinal) = tool_result_draft(index, row, tokens, &call_names, &mut next_ordinal);
+            drafts.push(draft);
             if let Some(turn) = open_turn {
                 drafts[turn].results.get_or_insert_with(Vec::new).push((tool_name.clone(), tokens));
             }
@@ -725,29 +784,7 @@ fn message_drafts(messages: &[AgentMessage], input: &StatusInput<'_>) -> Vec<Dra
         let group = if summary { "summary" } else { role_text };
         let ordinal = next_ordinal(group.to_owned());
         let name = row.get("name").filter(|n| truthy(Some(n))).map(mixdog_js::value_to_string).unwrap_or_default();
-        let category = if group == "summary" || role == Role::Developer {
-            "system"
-        } else if matches!(role, Role::System | Role::User) {
-            role_text
-        } else {
-            "assistant"
-        };
-        let ordinal_text = mixdog_js::number_to_string(ordinal);
-        let shown = if name.is_empty() { format!("{role_text} · {ordinal_text}") } else { format!("{role_text} · {ordinal_text} · {name}") };
-        let mut fields = vec![
-            ("id", json!(format!("message:{index}"))),
-            ("category", json!(category)),
-            ("group", json!(group)),
-            ("label", json!(label(&shown))),
-            ("role", json!(role_text)),
-            ("ordinal", num(ordinal)),
-        ];
-        if !name.is_empty() {
-            fields.push(("name", json!(label(&name))));
-        }
-        fields.extend([("tokens", Value::Null), ("kind", json!("message"))]);
-        let mut draft = Draft::new(fields, tokens, Some(index), Preview::Message(without_reasoning(row)));
-        draft.results = Some(Vec::new());
+        let draft = conversation_draft(index, role, group, ordinal, &name, tokens, row);
         drafts.push(draft);
         let turn = drafts.len() - 1;
         drafts.extend(attachment_draft(&attachments, index, Some((role_text, ordinal, &if name.is_empty() { String::new() } else { label(&name) }))));
@@ -755,15 +792,7 @@ fn message_drafts(messages: &[AgentMessage], input: &StatusInput<'_>) -> Vec<Dra
             open_turn = Some(turn);
         }
     }
-    // `finalizeToolResults`: a turn's working list is published as `toolResults` when it has any.
-    for draft in &mut drafts {
-        if let Some(results) = draft.results.take()
-            && !results.is_empty()
-        {
-            let list = results.into_iter().map(|(name, tokens)| json!({ "name": name, "tokens": num(tokens) })).collect();
-            draft.fields.insert("toolResults".into(), Value::Array(list));
-        }
-    }
+    publish_tool_results(&mut drafts);
     drafts
 }
 
@@ -771,6 +800,27 @@ fn message_drafts(messages: &[AgentMessage], input: &StatusInput<'_>) -> Vec<Dra
 enum Tool<'a> {
     Native(&'a Value),
     Defined(&'a ToolDefinition),
+}
+
+fn tool_identity(tool: &Tool<'_>, annotations_of: &dyn Fn(&str) -> ToolAnnotations) -> (String, ToolAnnotations, Value, Option<String>) {
+    match tool {
+        Tool::Native(value) => {
+            let name = value.get("name").filter(|n| truthy(Some(n))).map(mixdog_js::value_to_string).unwrap_or_default();
+            let shown = value.get("name").filter(|n| truthy(Some(n))).or_else(|| value.get("type").filter(|t| truthy(Some(t)))).map(mixdog_js::value_to_string);
+            (name, ToolAnnotations::of_native(value), (*value).clone(), shown)
+        }
+        Tool::Defined(definition) => {
+            let mut wire = json!({ "name": definition.name, "description": definition.description });
+            if !definition.input_schema.is_null() {
+                wire["input_schema"] = definition.input_schema.clone();
+            }
+            if definition.defer_loading {
+                wire["defer_loading"] = Value::Bool(true);
+            }
+            let shown = (!definition.name.is_empty()).then(|| definition.name.clone());
+            (definition.name.clone(), annotations_of(&definition.name), wire, shown)
+        }
+    }
 }
 
 /// `toolDrafts(tools, deferredCatalogNames)`: one draft per tool definition, priced by its share of the schema tokens.
@@ -799,25 +849,7 @@ fn tool_drafts(tools: &RequestTools<'_>, deferred_catalog: &[String], annotation
         .iter()
         .enumerate()
         .map(|(index, tool)| {
-            let (name, annotations, preview, shown) = match tool {
-                Tool::Native(value) => {
-                    let name = value.get("name").filter(|n| truthy(Some(n))).map(mixdog_js::value_to_string).unwrap_or_default();
-                    let shown =
-                        value.get("name").filter(|n| truthy(Some(n))).or_else(|| value.get("type").filter(|t| truthy(Some(t)))).map(mixdog_js::value_to_string);
-                    (name, ToolAnnotations::of_native(value), (*value).clone(), shown)
-                }
-                Tool::Defined(definition) => {
-                    let mut wire = json!({ "name": definition.name, "description": definition.description });
-                    if !definition.input_schema.is_null() {
-                        wire["input_schema"] = definition.input_schema.clone();
-                    }
-                    if definition.defer_loading {
-                        wire["defer_loading"] = Value::Bool(true);
-                    }
-                    let shown = (!definition.name.is_empty()).then(|| definition.name.clone());
-                    (definition.name.clone(), annotations_of(&definition.name), wire, shown)
-                }
-            };
+            let (name, annotations, preview, shown) = tool_identity(tool, annotations_of);
             let bucket = tool_schema_bucket(mixdog_js::js_trim(&name), &annotations);
             let category = if matches!(bucket, "mcp" | "memory" | "skills") { bucket } else { "tools" };
             let state = if matches!(tool, Tool::Native(_)) {
@@ -903,6 +935,15 @@ struct BuildFacts<'a> {
     annotations_of: &'a dyn Fn(&str) -> ToolAnnotations,
 }
 
+fn deferred_catalog_names(session: &Header) -> Vec<String> {
+    ["deferredToolCatalog", "deferredLateToolCatalog"]
+        .into_iter()
+        .flat_map(|key| session.get(key).and_then(Value::as_array).cloned().unwrap_or_default())
+        .map(|tool| mixdog_js::js_trim(&tool.get("name").filter(|n| truthy(Some(n))).map(mixdog_js::value_to_string).unwrap_or_default()).to_owned())
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
 fn build(
     input: &StatusInput<'_>,
     facts: &BuildFacts<'_>,
@@ -913,12 +954,7 @@ fn build(
     coverage_key: String,
 ) -> Reading {
     let mut drafts = message_drafts(messages, input);
-    let deferred_catalog: Vec<String> = ["deferredToolCatalog", "deferredLateToolCatalog"]
-        .into_iter()
-        .flat_map(|key| input.session.get(key).and_then(Value::as_array).cloned().unwrap_or_default())
-        .map(|tool| mixdog_js::js_trim(&tool.get("name").filter(|n| truthy(Some(n))).map(mixdog_js::value_to_string).unwrap_or_default()).to_owned())
-        .filter(|name| !name.is_empty())
-        .collect();
+    let deferred_catalog = deferred_catalog_names(input.session);
     let (tool_drafts, schema_tokens, shared) = tool_drafts(tools, &deferred_catalog, facts.annotations_of);
     drafts.extend(tool_drafts);
     let overhead = mixdog_js::to_number_of(facts.status.pointer("/request/requestOverheadTokens"));

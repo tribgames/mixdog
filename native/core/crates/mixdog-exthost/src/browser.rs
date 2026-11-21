@@ -1,8 +1,3 @@
-//! The one shared render browser (D-L2). Workers that lay HTML out ask for its DevTools endpoint;
-//! the first request launches a headless Chromium, later requests reuse it, and a browser that
-//! exited is launched again by the next request. Launches are serialized by construction: one
-//! actor task answers requests in order, so concurrent first requests share one launch.
-
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -221,7 +216,15 @@ mod tests {
             no_sandbox: false,
         };
         (
-            start_with_idle(config, mixdog_rt::testing::tokens().spawn_io, Handle::current(), launches.clone(), ChildExits::watch().unwrap(), IDLE, clock.clone()),
+            start_with_idle(
+                config,
+                mixdog_rt::testing::tokens().spawn_io,
+                Handle::current(),
+                launches.clone(),
+                ChildExits::watch().unwrap(),
+                IDLE,
+                clock.clone(),
+            ),
             clock,
         )
     }
@@ -238,7 +241,15 @@ mod tests {
             no_sandbox: false,
         };
         let launches = Arc::new(AtomicU64::new(0));
-        let browser = start_with_idle(config, mixdog_rt::testing::tokens().spawn_io, Handle::current(), launches.clone(), ChildExits::watch().unwrap(), IDLE, Arc::new(SystemIdleClock { origin: tokio::time::Instant::now() }));
+        let browser = start_with_idle(
+            config,
+            mixdog_rt::testing::tokens().spawn_io,
+            Handle::current(),
+            launches.clone(),
+            ChildExits::watch().unwrap(),
+            IDLE,
+            Arc::new(SystemIdleClock { origin: tokio::time::Instant::now() }),
+        );
         let asking = browser.clone();
         let asked = tokio::spawn(async move { asking.endpoint().await });
         // The launch counts itself, with its deadline taken, before it spawns anything: on this one-thread runtime
@@ -253,10 +264,6 @@ mod tests {
         assert_eq!(error.to_string(), "Timed out after 30000 ms while waiting for the WS endpoint URL to appear in stdout!");
         browser.shutdown().await;
     }
-    // The idle timer runs on a driven clock: time moves only through `advance`, so no
-    // assertion depends on how fast the machine is. The service takes an expired idle timer before
-    // any request already queued (its `select!` is biased), so a request sent after an `advance`
-    // past the period always meets the closed browser.
 
     /// Moves the clock past the idle period and lets the service take its expired timer.
     fn pass_idle_period(clock: &DrivenClock) {
@@ -382,9 +389,8 @@ impl BrowserHandle {
 pub struct RenderBrowser(pub(crate) BrowserHandle);
 impl RenderBrowser {
     /// The DevTools WebSocket URL of the running browser, launching it when none is. A call
-    /// does not restart the browser's idle clock (60 s by default, `PUPPETEER_POOL_IDLE_MS`), as
-    /// in Node's pool, which restarts it only on release: a user whose work is shorter than the
-    /// period since the launch or the last release needs nothing more.
+    /// does not restart the browser's idle clock (60 s by default, `PUPPETEER_POOL_IDLE_MS`); only
+    /// a release does.
     ///
     /// # Errors
     /// The launch failed or the host is closing; the text is the one the workers' callers see.
@@ -507,11 +513,6 @@ impl Launching {
         }
     }
 }
-/// The service: answers endpoint requests from the running browser, runs at most one launch at a
-/// time (concurrent requests share it), and on shutdown ends whatever exists, launching or running.
-///
-/// A browser nobody holds a lease on, and nobody has asked about for `idle`, is closed through its
-/// owner; the next request launches a new one.
 async fn serve(launcher: Launcher, mut inbox: mpsc::UnboundedReceiver<Request>, idle: Duration, clock: Arc<dyn IdleClock>) {
     let mut running: Option<Running> = None;
     let mut launching: Option<Launching> = None;

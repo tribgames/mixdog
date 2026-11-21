@@ -1,7 +1,5 @@
-//! What a manual compaction reports and records once its summary is made
-//! (`session/manager/compaction-runner.mjs`: `commitSessionCompaction`, `afterCompactionNumbers`,
-//! `compactionOutcome`, `compactionRecord`, `recordCompactionTiming`, `recordFailedCompaction`,
-//! `addCompactUsageToSession`), over the plan of [`super::compaction_plan`].
+//! What a manual compaction reports and records once its summary is made, over the plan of
+//! [`super::compaction_plan`].
 //!
 //! The pass itself (the summary, the transcript the engine returns, the archive's dropped
 //! identities) and the clock arrive as inputs; this module is the arithmetic and the records.
@@ -207,6 +205,11 @@ fn record_of(session: &Header, archive: Option<Value>, telemetry: Vec<(&str, Val
     if let Some(archive) = archive {
         live.insert("archive".into(), archive);
     }
+    with_live_config(&live, telemetry)
+}
+
+/// `live` with `telemetry` written over it, the config-owned fields staying the live ones.
+pub(super) fn with_live_config(live: &Map<String, Value>, telemetry: Vec<(&str, Value)>) -> Map<String, Value> {
     let live_auto = live.get("auto") != Some(&Value::Bool(false));
     let mut record = live.clone();
     record.insert("auto".into(), Value::Bool(live_auto));
@@ -278,6 +281,43 @@ pub fn failed_compaction(status: &StatusInput<'_>, plan: &CompactionPlan, auto_m
     Failed { result: plan.result(outcome_map, &after, tail), compaction }
 }
 
+fn after_compaction(input: &CommitInput<'_>) -> (After, Option<f64>, Option<f64>, Option<Header>) {
+    let (status, plan) = (input.status, input.plan);
+    let mut message_tokens = status.meter.messages(input.compacted) as f64;
+    if !input.appended.is_empty() {
+        message_tokens += status.meter.messages(input.appended) as f64;
+    }
+    let transcript_len = input.compacted.len() + input.appended.len();
+    let (tokens, request_reserve, reserve, policy) = match worker_policy(status.env, status.session, &input.after_tools, true) {
+        Some(Worker::Policy(policy)) => {
+            (current_estimate_tokens(message_tokens, &policy), policy.request_reserve_tokens, policy.reserve_tokens, Some(policy_header(&policy)))
+        }
+        Some(Worker::Off) => (current_estimate_tokens(message_tokens, &Policy::default()), None, None, None),
+        None => (message_tokens + plan.reserve_tokens, None, None, None),
+    };
+    (After { messages: transcript_len, tokens, message_tokens }, request_reserve, reserve, policy)
+}
+
+fn record_timing(compaction: &mut Map<String, Value>, input: &CommitInput<'_>) {
+    let fresh = input.fresh;
+    let summary_run = fresh.summary_route.as_ref().filter(|r| !r.is_empty()).map(|route| format!("{}:{route}", if fresh.forked { "fork" } else { "isolated" }));
+    let mode = match (&summary_run, &fresh.pipeline_mode) {
+        (Some(run), Some(mode)) => json!(format!("{mode}:{run}")),
+        (_, mode) => mode.clone().filter(|m| !m.is_empty()).map_or(Value::Null, |m| json!(m)),
+    };
+    for (key, value) in [
+        ("lastStartedAt", num(input.started_at)),
+        ("lastCommittedAt", num(input.committed_at)),
+        ("lastDurationMs", num(input.committed_at - input.started_at)),
+        ("lastPipelineMs", fresh.total_ms.map_or(Value::Null, num)),
+        ("lastSummaryMs", fresh.generated_ms.map_or(Value::Null, num)),
+        ("lastCommitMs", num(input.committed_at - input.commit_started_at)),
+        ("lastCompactMode", mode),
+    ] {
+        compaction.insert(key.to_owned(), value);
+    }
+}
+
 /// `commitSessionCompaction` once the transcript reconciles: the result and the record.
 pub fn commit_compaction(input: &CommitInput<'_>) -> Committed {
     let (status, plan, fresh) = (input.status, input.plan, input.fresh);
@@ -286,20 +326,7 @@ pub fn commit_compaction(input: &CommitInput<'_>) -> Committed {
     // of the snapshot and of the compacted transcript, element by element.
     let encodes = |rows: &[Value]| rows.iter().map(mixdog_js::json_stringify).collect::<Vec<_>>();
     let changed = input.before_rows.len() != input.compacted_rows.len() || encodes(input.before_rows) != encodes(input.compacted_rows);
-    let mut message_tokens = status.meter.messages(input.compacted) as f64;
-    if !input.appended.is_empty() {
-        message_tokens += status.meter.messages(input.appended) as f64;
-    }
-    let transcript_len = input.compacted.len() + input.appended.len();
-    // `afterTranscriptTokens`: the calibrated estimate plus the request reserve of the final transcript.
-    let (tokens, request_reserve, reserve, policy) = match worker_policy(status.env, session, &input.after_tools, true) {
-        Some(Worker::Policy(policy)) => {
-            (current_estimate_tokens(message_tokens, &policy), policy.request_reserve_tokens, policy.reserve_tokens, Some(policy_header(&policy)))
-        }
-        Some(Worker::Off) => (current_estimate_tokens(message_tokens, &Policy::default()), None, None, None),
-        None => (message_tokens + plan.reserve_tokens, None, None, None),
-    };
-    let after = After { messages: transcript_len, tokens, message_tokens };
+    let (after, request_reserve, reserve, policy) = after_compaction(input);
     let prior = get(session, "compaction").and_then(Value::as_object);
     let prior_number = |key: &str| prior.map(|c| number_or_zero(get(c, key))).filter(|n| *n != 0.0);
     let stamped = |key: &str| if changed { num(input.now) } else { prior_number(key).map_or(Value::Null, num) };
@@ -327,23 +354,7 @@ pub fn commit_compaction(input: &CommitInput<'_>) -> Committed {
     let stage = if input.auto_mode { "post_turn" } else { "manual" };
     let reserve_fields = vec![("requestReserveTokens", num(request_reserve.unwrap_or(0.0))), ("reserveTokens", num(reserve.unwrap_or(plan.reserve_tokens)))];
     let mut compaction = record_of(session, archive_claim, telemetry(plan, stage, &after, input.now, reserve_fields, outcome));
-    // `recordCompactionTiming`.
-    let summary_run = fresh.summary_route.as_ref().filter(|r| !r.is_empty()).map(|route| format!("{}:{route}", if fresh.forked { "fork" } else { "isolated" }));
-    let mode = match (&summary_run, &fresh.pipeline_mode) {
-        (Some(run), Some(mode)) => json!(format!("{mode}:{run}")),
-        (_, mode) => mode.clone().filter(|m| !m.is_empty()).map_or(Value::Null, |m| json!(m)),
-    };
-    for (key, value) in [
-        ("lastStartedAt", num(input.started_at)),
-        ("lastCommittedAt", num(input.committed_at)),
-        ("lastDurationMs", num(input.committed_at - input.started_at)),
-        ("lastPipelineMs", fresh.total_ms.map_or(Value::Null, num)),
-        ("lastSummaryMs", fresh.generated_ms.map_or(Value::Null, num)),
-        ("lastCommitMs", num(input.committed_at - input.commit_started_at)),
-        ("lastCompactMode", mode),
-    ] {
-        compaction.insert(key.to_owned(), value);
-    }
+    record_timing(&mut compaction, input);
     let archived = input.archived.as_ref().filter(|_| changed);
     let reason = if changed {
         Value::Null

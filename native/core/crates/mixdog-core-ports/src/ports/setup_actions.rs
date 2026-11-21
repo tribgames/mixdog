@@ -24,11 +24,8 @@ pub trait SetupCallers: Send + Sync {
     async fn scope(&self, thread: &ThreadId) -> CallerScope;
     /// Mixy's heartbeat session.
     async fn is_heartbeat(&self, thread: &ThreadId) -> bool;
-    /// The agent a human's session acts as (`caller.agent`; the agent-id half of
-    /// `resolveSessionMode`), empty when it acts as none. Added as a method rather than a
-    /// `CallerScope` field because `CallerScope` is built in other owners' code; WP-SESSION's
-    /// composition fills it. A thread that fails to open is Node's missing caller record: the
-    /// call is refused as a background run.
+    /// The agent a human's session acts as, empty when it acts as none. A thread that fails to
+    /// open is refused as a background run.
     async fn acting_agent(&self, _thread: &ThreadId) -> Result<String, CoreError> {
         Ok(String::new())
     }

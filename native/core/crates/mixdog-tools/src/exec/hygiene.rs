@@ -1,4 +1,4 @@
-//! The PowerShell hygiene preflight (`shell-analysis.mjs` `preflightPowerShellHygiene`), run
+//! The PowerShell hygiene preflight, run
 //! before a command reaches a PowerShell host: (1) a lossless rewrite of MSYS-style `/x/…` drive
 //! paths to `X:\…`; (2) a block, with a PowerShell-native hint, for invalid PowerShell syntax —
 //! `$PID` reassignment and `&&` on Windows PowerShell 5.1. POSIX shells are a strict no-op.

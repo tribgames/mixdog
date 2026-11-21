@@ -51,30 +51,7 @@ pub(super) fn unknown_fields_fault(
     if unknown.is_empty() {
         return None;
     }
-    let hoisted: Vec<String> = unknown
-        .iter()
-        .filter(|field| {
-            property_keys.contains(field)
-                && match operation.get("properties") {
-                    None => true,
-                    Some(Value::Object(properties)) => !properties.contains_key(*field),
-                    Some(_) => false,
-                }
-        })
-        .cloned()
-        .collect();
-    if !hoisted.is_empty() {
-        let mut properties = match operation.get("properties") {
-            Some(Value::Object(properties)) => properties.clone(),
-            _ => Map::new(),
-        };
-        for field in &hoisted {
-            if let Some(value) = operation.shift_remove(field) {
-                properties.insert(field.clone(), value);
-            }
-        }
-        operation.insert("properties".to_owned(), Value::Object(properties));
-    }
+    let hoisted = hoist_style_keys(operation, &unknown, property_keys);
     let remaining: Vec<String> = unknown.into_iter().filter(|field| !hoisted.contains(field)).collect();
     if remaining.is_empty() {
         return None;
@@ -103,6 +80,36 @@ pub(super) fn unknown_fields_fault(
         format!(" {} takes: {accepted}.", site.name)
     };
     Some(format!("{} has unknown field(s): {}.{misplaced_note}{suggestion} {}", site.at(), remaining.join(", "), site.hint()))
+}
+
+/// Moves each unknown field that is a declared property key into `properties`, unless `properties` already holds that key or is not an
+/// object. Answers the fields it moved.
+fn hoist_style_keys(operation: &mut Map<String, Value>, unknown: &[String], property_keys: &[String]) -> Vec<String> {
+    let hoisted: Vec<String> = unknown
+        .iter()
+        .filter(|field| {
+            property_keys.contains(field)
+                && match operation.get("properties") {
+                    None => true,
+                    Some(Value::Object(properties)) => !properties.contains_key(*field),
+                    Some(_) => false,
+                }
+        })
+        .cloned()
+        .collect();
+    if !hoisted.is_empty() {
+        let mut properties = match operation.get("properties") {
+            Some(Value::Object(properties)) => properties.clone(),
+            _ => Map::new(),
+        };
+        for field in &hoisted {
+            if let Some(value) = operation.shift_remove(field) {
+                properties.insert(field.clone(), value);
+            }
+        }
+        operation.insert("properties".to_owned(), Value::Object(properties));
+    }
+    hoisted
 }
 
 /// `unknownPropertiesFault`: properties are where an unnoticed miss hurts most, an unknown key is dropped silently, so

@@ -1,11 +1,3 @@
-//! The ssh config Mixdog's own ssh invocations (probe, exec, tunnel) of a target run with, written for the inspection that
-//! reviewed it from what `ssh -G` resolved for the route: every resolved option of the host and of each ProxyJump hop, except
-//! what forwards something (ports, agent, X11, local commands), and without including the user's config. A hop's ssh reads the
-//! same file (`-F` is passed on to it), so each hop gets its own `Host` block. Mixdog's known_hosts is listed first, then the
-//! user's files. The file is checked by resolving the target through it and comparing: when it does not say the same, the file
-//! is the user's config as it was read instead, with the same known_hosts settings for each server ahead of it (and the user
-//! is told which forwards then apply).
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};

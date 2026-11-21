@@ -1,10 +1,3 @@
-//! The Word editor (`Apply-WordOperation` and the 41 operations of `Invoke-WordOperation`) against a scripted Word object
-//! model.
-//!
-//! The scripted model answers what the editor asks and records every access (a read as `id.Member(args)`, a write as
-//! `id.Member=value`), so a test states both what the operation answered and in which order Word was asked. It is written
-//! from `office-com-host.ps1`.
-
 use std::any::Any;
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -356,6 +349,23 @@ fn header_and_footer_kinds_are_checked_before_anything_is_written() {
 }
 
 #[test]
+fn a_header_or_footer_is_written_into_the_story_its_kind_and_variant_name() {
+    let world = World::new();
+    let range = world.obj().child("Font", world.obj().build()).child("ParagraphFormat", world.obj().build()).build();
+    let footer = world.obj().child("Range", range).build();
+    let footers = world.obj().items(vec![world.obj().build(), footer]).build();
+    let section = world.obj().prop("Index", Com::I4(1)).child("Footers", footers).build();
+    let sections = world.obj().items(vec![section]).build();
+    let document = bare_document(&world, |document| document.child("Sections", sections.clone()));
+    let request = r#"{"op":"set_header_footer","kind":"footer","variant":"First","text":"Page","properties":{"size":9,"bold":true,"alignment":"centre"}}"#;
+    let result = operate(&document, request).expect("the operation");
+    assert_eq!(json_of(&result), r#"{"op":"set_header_footer","changed":true,"section":1,"header":false,"variant":"first"}"#);
+    let writes: Vec<String> =
+        world.accesses().into_iter().filter(|line| line.contains('=')).map(|line| line.split_once('.').expect("an id").1.to_owned()).collect();
+    assert_eq!(writes, ["Exists=Bool(true)", "Text=Str(\"Page\")", "Size=R4(9.0)", "Bold=I4(-1)", "Alignment=I4(1)"]);
+}
+
+#[test]
 fn a_page_of_thirteen_columns_is_refused_and_one_of_two_is_spaced_by_default() {
     let world = World::new();
     let columns = world.obj().prop("Count", Com::I4(2)).method("SetCount", |_| Ok(Com::Null)).build();
@@ -647,6 +657,97 @@ fn a_locked_content_control_is_refused_and_an_absent_one_is_named() {
     assert_eq!(operate(&document, r#"{"op":"set_content_control","tag":"NAME","text":"x"}"#).unwrap_err(), "DOCX content control NAME is locked for editing");
     assert_eq!(operate(&document, r#"{"op":"set_content_control","tag":"other","text":"x"}"#).unwrap_err(), "DOCX content control not found for tag: other");
     assert_eq!(operate(&document, r#"{"op":"set_content_control","control":4,"text":"x"}"#).unwrap_err(), "DOCX content control 4 not found");
+}
+
+#[test]
+fn a_table_is_added_and_its_text_size_widths_and_heights_are_set_in_the_scripts_order() {
+    let world = World::new();
+    let cell = || world.obj().child("Range", world.obj().build()).build();
+    let cells = [cell(), cell(), cell(), cell()];
+    let row = || world.obj().child("Range", world.obj().child("ParagraphFormat", world.obj().build()).build()).method("SetHeight", |_| Ok(Com::Null)).build();
+    let rows = world.obj().items(vec![row(), row()]).build();
+    let columns = world.obj().items(vec![world.obj().build(), world.obj().build()]).build();
+    let table_range = world.obj().child("Font", world.obj().build()).child("ParagraphFormat", world.obj().build()).build();
+    let table = world
+        .obj()
+        .prop("Index", Com::I4(3))
+        .child("Range", table_range)
+        .child("Rows", rows)
+        .child("Columns", columns)
+        .child("Shading", world.obj().build())
+        .method("Cell", move |args| match args {
+            [Com::I4(row), Com::I4(column)] => Ok(Com::Dispatch(cells[((row - 1) * 2 + column - 1) as usize].clone())),
+            _ => Err(failure("no such cell", false)),
+        })
+        .build();
+    let tables = world.obj().method("Add", move |_| Ok(Com::Dispatch(table.clone()))).build();
+    let anchor = world.obj().method("Collapse", |_| Ok(Com::Null)).build();
+    let paragraph = world.obj().child("Range", world.obj().child("Duplicate", anchor).build()).build();
+    let paragraphs = world.obj().items(vec![paragraph]).build();
+    let document = bare_document(&world, |document| document.child("Tables", tables.clone()).child("Paragraphs", paragraphs.clone()));
+    let request = r#"{"op":"add_table","paragraph":1,"values":[["a","b"],["c","d"]],"properties":{"fontSize":10,"columnWidths":[100,50],"rowHeights":[20],"shading":"FFFFFF"}}"#;
+    let result = operate(&document, request).expect("the operation");
+    assert_eq!(json_of(&result), r#"{"op":"add_table","changed":true,"table":3,"rows":2,"columns":2}"#);
+    let expected = [
+        "29.Paragraphs",
+        "28.Item(I4(1))",
+        "26.Range",
+        "27.Duplicate",
+        "25.Collapse(I4(0))",
+        "29.Tables",
+        "24.Add(Dispatch(Obj(mock:25)),I4(2),I4(2))",
+        "22.Cell(I4(1),I4(1))",
+        "1.Range",
+        "2.Text=Str(\"a\")",
+        "22.Cell(I4(1),I4(2))",
+        "3.Range",
+        "4.Text=Str(\"b\")",
+        "22.Cell(I4(2),I4(1))",
+        "5.Range",
+        "6.Text=Str(\"c\")",
+        "22.Cell(I4(2),I4(2))",
+        "7.Range",
+        "8.Text=Str(\"d\")",
+        "22.Range",
+        "19.Font",
+        "20.Size=R4(10.0)",
+        "22.Range",
+        "19.ParagraphFormat",
+        "21.LineSpacingRule=I4(4)",
+        "22.Range",
+        "19.ParagraphFormat",
+        "21.LineSpacing=R8(13.0)",
+        "22.Rows",
+        "9.Item(I4(1))",
+        "10.Range",
+        "11.ParagraphFormat",
+        "12.KeepWithNext=I4(-1)",
+        "22.Range",
+        "19.Cells",
+        "22.Rows",
+        "9.Item(I4(1))",
+        "10.Cells",
+        "22.Rows",
+        "9.Item(I4(1))",
+        "10.Range",
+        "11.Font",
+        "22.Columns",
+        "16.Item(I4(1))",
+        "17.Width=R4(100.0)",
+        "22.Columns",
+        "16.Item(I4(2))",
+        "18.Width=R4(50.0)",
+        "22.Rows",
+        "9.Item(I4(1))",
+        "10.SetHeight(R4(20.0),I4(1))",
+        "22.Shading",
+        "23.BackgroundPatternColor=I4(16777215)",
+        "22.Rows",
+        "9.Item(I4(1))",
+        "10.HeadingFormat=Bool(true)",
+        "22.Index",
+    ];
+    assert_eq!(world.accesses(), expected);
 }
 
 #[test]

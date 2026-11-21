@@ -291,6 +291,37 @@ fn direction_score(blueprint: &Blueprint, context: &ScoreContext) -> f64 {
     score
 }
 
+fn direction_candidate(blueprint: &Blueprint, base_hue: f64, motif: &str, purpose: &str, score: f64) -> Value {
+    let palette = direction_palette(base_hue, blueprint);
+    let mut style = Map::new();
+    let style_blueprint = &blueprint.style;
+    style.insert("id".into(), json!(style_blueprint.id));
+    style.insert("motif".into(), json!(style_blueprint.motif));
+    style.insert("corners".into(), json!(style_blueprint.corners));
+    style.insert("boundaries".into(), json!(style_blueprint.boundaries));
+    style.insert("elevation".into(), json!(style_blueprint.elevation));
+    style.insert("composition".into(), json!(style_blueprint.composition));
+    style.insert("pageRhythm".into(), strings(style_blueprint.page_rhythm));
+    let mut deck = Map::new();
+    deck.insert("backgroundMode".into(), json!(blueprint.background_mode));
+    deck.insert("motif".into(), json!(motif));
+    deck.insert("imageTreatment".into(), json!(blueprint.image_treatment));
+    deck.insert("layoutBias".into(), strings(blueprint.layout_bias));
+    deck.extend(creative_system_of(blueprint));
+    json!({
+        "id": blueprint.id,
+        "label": blueprint.label,
+        "rationale": format!("{} fits {purpose} through {}.", blueprint.label, blueprint.motif),
+        "motif": motif,
+        "palette": palette,
+        "typography": { "display": blueprint.typography[0], "body": blueprint.typography[1], "data": blueprint.typography[2] },
+        "style": style,
+        "creativeSystem": creative_system_of(blueprint),
+        "deck": deck,
+        "score": json_number(score),
+    })
+}
+
 /// `resolveOfficeArtDirection(format, input, { profile, purpose, expressionMode })`: the ranked candidates, the
 /// selected one, and whether its tokens apply to the design. The caller's defaults are an empty profile, purpose
 /// `explain` and mode `strong-fit`.
@@ -310,37 +341,9 @@ pub fn resolve_office_art_direction(format: &str, input: &Value, profile: &str, 
     let mut candidates: Vec<(Value, f64, String)> = blueprints
         .iter()
         .map(|blueprint| {
-            let palette = direction_palette(base_hue, blueprint);
             let motif = if raw_subject.is_empty() { blueprint.motif.to_owned() } else { format!("{} · {raw_subject}", blueprint.motif) };
             let score = direction_score(blueprint, &ScoreContext { purpose, expression_mode, tone: &tone, requested_id: &requested_id, seed: &seed });
-            let mut style = Map::new();
-            let style_blueprint = &blueprint.style;
-            style.insert("id".into(), json!(style_blueprint.id));
-            style.insert("motif".into(), json!(style_blueprint.motif));
-            style.insert("corners".into(), json!(style_blueprint.corners));
-            style.insert("boundaries".into(), json!(style_blueprint.boundaries));
-            style.insert("elevation".into(), json!(style_blueprint.elevation));
-            style.insert("composition".into(), json!(style_blueprint.composition));
-            style.insert("pageRhythm".into(), strings(style_blueprint.page_rhythm));
-            let mut deck = Map::new();
-            deck.insert("backgroundMode".into(), json!(blueprint.background_mode));
-            deck.insert("motif".into(), json!(motif));
-            deck.insert("imageTreatment".into(), json!(blueprint.image_treatment));
-            deck.insert("layoutBias".into(), strings(blueprint.layout_bias));
-            deck.extend(creative_system_of(blueprint));
-            let candidate = json!({
-                "id": blueprint.id,
-                "label": blueprint.label,
-                "rationale": format!("{} fits {purpose} through {}.", blueprint.label, blueprint.motif),
-                "motif": motif,
-                "palette": palette,
-                "typography": { "display": blueprint.typography[0], "body": blueprint.typography[1], "data": blueprint.typography[2] },
-                "style": style,
-                "creativeSystem": creative_system_of(blueprint),
-                "deck": deck,
-                "score": json_number(score),
-            });
-            (candidate, score, blueprint.id.to_owned())
+            (direction_candidate(blueprint, base_hue, &motif, purpose, score), score, blueprint.id.to_owned())
         })
         .collect();
     candidates

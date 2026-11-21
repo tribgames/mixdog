@@ -1,5 +1,4 @@
-//! The shell layout (`app/shell-layout.mjs` and `app/shell-layout/*.mjs`): given the terminal size and every surface that
-//! reserves rows (panels, prompt box, queued band, welcome banner, hints), the transcript viewport height and the whole
+//! The shell layout: given the terminal size and every surface that reserves rows (panels, prompt box, queued band, welcome banner, hints), the transcript viewport height and the transcript viewport height and the whole
 //! bottom-cluster row budget.
 //!
 //! The transcript lives in a box with an explicit numeric height that clips off-screen rows. The rows the bottom cluster
@@ -15,8 +14,7 @@
 //! ```
 //!
 //! Every sibling outside the viewport is accounted for; otherwise the whole tree is taller than the terminal and the input
-//! box is pushed. [`compute_shell_layout`] is the render-phase function; the few writes the Node version made to refs are the
-//! fields of [`ShellRefs`].
+//! box is pushed. [`compute_shell_layout`] is the render-phase function; its writes to refs are the fields of [`ShellRefs`].
 
 mod budgets;
 mod surfaces;

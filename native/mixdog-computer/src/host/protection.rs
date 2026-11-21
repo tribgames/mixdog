@@ -1,8 +1,3 @@
-//! What a reply says about the protection its delivery had against the target
-//! taking the foreground: the foreground lock's facts and the notes for a
-//! delivery that lacked the lock or the no-activate hold (Invoke-BackgroundWindow's
-//! tail, input-semantic.ps1:127-139; Add-ActivationProtection, runtime.ps1:57-66).
-
 use super::Host;
 use crate::protocol::{Obj, Req};
 use serde_json::{Value, json};

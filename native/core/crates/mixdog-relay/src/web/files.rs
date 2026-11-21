@@ -1,9 +1,7 @@
-//! Serving files of the renderer tree (`lib/static-http.mjs`): the MIME table, the cache rules, the stat-keyed weak ETag,
-//! the conditional request, the streamed body (precompressed sibling, live gzip or the file as it is) and the device-scoped
-//! manifest. Every read of the disk is a job of the `InteractiveIo` lane.
-//!
-//! The target of a request path is resolved by [`resolve_static_target`] (`web::readiness`, the rule the `/readyz` report
-//! shares); [`resolve_for_device`] picks the renderer directory of a device first, through `web::releases`.
+//! Serving files of the renderer tree: the MIME table, the cache rules, the stat-keyed weak ETag, the conditional request, the
+//! streamed body (precompressed sibling, live gzip or the file as it is) and the device-scoped manifest. Every read of the disk is
+//! a job of the `InteractiveIo` lane. The target of a request path is resolved by [`resolve_static_target`]; [`resolve_for_device`]
+//! picks the renderer directory of a device first, through `web::releases`.
 
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -329,10 +327,9 @@ pub async fn send_static_file(
     }
 }
 
-/// `sendDeviceManifest`: the manifest for `/d/<deviceId>/`. `start_url` is what an install captures, so pointing it at the
-/// device route is what lets the installed web app say which desktop it wants, the one thing an empty storage container
-/// cannot otherwise know. The route names a desktop and carries no secret; the approval on that desktop grants access.
-/// Returns `false` when the manifest cannot be read, leaving the answer to the caller.
+/// The manifest for `/d/<deviceId>/`. `start_url` is what an install captures, so pointing it at the device route lets the
+/// installed web app say which desktop it wants. The route names a desktop and carries no secret; the approval on that desktop
+/// grants access. Returns `false` when the manifest cannot be read, leaving the answer to the caller.
 pub async fn send_device_manifest(io: &InteractiveIo, request: &Request, response: &mut ResponseWriter, target: &Path, device_id: &str) -> bool {
     let path = target.to_path_buf();
     let base = format!("/d/{device_id}/");

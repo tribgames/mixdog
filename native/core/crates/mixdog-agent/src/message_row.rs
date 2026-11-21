@@ -443,10 +443,6 @@ fn set_or_remove(row: &mut Row, key: &str, value: Option<Value>) {
     }
 }
 
-/// `meta` with the message's facts written over `base`.
-///
-/// With `was` (the message the base row decodes to) only the fields that differ from it are
-/// written, so every other key of the base stays as stored (an empty `submissionIds` among them).
 fn meta_row(m: &AgentMessage, base: Option<&Value>, was: Option<&AgentMessage>) -> Option<Value> {
     let mut meta = match base {
         Some(Value::Object(o)) => o.clone(),
@@ -792,10 +788,6 @@ mod tests {
         out.sort();
         out
     }
-    /// Every stored message of the real corpus sessions: Node's bytes, the message, Node's bytes.
-    /// A message the run changed is rewritten over its row: the edit changes that key and nothing
-    /// else.
-    /// Run: `$env:MIXDOG_MIGRATION_CORPUS = "<corpus dir with v145/ and dev146/>"; cargo test -p mixdog-core --lib run_host::message_row -- --ignored --nocapture` (PowerShell).
     #[test]
     #[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
     fn the_migration_corpus_round_trips_byte_for_byte() {
@@ -833,9 +825,6 @@ mod tests {
         assert!(files > 0 && messages > 0, "no corpus at {}", corpus().display());
         eprintln!("round-tripped {messages} messages of {files} sessions");
     }
-    /// The typed fields alone, without the stored row, rebuild every message of the corpus but
-    /// for the keys with no typed home; the test names them, so a new one fails here.
-    /// Run: `$env:MIXDOG_MIGRATION_CORPUS = "<corpus dir with v145/ and dev146/>"; cargo test -p mixdog-core --lib run_host::message_row -- --ignored --nocapture` (PowerShell).
     #[test]
     #[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
     fn the_typed_fields_hold_everything_but_the_named_extras() {

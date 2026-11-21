@@ -1,14 +1,3 @@
-//! What a running tool reports about itself, shown to clients (Node: the shell tool's
-//! `onOutputTail` → `markSessionToolOutputTail`, read by transcript consumers as the running
-//! card's live output; `onProgress` text).
-//!
-//! [`RunToolProgress`] is the run's `ProgressSink` (`ToolEnv.progress`): it only writes the
-//! session cell's progress value and never blocks. [`ToolHints`] watches that value and
-//! publishes the running tool's hint as the thread's runtime section (`progressHint` of
-//! `thread/runtime/updated`), so every client of the thread sees it; a changed hint is sent
-//! once however many writes came in between, and the hint disappears when the turn leaves
-//! `tool_running`.
-
 use std::sync::Arc;
 
 use mixdog_core_api::domain::tool::ProgressSink;

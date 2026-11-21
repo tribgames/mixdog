@@ -1,11 +1,11 @@
-//! Desktop notices (`src/runtime/shared/desktop-notice-host.mjs`): the few problems the desktop tells
+//! Desktop notices: the few problems the desktop tells
 //! the user as a toast (sign-in expired, secure storage failing, a conversation not saved), raised
 //! wherever they are detected. They are the `notice` section (DS §2.4, key = notice key): a raise is
 //! the entry's publication, a clear its removal, so a client that attaches later reads the standing
-//! ones from its snapshot (Node's pending list for notices no window received).
+//! ones from its snapshot.
 //!
 //! A notice is raised once per key until [`DesktopNotices::clear`] re-arms it, so a retry or a poll
-//! never repeats it. The value is Node's `RaisedDesktopNotice`: `{key, code, params}` with string
+//! never repeats it. The value is `{key, code, params}` with string
 //! params; the renderer words it by `code`.
 
 use std::collections::HashSet;

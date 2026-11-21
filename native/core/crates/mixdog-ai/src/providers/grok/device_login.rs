@@ -1,7 +1,5 @@
-//! The `grok-oauth` RFC 8628 device-code sign-in for a host with no browser (`grok-oauth-login.mjs`
-//! `beginDeviceLogin`, xAI's `grok login --device-auth`): the user opens the verification URL on any device and
-//! confirms the code while this host polls the token endpoint, so no loopback listener, port forward or pasted redirect
-//! is involved. An issuer with no device flow (404) leaves the sign-in to the browser flow.
+//! The `grok-oauth` RFC 8628 device-code sign-in: the user confirms the code on any device while this host polls the
+//! token endpoint. An issuer with no device flow (404) leaves the sign-in to the browser flow.
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -265,6 +263,30 @@ impl GrokDeviceLogin {
         })
     }
 }
+async fn poll_for_grant(http: &dyn HttpSend, pace: &dyn Pace, endpoint: &str, device: &Device, now_ms: u64) -> Result<JsonValue, LoginFailure> {
+    // A poll straight after the code was issued only answers authorization_pending: the first one waits.
+    let schedule =
+        Schedule { interval: device.interval, deadline_ms: Some(now_ms + device.expires_in.as_millis() as u64), wait_first: true, ..Schedule::default() };
+    device::run(pace, schedule, || async {
+        let polled = try_call_under(
+            http,
+            TOKEN_EXCHANGE,
+            "POST",
+            endpoint,
+            vec![("Accept", "application/json".to_owned()), ("Content-Type", "application/x-www-form-urlencoded".to_owned())],
+            form(&[("grant_type", DEVICE_GRANT_TYPE), ("device_code", &device.device_code), ("client_id", CLIENT_ID)]),
+        )
+        .await;
+        match polled {
+            Ok(reply) => classify_poll(&reply),
+            // As in the Grok CLI, a transport failure ends the login at once.
+            Err(error) => {
+                Poll::Fatal(failed("device_token", format!("[grok-oauth] device token request failed: {}", scrubbed_prefix(&error.message, &[], EXCERPT))))
+            }
+        }
+    })
+    .await
+}
 #[async_trait]
 impl LoginFlow for GrokDeviceLogin {
     fn target(&self) -> &LoginTarget {
@@ -305,33 +327,7 @@ impl LoginFlow for GrokDeviceLogin {
         let (http, file, pace, endpoint) = (self.http.clone(), self.file.clone(), self.pace.clone(), self.token_endpoint.to_string());
         Ok(start_session(guard, first, false, move |ctx, _| async move {
             ctx.set(LoginState::Waiting);
-            // A poll straight after the code was issued only answers authorization_pending: the first one waits.
-            let schedule = Schedule {
-                interval: device.interval,
-                deadline_ms: Some(now_ms + device.expires_in.as_millis() as u64),
-                wait_first: true,
-                ..Schedule::default()
-            };
-            let grant = device::run(pace.as_ref(), schedule, || async {
-                let polled = try_call_under(
-                    http.as_ref(),
-                    TOKEN_EXCHANGE,
-                    "POST",
-                    &endpoint,
-                    vec![("Accept", "application/json".to_owned()), ("Content-Type", "application/x-www-form-urlencoded".to_owned())],
-                    form(&[("grant_type", DEVICE_GRANT_TYPE), ("device_code", &device.device_code), ("client_id", CLIENT_ID)]),
-                )
-                .await;
-                match polled {
-                    Ok(reply) => classify_poll(&reply),
-                    // As in the Grok CLI, a transport failure ends the login at once.
-                    Err(error) => Poll::Fatal(failed(
-                        "device_token",
-                        format!("[grok-oauth] device token request failed: {}", scrubbed_prefix(&error.message, &[], EXCERPT)),
-                    )),
-                }
-            })
-            .await?;
+            let grant = poll_for_grant(http.as_ref(), pace.as_ref(), &endpoint, &device, now_ms).await?;
             let tokens = tokens_from_grant(&grant, &endpoint, pace.now_ms())?;
             file.keep(&[&tokens.access_token, &tokens.refresh_token]);
             file.replace(saved_document(&tokens)).await.map_err(|_| failed("storage", "the tokens could not be stored"))?;

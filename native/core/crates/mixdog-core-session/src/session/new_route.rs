@@ -1,12 +1,7 @@
 //! The route a `thread/start` thread begins on (`NewThreadRoute`) over the route service.
 //!
-//! Node's desktop starts a task as `client.create` (a reserved session on the runtime's route, which
-//! is the route the config resolves to) followed by the draft's `setRoute` with
-//! `applyToCurrentSession` and `keepMainModel: false` (`session-host-lifecycle.ts`
-//! `createNewTask` / `configureDraft`), all before the first prompt; the session record is composed
-//! from the route that results (`session-options.mjs`, `materializeSession`). The route service
-//! holds both halves: [`RouteService::adopt_draft`] / [`RouteService::ready_default`] settle the
-//! live route, [`RouteService::seat_route`] writes it onto the created thread through the one
+//! [`RouteService::adopt_draft`] / [`RouteService::ready_default`] settle the live route before the
+//! first prompt, and [`RouteService::seat_route`] writes it onto the created thread through the one
 //! route-change path every later route change takes.
 
 use mixdog_ai::service::admin_route::truthy;
@@ -45,10 +40,6 @@ pub fn draft_pick(route: &ModelSelection) -> Map<String, Value> {
     pick
 }
 
-/// The route a session's record holds, as a resume asks for it (`resumedRouteFor`, `resume.mjs`), which is also the route
-/// a session created on its creator's route holds: the provider and model, its own effort (else, at the boot, the held route's),
-/// Fast and Auto effort as it holds them, its model parameters. `None` when the record names no model: the thread has no
-/// session yet, and its route is the one it is started on.
 fn record_route(header: &Map<String, Value>) -> Option<Map<String, Value>> {
     if !mixdog_core_ports::ports::route::header_names_session(header) {
         return None;

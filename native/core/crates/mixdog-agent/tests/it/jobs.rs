@@ -65,6 +65,19 @@ async fn settle(notices: &Notices, want: usize) {
         tokio::task::yield_now().await;
     }
 }
+#[test]
+fn register_allocates_ids_and_refuses_a_duplicate_explicit_one() {
+    backend();
+    let board = JobBoard::new(Arc::new(TestClock(AtomicI64::new(1_000))), None, None);
+    let named = |id: Option<&str>| NewJob { task_id: id.map(Into::into), operation: "spawn".into(), ..NewJob::default() };
+    assert_eq!(board.register(named(Some(" t1 "))).unwrap(), "t1");
+    assert_eq!(board.register(named(Some("t1"))).unwrap_err(), "background task already exists: t1");
+    let first = board.register(named(Some("  "))).unwrap();
+    let second = board.register(named(None)).unwrap();
+    assert!(first.starts_with("task_agent_") && second.starts_with("task_agent_"), "{first} {second}");
+    assert_ne!(first, second);
+}
+
 /// `renderBackgroundTaskNotification`: an agent's object result with `content: ""` delivers an
 /// empty authored body (no `<result>` block), never the JSON of the object.
 #[tokio::test(start_paused = true)]

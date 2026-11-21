@@ -300,6 +300,7 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     ("transport/replay_bytes.rs", "RUNS", Survives("the count of turns alive now; a turn leaves it when its task ends, and a replay's turns end with it")),
     ("transport/replay_bytes.rs", "PARKED_RUNS", Survives("the count of alive turns parked on an input now; a run leaves it when its wait or its task ends")),
     ("transport/replay_bytes.rs", "OUTSIDE", Survives("the count of waits parked outside any run now; a wait leaves it when it ends or is dropped")),
+    ("transport/replay_bytes.rs", "COUNTERS", NotState("a unit test's lock that serialises tests over the counters above, compiled only into unit tests")),
     ("transport/replay_bytes.rs", "ON_CHANGE", NotState("the settled signal's hook, a function pointer installed once per process")),
     (
         "netproxy/tunnel.rs",

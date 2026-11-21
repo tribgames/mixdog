@@ -1,8 +1,3 @@
-//! Window predicate and readiness reads (Get-WindowPredicates,
-//! Probe-WindowAccessibility): every name, value and visible line of a
-//! window, and whether it exposes any interactive element. Neither touches
-//! the session's refs.
-
 use super::super::msaa::{self, MsaaNode};
 use super::super::native;
 use super::snapshot::{CHROMIUM_PREFIX, cached_flag, cached_supported, variant_text};

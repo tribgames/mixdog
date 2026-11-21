@@ -244,6 +244,25 @@ fn member_or<'a>(value: &'a Value, key: &str, fallback: &'a Value) -> &'a Value 
     }
 }
 
+struct CacheSplit {
+    fresh_input: Tokens,
+    cache_hit: Option<f64>,
+    cache_write: Tokens,
+}
+
+/// The last request's prompt as uncached input, cache read and cache write; none when the parts exceed the prompt.
+fn cache_split(usage: &Value) -> CacheSplit {
+    let last_tokens = |key| field(usage, key).and_then(Value::as_f64).filter(|n| *n >= 0.0);
+    let cached_read = last_tokens("lastCachedReadTokens");
+    let cache_write = last_tokens("lastCacheWriteTokens");
+    let split = last_tokens("lastPromptTokens").zip(cached_read).zip(cache_write).filter(|((prompt, read), write)| *read + *write <= *prompt);
+    CacheSplit {
+        fresh_input: split.map(|((prompt, read), write)| prompt - read - write),
+        cache_hit: split.and_then(|((prompt, read), _)| (prompt > 0.0).then(|| read / prompt)),
+        cache_write,
+    }
+}
+
 fn metrics<'a>(input: &ContextModelInput<'a>, defaults: &'a Defaults) -> Metrics<'a> {
     let tools = or_default(input.tools_status, &defaults.tools);
     let mcp = or_default(input.mcp_status, &defaults.mcp);
@@ -290,13 +309,8 @@ fn metrics<'a>(input: &ContextModelInput<'a>, defaults: &'a Defaults) -> Metrics
         Some(used) if number_truthy(window_tokens) => Some(max(0.0, window_tokens - used)),
         _ => None,
     };
-    let last_tokens = |key| field(usage, key).and_then(Value::as_f64).filter(|n| *n >= 0.0);
-    let cached_read = last_tokens("lastCachedReadTokens");
-    let cache_write = last_tokens("lastCacheWriteTokens");
-    // Occupancy is a separate reading: it may include output or be all the provider knows.
-    let split = last_tokens("lastPromptTokens").zip(cached_read).zip(cache_write).filter(|((prompt, read), write)| *read + *write <= *prompt);
-    let fresh_input = split.map(|((prompt, read), write)| prompt - read - write);
-    let cache_hit = split.and_then(|((prompt, read), _)| (prompt > 0.0).then(|| read / prompt));
+    let CacheSplit { fresh_input, cache_hit, cache_write } = cache_split(usage);
+
     let compact_state = compaction_state(compaction);
     // lastDurationMs belongs to the previous, finished compaction: a running one shows no duration rather than one that
     // reads as its elapsed time.

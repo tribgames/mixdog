@@ -1,13 +1,3 @@
-//! A display-only model-switch boundary, projected onto the item it anchors (Node's
-//! `recordTranscriptBoundary(session, 'modelSwitches', …)` in `set-route.mjs`): the boundary is
-//! kept in the anchor message's `meta.modelSwitches`, and the transcript shows it as a
-//! "Model switched" row right after that message, live and after a restore.
-//!
-//! The store keeps the boundary as its own record naming the anchor item; a reader folds it
-//! into the anchor's body with [`with_model_switch`] before the body is projected, so a restore
-//! shows the row where Node shows it. The live path shows the same row, with the same id, by
-//! [`model_switch_item`] when the boundary record commits.
-
 use mixdog_protocol::ThreadItem;
 use mixdog_store::schema::blob::Slot;
 use mixdog_store::schema::record::Form;
@@ -40,10 +30,6 @@ pub(super) fn with_model_switch(anchor: &Value, entry: &Value) -> Option<Value> 
     Some(folded)
 }
 
-/// The anchor row as a reader shows it: its message body with the row's `model_switches`
-/// (`HistoryRow.model_switches`, record order) folded into `meta.modelSwitches`, so projecting
-/// it gives the rows Node restores. Only a model message carries them; the body must be inline
-/// (a reader resolves its slots first).
 pub(in crate::session) fn fold_model_switches(record: &mut ItemRecord, switches: &[ModelSwitchEntry]) {
     if record.form != Form::Message {
         return;
@@ -87,10 +73,6 @@ fn divider_anchor(cid: &str) -> String {
     format!("divider:{cid}")
 }
 
-/// The rows of the boundaries `Divider.model_switches` holds for compaction `cid`, shown right
-/// after its divider. Node marks them on the summary (or the context ack) message, whose own
-/// bubble is hidden, and shows the same "Model switched" row after it; a switch recorded twice
-/// (same time and model) shows once.
 pub(in crate::session) fn divider_model_switches(cid: &str, switches: &[ModelSwitchEntry]) -> Vec<ThreadItem> {
     let anchor = divider_anchor(cid);
     let mut seen: Vec<(i64, &str)> = Vec::new();

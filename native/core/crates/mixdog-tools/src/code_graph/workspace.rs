@@ -1,9 +1,3 @@
-//! The workspace service's `project/codeGraph` over the `code_graph` tool (Node's
-//! `codeGraphQueryIn`, `apps/desktop/src/main/project-files.ts`): the editor's symbol lookup runs
-//! `executeCodeGraphTool('code_graph', args, <project root>)` and returns its text. The service
-//! checks the mode and query and builds `args`; this is the call itself, on the tool's own graph
-//! and cache.
-
 use std::path::Path;
 use std::sync::Arc;
 

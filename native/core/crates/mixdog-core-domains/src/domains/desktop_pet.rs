@@ -1,12 +1,12 @@
-//! The desktop pet's per-device settings and the rules that place its window (desktop-pet-store.ts).
+//! The desktop pet's per-device settings and the rules that place its window.
 //!
 //! - `desktopPet/state/read` answers the stored prefs, every field normalized: anything malformed reads as the default
 //!   for that field. `desktopPet/state/write` normalizes what it is given the same way, stores it and announces it
 //!   (`desktopPet/state/changed`). The file is `<D>/desktop/desktop-pet.json`, written atomically.
-//! - The first read of a data dir without that file copies the Electron profile's `desktop-pet.json` into it, once: one
-//!   way, the old file kept, nothing overwritten (the file the profile move of generation 2 deliberately never opens).
-//! - The placement rules (pinned above the message box, free, saved per display, clamped to a work area) are plain
-//!   functions of rectangles; `desktopPet/placement/resolve` answers them for the window controller that places the pet.
+//! - The first read of a data dir without that file copies the Electron profile's `desktop-pet.json` into it, once: the
+//!   old file is kept and nothing is overwritten.
+//! - `desktopPet/placement/resolve` answers the placement rules (pinned above the message box, free, saved per display,
+//!   clamped to a work area).
 
 #![allow(clippy::disallowed_methods, reason = "every file read here is the body of a job of a durability-io lane")]
 

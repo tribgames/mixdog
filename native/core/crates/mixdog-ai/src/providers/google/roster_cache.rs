@@ -1,15 +1,6 @@
-//! The Antigravity roster file: `antigravity-oauth-models.json` in the data directory, as Node's
-//! `antigravityModelCache` keeps it (`antigravity-oauth-catalog.mjs:39-46`, `makeModelCache` in `model-cache.mjs`), so a
-//! 1.4.5 data directory's roster is read here and the reverse.
-//!
-//! - File: `{ "version": 2, "fetchedAt": <ms>, "models": [<normalized row>, ...] }` (`:25-27`); the rows are
-//!   `normalizeAntigravityCatalog`'s, with no enrichment and no token or account field. The file belongs to no account.
-//! - Read: only a record of version 2 with a `fetchedAt` and a `models` array; a missing, unreadable, damaged or
-//!   other-version file is no roster (`loadEntrySync`'s catch). `listModels` reads it fresh (within 6 h) before a fetch
-//!   (`antigravity-oauth.mjs:253`); wire resolution reads it past the TTL as well (`antigravityCatalogModels`, `:210`),
-//!   since sends never refresh the roster.
-//! - Write: `save(models)` after every live listing that held a model (`antigravity-oauth.mjs:257-258`), with
-//!   `fetchedAt` now, atomically under the file's lock, the directory flushed, best effort.
+//! The Antigravity roster file `antigravity-oauth-models.json`, shared with Node 1.4.5's data directory:
+//! `{ "version": 2, "fetchedAt": <ms>, "models": [<normalized row>, ...] }`. Only a version-2 record with
+//! `fetchedAt` and a `models` array is a roster; anything else reads as none.
 
 use std::path::PathBuf;
 use std::sync::Arc;

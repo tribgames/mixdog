@@ -141,8 +141,7 @@ pub(super) fn set_sheet_visibility(book: &Com, op: &Value) -> Result<Value> {
     ))
 }
 
-/// `protect_sheet`: what the sheet still allows is kept as the portable writer keeps it (formatCells, sort, autoFilter).
-/// `Protect(Password, DrawingObjects, Contents, Scenarios, UserInterfaceOnly, AllowFormattingCells, AllowFormattingColumns,
+/// `protect_sheet`: `Protect(Password, DrawingObjects, Contents, Scenarios, UserInterfaceOnly, AllowFormattingCells, AllowFormattingColumns,
 /// AllowFormattingRows, AllowInsertingColumns, AllowInsertingRows, AllowInsertingHyperlinks, AllowDeletingColumns,
 /// AllowDeletingRows, AllowSorting, AllowFiltering)`.
 pub(super) fn protect_sheet(book: &Com, op: &Value) -> Result<Value> {

@@ -28,52 +28,49 @@ pub(crate) fn parse_patch(input: &str) -> Result<Vec<Entry>, String> {
             }
             let (old_start, old_count, new_count) = parse_hunk_header(lines[i])?;
             i += 1;
-            let mut hunk_lines = Vec::new();
-            let mut old_remaining = old_count;
-            let mut new_remaining = new_count;
-            while i < lines.len() {
-                let line = lines[i];
-                // Only treat `@@ `/`--- `/`+++ ` as boundaries when the
-                // declared hunk body is fully consumed. Otherwise a body
-                // line like `--- x` (deletion of `-- x`) or `+++ x`
-                // (addition of `++ x`) would be mis-read as a new file
-                // header. The native path-escape guard in
-                // `resolve_entry_path` enforces the realpath bound here.
-                if old_remaining == 0 && new_remaining == 0 && (line.starts_with("@@ ") || line.starts_with("--- ") || line.starts_with("+++ ")) {
-                    break;
-                }
-                if line.starts_with('\\') {
-                    hunk_lines.push(line.to_string());
-                    i += 1;
-                    continue;
-                }
-                if line.is_empty() {
-                    return Err("malformed empty hunk line".to_string());
-                }
-                // Which declared sides the line consumes: context both, a
-                // delete the old side, an add the new side.
-                let (takes_old, takes_new) = match line.as_bytes()[0] {
-                    b' ' => (true, true),
-                    b'-' => (true, false),
-                    b'+' => (false, true),
-                    _ => return Err(format!("malformed hunk line: {line}")),
-                };
-                if (takes_old && old_remaining == 0) || (takes_new && new_remaining == 0) {
-                    return Err("malformed patch: hunk body exceeds declared line counts".to_string());
-                }
-                old_remaining -= usize::from(takes_old);
-                new_remaining -= usize::from(takes_new);
-                hunk_lines.push(line.to_string());
-                i += 1;
-            }
-            if old_remaining != 0 || new_remaining != 0 {
-                return Err("malformed patch: incomplete hunk (EOF before declared line counts consumed)".to_string());
-            }
+            let hunk_lines = parse_hunk_body(&lines, &mut i, old_count, new_count)?;
             hunks.push(Hunk { old_start, lines: hunk_lines });
         }
         entries.push(Entry { old_file, new_file, hunks });
     }
     Ok(entries)
+}
+
+fn parse_hunk_body(lines: &[&str], i: &mut usize, old_count: usize, new_count: usize) -> Result<Vec<String>, String> {
+    let mut hunk_lines = Vec::new();
+    let mut old_remaining = old_count;
+    let mut new_remaining = new_count;
+    while *i < lines.len() {
+        let line = lines[*i];
+        if old_remaining == 0 && new_remaining == 0 && (line.starts_with("@@ ") || line.starts_with("--- ") || line.starts_with("+++ ")) {
+            break;
+        }
+        if line.starts_with('\\') {
+            hunk_lines.push(line.to_string());
+            *i += 1;
+            continue;
+        }
+        if line.is_empty() {
+            return Err("malformed empty hunk line".to_string());
+        }
+        let (takes_old, takes_new) = match line.as_bytes()[0] {
+            b' ' => (true, true),
+            b'-' => (true, false),
+            b'+' => (false, true),
+            _ => return Err(format!("malformed hunk line: {line}")),
+        };
+        if (takes_old && old_remaining == 0) || (takes_new && new_remaining == 0) {
+            return Err("malformed patch: hunk body exceeds declared line counts".to_string());
+        }
+        old_remaining -= usize::from(takes_old);
+        new_remaining -= usize::from(takes_new);
+        hunk_lines.push(line.to_string());
+        *i += 1;
+    }
+    if old_remaining != 0 || new_remaining != 0 {
+        return Err("malformed patch: incomplete hunk (EOF before declared line counts consumed)".to_string());
+    }
+    Ok(hunk_lines)
 }
 
 pub(crate) fn parse_file_header(line: &str, prefix: &str) -> Result<String, String> {
@@ -130,10 +127,6 @@ pub(crate) fn resolve_entry_path(canonical_base: &Path, header: &str) -> Result<
         return Err(format!("parent traversal rejected: {header}"));
     }
     let joined = canonical_base.join(rel);
-    // Realpath guard: walk up to the nearest existing ancestor, canonicalize
-    // it, and require it to stay inside the canonicalized base. This catches
-    // symlinked subtrees that resolve outside the base directory even when
-    // the header itself looks innocuous.
     let ancestor = nearest_existing_ancestor(&joined);
     let canonical_ancestor = fs::canonicalize(&ancestor).map_err(|e| format!("canonicalize ancestor {} for {header}: {e}", ancestor.display()))?;
     if !canonical_ancestor.starts_with(canonical_base) {

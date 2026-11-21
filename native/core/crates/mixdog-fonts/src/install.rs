@@ -1,8 +1,7 @@
 //! `prepareOfficeFonts()` of `runtime/office/portable/font-provisioner.mjs`: the Noto faces the office tools measure with,
 //! downloaded once (size and sha256 checked) into the user's font folder and registered with the OS.
 //!
-//! One implementation serves the daemon (after `document.installLibreOffice` it ran in the daemon) and the extension-host
-//! worker (the call is answered there now). What differs between the two is how a URL is fetched and how a command is run
+//! One implementation serves the daemon and the extension-host worker. What differs between the two is how a URL is fetched and how a command is run
 //! (the daemon fetches through its asset fetcher and spawns through its process manager), so those two steps are the
 //! [`FontHost`] the caller hands in; the pinned table, the folders, the checks, the file writes on the durability lane and
 //! the registration command are here.

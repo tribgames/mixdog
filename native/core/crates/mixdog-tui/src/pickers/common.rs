@@ -68,6 +68,11 @@ impl ConfirmSpec {
     pub fn back_next() -> Self {
         Self { buttons: vec![ConfirmButton::new("back", "\u{25c0} Back"), ConfirmButton::new("next", "Next \u{25b6}")] }
     }
+
+    /// The confirm bar of a picker: the wizard's Back and Next while onboarding, else the caller's own bar.
+    pub fn for_picker(onboarding: bool, caller: Option<&CallerConfirm>) -> Option<Self> {
+        if onboarding { Some(Self::back_next()) } else { caller.map(|confirm| Self { buttons: confirm.buttons.clone() }) }
+    }
 }
 
 /// A caller's own confirm bar (`options.confirmBar`): its buttons and what Enter on one does (the button's `value`).

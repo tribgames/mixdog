@@ -6,14 +6,14 @@
 //! durable side is [`PoolStore`] and the live side [`PoolLive`]; this module is the projection
 //! between them, with every status word, stamp rule and row key Node's.
 //!
-//! The only state kept between listings is Node's `stickyIdleSince`: the first idle stamp seen for
-//! a session, frozen until the session is seen working again.
+//! A settled child row's `settledAt` is the settle identity of its outcome, fixed in the store the
+//! first time a listing shows it settled ([`PoolStore::settle_identities`]) and read back from there
+//! afterwards; the pool itself keeps nothing between listings.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::LazyLock;
-use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_core_base::rooms::ids::SESSION_ID_PATTERN;
@@ -39,7 +39,6 @@ mod rows_tests;
 
 const TAG_TOMBSTONE_TTL_MS: f64 = 7.0 * 24.0 * 60.0 * 60.0 * 1000.0;
 const AGENT_PANE_VISIBLE_MS: f64 = 60.0 * 60.0 * 1000.0;
-const STICKY_IDLE_CAP: usize = 512;
 const TODO_STATUSES: [&str; 4] = ["pending", "in_progress", "completed", "abandoned"];
 const IN_FLIGHT_STAGES: [&str; 5] = ["connecting", "requesting", "streaming", "tool_running", "cancelling"];
 const SESSION_CANCEL_FIELDS: [&str; 7] = ["cancelStatus", "status", "state", "lastStatus", "stage", "outcome", "terminationReason"];
@@ -110,6 +109,20 @@ pub trait PoolStore: Send + Sync {
     }
     /// One answer per id, in order.
     async fn headers(&self, session_ids: &[String]) -> Vec<Option<Row>>;
+    /// One answer per fix, in order: the settle identity the stored row holds for its `fix.turns`-th turn, fixed and
+    /// persisted from `fix.candidate` when it holds none; null when the stored row has started another turn since. An
+    /// identity once fixed is never changed by a later write of the same turn, and a later turn's is always later.
+    async fn settle_identities(&self, fixes: &[SettleFix]) -> Vec<Value>;
+}
+
+/// A settled row whose outcome needs its settle identity.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SettleFix {
+    pub session_id: String,
+    /// The stored row's count of started turns as listed (`startedTurns`, 0 when it counted none): the outcome.
+    pub turns: u64,
+    /// The identity to fix when the stored row holds none for `turns`.
+    pub candidate: Value,
 }
 
 /// A runtime entry of a session this daemon runs (`runtimeState`): its liveness record and whether
@@ -155,7 +168,6 @@ pub trait PoolLive: Send + Sync {
 pub struct AgentPool {
     store: Arc<dyn PoolStore>,
     live: Arc<dyn PoolLive>,
-    idle_since: Mutex<Row>,
 }
 
 // ---- Node's small coercions -----------------------------------------------------------------
@@ -412,6 +424,25 @@ fn tombstone_blocks(work: &Row, tombstone: Option<&Row>) -> bool {
     reaped_at != 0.0 && stamp_ms(work.get("createdAt")).max(stamp_ms(work.get("turnStartedAt"))) <= reaped_at
 }
 
+/// The moment the stored row says its latest turn settled (the later of `finishedAt` and
+/// `cancelledAt`); null when the row carries neither.
+fn settled_at(row: &Row) -> Value {
+    let finished = row.get("finishedAt");
+    let cancelled = row.get("cancelledAt");
+    let latest = if stamp_ms(cancelled) > stamp_ms(finished) { cancelled } else { finished };
+    if stamp_ms(latest) > 0.0 { or_null(&[latest]) } else { Value::Null }
+}
+
+/// `idleSince` of a row this listing has no settle identity for: null while it works, else its
+/// settle time or `fallback`.
+fn idle_since(row: &Row, working: bool, fallback: Value) -> Value {
+    if working {
+        return Value::Null;
+    }
+    let settled = settled_at(row);
+    if settled.is_null() { fallback } else { settled }
+}
+
 // ---- the assembly ---------------------------------------------------------------------------
 
 type Headers = HashMap<String, Option<Row>>;
@@ -420,8 +451,8 @@ struct Assembly<'a> {
     now: f64,
     running: &'a HashSet<String>,
     headers: &'a Headers,
-    idle_since: &'a mut Row,
     live: &'a dyn PoolLive,
+    fixes: Vec<SettleFix>,
 }
 
 impl Assembly<'_> {
@@ -429,22 +460,17 @@ impl Assembly<'_> {
         self.headers.get(session_id).and_then(Option::as_ref)
     }
 
-    /// `frozenIdleSince`: the first observation freezes the fallback; a row seen working clears it.
-    fn frozen_idle_since(&mut self, session_id: &str, working: bool, fallback: Value) -> Value {
-        if working {
-            self.idle_since.shift_remove(session_id);
-            return Value::Null;
-        }
-        if let Some(kept) = self.idle_since.get(session_id) {
-            return kept.clone();
-        }
-        self.idle_since.insert(session_id.to_owned(), fallback.clone());
-        if self.idle_since.len() > STICKY_IDLE_CAP
-            && let Some(oldest) = self.idle_since.keys().next().cloned()
-        {
-            self.idle_since.shift_remove(&oldest);
-        }
-        fallback
+    /// The settle identity a settled row would get now, asked of the store as one of the listing's fixes: its settle
+    /// time, else `fallback`, when later than its turn's start, else now.
+    fn settle_candidate(&mut self, session_id: &str, row: &Row, fallback: Value) -> Value {
+        let begun = stamp_ms(row.get("turnStartedAt"));
+        let candidate = [settled_at(row), fallback]
+            .into_iter()
+            .find(|at| stamp_ms(Some(at)) > begun)
+            .unwrap_or_else(|| iso(self.now).map_or_else(|| json_number(self.now), Value::String));
+        let turns = row.get("startedTurns").and_then(Value::as_u64).unwrap_or(0);
+        self.fixes.push(SettleFix { session_id: session_id.to_owned(), turns, candidate: candidate.clone() });
+        candidate
     }
 
     fn project_child(&mut self, row: &Value) -> Option<Row> {
@@ -475,7 +501,9 @@ impl Assembly<'_> {
             .and_then(|entry| entry.liveness.get("stage").and_then(Value::as_str).filter(|stage| status_is(&QUEUED, stage)).map(str::to_owned));
         let completed = status_is(&COMPLETED, &life);
         let unconfirmed_cancel = cancel.as_ref().is_some_and(|cancel| status_is(&CANCEL_UNCONFIRMED, &cancel.status));
-        if !working && !unconfirmed_cancel && (cancel.is_some() || !declared_working) {
+        // A settled outcome: a completion, a failure or a confirmed cancel nothing runs any more.
+        let outcome = !working && !unconfirmed_cancel && (cancel.is_some() || !declared_working);
+        if outcome {
             if cancel.is_none() && !completed && !status_is(&FAILED, &life) {
                 return None;
             }
@@ -548,8 +576,15 @@ impl Assembly<'_> {
         out.insert("turnStartedAt".into(), if working { or_null(&[row.get("turnStartedAt")]) } else { Value::Null });
         out.insert("createdAt".into(), or_null(&[row.get("createdAt"), session_get("createdAt")]));
         out.insert("updatedAt".into(), or_null(&[row.get("updatedAt"), session_get("updatedAt")]));
-        let idle = self.frozen_idle_since(&session_id, working, or_null(&[row.get("finishedAt"), row.get("updatedAt"), session_get("updatedAt")]));
-        out.insert("idleSince".into(), idle);
+        let fallback = or_null(&[row.get("updatedAt"), session_get("updatedAt")]);
+        if outcome {
+            let identity = self.settle_candidate(&session_id, row, fallback);
+            out.insert("idleSince".into(), identity.clone());
+            out.insert("settledAt".into(), identity);
+        } else {
+            out.insert("idleSince".into(), idle_since(row, working, fallback));
+            out.insert("settledAt".into(), Value::Null);
+        }
         out.insert("reapAt".into(), or_null(&[row.get("reapAt")]));
         out.insert("cwd".into(), text_or_null(clean_value(first_truthy(&[row.get("cwd"), session_get("cwd")]))));
         out.insert("clientHostPid".into(), pid(first_truthy(&[row.get("clientHostPid"), session_get("clientHostPid")])));
@@ -611,8 +646,7 @@ impl Assembly<'_> {
         out.insert("turnStartedAt".into(), if working { or_null(&[row.get("turnStartedAt")]) } else { Value::Null });
         out.insert("createdAt".into(), or_null(&[row.get("createdAt")]));
         out.insert("updatedAt".into(), or_null(&[row.get("updatedAt")]));
-        let idle = self.frozen_idle_since(&session_id, working, or_null(&[row.get("finishedAt"), row.get("updatedAt")]));
-        out.insert("idleSince".into(), idle);
+        out.insert("idleSince".into(), idle_since(row, working, or_null(&[row.get("updatedAt")])));
         out.insert("cwd".into(), text_or_null(clean_value(row.get("cwd"))));
         out.insert("clientHostPid".into(), pid(row.get("clientHostPid")));
         out.insert("taskId".into(), text_or_null(clean_value(first_truthy(&[row.get("task_id"), row.get("taskId")]))));
@@ -646,6 +680,24 @@ impl Assembly<'_> {
     }
 }
 
+fn sort_by_start_then_tag(rows: &mut Vec<Value>) {
+    let start = |row: &Value| {
+        let parsed = date_parse(&if truthy(get(row, "startedAt")) { string_of(get(row, "startedAt")) } else { String::new() });
+        if parsed.is_nan() { 0.0 } else { parsed }
+    };
+    mixdog_js::js_sort_by(rows, |left, right| {
+        let by_time = start(left) - start(right);
+        if by_time != 0.0 {
+            return by_time;
+        }
+        match mixdog_js::locale_compare(&clean_nullish(get(left, "tag")), &clean_nullish(get(right, "tag"))) {
+            std::cmp::Ordering::Less => -1.0,
+            std::cmp::Ordering::Equal => 0.0,
+            std::cmp::Ordering::Greater => 1.0,
+        }
+    });
+}
+
 /// `positiveNumber(value, 0) || null`.
 fn pid(value: Option<&Value>) -> Value {
     let number = positive_number(value);
@@ -654,7 +706,7 @@ fn pid(value: Option<&Value>) -> Value {
 
 impl AgentPool {
     pub fn new(store: Arc<dyn PoolStore>, live: Arc<dyn PoolLive>) -> Self {
-        Self { store, live, idle_since: Mutex::new(Row::new()) }
+        Self { store, live }
     }
 
     /// `listStoredAgentWorkersAsync` laid over by the daemon's live state, rows in Node's order.
@@ -695,7 +747,18 @@ impl AgentPool {
             headers.insert(id.clone(), header);
         }
         let running = self.live.running();
-        let rows = self.assemble(&child_rows, agent_index.as_ref(), lead_index.as_ref(), &running, &headers)?;
+        let (mut rows, fixes) = self.assemble(&child_rows, agent_index.as_ref(), lead_index.as_ref(), &running, &headers)?;
+        if !fixes.is_empty() {
+            let fixed: HashMap<String, Value> = fixes.iter().map(|fix| fix.session_id.clone()).zip(self.store.settle_identities(&fixes).await).collect();
+            for row in rows.iter_mut().filter_map(Value::as_object_mut) {
+                if let Some(identity) = fixed.get(&clean_value(row.get("sessionId"))) {
+                    row.insert("settledAt".into(), identity.clone());
+                    if !identity.is_null() {
+                        row.insert("idleSince".into(), identity.clone());
+                    }
+                }
+            }
+        }
         Ok(self.lay_live(rows))
     }
 
@@ -706,7 +769,7 @@ impl AgentPool {
         lead_index: Option<&Value>,
         running: &HashSet<String>,
         headers: &Headers,
-    ) -> Result<Vec<Value>, PoolError> {
+    ) -> Result<(Vec<Value>, Vec<SettleFix>), PoolError> {
         let now = self.live.now();
         let mut by_id: HashMap<String, &Value> = HashMap::new();
         for row in child_rows {
@@ -741,8 +804,7 @@ impl AgentPool {
             }
             tombstone_blocks(&work, find_tombstone(&work, &tombstones))
         };
-        let mut idle_since = self.idle_since.lock().unwrap_or_else(|e| e.into_inner());
-        let mut pass = Assembly { now, running, headers, idle_since: &mut idle_since, live: &*self.live };
+        let mut pass = Assembly { now, running, headers, live: &*self.live, fixes: Vec::new() };
         let mut by_session = Row::new();
         for row in child_rows.iter().filter(|row| !is_reaped(&clean_value(get(row, "sessionId")))) {
             if let Some(projected) = pass.project_child(row) {
@@ -759,22 +821,8 @@ impl AgentPool {
         }
         pass.prune_orphans(&mut by_session, &live_leads);
         let mut rows: Vec<Value> = by_session.into_iter().map(|(_, row)| row).collect();
-        let start = |row: &Value| {
-            let parsed = date_parse(&if truthy(get(row, "startedAt")) { string_of(get(row, "startedAt")) } else { String::new() });
-            if parsed.is_nan() { 0.0 } else { parsed }
-        };
-        mixdog_js::js_sort_by(&mut rows, |left, right| {
-            let by_time = start(left) - start(right);
-            if by_time != 0.0 {
-                return by_time;
-            }
-            match mixdog_js::locale_compare(&clean_nullish(get(left, "tag")), &clean_nullish(get(right, "tag"))) {
-                std::cmp::Ordering::Less => -1.0,
-                std::cmp::Ordering::Equal => 0.0,
-                std::cmp::Ordering::Greater => 1.0,
-            }
-        });
-        Ok(rows)
+        sort_by_start_then_tag(&mut rows);
+        Ok((rows, pass.fixes))
     }
 
     /// `withLiveTodo`, `withLiveUsage`, `withLedgerToken` and `withTurnProgress`, in Node's order.

@@ -14,6 +14,8 @@ use serde_json::Value;
 
 use crate::builders::Args;
 use crate::builders::stall_abort_record;
+use crate::record::nullish;
+use crate::record::or_null;
 use crate::record::truthy;
 
 /// The two records of one abort.
@@ -48,17 +50,6 @@ fn abort_kind(message: &str) -> (Value, &'static str, Option<f64>) {
     } else {
         (Value::Null, "other", None)
     }
-}
-
-fn or_null(value: Option<&Value>) -> Value {
-    match value {
-        Some(v) if truthy(v) => v.clone(),
-        _ => Value::Null,
-    }
-}
-
-fn nullish(value: Option<&Value>) -> Value {
-    value.cloned().unwrap_or(Value::Null)
 }
 
 fn put(map: &mut Args, key: &str, value: Value) {

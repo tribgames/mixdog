@@ -1,14 +1,9 @@
-//! Owner: s4-engine-ledgers
-//! The ledgers of every page, fed by the host's ordered notifications (`cdp-events-console.ts` recording part and the ledger
-//! routes of `cdp-event-router.ts`). `host/browser/events` batches and `page/facts` carry one per-page `seq`; a batch is applied
+//! The ledgers of every page, fed by the host's ordered notifications. `host/browser/events` batches and `page/facts` carry one per-page `seq`; a batch is applied
 //! only when it is the next one, and a gap is reported so the lane can call `host/browser/page/sync` and [`Ingest::resync`].
 //!
 //! The host already left out the diagnostics of Chromium's own components (their execution contexts) and forwards only the
 //! allowlisted CDP events plus the synthetic `Mixdog.internalConsole {level, text}` and `Mixdog.requestRefused {url, reason}`.
 //! `Ingest` is a plain value: the lane that owns it serialises its calls (the sink is synchronous and ordered).
-//!
-//! Not carried over: the console replay filter of `freshEntry` (it only rejects entries a re-enabled CDP domain replays while the
-//! core's own drive command holds the floor; the host re-enables domains and never forwards a replay).
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -462,8 +457,12 @@ mod tests {
         assert_eq!(ledgers.network.explain_failure("net::ERR_BLOCKED_BY_CLIENT", "https://t.test/px"), note.to_owned());
     }
 
+    fn console_entries(ingest: &Ingest) -> Vec<(&str, &str, bool)> {
+        ingest.ledgers("p").unwrap().console.entries().map(|entry| (entry.level.name(), entry.text.as_str(), entry.internal)).collect()
+    }
+
     #[test]
-    fn console_calls_exceptions_and_the_browsers_own_notes_are_recorded() {
+    fn console_calls_are_recorded_with_the_first_script_frame() {
         let mut ingest = Ingest::new();
         let batch = json!([
             event(
@@ -473,6 +472,15 @@ mod tests {
                 1
             ),
             event("Runtime.consoleAPICalled", json!({"type": "log", "args": [{"type": "string", "value": "hello"}]}), 2),
+        ]);
+        ingest.apply_events(events("p", 1, batch)).unwrap();
+        assert_eq!(console_entries(&ingest), [("warning", "warning: careful 3 (https://a.test/app.js:12)", false), ("info", "log: hello", false)]);
+    }
+
+    #[test]
+    fn exceptions_are_recorded_as_errors_with_their_script_and_line() {
+        let mut ingest = Ingest::new();
+        let batch = json!([
             event(
                 "Runtime.exceptionThrown",
                 json!({"exceptionDetails": {"text": "Uncaught", "exception": {"description": "Error: boom\n    at x"}, "url": "https://a.test/app.js", "lineNumber": 4}}),
@@ -484,24 +492,29 @@ mod tests {
                 4
             ),
             event("Runtime.exceptionThrown", json!({"exceptionDetails": {}}), 5),
+        ]);
+        ingest.apply_events(events("p", 1, batch)).unwrap();
+        assert_eq!(
+            console_entries(&ingest),
+            [
+                ("error", "Error: boom\n    at x (https://a.test/app.js:5)", false),
+                ("error", "Uncaught (https://a.test/b.js:3)", false),
+                ("error", "page exception", false),
+            ]
+        );
+        assert_eq!(ingest.ledgers("p").unwrap().console.error_count(), 3);
+    }
+
+    #[test]
+    fn the_browsers_own_notes_are_kept_apart_from_the_pages_errors_and_its_components_logs_are_dropped() {
+        let mut ingest = Ingest::new();
+        let batch = json!([
             event("Mixdog.internalConsole", json!({"level": "error", "text": "CDP Runtime.evaluate timed out"}), 6),
             event("Log.entryAdded", json!({"entry": {"level": "info", "text": "from the network stack", "url": "chrome://resources/x.js"}}), 7),
         ]);
         ingest.apply_events(events("p", 1, batch)).unwrap();
-        let ledgers = ingest.ledgers("p").unwrap();
-        let entries: Vec<(&str, &str, bool)> = ledgers.console.entries().map(|entry| (entry.level.name(), entry.text.as_str(), entry.internal)).collect();
-        assert_eq!(
-            entries,
-            [
-                ("warning", "warning: careful 3 (https://a.test/app.js:12)", false),
-                ("info", "log: hello", false),
-                ("error", "Error: boom\n    at x (https://a.test/app.js:5)", false),
-                ("error", "Uncaught (https://a.test/b.js:3)", false),
-                ("error", "page exception", false),
-                ("error", "CDP Runtime.evaluate timed out", true),
-            ]
-        );
-        assert_eq!(ledgers.console.error_count(), 3, "the browser's own fault is not the page's");
+        assert_eq!(console_entries(&ingest), [("error", "CDP Runtime.evaluate timed out", true)]);
+        assert_eq!(ingest.ledgers("p").unwrap().console.error_count(), 0, "the browser's own fault is not the page's");
     }
 
     #[test]
@@ -523,7 +536,16 @@ mod tests {
     }
 
     #[test]
-    fn a_new_document_clears_the_log_and_failures_and_a_finished_load_ends_its_document_request() {
+    fn a_finished_load_ends_its_document_request_and_keeps_the_log_of_the_same_document() {
+        let mut ingest = loading_document_with_an_error_and_a_failure();
+        assert_eq!(ingest.ledgers("p").unwrap().network.pending_count(), 1);
+        ingest.apply_facts_at(&facts("p", 3, json!({"mainFrameLoading": false, "url": "https://a.test/page#x"})), 99).unwrap();
+        let ledgers = ingest.ledgers("p").unwrap();
+        assert_eq!((ledgers.network.pending_count(), ledgers.network.get("r1").unwrap().finished_at), (0, Some(99)));
+        assert_eq!((ledgers.console.error_count(), ledgers.failures.len()), (1, 1), "the same document keeps its log");
+    }
+
+    fn loading_document_with_an_error_and_a_failure() -> Ingest {
         let mut ingest = Ingest::new();
         ingest.apply_facts_at(&facts("p", 1, json!({"mainFrameLoading": true, "url": "https://a.test/page"})), 0).unwrap();
         let batch = json!([
@@ -532,12 +554,13 @@ mod tests {
         ]);
         ingest.apply_events(events("p", 2, batch)).unwrap();
         ingest.ledgers_or_default("p").push_failure("Blocked popup creation: nope");
-        assert_eq!(ingest.ledgers("p").unwrap().network.pending_count(), 1);
-        ingest.apply_facts_at(&facts("p", 3, json!({"mainFrameLoading": false, "url": "https://a.test/page#x"})), 99).unwrap();
-        let ledgers = ingest.ledgers("p").unwrap();
-        assert_eq!((ledgers.network.pending_count(), ledgers.network.get("r1").unwrap().finished_at), (0, Some(99)));
-        assert_eq!((ledgers.console.error_count(), ledgers.failures.len()), (1, 1), "the same document keeps its log");
-        ingest.apply_facts_at(&facts("p", 4, json!({"documentId": "p:2"})), 100).unwrap();
+        ingest
+    }
+
+    #[test]
+    fn a_new_document_clears_the_log_and_failures_but_keeps_the_requests() {
+        let mut ingest = loading_document_with_an_error_and_a_failure();
+        ingest.apply_facts_at(&facts("p", 3, json!({"documentId": "p:2"})), 100).unwrap();
         let ledgers = ingest.ledgers("p").unwrap();
         assert_eq!((ledgers.console.error_count(), ledgers.failures.len(), ledgers.network.get("r1").is_some()), (0, 0, true));
     }

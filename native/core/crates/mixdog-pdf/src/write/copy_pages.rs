@@ -377,6 +377,29 @@ impl PdfDocument {
         self.ensure_acro_form()?;
         self.normalize_form_fields()?;
         let mut names: HashSet<String> = self.form_fields().into_iter().map(|field| field.name).collect();
+        let roots = self.widget_field_roots(pages);
+        for field_ref in &roots {
+            let title = self.store.dict(*field_ref).and_then(|dict| dict.get_raw("T")).and_then(Obj::as_str).map(decode_text_string);
+            let mut name = title.unwrap_or_default();
+            if !name.is_empty() && names.contains(&name) {
+                let mut suffix = 2;
+                while names.contains(&format!("{name}_{suffix}")) {
+                    suffix += 1;
+                }
+                name = format!("{name}_{suffix}");
+                let text = Obj::Str(Arc::from(encode_text_string(&name)));
+                self.store.modify_dict(*field_ref, |dict| dict.set("T", text));
+            }
+            if !name.is_empty() {
+                names.insert(name);
+            }
+            self.add_form_field(*field_ref)?;
+        }
+        Ok(roots.len())
+    }
+
+    /// The topmost ancestor dictionary of every widget annotation on `pages`, each once, in order of appearance.
+    fn widget_field_roots(&self, pages: &[Ref]) -> Vec<Ref> {
         let mut roots: Vec<Ref> = Vec::new();
         for page in pages {
             for entry in self.page_annotations(*page) {
@@ -408,24 +431,7 @@ impl PdfDocument {
                 }
             }
         }
-        for field_ref in &roots {
-            let title = self.store.dict(*field_ref).and_then(|dict| dict.get_raw("T")).and_then(Obj::as_str).map(decode_text_string);
-            let mut name = title.unwrap_or_default();
-            if !name.is_empty() && names.contains(&name) {
-                let mut suffix = 2;
-                while names.contains(&format!("{name}_{suffix}")) {
-                    suffix += 1;
-                }
-                name = format!("{name}_{suffix}");
-                let text = Obj::Str(Arc::from(encode_text_string(&name)));
-                self.store.modify_dict(*field_ref, |dict| dict.set("T", text));
-            }
-            if !name.is_empty() {
-                names.insert(name);
-            }
-            self.add_form_field(*field_ref)?;
-        }
-        Ok(roots.len())
+        roots
     }
 
     /// `dropFieldsOffThePages` of `pdf-batch-structure.mjs`: a field whose widgets sat only on removed pages leaves

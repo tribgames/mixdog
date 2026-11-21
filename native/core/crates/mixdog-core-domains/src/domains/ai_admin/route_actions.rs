@@ -1,9 +1,3 @@
-//! The setup route actions (`executor.mjs` `set_route`, `set_agent_route`, and
-//! `setup-tool/session-route-actions.mjs`): the Lead and agent route edits with their chain
-//! receipt, a session's return to its primary route, and the quota-card actions on another
-//! session. The routes are [`RouteService`] and [`AgentRouteSetter`]; the live sessions, their
-//! fallback position and the daemon's configure lane are [`RouteSetupSessions`] (WP-SESSION).
-
 use mixdog_core_ports::ports::domain_sessions::{RouteSetupSessions, SessionFacts};
 use std::sync::Arc;
 

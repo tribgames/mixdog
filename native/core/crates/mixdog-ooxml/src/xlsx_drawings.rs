@@ -60,9 +60,7 @@ pub struct FramePlacement<'a> {
 }
 
 /// `frameAnchorXml({ cell, left, top, width, height }, frame)`: the anchor a new chart or picture frame takes. Placed at a
-/// cell (and no point position), the frame hangs off that cell as a oneCellAnchor and moves with it: an absolute position
-/// written from the widths at the time stayed put when a later autofit widened the columns, and a chart placed beside its
-/// table at E9 ended up across it (C9).
+/// cell (and no point position), the frame hangs off that cell as a oneCellAnchor and moves with it.
 pub fn frame_anchor_xml(placement: &FramePlacement<'_>, frame: &str) -> Result<String, String> {
     let ext = format!(
         "<xdr:ext cx=\"{}\" cy=\"{}\"/>",

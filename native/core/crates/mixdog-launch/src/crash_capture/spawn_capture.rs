@@ -1,11 +1,5 @@
-//! One boot's spawn capture (`spawn-capture.mjs`): the launcher hands the core an append file for fd 2 instead of a pipe, so
-//! native fatal output (a panic's text, an abort's) lands in a file even when the launcher is long gone; a JSON sidecar records
-//! the correlated lifecycle (pid, spawn, ready and exit times, exit code or signal) as far as the launcher can observe it; and
-//! new stderr bytes are mirrored into the launcher's log once per lifecycle event.
-//!
-//! Not ported: `noteReplaced` (a supervisor that killed a frozen Node main thread and started a replacement on the same fd 2; it
-//! has no caller in the launcher, and the Rust core has no such supervisor) and `heapFlags` from `execArgv` (a native core has no
-//! V8 heap flags: the field stays in the sidecar, empty, as it is for every Node boot without them).
+//! A native core has no V8 heap flags: the `heapFlags` field stays in the sidecar, empty, as it is for every Node boot without
+//! them.
 
 use std::fs::File;
 use std::io::Read;

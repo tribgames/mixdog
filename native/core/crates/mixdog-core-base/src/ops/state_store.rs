@@ -173,10 +173,18 @@ fn unreadable() -> CoreError {
     CoreError::Internal { incident_id: "op-row-unreadable".into() }
 }
 
+fn lane_unrun(why: &str) -> CoreError {
+    CoreError::Internal { incident_id: format!("{}-{why}", mixdog_rt::LaneKind::InteractiveIo.name()).into() }
+}
+
 fn store_error(error: DbError) -> CoreError {
     match error {
         // `CoreState` reads run on the interactive io lane.
         DbError::LaneFull => CoreError::QueueFull { queue: mixdog_rt::LaneKind::InteractiveIo.name().into() },
+        DbError::LaneCancelled => CoreError::Cancelled { by: "caller".into() },
+        DbError::LaneShutDown => lane_unrun("lane-shut-down"),
+        DbError::LaneWedged => lane_unrun("lane-wedged"),
+        DbError::LaneJobLost => lane_unrun("job-dropped"),
         _ => CoreError::StorageIndeterminate { scope: "state".into() },
     }
 }

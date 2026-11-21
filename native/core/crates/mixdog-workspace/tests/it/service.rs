@@ -170,115 +170,148 @@ async fn a_text_file_is_read_in_windows_that_join_to_the_whole() {
     assert_eq!(joined, text);
 }
 
-/// The paired device's side of the spec's `transfer/*` (SPEC.md R44): a path outside every project is described
-/// with a one-file grant (`transfer/grant/mint`), which `transfer/beginRead` redeems for exactly that file; the
-/// request is a relay connection (origin Relay), paired as "phone-1".
-#[tokio::test(flavor = "multi_thread")]
-async fn a_paired_device_reads_one_granted_file_outside_its_projects_and_nothing_else() {
+const WRONG_PATH: &str = "The selected-file permission does not match this path.";
+
+fn granted_env(folder: &str) -> (Env, PathBuf) {
     let env = env();
     env.service.set_phone_grants(
         Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(NoneGone))),
         Arc::new(|connection: ConnectionId| (connection.0 == 1).then(|| "phone-1".to_owned())),
     );
-    let outside = env.root.parent().unwrap().join("granted-outside");
+    let outside = env.root.parent().unwrap().join(folder);
     std::fs::create_dir_all(&outside).unwrap();
     std::fs::write(outside.join("note.txt"), "hi\n").unwrap();
     std::fs::write(outside.join("other.txt"), "secret\n").unwrap();
+    (env, outside)
+}
 
-    // Outside every project: the row Node's `resolveLocalPaths` answers, with a grant.
+async fn mint_token(env: &Env, outside: &Path, name: &str) -> String {
+    let minted = call(env, "transfer/grant/mint", json!({ "path": outside.join(name).to_string_lossy() })).await.unwrap();
+    minted["accessToken"].as_str().unwrap().to_owned()
+}
+
+fn granted_source(outside: &Path, rel: &str, token: &str) -> Value {
+    json!({ "source": { "kind": "granted", "accessToken": token, "projectPath": outside.to_string_lossy(), "relPath": rel } })
+}
+
+fn granted_target(outside: &Path, rel: &str, token: &str) -> Value {
+    json!({ "root": outside.to_string_lossy(), "rel": rel, "accessToken": token })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_path_outside_every_project_is_minted_a_one_file_grant_and_one_inside_is_not() {
+    let (env, outside) = granted_env("granted-outside");
     let minted = call(&env, "transfer/grant/mint", json!({ "path": outside.join("note.txt").to_string_lossy() })).await.unwrap();
     assert_eq!(minted["relPath"], "note.txt");
     assert_eq!(minted["projectPath"], outside.to_string_lossy().as_ref());
     assert_eq!((minted["name"].clone(), minted["size"].clone(), minted["dir"].clone()), (json!("note.txt"), json!(3), json!(false)));
-    let token = minted["accessToken"].as_str().unwrap().to_owned();
-    // Inside a registered project: the project and path, no grant.
     let inside = call(&env, "transfer/grant/mint", json!({ "path": env.root.join("a.txt").to_string_lossy() })).await.unwrap();
     assert_eq!((inside["projectPath"].clone(), inside["relPath"].clone()), (json!(env.root.to_string_lossy()), json!("a.txt")));
     assert!(inside.get("accessToken").is_none());
-    // A conversation's attachment is always granted.
     let attachment = call(&env, "transfer/grant/mint", json!({ "path": env.root.join("a.txt").to_string_lossy(), "sessionId": "s1" })).await.unwrap();
     assert!(attachment["accessToken"].is_string());
+}
 
-    let source =
-        |rel: &str, token: &str| json!({ "source": { "kind": "granted", "accessToken": token, "projectPath": outside.to_string_lossy(), "relPath": rel } });
-    let began = call(&env, "transfer/beginRead", source("note.txt", &token)).await.unwrap();
+#[tokio::test(flavor = "multi_thread")]
+async fn a_granted_file_is_begun_and_read_by_range() {
+    let (env, outside) = granted_env("granted-outside");
+    let token = mint_token(&env, &outside, "note.txt").await;
+    let began = call(&env, "transfer/beginRead", granted_source(&outside, "note.txt", &token)).await.unwrap();
     assert_eq!(began["size"], 3);
     let range = call(&env, "transfer/readRange", json!({ "transferId": began["transferId"], "offset": 0, "length": 3 })).await.unwrap();
     assert_eq!(range["data"], "aGkK");
-    // The editor calls over the same grant answer as they do for a project file (Node's `readProjectTextFileAuthorized` and
-    // `statProjectFileIn` over `remoteFileTarget`): the phone sends `(projectPath, relPath, accessToken)` as `root`, `rel`, `accessToken`.
-    let text = call(&env, "projectFs/readText", json!({ "root": outside.to_string_lossy(), "rel": "note.txt", "accessToken": token })).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_editor_calls_over_a_grant_answer_as_they_do_for_a_project_file() {
+    let (env, outside) = granted_env("granted-outside");
+    let token = mint_token(&env, &outside, "note.txt").await;
+    let text = call(&env, "projectFs/readText", granted_target(&outside, "note.txt", &token)).await.unwrap();
     let project_file = call(&env, "projectFs/readText", json!({ "root": env.root.to_string_lossy(), "rel": "a.txt" })).await.unwrap();
     let keys = |value: &Value| value.as_object().unwrap().keys().cloned().collect::<std::collections::BTreeSet<_>>();
     assert_eq!(keys(&text), keys(&project_file), "the same reply shape as a project file's");
     assert_eq!((text["content"].clone(), text["binary"].clone(), text["tooLarge"].clone()), (json!("hi\n"), json!(false), json!(false)));
-    let stat = call(&env, "projectFs/stat", json!({ "root": outside.to_string_lossy(), "rel": "note.txt", "accessToken": token })).await.unwrap();
+    let stat = call(&env, "projectFs/stat", granted_target(&outside, "note.txt", &token)).await.unwrap();
     assert_eq!((stat["size"].clone(), stat["directory"].clone()), (json!(3), json!(false)));
-    let wrong = call(&env, "projectFs/readText", json!({ "root": outside.to_string_lossy(), "rel": "other.txt", "accessToken": token })).await;
-    assert!(format!("{wrong:?}").contains("The selected-file permission does not match this path."), "{wrong:?}");
-    let missing = call(&env, "projectFs/stat", json!({ "root": outside.to_string_lossy(), "rel": "note.txt", "accessToken": "not-a-token" })).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_grant_opens_its_one_file_and_a_token_never_issued_opens_nothing() {
+    let (env, outside) = granted_env("granted-outside");
+    let token = mint_token(&env, &outside, "note.txt").await;
+    let wrong = call(&env, "projectFs/readText", granted_target(&outside, "other.txt", &token)).await;
+    assert!(format!("{wrong:?}").contains(WRONG_PATH), "{wrong:?}");
+    let missing = call(&env, "projectFs/stat", granted_target(&outside, "note.txt", "not-a-token")).await;
     assert!(format!("{missing:?}").contains("SELECTED_FILE_GRANT_UNAVAILABLE"), "{missing:?}");
-    // The grant names one exact file, and a token that was never issued opens nothing.
-    let other = call(&env, "transfer/beginRead", source("other.txt", &token)).await;
-    assert!(format!("{other:?}").contains("The selected-file permission does not match this path."), "{other:?}");
-    let unknown = call(&env, "transfer/beginRead", source("note.txt", "not-a-token")).await;
+    let other = call(&env, "transfer/beginRead", granted_source(&outside, "other.txt", &token)).await;
+    assert!(format!("{other:?}").contains(WRONG_PATH), "{other:?}");
+    let unknown = call(&env, "transfer/beginRead", granted_source(&outside, "note.txt", "not-a-token")).await;
     assert!(format!("{unknown:?}").contains("SELECTED_FILE_GRANT_UNAVAILABLE"), "{unknown:?}");
-    // Without a grant a relay connection reads no absolute path.
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn without_a_grant_a_relay_connection_reads_no_absolute_path() {
+    let (env, outside) = granted_env("granted-outside");
     let plain = call(&env, "transfer/beginRead", json!({ "source": { "kind": "localFile", "path": outside.join("other.txt").to_string_lossy() } })).await;
     assert!(matches!(plain, Err(CoreError::PermissionDenied { .. })), "{plain:?}");
 }
 
-/// The phone's other file calls over a one-file permission (Node's `remoteFileTarget`): the write, the entry path, the preview (an image
-/// is leased to the device), and the preview range all name the granted file alone.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_one_file_permission_writes_names_and_previews_that_file_alone() {
-    let env = env();
-    env.service.set_phone_grants(
-        Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(NoneGone))),
-        Arc::new(|connection: ConnectionId| (connection.0 == 1).then(|| "phone-1".to_owned())),
-    );
-    let outside = env.root.parent().unwrap().join("granted-calls");
-    std::fs::create_dir_all(&outside).unwrap();
-    std::fs::write(outside.join("note.txt"), "hi\n").unwrap();
-    std::fs::write(outside.join("pic.png"), [0x89, b'P', b'N', b'G', 1, 2, 3, 4]).unwrap();
-    std::fs::write(outside.join("other.txt"), "secret\n").unwrap();
-    let grant = |name: &str| call(&env, "transfer/grant/mint", json!({ "path": outside.join(name).to_string_lossy() }));
-    let note = grant("note.txt").await.unwrap()["accessToken"].as_str().unwrap().to_owned();
-    let pic = grant("pic.png").await.unwrap()["accessToken"].as_str().unwrap().to_owned();
-    let target = |rel: &str, token: &str| json!({ "root": outside.to_string_lossy(), "rel": rel, "accessToken": token });
-
-    let mut write = target("note.txt", &note);
+async fn a_one_file_permission_writes_its_file_and_refuses_another() {
+    let (env, outside) = granted_env("granted-calls");
+    let note = mint_token(&env, &outside, "note.txt").await;
+    let mut write = granted_target(&outside, "note.txt", &note);
     write["content"] = json!("changed\n");
     write["expectedContent"] = json!("hi\n");
     call(&env, "projectFs/writeText", write).await.unwrap();
     assert_eq!(std::fs::read_to_string(outside.join("note.txt")).unwrap(), "changed\n");
-    let mut aside = target("other.txt", &note);
+    let mut aside = granted_target(&outside, "other.txt", &note);
     aside["content"] = json!("x");
     aside["expectedContent"] = json!("secret\n");
     let refused = call(&env, "projectFs/writeText", aside).await;
-    assert!(format!("{refused:?}").contains("The selected-file permission does not match this path."), "{refused:?}");
+    assert!(format!("{refused:?}").contains(WRONG_PATH), "{refused:?}");
     assert_eq!(std::fs::read_to_string(outside.join("other.txt")).unwrap(), "secret\n");
+}
 
-    let named = call(&env, "projectFs/entryPath", target("note.txt", &note)).await.unwrap();
+#[tokio::test(flavor = "multi_thread")]
+async fn a_one_file_permission_names_that_file_alone() {
+    let (env, outside) = granted_env("granted-calls");
+    let note = mint_token(&env, &outside, "note.txt").await;
+    let named = call(&env, "projectFs/entryPath", granted_target(&outside, "note.txt", &note)).await.unwrap();
     assert_eq!(named["path"], outside.join("note.txt").to_string_lossy().as_ref());
+}
 
-    let previewed = call(&env, "projectFs/previewFile", target("pic.png", &pic)).await.unwrap();
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paired_devices_image_preview_is_leased_to_that_device_alone() {
+    let (env, outside) = granted_env("granted-calls");
+    std::fs::write(outside.join("pic.png"), [0x89, b'P', b'N', b'G', 1, 2, 3, 4]).unwrap();
+    let pic = mint_token(&env, &outside, "pic.png").await;
+    let previewed = call(&env, "projectFs/previewFile", granted_target(&outside, "pic.png", &pic)).await.unwrap();
     assert_eq!((previewed["kind"].clone(), previewed["size"].clone()), (json!("image"), json!(8)));
-    // A paired device's image gets a media lease (Node's `authorizedMediaFile`; the recording's `mediaAssetId`): the relay media lane
-    // serves it to that device alone, the file as it is on disk, ranges from any offset.
     let lease = previewed["mediaAssetId"].as_str().expect("a paired device's image is leased").to_owned();
     let leases = env.service.project_leases();
     let served = leases.open(&lease, "phone-1").await.expect("the device's lease opens");
     assert_eq!((served.size(), served.mime()), (8, "image/png"));
     assert_eq!(served.read(4, 2).await.unwrap(), vec![1, 2]);
     assert!(leases.open(&lease, "phone-2").await.is_none(), "another device is refused");
-    let pdf_target = |token: &str| json!({ "root": outside.to_string_lossy(), "rel": "doc.pdf", "accessToken": token });
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pdf_preview_is_read_by_page_and_never_leased() {
+    let (env, outside) = granted_env("granted-calls");
     std::fs::write(outside.join("doc.pdf"), b"%PDF-1.4").unwrap();
-    let doc = grant("doc.pdf").await.unwrap()["accessToken"].as_str().unwrap().to_owned();
-    let pdf = call(&env, "projectFs/previewFile", pdf_target(&doc)).await.unwrap();
+    let doc = mint_token(&env, &outside, "doc.pdf").await;
+    let pdf = call(&env, "projectFs/previewFile", granted_target(&outside, "doc.pdf", &doc)).await.unwrap();
     assert_eq!(pdf["kind"], "pdf");
     assert!(pdf.get("mediaAssetId").is_none(), "a pdf is read by page, never leased: {pdf:?}");
-    let mut range = target("pic.png", &pic);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_preview_range_over_a_grant_names_the_granted_file_alone() {
+    let (env, outside) = granted_env("granted-calls");
+    std::fs::write(outside.join("pic.png"), [0x89, b'P', b'N', b'G', 1, 2, 3, 4]).unwrap();
+    let pic = mint_token(&env, &outside, "pic.png").await;
+    let mut range = granted_target(&outside, "pic.png", &pic);
     range["offset"] = json!(4);
     range["length"] = json!(2);
     let part = call(&env, "projectFs/previewRange", range).await.unwrap();
@@ -947,63 +980,96 @@ async fn project_create_and_touch_leave_the_project_id_marker() {
     }
 }
 
-/// The project calls in sequence: a folder is registered under its own name, listed (newest first, ties by name), touched, renamed by an
-/// alias (an empty alias returns to the folder's name), removed (what is not registered is `removed: false`); a folder that does not
-/// exist cannot be registered and an unregistered one cannot be touched; `project/read` probes any path and `ensureDirectory` makes it.
-#[tokio::test(flavor = "multi_thread")]
-async fn the_project_calls_register_list_touch_rename_and_remove_a_folder() {
+fn registry() -> (Env, PathBuf) {
     let env = env();
     let base = env.root.parent().unwrap().join("registry");
     for name in ["zeta", "alpha"] {
         std::fs::create_dir_all(base.join(name)).unwrap();
     }
-    let at = |name: &str| canonical(&base.join(name)).unwrap().to_string_lossy().into_owned();
-    let names = |listing: &Value| -> Vec<String> {
-        listing["projects"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|p| p["path"].as_str().unwrap().starts_with(&*base.to_string_lossy()))
-            .map(|p| p["name"].as_str().unwrap().to_owned())
-            .collect()
-    };
+    (env, base)
+}
 
-    let zeta = call(&env, "project/create", json!({ "path": at("zeta") })).await.unwrap();
+fn registry_path(base: &Path, name: &str) -> String {
+    canonical(&base.join(name)).unwrap().to_string_lossy().into_owned()
+}
+
+async fn registered_names(env: &Env, base: &Path) -> Vec<String> {
+    let listing = call(env, "project/list", json!({})).await.unwrap();
+    listing["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|p| p["path"].as_str().unwrap().starts_with(&*base.to_string_lossy()))
+        .map(|p| p["name"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+async fn register(env: &Env, base: &Path, name: &str) -> Value {
+    call(env, "project/create", json!({ "path": registry_path(base, name) })).await.unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_is_registered_under_its_own_name_and_listed_by_name() {
+    let (env, base) = registry();
+    let zeta = register(&env, &base, "zeta").await;
     assert_eq!((&zeta["project"]["name"], &zeta["project"]["alias"], &zeta["project"]["hidden"]), (&json!("zeta"), &Value::Null, &json!(false)));
-    call(&env, "project/create", json!({ "path": format!("  {}  ", at("alpha")) })).await.unwrap();
-    assert_eq!(names(&call(&env, "project/list", json!({})).await.unwrap()), ["alpha", "zeta"]);
+    call(&env, "project/create", json!({ "path": format!("  {}  ", registry_path(&base, "alpha")) })).await.unwrap();
+    assert_eq!(registered_names(&env, &base).await, ["alpha", "zeta"]);
+}
 
-    let renamed = call(&env, "project/update", json!({ "path": at("zeta"), "alias": "  Aardvark " })).await.unwrap();
+#[tokio::test(flavor = "multi_thread")]
+async fn an_alias_renames_a_project_a_touch_lists_it_first_and_an_empty_alias_returns_its_name() {
+    let (env, base) = registry();
+    register(&env, &base, "zeta").await;
+    register(&env, &base, "alpha").await;
+    let renamed = call(&env, "project/update", json!({ "path": registry_path(&base, "zeta"), "alias": "  Aardvark " })).await.unwrap();
     assert_eq!((&renamed["project"]["name"], &renamed["project"]["alias"]), (&json!("Aardvark"), &json!("Aardvark")));
-    call(&env, "project/touch", json!({ "path": at("zeta") })).await.unwrap();
-    assert_eq!(names(&call(&env, "project/list", json!({})).await.unwrap()), ["Aardvark", "alpha"]);
-    let back = call(&env, "project/update", json!({ "path": at("zeta"), "alias": "" })).await.unwrap();
+    call(&env, "project/touch", json!({ "path": registry_path(&base, "zeta") })).await.unwrap();
+    assert_eq!(registered_names(&env, &base).await, ["Aardvark", "alpha"]);
+    let back = call(&env, "project/update", json!({ "path": registry_path(&base, "zeta"), "alias": "" })).await.unwrap();
     assert_eq!((&back["project"]["name"], &back["project"]["alias"]), (&json!("zeta"), &Value::Null));
+}
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_missing_folder_a_file_or_a_blank_path_is_no_project_and_an_unregistered_one_cannot_be_touched() {
+    let (env, base) = registry();
     assert!(call(&env, "project/create", json!({ "path": base.join("missing").to_string_lossy() })).await.is_err(), "a folder that is not there is no project");
     assert!(call(&env, "project/create", json!({ "path": "   " })).await.is_err());
     std::fs::write(base.join("file.txt"), "x").unwrap();
     assert!(call(&env, "project/create", json!({ "path": base.join("file.txt").to_string_lossy() })).await.is_err(), "a file is no project");
     assert!(call(&env, "project/touch", json!({ "path": base.join("missing").to_string_lossy() })).await.is_err());
+}
 
+#[tokio::test(flavor = "multi_thread")]
+async fn project_read_probes_any_path_and_ensure_directory_makes_it() {
+    let (env, base) = registry();
+    std::fs::write(base.join("file.txt"), "x").unwrap();
     let probe = call(&env, "project/read", json!({ "path": base.join("file.txt").to_string_lossy() })).await.unwrap();
     assert_eq!((&probe["exists"], &probe["directory"]), (&json!(true), &json!(false)));
     let none = call(&env, "project/read", json!({ "path": base.join("nothing").to_string_lossy() })).await.unwrap();
     assert_eq!((&none["exists"], &none["directory"]), (&json!(false), &json!(false)));
     let made = call(&env, "project/ensureDirectory", json!({ "path": base.join("new/deep").to_string_lossy() })).await.unwrap();
     assert!(Path::new(made["path"].as_str().unwrap()).is_dir());
+}
 
-    assert_eq!(call(&env, "project/delete", json!({ "path": at("zeta") })).await.unwrap()["removed"], true);
-    assert_eq!(call(&env, "project/delete", json!({ "path": at("zeta") })).await.unwrap()["removed"], false);
-    assert_eq!(names(&call(&env, "project/list", json!({})).await.unwrap()), ["alpha"]);
-    // A removed folder can be registered again, under its own name.
-    let again = call(&env, "project/create", json!({ "path": at("zeta") })).await.unwrap();
-    assert_eq!(again["project"]["name"], "zeta");
+#[tokio::test(flavor = "multi_thread")]
+async fn a_removed_folder_reports_removed_once_and_can_be_registered_again_under_its_own_name() {
+    let (env, base) = registry();
+    register(&env, &base, "zeta").await;
+    register(&env, &base, "alpha").await;
+    assert_eq!(call(&env, "project/delete", json!({ "path": registry_path(&base, "zeta") })).await.unwrap()["removed"], true);
+    assert_eq!(call(&env, "project/delete", json!({ "path": registry_path(&base, "zeta") })).await.unwrap()["removed"], false);
+    assert_eq!(registered_names(&env, &base).await, ["alpha"]);
+    assert_eq!(register(&env, &base, "zeta").await["project"]["name"], "zeta");
+}
 
-    // What the phone's "start a project" and "start a task" calls resolve: the registered folder's own path; a folder that is no
-    // project is refused.
-    let directory = call(&env, "project/directory", json!({ "path": at("alpha"), "owner": true })).await.unwrap();
-    assert_eq!(directory["path"], at("alpha").as_str());
+#[tokio::test(flavor = "multi_thread")]
+async fn project_directory_answers_a_registered_folders_own_path_and_refuses_a_folder_that_is_no_project() {
+    let (env, base) = registry();
+    register(&env, &base, "alpha").await;
+    std::fs::create_dir_all(base.join("new")).unwrap();
+    let directory = call(&env, "project/directory", json!({ "path": registry_path(&base, "alpha"), "owner": true })).await.unwrap();
+    assert_eq!(directory["path"], registry_path(&base, "alpha").as_str());
     assert!(call(&env, "project/directory", json!({ "path": base.join("new").to_string_lossy() })).await.is_err());
 }
 
@@ -1205,11 +1271,7 @@ fn matches_of(result: &Value) -> Vec<(String, Vec<(u64, u64, String)>)> {
         .collect()
 }
 
-/// A workspace text search ignores case unless asked not to, can be whole-word or a regular expression, is narrowed by include and
-/// exclude globs, stops at `maxResults` and says so (`limitHit`), reports 1-based line and column of each match, and skips
-/// `node_modules` and binary files; replacing changes exactly the matches (case-sensitively when asked) and reports the files.
-#[tokio::test(flavor = "multi_thread")]
-async fn workspace_search_finds_matches_by_the_options_and_replace_changes_exactly_those() {
+async fn searchable_project() -> (Env, String) {
     let env = env();
     let root = project_holding(
         &env,
@@ -1223,12 +1285,22 @@ async fn workspace_search_finds_matches_by_the_options_and_replace_changes_exact
     )
     .await;
     env.service.catalog().add(&root, &CancellationToken::new(), None).await.unwrap();
-    let search = |options: Value| {
-        let (env, root) = (&env, root.clone());
-        async move { call(env, "projectFs/searchText", json!({ "root": root, "options": options })).await.unwrap() }
-    };
-    let m = |line, column, text: &str| (line, column, text.to_owned());
-    let all = search(json!({ "query": "hello" })).await;
+    (env, root)
+}
+
+async fn search_text(env: &Env, root: &str, options: Value) -> Value {
+    call(env, "projectFs/searchText", json!({ "root": root, "options": options })).await.unwrap()
+}
+
+fn text_match(line: u64, column: u64, text: &str) -> (u64, u64, String) {
+    (line, column, text.to_owned())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_search_ignores_case_reports_one_based_positions_and_skips_node_modules_and_binary_files() {
+    let (env, root) = searchable_project().await;
+    let m = text_match;
+    let all = search_text(&env, &root, json!({ "query": "hello" })).await;
     assert_eq!(
         matches_of(&all),
         [
@@ -1239,23 +1311,54 @@ async fn workspace_search_finds_matches_by_the_options_and_replace_changes_exact
     assert_eq!((all["matchCount"].clone(), all["limitHit"].clone()), (json!(6), json!(false)));
     assert_eq!(all["files"][0]["matches"][0]["preview"], "Hello World");
     assert_eq!((all["files"][0]["matches"][0]["endColumn"].clone()), json!(6));
-    let case = search(json!({ "query": "hello", "matchCase": true })).await;
-    assert_eq!(matches_of(&case), [("a.txt".to_owned(), vec![m(2, 1, "hello")]), ("src/x.mjs".to_owned(), vec![m(1, 7, "hello"), m(2, 10, "hello")])]);
-    let word = search(json!({ "query": "hello", "wholeWord": true })).await;
-    assert_eq!((word["matchCount"].clone(), matches_of(&word)[1].1.len()), (json!(5), 2), "`helloWorld` is not the word");
-    let regex = search(json!({ "query": "hel+o\\w*", "regex": true })).await;
-    assert_eq!((regex["matchCount"].clone(), matches_of(&regex)[1].1[2].clone()), (json!(6), m(2, 10, "helloWorld")));
-    let only_mjs = search(json!({ "query": "hello", "include": "*.mjs" })).await;
-    assert_eq!(matches_of(&only_mjs).iter().map(|f| f.0.as_str()).collect::<Vec<_>>(), ["src/x.mjs"]);
-    let not_src = search(json!({ "query": "hello", "exclude": "src/**" })).await;
-    assert_eq!(matches_of(&not_src).iter().map(|f| f.0.as_str()).collect::<Vec<_>>(), ["a.txt"]);
-    let capped = search(json!({ "query": "hello", "maxResults": 2 })).await;
-    assert_eq!((capped["matchCount"].clone(), capped["limitHit"].clone(), matches_of(&capped)[0].1.len()), (json!(2), json!(true), 2));
+}
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_search_can_match_case() {
+    let (env, root) = searchable_project().await;
+    let m = text_match;
+    let case = search_text(&env, &root, json!({ "query": "hello", "matchCase": true })).await;
+    assert_eq!(matches_of(&case), [("a.txt".to_owned(), vec![m(2, 1, "hello")]), ("src/x.mjs".to_owned(), vec![m(1, 7, "hello"), m(2, 10, "hello")])]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_whole_word_search_skips_a_longer_word() {
+    let (env, root) = searchable_project().await;
+    let word = search_text(&env, &root, json!({ "query": "hello", "wholeWord": true })).await;
+    assert_eq!((word["matchCount"].clone(), matches_of(&word)[1].1.len()), (json!(5), 2), "`helloWorld` is not the word");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_search_can_be_a_regular_expression() {
+    let (env, root) = searchable_project().await;
+    let regex = search_text(&env, &root, json!({ "query": "hel+o\\w*", "regex": true })).await;
+    assert_eq!((regex["matchCount"].clone(), matches_of(&regex)[1].1[2].clone()), (json!(6), text_match(2, 10, "helloWorld")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn include_and_exclude_globs_narrow_a_search() {
+    let (env, root) = searchable_project().await;
+    let only_mjs = search_text(&env, &root, json!({ "query": "hello", "include": "*.mjs" })).await;
+    assert_eq!(matches_of(&only_mjs).iter().map(|f| f.0.as_str()).collect::<Vec<_>>(), ["src/x.mjs"]);
+    let not_src = search_text(&env, &root, json!({ "query": "hello", "exclude": "src/**" })).await;
+    assert_eq!(matches_of(&not_src).iter().map(|f| f.0.as_str()).collect::<Vec<_>>(), ["a.txt"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_search_stops_at_max_results_and_says_so() {
+    let (env, root) = searchable_project().await;
+    let capped = search_text(&env, &root, json!({ "query": "hello", "maxResults": 2 })).await;
+    assert_eq!((capped["matchCount"].clone(), capped["limitHit"].clone(), matches_of(&capped)[0].1.len()), (json!(2), json!(true), 2));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn replace_changes_exactly_the_matches_and_reports_the_files() {
+    let (env, root) = searchable_project().await;
+    let m = text_match;
     let replaced =
         call(&env, "projectFs/replaceText", json!({ "root": root, "options": { "query": "hello", "matchCase": true }, "replacement": "bye" })).await.unwrap();
     assert_eq!(replaced, json!({ "filesChanged": 2, "paths": ["a.txt", "src/x.mjs"], "replacements": 3 }));
-    let after = search(json!({ "query": "bye" })).await;
+    let after = search_text(&env, &root, json!({ "query": "bye" })).await;
     assert_eq!(matches_of(&after), [("a.txt".to_owned(), vec![m(2, 1, "bye")]), ("src/x.mjs".to_owned(), vec![m(1, 7, "bye"), m(2, 10, "bye")])]);
     assert_eq!(std::fs::read_to_string(Path::new(&root).join("src/x.mjs")).unwrap(), "const bye = \"Hello\";\nfunction byeWorld() {}\n");
     assert_eq!(std::fs::read_to_string(Path::new(&root).join("node_modules/skip.js")).unwrap(), "hello skipped\n");
@@ -1388,12 +1491,47 @@ async fn the_windows_of_one_read_are_one_version_of_a_file_replaced_between_them
     }
     assert_eq!(part.as_object().unwrap().len(), expected.as_object().unwrap().len() + 1, "the fields of a window: the recorded ones and the content");
 }
-/// The phone's editor backups and document previews over a relay connection: every backup call is sent as a phone that skips the
-/// adapter's `projectFs/entryPath` step would send it, naming the file by its absolute path (the granted file's path for a call with a
-/// token), and answers the frame below whole; every document preview's file target goes through the same admission (`relay_file`),
-/// refused before any page is rendered. A folder beside the project is not a project, and `..` out of the project is refused.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_relay_editor_backup_or_preview_names_a_project_file_or_a_granted_one_only() {
+struct RelayRig {
+    env: Env,
+    outside: PathBuf,
+    granted: String,
+}
+
+struct Step {
+    call: &'static str,
+    dir: &'static str,
+    rel: &'static str,
+    tokened: bool,
+    content: &'static str,
+    expected: &'static str,
+    frame: Value,
+}
+
+impl Step {
+    fn new(call: &'static str, dir: &'static str, rel: &'static str, tokened: bool, content: &'static str, expected: &'static str, frame: Value) -> Self {
+        Self { call, dir, rel, tokened, content, expected, frame }
+    }
+}
+
+const PREVIEW_NEEDS_A_PAGE: &str = "A document preview needs at least one page.";
+
+fn project_unavailable() -> Value {
+    json!({ "ok": false, "error": "Project is not available.", "errorCode": "PROJECT_UNAVAILABLE" })
+}
+
+fn beyond_the_project_frame() -> Value {
+    json!({ "ok": false, "error": "Path is outside the project." })
+}
+
+fn saved_backup(content: &str, expected: &str) -> Value {
+    json!({ "ok": true, "value": { "content": content, "expectedContent": expected, "updatedAt": 1_780_819_750_000_u64 } })
+}
+
+fn no_backup() -> Value {
+    json!({ "ok": true, "value": null })
+}
+
+async fn relay_rig() -> RelayRig {
     // SAFETY: nextest runs each test in its own process, and nothing else in this one reads the environment concurrently yet.
     unsafe { std::env::set_var("MIXDOG_FIXED_NOW_MS", PHONE_FILES_NOW_MS) };
     let env = env();
@@ -1408,81 +1546,119 @@ async fn a_relay_editor_backup_or_preview_names_a_project_file_or_a_granted_one_
     std::fs::write(env.root.join("src/a.ts"), "export const a = 1;\n").unwrap();
     let granted = outside.join("granted.txt").to_string_lossy().into_owned();
     call(&env, "transfer/grant/mint", json!({ "path": granted })).await.unwrap();
-    let refused = json!({ "ok": false, "error": "Project is not available.", "errorCode": "PROJECT_UNAVAILABLE" });
-    let beyond = json!({ "ok": false, "error": "Path is outside the project." });
-    let saved =
-        |content: &str, expected: &str| json!({ "ok": true, "value": { "content": content, "expectedContent": expected, "updatedAt": 1_780_819_750_000_u64 } });
-    let none = json!({ "ok": true, "value": null });
-    // (call, folder the phone names, file in it, whether the call carries the grant, backup content, expected content, frame)
-    let steps = [
-        ("writeEditorBackup", "outside", "granted.txt", true, "draft granted\n", "granted edit\n", saved("draft granted\n", "granted edit\n")),
-        ("readEditorBackup", "outside", "granted.txt", true, "", "", saved("draft granted\n", "granted edit\n")),
-        ("deleteEditorBackup", "outside", "granted.txt", true, "", "", none.clone()),
-        ("readEditorBackup", "outside", "granted.txt", true, "", "", none.clone()),
-        ("writeEditorBackup", "outside", "other.txt", false, "planted\n", "other\n", refused.clone()),
-        ("readEditorBackup", "outside", "other.txt", false, "", "", refused.clone()),
-        ("deleteEditorBackup", "outside", "other.txt", false, "", "", refused.clone()),
-        ("writeEditorBackup", "proj", "../outside/other.txt", false, "planted\n", "other\n", beyond.clone()),
-        ("readEditorBackup", "proj", "../outside/other.txt", false, "", "", beyond.clone()),
-        ("deleteEditorBackup", "proj", "../outside/other.txt", false, "", "", beyond.clone()),
-        ("previewDocumentPages", "outside", "other.txt", false, "", "", refused.clone()),
-        ("previewDocumentPages", "proj", "../outside/other.txt", false, "", "", beyond.clone()),
-        ("writeEditorBackup", "proj", "src/a.ts", false, "relay draft\n", "export const a = 1;\n", saved("relay draft\n", "export const a = 1;\n")),
-        ("readEditorBackup", "proj", "src/a.ts", false, "", "", saved("relay draft\n", "export const a = 1;\n")),
-        ("deleteEditorBackup", "proj", "src/a.ts", false, "", "", none.clone()),
-        ("readEditorBackup", "proj", "src/a.ts", false, "", "", none.clone()),
-        // A granted file is admitted; the conversion then answers for itself.
-        ("previewDocumentPages", "outside", "granted.txt", true, "", "", json!({ "ok": false, "error": "A document preview needs at least one page." })),
-    ];
-    let place = |dir: &str| if dir == "proj" { env.root.clone() } else { outside.clone() };
-    let (mut backups, mut previews) = (0, 0);
-    for (name, dir, rel, tokened, content, expected, frame) in steps {
-        let file = || -> String {
-            // The project and the entry as the phone named them, joined as given (`..` kept).
-            if tokened { granted.clone() } else { place(dir).join(rel).to_string_lossy().into_owned() }
-        };
-        let answer = match name {
-            "readEditorBackup" => call(&env, "projectFs/backup/read", json!({ "sourcePath": file() })).await,
-            "deleteEditorBackup" => call(&env, "projectFs/backup/delete", json!({ "sourcePath": file() })).await.map(|_| Value::Null),
-            "writeEditorBackup" => call(&env, "projectFs/backup/write", json!({ "sourcePath": file(), "content": content, "expectedContent": expected })).await,
-            "previewDocumentPages" => {
-                let (root, rel) = if tokened {
-                    let path = PathBuf::from(granted.clone());
-                    (path.parent().unwrap().to_string_lossy().into_owned(), path.file_name().unwrap().to_string_lossy().into_owned())
-                } else {
-                    (place(dir).to_string_lossy().into_owned(), rel.to_owned())
-                };
-                previews += 1;
-                let admitted = env.service.relay_file(&request("document/previewPages", json!({})), &root, &rel).await;
-                if frame["ok"] == false && frame["error"] != "A document preview needs at least one page." {
-                    admitted.map(|_| Value::Null)
-                } else {
-                    assert!(admitted.is_ok(), "{name} {dir}/{rel}: {admitted:?}");
-                    continue;
-                }
-            }
-            _ => unreachable!(),
-        };
-        if name != "previewDocumentPages" {
-            backups += 1;
-        }
-        let got = match answer {
-            Ok(value) => json!({ "ok": true, "value": value }),
-            Err(CoreError::DomainError { code, message, .. }) => {
-                let mut node = json!({ "ok": false, "error": message.as_deref() });
-                if let Some(code) = code.as_deref() {
-                    node["errorCode"] = json!(code);
-                }
-                node
-            }
-            Err(other) => panic!("{name} {dir}/{rel}: {other:?}"),
-        };
-        assert_eq!(got, frame, "{name} {dir}/{rel}");
+    RelayRig { env, outside, granted }
+}
+
+impl RelayRig {
+    fn place(&self, dir: &str) -> PathBuf {
+        if dir == "proj" { self.env.root.clone() } else { self.outside.clone() }
     }
-    assert_eq!((backups, previews), (14, 3));
-    // Nothing was planted for a refused file.
-    let names: Vec<_> = std::fs::read_dir(env.root.parent().unwrap().join("userData").join("editor-backups")).map(|dir| dir.count()).into_iter().collect();
-    assert!(names.iter().all(|count| *count == 0), "{names:?}");
+
+    async fn run(&self, steps: Vec<Step>) {
+        let env = &self.env;
+        for Step { call: name, dir, rel, tokened, content, expected, frame } in steps {
+            let file = || -> String { if tokened { self.granted.clone() } else { self.place(dir).join(rel).to_string_lossy().into_owned() } };
+            let answer = match name {
+                "readEditorBackup" => call(env, "projectFs/backup/read", json!({ "sourcePath": file() })).await,
+                "deleteEditorBackup" => call(env, "projectFs/backup/delete", json!({ "sourcePath": file() })).await.map(|_| Value::Null),
+                "writeEditorBackup" => {
+                    call(env, "projectFs/backup/write", json!({ "sourcePath": file(), "content": content, "expectedContent": expected })).await
+                }
+                "previewDocumentPages" => {
+                    let (root, rel) = if tokened {
+                        let path = PathBuf::from(self.granted.clone());
+                        (path.parent().unwrap().to_string_lossy().into_owned(), path.file_name().unwrap().to_string_lossy().into_owned())
+                    } else {
+                        (self.place(dir).to_string_lossy().into_owned(), rel.to_owned())
+                    };
+                    let admitted = env.service.relay_file(&request("document/previewPages", json!({})), &root, &rel).await;
+                    if frame["ok"] == false && frame["error"] != PREVIEW_NEEDS_A_PAGE {
+                        admitted.map(|_| Value::Null)
+                    } else {
+                        assert!(admitted.is_ok(), "{name} {dir}/{rel}: {admitted:?}");
+                        continue;
+                    }
+                }
+                _ => unreachable!(),
+            };
+            let got = match answer {
+                Ok(value) => json!({ "ok": true, "value": value }),
+                Err(CoreError::DomainError { code, message, .. }) => {
+                    let mut node = json!({ "ok": false, "error": message.as_deref() });
+                    if let Some(code) = code.as_deref() {
+                        node["errorCode"] = json!(code);
+                    }
+                    node
+                }
+                Err(other) => panic!("{name} {dir}/{rel}: {other:?}"),
+            };
+            assert_eq!(got, frame, "{name} {dir}/{rel}");
+        }
+        let kept: Vec<_> = std::fs::read_dir(env.root.parent().unwrap().join("userData").join("editor-backups")).map(|dir| dir.count()).into_iter().collect();
+        assert!(kept.iter().all(|count| *count == 0), "{kept:?}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_backup_of_a_granted_file_is_written_read_and_deleted() {
+    let rig = relay_rig().await;
+    rig.run(vec![
+        Step::new("writeEditorBackup", "outside", "granted.txt", true, "draft granted\n", "granted edit\n", saved_backup("draft granted\n", "granted edit\n")),
+        Step::new("readEditorBackup", "outside", "granted.txt", true, "", "", saved_backup("draft granted\n", "granted edit\n")),
+        Step::new("deleteEditorBackup", "outside", "granted.txt", true, "", "", no_backup()),
+        Step::new("readEditorBackup", "outside", "granted.txt", true, "", "", no_backup()),
+    ])
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_backup_or_preview_of_an_ungranted_file_beside_the_project_is_refused() {
+    let rig = relay_rig().await;
+    rig.run(vec![
+        Step::new("writeEditorBackup", "outside", "other.txt", false, "planted\n", "other\n", project_unavailable()),
+        Step::new("readEditorBackup", "outside", "other.txt", false, "", "", project_unavailable()),
+        Step::new("deleteEditorBackup", "outside", "other.txt", false, "", "", project_unavailable()),
+        Step::new("previewDocumentPages", "outside", "other.txt", false, "", "", project_unavailable()),
+    ])
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_backup_or_preview_that_goes_out_of_the_project_by_dots_is_refused() {
+    let rig = relay_rig().await;
+    rig.run(vec![
+        Step::new("writeEditorBackup", "proj", "../outside/other.txt", false, "planted\n", "other\n", beyond_the_project_frame()),
+        Step::new("readEditorBackup", "proj", "../outside/other.txt", false, "", "", beyond_the_project_frame()),
+        Step::new("deleteEditorBackup", "proj", "../outside/other.txt", false, "", "", beyond_the_project_frame()),
+        Step::new("previewDocumentPages", "proj", "../outside/other.txt", false, "", "", beyond_the_project_frame()),
+    ])
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_backup_of_a_project_file_is_written_read_and_deleted() {
+    let rig = relay_rig().await;
+    rig.run(vec![
+        Step::new(
+            "writeEditorBackup",
+            "proj",
+            "src/a.ts",
+            false,
+            "relay draft\n",
+            "export const a = 1;\n",
+            saved_backup("relay draft\n", "export const a = 1;\n"),
+        ),
+        Step::new("readEditorBackup", "proj", "src/a.ts", false, "", "", saved_backup("relay draft\n", "export const a = 1;\n")),
+        Step::new("deleteEditorBackup", "proj", "src/a.ts", false, "", "", no_backup()),
+        Step::new("readEditorBackup", "proj", "src/a.ts", false, "", "", no_backup()),
+    ])
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_document_preview_admits_a_granted_file_and_the_conversion_answers_for_itself() {
+    let rig = relay_rig().await;
+    rig.run(vec![Step::new("previewDocumentPages", "outside", "granted.txt", true, "", "", json!({ "ok": false, "error": PREVIEW_NEEDS_A_PAGE }))]).await;
 }
 /// Every input `absoluteLocalPath` refuses is refused by `fs/watch` with its message, and nothing is watched; a non-string `path`
 /// included.
@@ -1551,85 +1727,119 @@ impl WatchFolder {
         assert!(status.success(), "{program} {args:?}: {status}");
     }
 }
-/// Node keys a folder watch by the path as resolved (lower-cased on Windows) and watches that path, so a folder and a junction to it are
-/// two watches, each reporting under its own name; a path `fs.watch` refuses fails with `fs.watch`'s own code and text, and a file is
-/// watched. The core's watches are the same: one OS watch per name, every changed path under the name the watch was asked for, and
-/// `fs.watch`'s failures.
+
+/// Whether `SeBackupPrivilege` is enabled in this process's token. A folder opened with `FILE_FLAG_BACKUP_SEMANTICS` (as `fs.watch` and
+/// the watcher open one) passes a deny entry only then, so with it no folder is unlistable to the process.
+#[cfg(windows)]
+fn backup_privilege_is_enabled() -> bool {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::Foundation::LUID;
+    use windows_sys::Win32::Security::GetTokenInformation;
+    use windows_sys::Win32::Security::LUID_AND_ATTRIBUTES;
+    use windows_sys::Win32::Security::LookupPrivilegeValueW;
+    use windows_sys::Win32::Security::SE_PRIVILEGE_ENABLED;
+    use windows_sys::Win32::Security::TOKEN_PRIVILEGES;
+    use windows_sys::Win32::Security::TOKEN_QUERY;
+    use windows_sys::Win32::Security::TokenPrivileges;
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    use windows_sys::Win32::System::Threading::OpenProcessToken;
+
+    let name: Vec<u16> = "SeBackupPrivilege\0".encode_utf16().collect();
+    let mut backup = LUID { LowPart: 0, HighPart: 0 };
+    let mut token: HANDLE = std::ptr::null_mut();
+    let mut needed = 0u32;
+    // SAFETY: every pointer is to a local that outlives its call; the token is closed once read, and the buffer is 8-byte aligned and
+    // sized by the first query for the TOKEN_PRIVILEGES the second fills.
+    unsafe {
+        assert!(LookupPrivilegeValueW(std::ptr::null(), name.as_ptr(), &mut backup) != 0, "{}", std::io::Error::last_os_error());
+        assert!(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) != 0, "{}", std::io::Error::last_os_error());
+        GetTokenInformation(token, TokenPrivileges, std::ptr::null_mut(), 0, &mut needed);
+        let mut buffer = vec![0u64; (needed as usize).div_ceil(8)];
+        let size = needed;
+        let read = GetTokenInformation(token, TokenPrivileges, buffer.as_mut_ptr().cast(), size, &mut needed);
+        let error = std::io::Error::last_os_error();
+        CloseHandle(token);
+        assert!(read != 0, "{error}");
+        // The entries start where Privileges does inside the allocation; no reference to the one-element array is made, and no more entries
+        // are read than the bytes returned hold.
+        let header = std::mem::offset_of!(TOKEN_PRIVILEGES, Privileges);
+        let entries = buffer.as_ptr().cast::<u8>().add(header).cast::<LUID_AND_ATTRIBUTES>();
+        let room = (needed as usize).saturating_sub(header) / std::mem::size_of::<LUID_AND_ATTRIBUTES>();
+        let count = (*buffer.as_ptr().cast::<TOKEN_PRIVILEGES>()).PrivilegeCount as usize;
+        (0..count.min(room)).any(|at| {
+            let entry = entries.add(at).read_unaligned();
+            entry.Luid.LowPart == backup.LowPart && entry.Luid.HighPart == backup.HighPart && entry.Attributes & SE_PRIVILEGE_ENABLED != 0
+        })
+    }
+}
+#[cfg(windows)]
+async fn watch_feed(env: &Env, conn: &MockConnection, id: &'static str, path: String, recursive: bool) -> Result<(), CoreError> {
+    let reply = env.service.call(request("fs/watch", json!({ "watchId": id, "path": path, "recursive": recursive }))).await?;
+    let Reply::Subscribe(sub) = reply else { panic!("fs/watch must subscribe") };
+    let attached = subscribe(&sub.feed, SubscriptionId::from(id), sub.window, None, conn).unwrap();
+    conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
+    Ok(())
+}
+
+#[cfg(windows)]
+fn changed_under(frames: &[String], id: &str) -> Vec<String> {
+    frames
+        .iter()
+        .filter_map(|frame| serde_json::from_str::<Value>(frame.split_once(':').map_or("", |(_, text)| text)).ok())
+        .filter(|frame| frame["method"] == "fs/changed" && frame["params"]["watchId"] == id)
+        .flat_map(|frame| frame["params"]["changedPaths"].as_array().unwrap().iter().map(|p| p.as_str().unwrap().to_owned()).collect::<Vec<_>>())
+        .collect()
+}
+
 #[cfg(windows)]
 #[tokio::test(flavor = "multi_thread")]
-async fn watches_are_keyed_and_reported_by_the_resolved_name_and_fail_as_fs_watch() {
+async fn a_folder_and_a_junction_to_it_are_two_watches_each_reporting_under_its_own_name() {
     let golden = json!({
-        "twoNames": {
-            "fsWatchPaths": ["{root}\\alias", "{root}\\actual"],
-            "reportedUnder": [{ "dir": "{root}\\alias" }, { "dir": "{root}\\actual" }],
-        },
-        "failures": [
-            { "name": "missing folder", "path": "{root}\\missing", "answer": { "error": { "message": "ENOENT: no such file or directory, watch '{root}\\missing'", "code": "ENOENT" } } },
-            { "name": "folder the user may not list", "path": "{root}\\locked", "answer": { "error": { "message": "EPERM: operation not permitted, watch '{root}\\locked'", "code": "EPERM" } } },
-            { "name": "a file", "path": "{root}\\afile.txt", "answer": { "watched": true }, "reportedUnder": "{root}\\afile.txt" },
-        ],
+        "fsWatchPaths": ["{root}\\alias", "{root}\\actual"],
+        "reportedUnder": [{ "dir": "{root}\\alias" }, { "dir": "{root}\\actual" }],
     });
     let env = env();
     let folder = WatchFolder::new();
     let conn = MockConnection::new(ConnectionId(1), env.limits);
-    let watch = |id: &'static str, path: String, recursive: bool| {
-        let service = Arc::clone(&env.service);
-        let conn = &conn;
-        async move {
-            let reply = service.call(request("fs/watch", json!({ "watchId": id, "path": path, "recursive": recursive }))).await?;
-            let Reply::Subscribe(sub) = reply else { panic!("fs/watch must subscribe") };
-            let attached = subscribe(&sub.feed, SubscriptionId::from(id), sub.window, None, conn).unwrap();
-            conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
-            Ok::<(), CoreError>(())
-        }
-    };
-    let changed = |frames: &[String], id: &str| -> Vec<String> {
-        frames
-            .iter()
-            .filter_map(|frame| serde_json::from_str::<Value>(frame.split_once(':').map_or("", |(_, text)| text)).ok())
-            .filter(|frame| frame["method"] == "fs/changed" && frame["params"]["watchId"] == id)
-            .flat_map(|frame| frame["params"]["changedPaths"].as_array().unwrap().iter().map(|p| p.as_str().unwrap().to_owned()).collect::<Vec<_>>())
-            .collect()
-    };
-
-    // Two names of one folder: Node gave fs.watch each name, and reported each change under each name.
-    let two = &golden["twoNames"];
-    let paths: Vec<String> = two["fsWatchPaths"].as_array().unwrap().iter().map(|p| folder.fill(p.as_str().unwrap())).collect();
+    let paths: Vec<String> = golden["fsWatchPaths"].as_array().unwrap().iter().map(|p| folder.fill(p.as_str().unwrap())).collect();
     let ids = ["name-1", "name-2"];
     for (id, path) in ids.iter().zip(&paths) {
-        watch(id, path.clone(), true).await.unwrap();
+        watch_feed(&env, &conn, id, path.clone(), true).await.unwrap();
     }
     assert_eq!(env.service.open_os_watches(), paths.len(), "one OS watch per name, for the {} names", paths.len());
     std::fs::write(folder.0.join("actual").join("changed.txt"), "1").unwrap();
-    let frames = mixdog_rt::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| ids.iter().all(|id| !changed(texts, id).is_empty())))
+    let frames = mixdog_rt::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| ids.iter().all(|id| !changed_under(texts, id).is_empty())))
         .await
         .expect("a change under each name within 60 s");
-    for (id, reported) in ids.iter().zip(two["reportedUnder"].as_array().unwrap()) {
+    for (id, reported) in ids.iter().zip(golden["reportedUnder"].as_array().unwrap()) {
         let dir = folder.fill(reported["dir"].as_str().unwrap());
-        let paths = changed(&frames, id);
+        let paths = changed_under(&frames, id);
         assert!(paths.iter().all(|path| path.starts_with(&format!("{dir}\\"))), "{id}: every change is reported under {dir}: {paths:?}");
     }
     env.service.connection_closed(&ConnectionId(1));
     assert_eq!(env.service.open_os_watches(), 0);
+}
 
-    // The failures: fs.watch's own code and text, and a file that is watched.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_path_fs_watch_refuses_fails_with_its_own_code_and_text_and_a_file_is_watched() {
+    let golden = json!([
+        { "name": "missing folder", "path": "{root}\\missing", "answer": { "error": { "message": "ENOENT: no such file or directory, watch '{root}\\missing'", "code": "ENOENT" } } },
+        { "name": "folder the user may not list", "path": "{root}\\locked", "answer": { "error": { "message": "EPERM: operation not permitted, watch '{root}\\locked'", "code": "EPERM" } } },
+        { "name": "a file", "path": "{root}\\afile.txt", "answer": { "watched": true }, "reportedUnder": "{root}\\afile.txt" },
+    ]);
+    let env = env();
+    let folder = WatchFolder::new();
     let conn = MockConnection::new(ConnectionId(1), env.limits);
-    let watch = |id: &'static str, path: String| {
-        let service = Arc::clone(&env.service);
-        let conn = &conn;
-        async move {
-            let reply = service.call(request("fs/watch", json!({ "watchId": id, "path": path, "recursive": false }))).await?;
-            let Reply::Subscribe(sub) = reply else { panic!("fs/watch must subscribe") };
-            let attached = subscribe(&sub.feed, SubscriptionId::from(id), sub.window, None, conn).unwrap();
-            conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
-            Ok::<(), CoreError>(())
-        }
-    };
-    let failures = golden["failures"].as_array().unwrap();
     let ids = ["fail-1", "fail-2", "fail-3"];
-    for (id, case) in ids.iter().zip(failures) {
+    for (id, case) in ids.iter().zip(golden.as_array().unwrap()) {
         let path = folder.fill(case["path"].as_str().unwrap());
-        let got = watch(id, path.clone()).await;
+        if case["name"] == "folder the user may not list" && backup_privilege_is_enabled() {
+            eprintln!("skipped: {}: needs a process without SeBackupPrivilege enabled in its token, which opens any folder", case["name"]);
+            continue;
+        }
+        let got = watch_feed(&env, &conn, id, path.clone(), false).await;
         match case["answer"].get("error") {
             Some(error) => {
                 let Err(CoreError::DomainError { code, message, .. }) = got else { panic!("{}: Node failed with {error}, got {got:?}", case["name"]) };
@@ -1639,11 +1849,11 @@ async fn watches_are_keyed_and_reported_by_the_resolved_name_and_fail_as_fs_watc
             None => {
                 got.unwrap_or_else(|error| panic!("{}: Node watched it, got {error:?}", case["name"]));
                 std::fs::write(&path, "b").unwrap();
-                let frames = mixdog_rt::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| !changed(texts, id).is_empty()))
+                let frames = mixdog_rt::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| !changed_under(texts, id).is_empty()))
                     .await
                     .expect("the watched file's change within 60 s");
                 let under = folder.fill(case["reportedUnder"].as_str().unwrap());
-                assert!(changed(&frames, id).iter().all(|p| *p == under), "{}: reported under {under}: {:?}", case["name"], changed(&frames, id));
+                assert!(changed_under(&frames, id).iter().all(|p| *p == under), "{}: reported under {under}: {:?}", case["name"], changed_under(&frames, id));
             }
         }
     }

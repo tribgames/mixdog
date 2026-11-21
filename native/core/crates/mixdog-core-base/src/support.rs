@@ -375,17 +375,17 @@ pub fn remove_dir_all_forced(path: &Path) -> Result<(), FsFailure> {
 }
 
 /// Runs `job` on `lane`. A full queue answers `queueFull` at once; a cancelled caller drops
-/// a job that has not started.
+/// a job that has not started; an admitted job whose result is lost says why, named after its lane.
 pub async fn on_lane<L, R, F>(lane: L, cancel: &CancellationToken, job: F) -> Result<R, CoreError>
 where
     L: LaneToken,
     R: Send + 'static,
     F: FnOnce(&InLane<L>) -> R + Send + 'static,
 {
-    lane.submit(cancel, job)?.await.map_err(|_| CoreError::Cancelled { by: "caller".into() })
+    lane.submit(cancel, job)?.await.map_err(|dropped| lost(L::KIND, dropped))
 }
 
-/// Why a job [`on_lane_wait`] or [`lane_job`] queued never ran, named after its lane.
+/// Why a job queued on a lane never ran, named after its lane.
 fn unrun(lane: mixdog_rt::LaneKind, why: &str) -> CoreError {
     CoreError::Internal { incident_id: format!("{}-{why}", lane.name()).into() }
 }
@@ -399,9 +399,21 @@ fn not_queued(error: mixdog_rt::SubmitWaitError) -> CoreError {
     }
 }
 
+/// The admitted job's result never arrived: its token was cancelled, or the lane shut down or lost its last healthy worker,
+/// before it ran, or it was dropped (never run, or it panicked).
+fn lost(lane: mixdog_rt::LaneKind, dropped: mixdog_rt::JobDropped) -> CoreError {
+    match dropped {
+        mixdog_rt::JobDropped::Cancelled => CoreError::Cancelled { by: "caller".into() },
+        mixdog_rt::JobDropped::ShutDown => unrun(lane, "lane-shut-down"),
+        mixdog_rt::JobDropped::Wedged => unrun(lane, "lane-wedged"),
+        mixdog_rt::JobDropped::NotStarted => unrun(lane, "thread-not-started"),
+        mixdog_rt::JobDropped::Dropped => unrun(lane, "job-dropped"),
+    }
+}
+
 /// [`on_lane`] for work that carries data a caller must not lose (a row, a claim, a mark's rewrite): a full queue is
-/// waited out, bounded by `cancel`, never refused. It fails only when the lane cannot run it (no healthy worker, or a
-/// backend that cannot signal room), with an error that names the lane.
+/// waited out, bounded by `cancel`, never refused. It fails only when the lane cannot run it (no healthy worker, shut
+/// down, or a backend that cannot signal room) or the admitted job's result is lost, with an error that names the lane.
 // The `Send` bound is stated, not inferred: the job's higher-ranked `&InLane` signature otherwise defeats the
 // `Send` proof of a spawned future that awaits this one.
 pub fn on_lane_wait<'a, L, R, F>(lane: L, cancel: &'a CancellationToken, job: F) -> impl Future<Output = Result<R, CoreError>> + Send + 'a
@@ -411,7 +423,7 @@ where
     F: FnOnce(&InLane<L>) -> R + Send + 'static,
 {
     let queued = lane.submit_wait(cancel, job);
-    async move { queued.await.map_err(not_queued)?.await.map_err(|_| unrun(L::KIND, "job-dropped")) }
+    async move { queued.await.map_err(not_queued)?.await.map_err(|dropped| lost(L::KIND, dropped)) }
 }
 
 /// Calls its `then` exactly once: with the job's result, or with the error that names why it never ran.
@@ -436,7 +448,7 @@ impl<T, G: FnOnce(Result<T, CoreError>)> Answer<T, G> {
 }
 
 impl<T, G: FnOnce(Result<T, CoreError>)> Drop for Answer<T, G> {
-    // A job dropped unrun (its queue dropped it, or it panicked) still answers.
+    // A job that panicked still answers.
     fn drop(&mut self) {
         if let Some(then) = self.then.take() {
             then(Err(unrun(self.lane, "job-dropped")));
@@ -444,12 +456,32 @@ impl<T, G: FnOnce(Result<T, CoreError>)> Drop for Answer<T, G> {
     }
 }
 
+/// A [`lane_job`] not yet answered, and the handle of its queued job. Dropped with the answer still in it, the job was
+/// dropped unrun: the handle, which the lane answers before it drops the job, names why.
+struct Unanswered<T, G: FnOnce(Result<T, CoreError>)> {
+    answer: Option<Answer<T, G>>,
+    handle: Option<mixdog_rt::JobHandle<()>>,
+}
+
+impl<T, G: FnOnce(Result<T, CoreError>)> Drop for Unanswered<T, G> {
+    fn drop(&mut self) {
+        let Some(answer) = self.answer.take() else { return };
+        // The lane sent the cause before it dropped the job's closure, which held this value: no budget-spending poll.
+        let dropped = match self.handle.as_mut().and_then(mixdog_rt::JobHandle::try_outcome) {
+            Some(Err(dropped)) => dropped,
+            _ => mixdog_rt::JobDropped::Dropped,
+        };
+        let lane = answer.lane;
+        answer.failed(lost(lane, dropped));
+    }
+}
+
 /// Runs `job` on `lane` and hands `then` its result, from the caller's side of no await: queued at once when the lane has
-/// room, else queued by a task that waits for room. `then` is called exactly once — with the result, or with an error that
-/// names the lane when the job will never run (no healthy worker, a backend that cannot signal room, or the job dropped
-/// unrun) — so what the job carries (a row, a reply) is never lost to a busy lane. `then` runs on the lane's thread or the
-/// caller's: it only hands the result on.
-pub fn lane_job<L, T, F, G>(lane: L, what: &'static str, job: F, then: G)
+/// room, else queued by a task that waits for room, bounded by `cancel`. `then` is called exactly once — with the result,
+/// or with an error that names why the job did not run (cancelled while it waited, the lane shut down or has no healthy
+/// worker, a backend that cannot signal room, or the job dropped unrun) — so what the job carries (a row, a reply) is never
+/// lost to a busy lane. `then` runs on the lane's thread or the caller's: it only hands the result on.
+pub fn lane_job<L, T, F, G>(lane: L, what: &'static str, cancel: &CancellationToken, job: F, then: G)
 where
     L: LaneToken,
     T: Send + 'static,
@@ -457,23 +489,28 @@ where
     G: FnOnce(Result<T, CoreError>) + Send + 'static,
 {
     let answer = Answer { then: Some(then), lane: L::KIND, _out: std::marker::PhantomData };
-    let ready: Arc<Mutex<Option<Answer<T, G>>>> = Arc::new(Mutex::new(Some(answer)));
+    let ready = Arc::new(Mutex::new(Unanswered { answer: Some(answer), handle: None }));
     let on_lane = ready.clone();
     let run = move |lane: &InLane<L>| {
-        let answer = on_lane.lock().unwrap_or_else(PoisonError::into_inner).take();
+        let answer = on_lane.lock().unwrap_or_else(PoisonError::into_inner).answer.take();
         let out = job(lane);
         if let Some(answer) = answer {
             answer.ran(out);
         }
     };
-    let mut queued = Box::pin(async move {
-        let cancel = CancellationToken::new();
-        lane.submit_wait(&cancel, run).await.map(drop)
-    });
-    let settle = move |queued: Result<(), mixdog_rt::SubmitWaitError>| {
-        if let Err(error) = queued
-            && let Some(answer) = ready.lock().unwrap_or_else(PoisonError::into_inner).take()
-        {
+    let cancel = cancel.clone();
+    let mut queued = Box::pin(async move { lane.submit_wait(&cancel, run).await });
+    let settle = move |queued: Result<mixdog_rt::JobHandle<()>, mixdog_rt::SubmitWaitError>| {
+        let mut unanswered = ready.lock().unwrap_or_else(PoisonError::into_inner);
+        let refused = match queued {
+            Ok(handle) => {
+                unanswered.handle = Some(handle);
+                None
+            }
+            Err(error) => unanswered.answer.take().map(|answer| (answer, error)),
+        };
+        drop(unanswered);
+        if let Some((answer, error)) = refused {
             answer.failed(not_queued(error));
         }
     };

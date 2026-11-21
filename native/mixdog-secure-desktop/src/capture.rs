@@ -20,7 +20,7 @@ use std::io;
 
 use windows::Win32::Graphics::Gdi::{
     BITMAPINFO, BITMAPINFOHEADER, BitBlt, CAPTUREBLT, CreateCompatibleBitmap, CreateCompatibleDC, CreateDCW, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDIBits,
-    HGDIOBJ, ROP_CODE, SRCCOPY, SelectObject,
+    HBITMAP, HDC, HGDIOBJ, ROP_CODE, SRCCOPY, SelectObject,
 };
 use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN};
 use windows::core::PCWSTR;
@@ -50,15 +50,15 @@ pub fn virtual_screen_rect() -> (i32, i32, u32, u32) {
     }
 }
 
-/// Capture the whole virtual screen (all monitors) from the thread's current
-/// desktop. Must be called with the thread attached to the input desktop.
-pub fn capture_virtual_screen() -> io::Result<Frame> {
-    unsafe {
-        let origin_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-        let origin_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-        let width = GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1);
-        let height = GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1);
+struct GdiCapture {
+    screen_dc: HDC,
+    mem_dc: HDC,
+    bitmap: HBITMAP,
+    previous: HGDIOBJ,
+}
 
+impl GdiCapture {
+    unsafe fn open(width: i32, height: i32) -> io::Result<Self> {
         let display = wide("DISPLAY");
         let screen_dc = CreateDCW(PCWSTR(display.as_ptr()), PCWSTR::null(), PCWSTR::null(), None);
         if screen_dc.is_invalid() {
@@ -76,13 +76,38 @@ pub fn capture_virtual_screen() -> io::Result<Frame> {
             return Err(io::Error::new(io::ErrorKind::Other, "CreateCompatibleBitmap failed"));
         }
         let previous = SelectObject(mem_dc, HGDIOBJ(bitmap.0));
+        Ok(GdiCapture { screen_dc, mem_dc, bitmap, previous })
+    }
+}
+
+impl Drop for GdiCapture {
+    fn drop(&mut self) {
+        unsafe {
+            SelectObject(self.mem_dc, self.previous);
+            let _ = DeleteObject(HGDIOBJ(self.bitmap.0));
+            let _ = DeleteDC(self.mem_dc);
+            let _ = DeleteDC(self.screen_dc);
+        }
+    }
+}
+
+/// Capture the whole virtual screen (all monitors) from the thread's current
+/// desktop. Must be called with the thread attached to the input desktop.
+pub fn capture_virtual_screen() -> io::Result<Frame> {
+    unsafe {
+        let origin_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let origin_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let width = GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1);
+        let height = GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1);
+
+        let gdi = GdiCapture::open(width, height)?;
 
         // CAPTUREBLT includes layered (WS_EX_LAYERED) windows in the copy
         // (https://learn.microsoft.com/windows/win32/api/wingdi/nf-wingdi-bitblt);
         // without it, layered UI such as parts of the sign-in and consent
         // screens is missing from the frame. Known cost: on some systems the
         // mouse cursor flickers while CAPTUREBLT copies are taken.
-        let blt = BitBlt(mem_dc, 0, 0, width, height, Some(screen_dc), origin_x, origin_y, ROP_CODE(SRCCOPY.0 | CAPTUREBLT.0));
+        let blt = BitBlt(gdi.mem_dc, 0, 0, width, height, Some(gdi.screen_dc), origin_x, origin_y, ROP_CODE(SRCCOPY.0 | CAPTUREBLT.0));
 
         let stride = (width as u32) * 4;
         let mut pixels = vec![0u8; stride as usize * height as usize];
@@ -100,13 +125,8 @@ pub fn capture_virtual_screen() -> io::Result<Frame> {
             },
             ..Default::default()
         };
-        let scanlines = GetDIBits(mem_dc, bitmap, 0, height as u32, Some(pixels.as_mut_ptr() as *mut _), &mut info, DIB_RGB_COLORS);
-
-        // Restore and release every GDI object before evaluating success.
-        SelectObject(mem_dc, previous);
-        let _ = DeleteObject(HGDIOBJ(bitmap.0));
-        let _ = DeleteDC(mem_dc);
-        let _ = DeleteDC(screen_dc);
+        let scanlines = GetDIBits(gdi.mem_dc, gdi.bitmap, 0, height as u32, Some(pixels.as_mut_ptr() as *mut _), &mut info, DIB_RGB_COLORS);
+        drop(gdi);
 
         if blt.is_err() {
             return Err(io::Error::new(io::ErrorKind::Other, "BitBlt failed"));

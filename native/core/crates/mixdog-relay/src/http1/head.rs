@@ -251,6 +251,18 @@ fn has_token(value: &str, token: &str) -> bool {
     value.split(',').any(|part| part.trim().eq_ignore_ascii_case(token))
 }
 
+fn framing_of(content_length: Option<u64>, transfer_encoding: Option<String>) -> Result<Framing, HeadError> {
+    match (content_length, transfer_encoding) {
+        (Some(_), Some(_)) => Err(HeadError::Malformed),
+        (None, Some(coding)) => {
+            let last = coding.rsplit(',').next().map_or("", str::trim);
+            if last.eq_ignore_ascii_case("chunked") { Ok(Framing::Chunked) } else { Err(HeadError::Malformed) }
+        }
+        (Some(0), None) | (None, None) => Ok(Framing::None),
+        (Some(length), None) => Ok(Framing::Length(length)),
+    }
+}
+
 fn build(request: &httparse::Request<'_, '_>, head_len: usize) -> Result<ParsedHead, HeadError> {
     let method = request.method.ok_or(HeadError::Malformed)?;
     if !METHODS.contains(&method) {
@@ -282,18 +294,7 @@ fn build(request: &httparse::Request<'_, '_>, head_len: usize) -> Result<ParsedH
         }
         headers.add(&name, value);
     }
-    let framing = match (content_length, transfer_encoding) {
-        (Some(_), Some(_)) => return Err(HeadError::Malformed),
-        (None, Some(coding)) => {
-            let last = coding.rsplit(',').next().map_or("", str::trim);
-            if !last.eq_ignore_ascii_case("chunked") {
-                return Err(HeadError::Malformed);
-            }
-            Framing::Chunked
-        }
-        (Some(0), None) | (None, None) => Framing::None,
-        (Some(length), None) => Framing::Length(length),
-    };
+    let framing = framing_of(content_length, transfer_encoding)?;
     let keep_alive = if minor == 1 { !connection_close } else { connection_keep_alive };
     Ok(ParsedHead {
         method: method.to_owned(),

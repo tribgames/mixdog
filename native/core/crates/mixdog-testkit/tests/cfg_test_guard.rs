@@ -50,99 +50,34 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "called only by the inline human_only.rs and computer.rs tests plus card_holds_tests.rs and human_only_merge_tests.rs, both cfg(test) modules in secret_input.rs; moved replays do not call this parent-private fixture",
     ),
     (
-        "mixdog-core/src/run_host/fixture_fs.rs",
-        "pub(crate) fn files_under(",
-        "only the inline auto_effort/tests.rs byte-inventory assertion uses this crate-private helper; that test stays in the library, and moved replays do not call it",
-    ),
-    (
-        "mixdog-core/src/run_host/fixture_fs.rs",
-        "pub(crate) fn list_files(",
-        "only the inline mixy_presence_replay_tests.rs directory-inventory assertion uses this crate-private helper; that module stays under cfg(test) in run_host/mod.rs",
-    ),
-    (
         "mixdog-core/src/run_host/mod.rs",
-        "mod migrated_fixture;",
-        "the migrated recording the Context inspector test of `context_world` opens; that test reads crate-private items (`LiveContextWorld`, `Mode`, `WindowFacts`) and stays in the library",
+        "mod grep_args;",
+        "a module of its own inline tests only: nothing else calls `prepare_grep_args`, so a replay build loses nothing by not compiling it",
     ),
     (
-        "mixdog-core/src/run_host/mod.rs",
-        "mod compaction_node_harness",
-        "the harness of the node tests left in the library because they call crate-private items (`CompactionRows`, `NoApprovals`, `manual_compaction::offload_candidates`); nothing else uses it",
+        "mixdog-core-session/src/session/store.rs",
+        "pub(super) fn of_one_read(",
+        "a reader of the inline sensitive_carry_tests alone: under `test-support` it would be unused",
     ),
     (
-        "mixdog-core/src/run_host/mod.rs",
-        "mod room_rows_replay;",
-        "a replay that stays in the library because it reads crate-private items (`room_files::tests::NoDocuments`, `DirectoryRoomDaemon`); the replay package cannot reach them",
+        "mixdog-core-session/src/session/store.rs",
+        "pub(super) fn of_no_log(",
+        "a shape for the inline context_lens tests alone: under `test-support` it would be unused",
     ),
     (
-        "mixdog-core/src/run_host/mod.rs",
-        "mod room_send_replay;",
-        "a replay that stays in the library because it reuses `room_rows_replay::Log` and `room_files::SessionFiles`, which are crate-private",
+        "mixdog-core-session/src/session/store.rs",
+        "pub(super) fn tell_released(",
+        "a release notice for the inline sensitive_carry_tests alone: under `test-support` it would be unused",
     ),
     (
-        "mixdog-core/src/run_host/factory.rs",
-        "mod turn_durability_replay;",
-        "a replay that stays in the library because it runs over the factory tests' crate-private world (`use super::*`: the turn world, its scripted provider and rig)",
+        "mixdog-core-session/src/session/store.rs",
+        "pub(super) fn context_len_kept_and_counted(",
+        "a reader of the inline sensitive_carry_tests alone: under `test-support` it would be unused",
     ),
     (
-        "mixdog-core/src/run_host/mod.rs",
-        "mod media_wire_table;",
-        "the media-wire table (`fixtures/media-wire`) replayed over the library's own message rows, attachment store and media lowering (`message_row`, `media`, `assemble`); a module of tests only, which nothing else uses",
-    ),
-    (
-        "mixdog-core/src/run_host/mod.rs",
-        "mod pool_list_replay;",
-        "a replay that stays in the library because it builds `pool_inputs::RegistryPoolStore`, which is crate-private",
-    ),
-    (
-        "mixdog-core-session/src/session/mod.rs",
-        "mod message_sanitize_replay;",
-        "a module of tests only (the `session-message-sanitize` recording replayed over the inline tests' rig): no other module uses it, so a replay build loses nothing by not compiling it",
-    ),
-    (
-        "mixdog-core-session/src/session/mod.rs",
-        "mod address_replay;",
-        "a module of tests only (the `session-address` recording) and the rig of the three session replays below; nothing else uses it",
-    ),
-    (
-        "mixdog-core-session/src/session/mod.rs",
-        "mod switch_replay;",
-        "a module of tests only (the `session-switch` recording), over `address_replay`'s rig; only the two session replays below use its stand-ins",
-    ),
-    (
-        "mixdog-core-session/src/session/mod.rs",
-        "mod lifecycle_replay;",
-        "a module of tests only (the `session-lifecycle` recording), over `address_replay`'s rig; no other module uses it",
-    ),
-    (
-        "mixdog-core-session/src/session/mod.rs",
-        "mod sequence_replay;",
-        "a module of tests only (the `session-sequence` recording), over `address_replay`'s rig; no other module uses it",
-    ),
-    (
-        "mixdog-core/src/run_host/mod.rs",
-        "mod native_request_bytes_node_cases;",
-        "a module of tests only (the native request bytes recording replayed over the run host's wire, built from test doubles): no other module uses it, so a replay build loses nothing by not compiling it",
-    ),
-    (
-        "mixdog-core-session/src/session/agent_registry/mod.rs",
-        "mod stale_node_cases;",
-        "a module of tests only (the `stale-rows-cases` recording over the registry's own `WorkerStore` and `LiveSessions` traits through `super::*`): no other module uses it",
-    ),
-    (
-        "mixdog-core/src/run_host/prompt_session.rs",
-        "mod home_replay;",
-        "a replay that stays in the library because it calls the private `role_fields` and the private `PromptPaths`, `PromptSources` and `SessionPromptInput` of `prompt_session`",
-    ),
-    (
-        "mixdog-core-session/src/session/thread_switches.rs",
-        "mod home_replay;",
-        "a replay that stays in the library because it calls the private `is_scratch` of `thread_switches`",
-    ),
-    (
-        "mixdog-core/src/run_host/side_question_store.rs",
-        "pub(crate) fn tests_material()",
-        "builds its value with the inline `tests` module's helper; crate-private, so no replay package can reach it",
+        "mixdog-core-session/src/session/store.rs",
+        "pub(super) fn shape_refused(",
+        "a reader of the inline sensitive_carry_tests alone: under `test-support` it would be unused",
     ),
     (
         "mixdog-core-session/src/session/new_task.rs",
@@ -165,23 +100,7 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "pub fn latched_count(",
         "a read of the stop latches for the inline tests alone: under `test-support` it would be unused",
     ),
-    (
-        "mixdog-core-session/src/session/store.rs",
-        "pub(super) fn marks_lost(",
-        "a probe of the projector's lost marks for the inline tests alone: under `test-support` it would be unused",
-    ),
-    (
-        "mixdog-core-session/src/session/store.rs",
-        "pub(super) fn hold_after_marks_snapshot(",
-        "a hook between a marks read's snapshot and its check, for the inline tests alone",
-    ),
     ("mixdog-core-session/src/session/store.rs", "pub(super) fn refuse_next_projection(", "a fault injection into the projector, for the inline tests alone"),
-    ("mixdog-core-session/src/session/store.rs", "pub(super) fn projections_sent(", "a count of the projector's registered writes, for the inline tests alone"),
-    (
-        "mixdog-core-session/src/session/actor.rs",
-        "pub(crate) use offload_prune::OFFLOAD_SCAN_BATCH;",
-        "a crate-private constant re-exported for the inline tests alone: under `test-support` the re-export would be unused",
-    ),
 ];
 
 /// The item an attribute applies to: the next line that is not itself an attribute or a comment.

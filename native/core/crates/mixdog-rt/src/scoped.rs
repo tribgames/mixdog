@@ -25,10 +25,8 @@ impl<T> Scoped<T> {
     }
 }
 
-/// A std deadline on the tokio clock: its distance from the std clock now, added to the tokio
-/// clock now. Every wait in this crate sleeps on the tokio clock, which a paused or advanced test
-/// clock moves away from `std::time::Instant::now()`; an absolute std instant compared with it
-/// would already be past (or never come).
+/// A std deadline on the tokio clock: its distance from the std clock now, added to the tokio clock now, because a paused or
+/// advanced test clock moves the tokio clock away from `std::time::Instant::now()`.
 pub(crate) fn on_tokio_clock(at: Instant) -> tokio::time::Instant {
     tokio::time::Instant::now() + at.saturating_duration_since(Instant::now())
 }

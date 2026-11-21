@@ -1,14 +1,3 @@
-//! Which tools a Gemini wire accepts (`gemini-schema.mjs`: `geminiAcceptedTools`,
-//! `geminiToolExclusion`, and the declaration step of `toGeminiTools`).
-//!
-//! A Gemini endpoint rejects the whole request for one bad declaration. Each tool's declaration
-//! (`parameters` or `parametersJsonSchema`, [`declaration_schema`]) is checked; one it would
-//! reject is rebuilt once from the lowered schema (draft-07/04 constructs), and one still
-//! rejected is reported and left out.
-//!
-//! The Gemini-family rule of a route: `run_host/route_schema.rs` calls [`gemini_accepted_tools`]
-//! for the tools a route sends and [`gemini_tool_exclusion`] for the one it answers.
-
 use mixdog_core_api::domain::provider::ToolDefinition;
 use serde_json::Value;
 use serde_json::json;
@@ -40,11 +29,6 @@ fn schema_fields(schema: Option<&Value>) -> Fields {
     schema.map(declaration_schema)
 }
 
-/// A `ToolDefinition` has one value for "absent" and "null", and reads null as absent. That is
-/// what Node's tools are by the time a provider sees them: the MCP client gives a tool without a
-/// schema `{ type: 'object', properties: {} }` (`mcp/client.mjs`), as Rust's `sanitize_schema`
-/// does, and a built-in tool always has one. The rules below take the real value
-/// ([`gemini_schema_exclusion`]) for a caller that has it.
 fn declared(tool: &ToolDefinition) -> Option<&Value> {
     (!tool.input_schema.is_null()).then_some(&tool.input_schema)
 }
@@ -77,15 +61,15 @@ fn entries(value: &Value) -> Vec<(String, Value)> {
     }
 }
 
-/// Why a legacy `parameters` Schema (the OpenAPI subset `convert` targets) is rejected by
-/// Gemini, or `None` when it is valid: an object root (or none), known types, an `items` schema
-/// on every array, string enums, and `required` names that exist in `properties`
-/// (`legacyParametersProblem`).
 fn legacy_problem(node: &Value, pointer: &str, root: bool) -> Option<Problem> {
-    let bad = |reason: String, at: String| Some(Problem { pointer: at, reason });
     let Some(map) = node.as_object() else {
-        return bad("a Gemini Schema must be an object".into(), pointer.into());
+        return Some(Problem { pointer: pointer.into(), reason: "a Gemini Schema must be an object".into() });
     };
+    legacy_node_problem(map, pointer, root).or_else(|| legacy_child_nodes(map, pointer).iter().find_map(|(child, at)| legacy_problem(child, at, false)))
+}
+
+fn legacy_node_problem(map: &serde_json::Map<String, Value>, pointer: &str, root: bool) -> Option<Problem> {
+    let bad = |reason: String, at: String| Some(Problem { pointer: at, reason });
     let kind = map.get("type");
     if let Some(kind) = kind
         && !kind.as_str().is_some_and(|k| LEGACY_SCHEMA_TYPES.contains(&k))
@@ -118,6 +102,11 @@ fn legacy_problem(node: &Value, pointer: &str, root: bool) -> Option<Problem> {
             return bad("required must list properties declared in \"properties\"".into(), format!("{pointer}/required"));
         }
     }
+    None
+}
+
+fn legacy_child_nodes(map: &serde_json::Map<String, Value>, pointer: &str) -> Vec<(Value, String)> {
+    let items = map.get("items");
     let mut children: Vec<(Value, String)> = Vec::new();
     if let Some(properties) = map.get("properties").filter(|p| truthy(p)) {
         for (name, child) in entries(properties) {
@@ -132,7 +121,7 @@ fn legacy_problem(node: &Value, pointer: &str, root: bool) -> Option<Problem> {
             children.push((child.clone(), format!("{pointer}/anyOf/{i}")));
         }
     }
-    children.iter().find_map(|(child, at)| legacy_problem(child, at, false))
+    children
 }
 
 /// Why the declaration's schema is rejected by Gemini, or `None` (`geminiDeclarationProblem`).

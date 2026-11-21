@@ -1,8 +1,3 @@
-//! `portable/xlsx-recalculate.mjs`: recalculation for the portable backend. LibreOffice is the reference implementation and is
-//! asked first (through the [`Soffice`] driver); the in-process engine ([`mixdog_xlsx_formula`]) answers only on a machine that
-//! has none, and only for the formulas it can read. A cell it cannot evaluate keeps whatever the file already held, and the
-//! result names it.
-
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -39,10 +34,6 @@ fn too_deep() -> String {
     format!("a dependency chain deeper than {MAX_CHAIN_DEPTH} cells")
 }
 
-/// A name the workbook defines as one cell, one range or a plain constant is that value under another word, and a model reads
-/// better for it. Anything else a name can hold (a formula, a name that means something different on each sheet, a print area)
-/// is left undefined, so the formulas using it are refused rather than read wrongly. None of these can name another name, so a
-/// definition never chases its own tail.
 static DEFINED_NAME_TARGET: LazyLock<JsRegex> = LazyLock::new(|| {
     JsRegex::new_static(
         r#"^(?:(?:'[^']+'|[A-Za-z_][A-Za-z0-9_.]*)!\$?[A-Za-z]{1,3}\$?\d{1,7}(?::\$?[A-Za-z]{1,3}\$?\d{1,7})?|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|"[^"]*")$"#,
@@ -234,10 +225,6 @@ struct Tally {
     evaluated: usize,
 }
 
-/// Evaluates one sheet's formulas into the values it reached, recording refusals and error results on the tally. A column that
-/// adds up the row above it resolves as the sheet is read. One written the other way round waits on a cell further down for
-/// every row, and reading top-down would refuse each of them in turn. So the first refusal for depth turns the rest of the
-/// sheet around: read from the bottom, every cell finds what it waits on already computed.
 fn evaluate_sheet_formulas(part: &SheetPart, engine: &Engine, tally: &mut Tally) -> Result<Vec<(String, Cell)>, String> {
     let sheet_name = &part.sheet.name;
     let mut values: Vec<(String, Cell)> = Vec::new();

@@ -1,7 +1,5 @@
-//! The settings the process-wide provider admission lanes open with (`providers/admission-scheduler.mjs`
-//! `ProviderAdmissionScheduler` / `createAdmissionLane`): no concurrency limit, a queue bound from
-//! `MIXDOG_PROVIDER_ADMISSION_MAX_QUEUE` (default 1024), and rate-limit cooldown only on Anthropic's
-//! lanes. One function, so a send and a cache warm (`AccountGate`) open the same lane the same way.
+//! Mirrors `providers/admission-scheduler.mjs`: no concurrency limit, a queue bound from
+//! `MIXDOG_PROVIDER_ADMISSION_MAX_QUEUE` (default 1024), rate-limit cooldown only on Anthropic's lanes.
 
 use std::sync::Arc;
 

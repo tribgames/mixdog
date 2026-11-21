@@ -1,5 +1,4 @@
-//! Owner: s4-engine-actions-pointer
-//! A mutation of the element a ref names (`actions/ref-mutation.ts`). Recovery owns only the read-only preflight, never the gesture
+//! Recovery owns only the read-only preflight, never the gesture
 //! or its verification: a stale ref is found again once, before anything is dispatched, and a failure after the operation started is
 //! never retried, because the input may already have executed and a replay could act twice.
 

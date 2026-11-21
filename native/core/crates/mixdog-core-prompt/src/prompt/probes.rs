@@ -1,13 +1,11 @@
-//! The startup probes' process-wide cache (`runtime-capabilities.mjs`), kept for the daemon's
+//! The startup probes' process-wide cache, kept for the daemon's
 //! lifetime so a later session gets exactly the observations the first one did:
 //!
-//! - the shell-tools line: one slot keyed by PATH; a different PATH replaces it
-//!   (`_shellToolsStartupEntry`);
-//! - whether `git` is on PATH: remembered for 30 seconds per PATH (`gitExecutablePresent`);
+//! - the shell-tools line: one slot keyed by PATH; a different PATH replaces it;
+//! - whether `git` is on PATH: remembered for 30 seconds per PATH;
 //! - the repository change state per root and the git-ignored names per listed directory: the
-//!   first answer is kept, every later use serves it and asks for one refresh in the background
-//!   (`_repositoryChangeState`, `_gitIgnoredEntries`), so a session sees at worst the previous
-//!   observation. A prewarm's answer is taken by its first use without a refresh (`unserved`).
+//!   first answer is kept, every later use serves it and asks for one refresh in the background,
+//!   so a session sees at worst the previous observation. A prewarm's answer is taken by its first use without a refresh (`unserved`).
 //!
 //! The probes that need a child process are run by the host's async prewarm: it drains
 //! [`StartupObservations::take_requests`], runs them through the process service and records the

@@ -21,7 +21,9 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
+fn mock_bin() -> String {
+    mixdog_testkit::bin_exe!("mixdog-mcp-mock-server")
+}
 
 /// A repetition holding a lookahead, which fancy-regex backtracks through (`^(a+)+$` alone it answers without
 /// backtracking): on 40 `a`s and a `b` its steps run for hours under the bound of 10^10.
@@ -51,11 +53,6 @@ struct Shape {
     meta_pass: u64,
 }
 
-/// The ways a match runs long besides failing: VM steps that never fail (a repetition holding a lookahead over 500,000
-/// characters, one failure at the end), an absent repeater's advance (300,000 characters, none failing), one search the
-/// lazy DFA steps (a 4 MiB suffix after a lookahead), a literal of the pattern compared in one instruction (700,000
-/// bytes; 300,000 case-insensitive characters), and the one call outside the step bound that this pattern reaches: the
-/// meta engine reading the groups of a 4 MiB delegated match in one pass. Each runs to its answer.
 fn long_shapes() -> Vec<Shape> {
     let shape = |name, pattern: String, haystack: String, min_reads, meta_pass| Shape { name, pattern, haystack, min_reads, meta_pass };
     vec![
@@ -116,10 +113,6 @@ fn a_cancelled_calls_check_answers_cancelled() {
     assert_eq!(validators.check("hostile", &result, &Arc::new(AtomicBool::new(true))), Err(RpcError::Cancelled));
 }
 
-/// On a runtime of one worker thread, a call whose result's pattern backtracks for hours leaves the worker free: a call
-/// made after it answers while it is still being checked. Cancelling it then ends the check, and the call answers that it
-/// was cancelled. The runtime runs on a thread of its own, so a check that held its worker fails the test at a deadline
-/// the test thread keeps.
 #[test]
 fn a_pathological_pattern_holds_no_async_worker_and_ends_when_its_call_is_cancelled() {
     let (done, finished) = std::sync::mpsc::channel();
@@ -149,7 +142,7 @@ fn calls_on_one_worker() {
             "plain": [{"content": [], "structuredContent": {"v": "aaa"}}],
         });
         let scenario = json!({"tools": hostile_tools(), "results": results});
-        let entry = json!({"command": MOCK, "env": {"MOCK_SCENARIO": scenario.to_string()}});
+        let entry = json!({"command": mock_bin(), "env": {"MOCK_SCENARIO": scenario.to_string()}});
         let config = McpServerConfig::from_entry("srv", &entry, &std::env::vars().collect()).unwrap();
         let server = McpServer::new(config, io, Spiller::new(dir.path().to_path_buf(), io.durability), OutputPolicy::default(), None);
         mixdog_rt::time::timeout(Duration::from_secs(30), server.connect()).await.expect("the mock server connects in 30 s").unwrap();
@@ -208,10 +201,6 @@ fn on_the_lane(
         ran
     })
 }
-/// Counted, not timed: a match reads its stop at least once every `INTERVAL + CHUNK` steps, whichever way it runs
-/// long; a stop already set ends it at its first read, within `INTERVAL + CHUNK` steps; and either way the lane's thread
-/// is free again after it. (The time of each shape with the stop read and with no stop set is printed: what the reads
-/// cost.)
 #[test]
 fn a_long_match_reads_its_stop_within_a_bounded_number_of_steps_and_frees_its_lane() {
     let mut config = mixdog_rt::exec::RtConfig::for_cores(4);

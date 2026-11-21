@@ -261,6 +261,32 @@ struct Run<'a> {
     stopper: Stopper,
 }
 
+fn login_credentials(server: &str, stored: Option<&Entry>, in_memory: bool) -> Entry {
+    let mut creds = Entry { url: server.to_owned(), ..Entry::default() };
+    if let Some(stored) = stored {
+        creds.revision = stored.revision.clone();
+        creds.client_information = stored.client_information.clone();
+        creds.redirect_url = stored.redirect_url.clone();
+        creds.discovery = stored.discovery.clone();
+        if !in_memory {
+            creds.tokens = stored.tokens.clone();
+            creds.identity = stored.identity.clone();
+        }
+    }
+    creds
+}
+
+/// Node's abort handler: the held page gets the generic failure now and the listener stops accepting at
+/// once, whatever the login is doing (an exchange or a credential write may be stalled past the deadline).
+fn spawn_abort_watcher(abort: Abort, held: Arc<Held>, stopper: Stopper) -> tokio::task::JoinHandle<()> {
+    mixdog_rt::spawn("mcp.oauth.login.abort", mixdog_rt::TaskClass::Work, async move {
+        abort.fired().await;
+        held.settle(PageOutcome::Failed { scope_not_granted: false }).await;
+        let flushing = held.flushing();
+        stopper.shutdown(flushing).await;
+    })
+}
+
 impl McpOAuth {
     pub(super) async fn run_login(
         self: &Arc<Self>,
@@ -270,7 +296,6 @@ impl McpOAuth {
         ctl: &Control,
     ) -> Result<Option<String>, Stop> {
         ctl.emit(LoginState::Starting);
-        // Armed before anything else: discovery, registration and the exchange all observe it.
         let abort = Abort { cancel: ctl.cancel.clone(), deadline: Arc::new(Deadline::start()) };
         let in_memory = mode == AccountMode::Switch || transactional;
         let server = &self.binding.url;
@@ -278,21 +303,9 @@ impl McpOAuth {
             let cache = abort.guard(self.load()).await??;
             (cache.entry.clone(), cache.generation, self.credential.login_version.load(Ordering::Relaxed))
         };
-        let mut creds = Entry { url: server.to_string(), ..Entry::default() };
-        if let Some(stored) = &stored {
-            creds.revision = stored.revision.clone();
-            creds.client_information = stored.client_information.clone();
-            creds.redirect_url = stored.redirect_url.clone();
-            creds.discovery = stored.discovery.clone();
-            // A sign-in beside the stored one never reuses its tokens or identity.
-            if !in_memory {
-                creds.tokens = stored.tokens.clone();
-                creds.identity = stored.identity.clone();
-            }
-        }
+        let mut creds = login_credentials(server.as_str(), stored.as_ref(), in_memory);
         let state = random_state();
         let (callbacks, callback_rx) = mpsc::unbounded_channel();
-        // Keep the registered redirect URI (its port) when a registration exists.
         let port = creds.redirect_url.as_deref().and_then(|u| Url::parse(u).ok()).and_then(|u| u.port()).unwrap_or(0);
         let listener = super::super::callback::listen(port, state.clone(), self.binding.display_name.clone(), callbacks.clone())
             .await
@@ -302,17 +315,7 @@ impl McpOAuth {
         let stopper = listener.stopper();
         let held = Arc::new(Held::default());
 
-        // Node's abort handler: the held page gets the generic failure now and the listener stops accepting at
-        // once, whatever the login is doing (an exchange or a credential write may be stalled past the deadline).
-        let watcher = {
-            let (abort, held, stopper) = (abort.clone(), Arc::clone(&held), stopper.clone());
-            mixdog_rt::spawn("mcp.oauth.login.abort", mixdog_rt::TaskClass::Work, async move {
-                abort.fired().await;
-                held.settle(PageOutcome::Failed { scope_not_granted: false }).await;
-                let flushing = held.flushing();
-                stopper.shutdown(flushing).await;
-            })
-        };
+        let watcher = spawn_abort_watcher(abort.clone(), Arc::clone(&held), stopper.clone());
 
         let mut run = Run {
             oauth: self,
@@ -338,8 +341,6 @@ impl McpOAuth {
             Ok(done) => Ok(done),
             Err(stop) => {
                 let scope_not_granted = matches!(stop, Stop::Failed(OAuthError::ScopeNotGranted(_)));
-                // Once the abort fired, its handler answers the held page (Node runs it synchronously, ahead of this
-                // `catch`), and this path must not wait on a flush the handler is the one to settle.
                 if run.abort.check().is_ok()
                     && let Some(flush) = held.settle(PageOutcome::Failed { scope_not_granted }).await
                 {
@@ -358,8 +359,6 @@ impl McpOAuth {
                 Err(stop)
             }
         };
-        // `finally`: the listener closes (after the flush of a page still being written).
-        // An abort that fired has its shutdown under way: let it finish rather than cut it short.
         if run.abort.check().is_err() {
             let _ = watcher.await;
         } else {
@@ -513,30 +512,47 @@ impl Run<'_> {
         Ok(self.creds.client_information.clone())
     }
 
-    async fn auth_internal(&mut self, cache: &mut Cache, code: Option<&str>) -> Result<Authorized, AuthError> {
-        let oauth = Arc::clone(self.oauth);
-        let server = oauth.binding.url.clone();
-        let static_client = oauth.binding.client.clone();
-
-        // Discovery: the cached state, or the full discovery (kept in memory for the login's next write).
-        let mut discovery = match self.creds.discovery.clone().filter(|d| !d.authorization_server_url.is_empty()) {
-            Some(cached) => cached,
-            None => {
-                let hint = self.challenge.resource_metadata_url.clone();
-                let mut found = self.abort.guard(oauth.protocol.discover(&server, hint.as_deref())).await?;
-                // The SDK keeps the challenge's URL, not the one it derived itself.
-                found.resource_metadata_url = hint;
-                found
+    /// The authorization request for a new browser sign-in: the PKCE challenge, the scope and resource, the configured client's own
+    /// parameters, and the account-mode parameters.
+    fn authorization_url(&self, endpoint: Url, challenge: &str, client_id: &str, scope: Option<&str>, discovery: &Discovery, server: &Url) -> Url {
+        let static_client = self.oauth.binding.client.as_ref();
+        let mut url = endpoint;
+        {
+            let mut query = url.query_pairs_mut();
+            query
+                .append_pair("response_type", "code")
+                .append_pair("client_id", client_id)
+                .append_pair("code_challenge", challenge)
+                .append_pair("code_challenge_method", "S256")
+                .append_pair("redirect_uri", &self.redirect_url)
+                .append_pair("state", &self.state);
+            if let Some(scope) = scope {
+                query.append_pair("scope", scope);
             }
-        };
-        if discovery.authorization_server_metadata.is_none() {
-            let found = self.abort.guard(oauth.protocol.discover(&server, discovery.resource_metadata_url.as_deref())).await?;
-            discovery.authorization_server_metadata = found.authorization_server_metadata;
-            if discovery.resource_metadata.is_none() {
-                discovery.resource_metadata = found.resource_metadata;
+            if static_client.is_none() {
+                query.append_pair("resource", &discovery.resource(server));
             }
         }
-        self.creds.discovery = Some(discovery.clone());
+        if let Some(client) = static_client {
+            for (key, value) in &client.auth_params {
+                set_query(&mut url, key, value);
+            }
+        } else if let Some(scope) = scope
+            && discovery.offers_scope("offline_access")
+            && !scope.split(' ').any(|s| s == "offline_access")
+        {
+            // Without `offline_access` such a server issues no refresh token.
+            set_query(&mut url, "scope", &format!("{scope} offline_access"));
+            url.query_pairs_mut().append_pair("prompt", "consent");
+        }
+        with_account_params(&url, self.mode)
+    }
+
+    async fn auth_internal(&mut self, cache: &mut Cache, code: Option<&str>) -> Result<Authorized, AuthError> {
+        let server = self.oauth.binding.url.clone();
+        let static_client = self.oauth.binding.client.clone();
+
+        let discovery = self.discover().await?;
         let issuer = discovery.authorization_server_url.clone();
         let resource = static_client.is_none().then(|| discovery.resource(&server));
         // The scope the refusal asked for comes first (`auth(provider, { scope })` before the client's own).
@@ -548,26 +564,7 @@ impl Run<'_> {
             .or_else(|| static_client.as_ref().filter(|c| !c.scopes.is_empty()).map(|c| c.scopes.join(" ")))
             .or_else(|| discovery.resource_scopes());
 
-        // Client information stamped for another authorization server reads back as nothing.
-        let info = discard_if_other_issuer(self.client_information().await?, &issuer);
-        let unstamped = info.clone().filter(|i| i.get("issuer").is_none_or(Value::is_null));
-        let info = match info {
-            Some(info) => info,
-            None => {
-                if code.is_some() {
-                    // "Existing OAuth client information is required when exchanging an authorization code".
-                    return Err(OAuthError::LoginFailed.into());
-                }
-                let redirect = self.redirect_url.clone();
-                let registered =
-                    self.abort.guard(oauth.protocol.register(&discovery, &redirect, scope.as_deref())).await?.map_err(|_| OAuthError::LoginFailed)?;
-                let mut registered = registered;
-                registered["issuer"] = Value::String(issuer.clone());
-                let stored = registered.clone();
-                self.save(cache, false, |c| c.client_information = Some(stored)).await?;
-                registered
-            }
-        };
+        let (info, unstamped) = self.client_info(cache, &discovery, &issuer, scope.as_deref(), code.is_some()).await?;
         let credentials = ClientCredentials::from_info(&info).ok_or(OAuthError::LoginFailed)?;
 
         if let Some(code) = code {
@@ -583,70 +580,17 @@ impl Run<'_> {
             return Ok(Authorized::Tokens);
         }
 
-        // A refresh token stamped for another authorization server is never sent to this one.
-        let refresh = self
-            .creds
-            .tokens
-            .clone()
-            .filter(|t| t.get("issuer").and_then(Value::as_str).is_none_or(|i| same_issuer(i, &issuer)))
-            .and_then(|t| t.get("refresh_token").and_then(Value::as_str).map(str::to_owned));
-        if let Some(refresh) = refresh {
-            self.abort.check()?;
-            let form = vec![("grant_type", "refresh_token".to_owned()), ("refresh_token", refresh.clone())];
-            // After issuing a refresh, finish the bounded exchange even if the dialog closes:
-            // the provider may already have invalidated the previous refresh token.
-            match oauth.protocol.token(&discovery, &credentials, form, resource).await.map_err(token_failure) {
-                Ok(mut tokens) => {
-                    if tokens.get("refresh_token").is_none_or(Value::is_null) {
-                        tokens["refresh_token"] = Value::String(refresh);
-                    }
-                    self.identity = identity_from_token_response(&tokens);
-                    self.save_tokens(cache, tokens, &issuer, unstamped, true).await?;
-                    return Ok(Authorized::Tokens);
-                }
-                // A server error, an unknown answer or a network failure: the browser is the way on.
-                Err(AuthError::Soft) => {}
-                Err(other) => return Err(other),
-            }
+        if self.refresh(cache, &discovery, &credentials, resource, &issuer, unstamped).await? {
+            return Ok(Authorized::Tokens);
         }
 
-        // Start a new authorization.
         self.abort.check()?;
         let authorization_endpoint = discovery.authorization_endpoint().ok_or(OAuthError::LoginFailed)?;
         if !discovery.supports_s256() {
             return Err(OAuthError::LoginFailed.into());
         }
         let pair = pkce();
-        let mut url = authorization_endpoint;
-        {
-            let mut query = url.query_pairs_mut();
-            query
-                .append_pair("response_type", "code")
-                .append_pair("client_id", &credentials.client_id)
-                .append_pair("code_challenge", &pair.challenge)
-                .append_pair("code_challenge_method", "S256")
-                .append_pair("redirect_uri", &self.redirect_url)
-                .append_pair("state", &self.state);
-            if let Some(scope) = &scope {
-                query.append_pair("scope", scope);
-            }
-            if static_client.is_none() {
-                query.append_pair("resource", &discovery.resource(&server));
-            }
-        }
-        if let Some(client) = &static_client {
-            for (key, value) in &client.auth_params {
-                set_query(&mut url, key, value);
-            }
-        } else if let Some(scope) = &scope
-            && discovery.offers_scope("offline_access")
-            && !scope.split(' ').any(|s| s == "offline_access")
-        {
-            // Without `offline_access` such a server issues no refresh token.
-            set_query(&mut url, "scope", &format!("{scope} offline_access"));
-            url.query_pairs_mut().append_pair("prompt", "consent");
-        }
-        let url = with_account_params(&url, self.mode);
+        let url = self.authorization_url(authorization_endpoint, &pair.challenge, &credentials.client_id, scope.as_deref(), &discovery, &server);
         self.verifier = Some(pair.verifier);
         if self.browser_opened {
             return Err(OAuthError::ReauthenticationRequired.into());
@@ -664,6 +608,92 @@ impl Run<'_> {
         });
         self.ctl.emit(LoginState::Authorize { url: url.to_string(), manual_url: None });
         Ok(Authorized::Redirect)
+    }
+
+    async fn discover(&mut self) -> Result<Discovery, AuthError> {
+        let oauth = Arc::clone(self.oauth);
+        let server = &oauth.binding.url;
+        let mut discovery = match self.creds.discovery.clone().filter(|d| !d.authorization_server_url.is_empty()) {
+            Some(cached) => cached,
+            None => {
+                let hint = self.challenge.resource_metadata_url.clone();
+                let mut found = self.abort.guard(oauth.protocol.discover(server, hint.as_deref())).await?;
+                // The SDK keeps the challenge's URL, not the one it derived itself.
+                found.resource_metadata_url = hint;
+                found
+            }
+        };
+        if discovery.authorization_server_metadata.is_none() {
+            let found = self.abort.guard(oauth.protocol.discover(server, discovery.resource_metadata_url.as_deref())).await?;
+            discovery.authorization_server_metadata = found.authorization_server_metadata;
+            if discovery.resource_metadata.is_none() {
+                discovery.resource_metadata = found.resource_metadata;
+            }
+        }
+        self.creds.discovery = Some(discovery.clone());
+        Ok(discovery)
+    }
+
+    /// The client information for `issuer` (registered now when none is stored and no code is
+    /// being exchanged), and the stored copy that carries no issuer stamp.
+    async fn client_info(
+        &mut self,
+        cache: &mut Cache,
+        discovery: &Discovery,
+        issuer: &str,
+        scope: Option<&str>,
+        exchanging_code: bool,
+    ) -> Result<(Value, Option<Value>), AuthError> {
+        let info = discard_if_other_issuer(self.client_information().await?, issuer);
+        let unstamped = info.clone().filter(|i| i.get("issuer").is_none_or(Value::is_null));
+        if let Some(info) = info {
+            return Ok((info, unstamped));
+        }
+        if exchanging_code {
+            return Err(OAuthError::LoginFailed.into());
+        }
+        let oauth = Arc::clone(self.oauth);
+        let redirect = self.redirect_url.clone();
+        let mut registered = self.abort.guard(oauth.protocol.register(discovery, &redirect, scope)).await?.map_err(|_| OAuthError::LoginFailed)?;
+        registered["issuer"] = Value::String(issuer.to_owned());
+        let stored = registered.clone();
+        self.save(cache, false, |c| c.client_information = Some(stored)).await?;
+        Ok((registered, unstamped))
+    }
+
+    /// Renews the stored tokens; `false` when none can be renewed and the browser is the way on.
+    async fn refresh(
+        &mut self,
+        cache: &mut Cache,
+        discovery: &Discovery,
+        credentials: &ClientCredentials,
+        resource: Option<String>,
+        issuer: &str,
+        unstamped: Option<Value>,
+    ) -> Result<bool, AuthError> {
+        let refresh = self
+            .creds
+            .tokens
+            .clone()
+            .filter(|t| t.get("issuer").and_then(Value::as_str).is_none_or(|i| same_issuer(i, issuer)))
+            .and_then(|t| t.get("refresh_token").and_then(Value::as_str).map(str::to_owned));
+        let Some(refresh) = refresh else { return Ok(false) };
+        self.abort.check()?;
+        let form = vec![("grant_type", "refresh_token".to_owned()), ("refresh_token", refresh.clone())];
+        // After issuing a refresh, finish the bounded exchange even if the dialog closes:
+        // the provider may already have invalidated the previous refresh token.
+        match self.oauth.protocol.token(discovery, credentials, form, resource).await.map_err(token_failure) {
+            Ok(mut tokens) => {
+                if tokens.get("refresh_token").is_none_or(Value::is_null) {
+                    tokens["refresh_token"] = Value::String(refresh);
+                }
+                self.identity = identity_from_token_response(&tokens);
+                self.save_tokens(cache, tokens, issuer, unstamped, true).await?;
+                Ok(true)
+            }
+            Err(AuthError::Soft) => Ok(false),
+            Err(other) => Err(other),
+        }
     }
 
     /// One token request, bounded by the login's abort. Its answer names who the tokens belong to.

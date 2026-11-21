@@ -641,8 +641,6 @@ impl Outgoing {
         let request_id = id.clone();
         let back_id = serde_json::to_value(&id).unwrap_or(Value::Null);
         claimant.sink.send_control(request_frame(id, method.as_str(), params)).map_err(|_| HostError::from(desktop_host_unavailable("claimantClosed")))?;
-        // Given up without its answer, the claimant is told to stop in its capability's word, as `ask` does ([`AbandonOnDrop`]:
-        // `model/proxy/cancel` for `model/proxy/execute`, the one streamed request); an answer and a closed connection need no word.
         let mut cancel = AbandonOnDrop { conn: Arc::clone(&claimant), id: request_id, capability, answered: false };
         // The claimant vouches for the request or it is given up: the claim window until its first
         // sign of life, the lease after each one (a heartbeat or an event). Dropping the request
@@ -653,32 +651,7 @@ impl Outgoing {
             let window = lease.map(|lease| if claimed { lease.renew } else { lease.claim });
             let received = Scope::new().deadline(window.map(|window| Instant::now() + window)).run(stream.recv());
             let mut received = std::pin::pin!(received);
-            // What the caller says to the claimant meanwhile goes out at once, to this claimant alone; it renews nothing.
-            let received = loop {
-                let next = std::future::poll_fn(|cx| {
-                    if let std::task::Poll::Ready(got) = std::future::Future::poll(received.as_mut(), cx) {
-                        return std::task::Poll::Ready(Ok(got));
-                    }
-                    match back.as_mut().map(|(_, rx)| rx.poll_recv(cx)) {
-                        Some(std::task::Poll::Ready(said)) => std::task::Poll::Ready(Err(said)),
-                        _ => std::task::Poll::Pending,
-                    }
-                })
-                .await;
-                match next {
-                    Ok(got) => break got,
-                    Err(Some(mut said)) => {
-                        let Some((back_method, _)) = &back else { continue };
-                        if let Value::Object(fields) = &mut said {
-                            fields.insert("requestId".to_owned(), back_id.clone());
-                        }
-                        // A closed claimant ends the request on the stream itself.
-                        let _ = claimant.sink.send_control(notification_frame(back_method.as_str(), said));
-                    }
-                    // The caller has nothing more to say.
-                    Err(None) => back = None,
-                }
-            };
+            let received = forward_back_until(received.as_mut(), &mut back, &claimant, &back_id).await;
             match received {
                 Scoped::Done(Some(Streamed::Event(event))) => {
                     claimed = true;
@@ -696,9 +669,41 @@ impl Outgoing {
                 Scoped::DeadlineExceeded => {
                     return Err(desktop_host_unavailable(if claimed { LEASE_LAPSED } else { NOT_CLAIMED }).into());
                 }
-                // The scope has no token.
                 Scoped::Cancelled => return Err(desktop_host_unavailable("cancelled").into()),
             }
+        }
+    }
+}
+
+/// Waits on `received`; what the caller says to the claimant meanwhile goes out at once, to this claimant alone, stamped with
+/// `back_id`; it renews nothing. Once the caller has nothing more to say, `back` becomes `None`.
+async fn forward_back_until<T>(
+    mut received: std::pin::Pin<&mut impl std::future::Future<Output = T>>,
+    back: &mut Option<(Method, tokio::sync::mpsc::UnboundedReceiver<Value>)>,
+    claimant: &Connection,
+    back_id: &Value,
+) -> T {
+    loop {
+        let next = std::future::poll_fn(|cx| {
+            if let std::task::Poll::Ready(got) = std::future::Future::poll(received.as_mut(), cx) {
+                return std::task::Poll::Ready(Ok(got));
+            }
+            match back.as_mut().map(|(_, rx)| rx.poll_recv(cx)) {
+                Some(std::task::Poll::Ready(said)) => std::task::Poll::Ready(Err(said)),
+                _ => std::task::Poll::Pending,
+            }
+        })
+        .await;
+        match next {
+            Ok(got) => return got,
+            Err(Some(mut said)) => {
+                let Some((back_method, _)) = &*back else { continue };
+                if let Value::Object(fields) = &mut said {
+                    fields.insert("requestId".to_owned(), back_id.clone());
+                }
+                let _ = claimant.sink.send_control(notification_frame(back_method.as_str(), said));
+            }
+            Err(None) => *back = None,
         }
     }
 }

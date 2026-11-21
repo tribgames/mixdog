@@ -401,6 +401,33 @@ fn marker(out: &mut Vec<u8>, code: u8, payload: &[u8]) {
     out.extend_from_slice(payload);
 }
 
+/// SOI through SOS: JFIF, both quantisation tables, the 4:2:0 frame header, the four Huffman tables and the scan header.
+fn write_headers(out: &mut Vec<u8>, (w, h): (usize, usize), [luma_quant, chroma_quant]: [&[i32; 64]; 2], tables: &[HuffmanTable]) {
+    out.extend_from_slice(&[0xFF, 0xD8]);
+    // JFIF 1.01, no density unit, 1:1 aspect, no thumbnail.
+    marker(out, 0xE0, &[b'J', b'F', b'I', b'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0]);
+    for (id, quant) in [(0u8, luma_quant), (1u8, chroma_quant)] {
+        let mut payload = vec![id];
+        payload.extend(ZIGZAG.iter().map(|&natural| quant[natural] as u8));
+        marker(out, 0xDB, &payload);
+    }
+    let mut frame = vec![8];
+    frame.extend_from_slice(&(h as u16).to_be_bytes());
+    frame.extend_from_slice(&(w as u16).to_be_bytes());
+    frame.push(3);
+    frame.extend_from_slice(&[1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]);
+    marker(out, 0xC0, &frame);
+    // Class and id of each table in the order libjpeg writes them: DC 0, AC 0, DC 1, AC 1.
+    for (slot, class_and_id) in [(DC_LUMA, 0x00u8), (AC_LUMA, 0x10), (DC_CHROMA, 0x01), (AC_CHROMA, 0x11)] {
+        let table = &tables[usize::from(slot)];
+        let mut payload = vec![class_and_id];
+        payload.extend_from_slice(&table.counts[1..]);
+        payload.extend_from_slice(&table.values);
+        marker(out, 0xC4, &payload);
+    }
+    marker(out, 0xDA, &[3, 1, 0x00, 2, 0x11, 3, 0x11, 0, 63, 0]);
+}
+
 /// Encodes 8-bit RGB (`rgb`, 3 bytes a pixel, `width` x `height`, both at least 1 and at most 65535) as a baseline
 /// 4:2:0 JPEG at `quality` (1 to 100).
 pub fn encode_rgb(width: u32, height: u32, rgb: &[u8], quality: u8) -> Vec<u8> {
@@ -436,29 +463,7 @@ pub fn encode_rgb(width: u32, height: u32, rgb: &[u8], quality: u8) -> Vec<u8> {
     let table_codes: Vec<[(u32, u8); 256]> = tables.iter().map(codes).collect();
 
     let mut out = Vec::with_capacity(events.len() / 2 + 1024);
-    out.extend_from_slice(&[0xFF, 0xD8]);
-    // JFIF 1.01, no density unit, 1:1 aspect, no thumbnail.
-    marker(&mut out, 0xE0, &[b'J', b'F', b'I', b'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0]);
-    for (id, quant) in [(0u8, &luma_quant), (1u8, &chroma_quant)] {
-        let mut payload = vec![id];
-        payload.extend(ZIGZAG.iter().map(|&natural| quant[natural] as u8));
-        marker(&mut out, 0xDB, &payload);
-    }
-    let mut frame = vec![8];
-    frame.extend_from_slice(&(h as u16).to_be_bytes());
-    frame.extend_from_slice(&(w as u16).to_be_bytes());
-    frame.push(3);
-    frame.extend_from_slice(&[1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]);
-    marker(&mut out, 0xC0, &frame);
-    // Class and id of each table in the order libjpeg writes them: DC 0, AC 0, DC 1, AC 1.
-    for (slot, class_and_id) in [(DC_LUMA, 0x00u8), (AC_LUMA, 0x10), (DC_CHROMA, 0x01), (AC_CHROMA, 0x11)] {
-        let table = &tables[usize::from(slot)];
-        let mut payload = vec![class_and_id];
-        payload.extend_from_slice(&table.counts[1..]);
-        payload.extend_from_slice(&table.values);
-        marker(&mut out, 0xC4, &payload);
-    }
-    marker(&mut out, 0xDA, &[3, 1, 0x00, 2, 0x11, 3, 0x11, 0, 63, 0]);
+    write_headers(&mut out, (w, h), [&luma_quant, &chroma_quant], &tables);
 
     let mut writer = BitWriter { out, accumulator: 0, count: 0 };
     for event in &events {

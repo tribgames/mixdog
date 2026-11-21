@@ -1,13 +1,3 @@
-//! The decided changes to `read`'s delivery, asserted on the source text the model receives.
-//!
-//! 1. A batch's windows are rendered and charged by their requested intervals, never by the span between them; what truly
-//!    overflows the call's budget ends on a complete row, and each incomplete window says which lines are missing and the
-//!    call that fetches them.
-//! 2. An explicit `read` returns the requested body, never a `[file unchanged]` receipt.
-//!
-//! Neither is a Node recording (Node merged windows up to 256 lines apart and answered repeats with a stub); the recorded
-//! cases they displace are listed in `BUDGET_DEPARTURES` and `STUB_DEPARTURES`.
-
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 

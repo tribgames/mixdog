@@ -14,7 +14,9 @@ use mixdog_mcp::result::OutputPolicy;
 use serde_json::Value;
 use serde_json::json;
 
-const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
+fn mock_bin() -> String {
+    mixdog_testkit::bin_exe!("mixdog-mcp-mock-server")
+}
 
 /// A hub whose server `fs` lists `tools` (by their own names); connected or only configured.
 async fn hub_listing(tools: &[&str], connect: bool) -> (Arc<McpHub>, tempfile::TempDir) {
@@ -23,7 +25,7 @@ async fn hub_listing(tools: &[&str], connect: bool) -> (Arc<McpHub>, tempfile::T
     let dir = tempfile::tempdir().unwrap();
     let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());
     let listed: Vec<Value> = tools.iter().map(|tool| json!({"name": tool, "inputSchema": {"type": "object"}})).collect();
-    let entry = json!({"command": MOCK, "env": {"MOCK_SCENARIO": json!({"tools": listed, "results": {}}).to_string()}});
+    let entry = json!({"command": mock_bin(), "env": {"MOCK_SCENARIO": json!({"tools": listed, "results": {}}).to_string()}});
     hub.apply(vec![McpServerConfig::from_entry("fs", &entry, &std::env::vars().collect()).unwrap()]);
     if connect {
         hub.server("fs").unwrap().connect().await.unwrap();

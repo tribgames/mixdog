@@ -44,6 +44,19 @@ pub enum Edit {
     ReplaceStored { reference: String, mime_type: String, name: String },
 }
 
+/// A tool result whose call was cut away has no legal place on the wire.
+fn reject_orphaned_tool_results(ids: &[String], messages: &[Message]) -> Result<(), Unrepresentable> {
+    for (id, message) in ids.iter().zip(messages) {
+        if message.role == Role::Tool
+            && let Some(call) = &message.tool_call_id
+            && !messages.iter().any(|m| m.tool_calls.iter().any(|c| &c.id == call))
+        {
+            return Err(Unrepresentable { message_id: id.clone() });
+        }
+    }
+    Ok(())
+}
+
 /// Whether `part` is an image occurrence the overlay can edit (the one definition image preparation uses).
 fn is_image_part(part: &ContentPart) -> bool {
     super::prepared_request::image_part(part).is_some()
@@ -136,58 +149,57 @@ impl ImageOverlay {
             if self.edits.keys().any(|key| key.message_id == id) {
                 message.clear_recorded_form();
             }
-            if let Content::Parts(parts) = &mut message.content {
-                let before = parts.len();
-                let mut kept = Vec::with_capacity(before);
-                let mut stored = Vec::with_capacity(before);
-                for (ordinal, part) in parts.drain(..).enumerate() {
-                    let key = PartKey { message_id: id.clone(), part: ordinal as u32 };
-                    let edited = match (is_image_part(&part), self.edits.get(&key)) {
-                        (true, Some(Edit::Omit)) => continue,
-                        (true, Some(Edit::Replace(image))) => ContentPart::Image(image.clone()),
-                        (true, Some(Edit::ReplaceStored { reference, mime_type, name })) => ContentPart::File {
-                            source: super::provider::BinarySource::AttachmentRef(reference.clone()),
-                            mime_type: mime_type.clone(),
-                            filename: Some(name.clone()).filter(|n| !n.is_empty()),
-                            text: None,
-                        },
-                        _ => part,
-                    };
-                    kept.push(edited);
-                    stored.push(ordinal as u32);
-                }
-                let emptied = kept.is_empty() && before > 0;
-                if kept.len() < before {
-                    message.stored_parts = stored;
-                }
-                *parts = kept;
-                if emptied {
-                    message.stored_parts = Vec::new();
-                    match message.role {
-                        Role::Tool => message.content = Content::Text(String::new()),
-                        Role::Assistant if !message.tool_calls.is_empty() => message.content = Content::Text(String::new()),
-                        Role::User | Role::Assistant => continue,
-                        Role::System | Role::Developer => return Err(Unrepresentable { message_id: id }),
-                    }
-                }
+            if !self.project_parts(&id, &mut message)? {
+                continue;
             }
             out_ids.push(id);
             out.push(message);
         }
-        // A tool result whose call was cut away has no legal place on the wire.
         if cut.is_some() {
-            for (id, message) in out_ids.iter().zip(&out) {
-                if message.role == Role::Tool
-                    && let Some(call) = &message.tool_call_id
-                    && !out.iter().any(|m| m.tool_calls.iter().any(|c| &c.id == call))
-                {
-                    return Err(Unrepresentable { message_id: id.clone() });
-                }
-            }
+            reject_orphaned_tool_results(&out_ids, &out)?;
         }
         *ids = out_ids;
         *messages = out;
         Ok(())
+    }
+
+    /// Applies the image choices to one message's parts; `false` when the message is left out whole.
+    fn project_parts(&self, id: &str, message: &mut Message) -> Result<bool, Unrepresentable> {
+        let Content::Parts(parts) = &mut message.content else { return Ok(true) };
+        let before = parts.len();
+        let mut kept = Vec::with_capacity(before);
+        let mut stored = Vec::with_capacity(before);
+        for (ordinal, part) in parts.drain(..).enumerate() {
+            let key = PartKey { message_id: id.to_owned(), part: ordinal as u32 };
+            let edited = match (is_image_part(&part), self.edits.get(&key)) {
+                (true, Some(Edit::Omit)) => continue,
+                (true, Some(Edit::Replace(image))) => ContentPart::Image(image.clone()),
+                (true, Some(Edit::ReplaceStored { reference, mime_type, name })) => ContentPart::File {
+                    source: super::provider::BinarySource::AttachmentRef(reference.clone()),
+                    mime_type: mime_type.clone(),
+                    filename: Some(name.clone()).filter(|n| !n.is_empty()),
+                    text: None,
+                },
+                _ => part,
+            };
+            kept.push(edited);
+            stored.push(ordinal as u32);
+        }
+        let emptied = kept.is_empty() && before > 0;
+        if kept.len() < before {
+            message.stored_parts = stored;
+        }
+        *parts = kept;
+        if emptied {
+            message.stored_parts = Vec::new();
+            match message.role {
+                Role::Tool => message.content = Content::Text(String::new()),
+                Role::Assistant if !message.tool_calls.is_empty() => message.content = Content::Text(String::new()),
+                Role::User | Role::Assistant => return Ok(false),
+                Role::System | Role::Developer => return Err(Unrepresentable { message_id: id.to_owned() }),
+            }
+        }
+        Ok(true)
     }
 
     pub fn to_json(&self) -> Value {

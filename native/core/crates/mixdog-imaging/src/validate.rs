@@ -211,7 +211,7 @@ pub fn validate(bytes: &[u8], admission: &Admission, cancel: &Cancel) -> Result<
     validate_with(bytes, admission, cancel, crate::os_heic::system())
 }
 
-/// [alidate] with the HEIC codec named (a test stands one in).
+/// [`validate`] with the HEIC codec named (a test stands one in).
 pub fn validate_with(bytes: &[u8], admission: &Admission, cancel: &Cancel, codec: &dyn HeicCodec) -> Result<Validated, Reject> {
     if bytes.is_empty() {
         return Err(Reject::NotAnImage);
@@ -254,25 +254,9 @@ pub fn with_base64<T>(base64: &str, admission: &Admission, cancel: &Cancel, then
     then(bytes, held)
 }
 
-/// [alidate] for a caller that already holds the worker slot; held is what that caller has charged besides ytes.
-pub fn validate_held(bytes: &[u8], held: u64, admission: &Admission, cancel: &Cancel, codec: &dyn HeicCodec) -> Result<Validated, Reject> {
-    let input = bytes.len() as u64;
-    if input + held >= WORKER_BYTES {
-        return Err(Reject::TooLarge);
-    }
-    let format = Format::sniff(bytes).ok_or(Reject::NotAnImage)?;
-    admission.note_decode();
-    let budget = WORKER_BYTES - input - held;
-    if format == Format::Avif && is_hevc_heif(bytes) {
-        return convert_heic(bytes, budget, codec);
-    }
-
-    if format == Format::Svg {
-        let decoded = rasterize_svg(bytes, DECODE_PIXEL_LIMIT, Some((IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT))).map_err(from_decode)?;
-        let png = encode_in_format(&decoded.raster, Format::Png).map_err(|_| Reject::Corrupt)?;
-        return Ok(Validated { kind: ImageKind::Svg, width: decoded.width, height: decoded.height, frames: 1, rendition: Some((ImageKind::Png, png)) });
-    }
-
+/// How many pictures the file holds, every one decoded and discarded, and its canvas where the header gives one ((0, 0)
+/// for TIFF, AVIF and JPEG, whose size is the first picture's).
+fn count_pictures(bytes: &[u8], format: Format, cancel: &Cancel) -> Result<(u32, (u32, u32)), Reject> {
     let mut known = (0u32, 0u32);
     let frames = match format {
         Format::Gif => {
@@ -311,6 +295,29 @@ pub fn validate_held(bytes: &[u8], held: u64, admission: &Admission, cancel: &Ca
         }
         Format::Jpeg | Format::Svg => 1,
     };
+    Ok((frames, known))
+}
+
+/// [`validate`] for a caller that already holds the worker slot; `held` is what that caller has charged besides `bytes`.
+pub fn validate_held(bytes: &[u8], held: u64, admission: &Admission, cancel: &Cancel, codec: &dyn HeicCodec) -> Result<Validated, Reject> {
+    let input = bytes.len() as u64;
+    if input + held >= WORKER_BYTES {
+        return Err(Reject::TooLarge);
+    }
+    let format = Format::sniff(bytes).ok_or(Reject::NotAnImage)?;
+    admission.note_decode();
+    let budget = WORKER_BYTES - input - held;
+    if format == Format::Avif && is_hevc_heif(bytes) {
+        return convert_heic(bytes, budget, codec);
+    }
+
+    if format == Format::Svg {
+        let decoded = rasterize_svg(bytes, DECODE_PIXEL_LIMIT, Some((IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT))).map_err(from_decode)?;
+        let png = encode_in_format(&decoded.raster, Format::Png).map_err(|_| Reject::Corrupt)?;
+        return Ok(Validated { kind: ImageKind::Svg, width: decoded.width, height: decoded.height, frames: 1, rendition: Some((ImageKind::Png, png)) });
+    }
+
+    let (frames, known) = count_pictures(bytes, format, cancel)?;
     if frames == 0 {
         return Err(Reject::Corrupt);
     }

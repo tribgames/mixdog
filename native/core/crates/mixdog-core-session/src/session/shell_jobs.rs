@@ -164,6 +164,14 @@ impl ShellJobsService {
         json!({ "released": true })
     }
 
+    async fn run_once<E, EF>(&self, req: &CoreRequest, execute: E) -> Result<Reply, CoreError>
+    where
+        E: FnOnce() -> EF,
+        EF: std::future::Future<Output = Result<Value, CoreError>>,
+    {
+        self.ops.run(req, None, execute, || async { Err(failed(DOMAIN, "the answer of this op was not stored")) }).await
+    }
+
     /// `listShellJobs`: this session's live shells, plus held shells a closed session left in a
     /// folder this session sees. Without a session, the host's.
     async fn list_jobs(&self, thread: Option<&ThreadId>) -> Value {
@@ -208,47 +216,27 @@ impl DomainService for ShellJobsService {
     }
 
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        // The answers are a few bytes, so a duplicate op always finds the one the first stored.
-        let reproduce = || async { Err(failed(DOMAIN, "the answer of this op was not stored")) };
         match req.method.as_str() {
             TERMINATE => {
-                self.ops
-                    .run(
-                        &req,
-                        None,
-                        || async {
-                            let params: ThreadBackgroundTerminalParams = decode(&req)?;
-                            Ok(self.shells.stop_job(&params.thread_id, &params.task_id).await)
-                        },
-                        reproduce,
-                    )
-                    .await
+                self.run_once(&req, || async {
+                    let params: ThreadBackgroundTerminalParams = decode(&req)?;
+                    Ok(self.shells.stop_job(&params.thread_id, &params.task_id).await)
+                })
+                .await
             }
             RELEASE => {
-                self.ops
-                    .run(
-                        &req,
-                        None,
-                        || async {
-                            let params: ThreadBackgroundTerminalParams = decode(&req)?;
-                            Ok(self.release_hold(&params.thread_id, &params.task_id).await)
-                        },
-                        reproduce,
-                    )
-                    .await
+                self.run_once(&req, || async {
+                    let params: ThreadBackgroundTerminalParams = decode(&req)?;
+                    Ok(self.release_hold(&params.thread_id, &params.task_id).await)
+                })
+                .await
             }
             CLEAN => {
-                self.ops
-                    .run(
-                        &req,
-                        None,
-                        || async {
-                            let params: ThreadOpParams = decode(&req)?;
-                            Ok(self.shells.stop_jobs(&params.thread_id).await)
-                        },
-                        reproduce,
-                    )
-                    .await
+                self.run_once(&req, || async {
+                    let params: ThreadOpParams = decode(&req)?;
+                    Ok(self.shells.stop_jobs(&params.thread_id).await)
+                })
+                .await
             }
             LIST => {
                 let params: ThreadListShellJobsParams = decode(&req)?;
@@ -414,11 +402,6 @@ mod tests {
         }
     }
 
-    /// The strip a session loads with (`ShellStrips`, read by `SessionActor::new`): Node's host shows the poller's last scan of the runtime
-    /// (`statusline-segments.mjs:240-253`), which keeps a running job and a finished one until it is older than its retention
-    /// (`finishedMs < now - FINISHED_SHELL_JOB_TTL_MS` drops it, so a row exactly the retention old stays), whether it ended while the
-    /// session was shown or while it was closed. The core builds the strip when the session loads, so a job that ended while the session was
-    /// closed is on it while within the retention and gone after it, with no timer of the session's own.
     #[tokio::test]
     async fn a_strip_at_load_keeps_a_finished_job_within_its_retention_and_drops_it_after() {
         use mixdog_spawn::tasks::FINISHED_RETENTION_MS;

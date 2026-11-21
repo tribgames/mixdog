@@ -1,8 +1,6 @@
 //! `GateSession` over the session runtime: what the policy gate reads from the owning session
-//! on every call. The facts are Node's `actingBotId` / `actingContactBotId` / `agentIdForSession`
-//! (`human-gate/gate.mjs`), `connectorPolicyAgentOf` (`mcp/agent-connectors.mjs`) and
-//! `sessionLifeMark` (`human-gate/session-life.mjs`); the account is the binding
-//! `tool-exec.mjs` makes before a connector call reaches a hook or a card.
+//! on every call: the acting bot, the agent of the session, the connector policy agent and the
+//! session's life mark; the account is the binding made before a connector call reaches a hook or a card.
 //!
 //! The session's state is read live: the header through [`LiveHeader`] (the actor's latest
 //! acked header), the tool surface through the actor's `watch` of [`SessionSurface`], the rest

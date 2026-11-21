@@ -1,9 +1,3 @@
-//! `applyPdfBatch(path, operations, context)` as the tool layer calls it: the operations of a batch run in order on one
-//! document held in memory, one save, the file rewritten in place. The dispatcher itself is
-//! [`crate::adapter::apply_pdf_batch`]; this module is the set a call hands it: the content operations
-//! ([`ContentOperations`], which carry the call's `context`, the OCR data folder and the cancellation) beside the
-//! structure operations, and the form vocabulary the snapshot and the audit read a form through ([`PdfFormView`]).
-
 use std::path::Path;
 
 use mixdog_fsio::WriteProof;

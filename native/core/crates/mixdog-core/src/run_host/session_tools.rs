@@ -1,12 +1,3 @@
-//! A session's executable tool set (the `tools` seam of [`super::assemble::SessionSeams`]): the
-//! built-ins its tool spec names plus the connected MCP servers' tools, in the order Node sends
-//! them (`session/manager/tool-resolution.mjs`: `resolveSessionTools`, `finalizeSessionToolList`).
-//!
-//! Node's pool is three parts. The built-in tools are the filesystem, shell, git and github tools
-//! with `apply_patch` and `code_graph`; every other registered tool is an internal tool, merged
-//! with the MCP tools and sorted by name; `todo` is appended last, and `call_tool` belongs to the
-//! bridge exposure rather than to the resolved set.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -100,11 +91,6 @@ fn all_builtin(pool: &[Arc<dyn Tool>]) -> Tools {
     ordered(dedup(named(pool, &BUILTIN).into_iter().chain(named(pool, &[PATCH])).chain(named(pool, &[CODE_GRAPH]))))
 }
 
-/// `standaloneTools` of `collectStandaloneToolDefs` (`runtime-core/tool-defs.mjs`), group by group:
-/// the tool-search tool, `Skill`, `session`, the web tools (`WEB_SEARCH_RUNTIME_TOOLS`), the memory
-/// tools (the runtime's definition order), `code_graph`, the desktop bridges, `explore`, `setup`, the
-/// ask/handoff/react tools, `goal` and `agent`. Node registers them in this order whatever order the
-/// pool was built in; the deferred catalog lists a tie of equally ranked tools by it.
 const STANDALONE_ORDER: &[&str] = &[
     "load_tool",
     "Skill",
@@ -133,11 +119,6 @@ const STANDALONE_ORDER: &[&str] = &[
     "agent",
 ];
 
-/// `standaloneTools` of the pool, which `internalToolDefs` (and so `_getMcpTools`' merge) holds, in Node's
-/// registration order: every registered tool that is not a built-in (but `code_graph`, which Node registers in
-/// both lists) nor the step list or the bridge's `call_tool`, which the resolved set adds itself. A tool
-/// `STANDALONE_ORDER` does not name follows the named ones in pool order. A `public:false` tool never enters
-/// any model-visible schema, so it is left out.
 pub fn internal_tools(pool: &[Arc<dyn Tool>]) -> Tools {
     let mut tools: Tools = pool
         .iter()
@@ -148,11 +129,6 @@ pub fn internal_tools(pool: &[Arc<dyn Tool>]) -> Tools {
     tools
 }
 
-/// A resolved tool as the session holds it. An internal tool went through `_getMcpTools`' projection to
-/// `{ name, description, inputSchema, annotations }`, which carries neither its `title` nor its
-/// `trigger`: the deferred manifest lists its description. The built-ins, the connected servers' tools
-/// and the step list keep their whole definition, and so does code_graph, which a built-in spec resolves as a built-in (under the
-/// mcp specs Node projects it; the stored definition only differs by `title` and `trigger`, never on the wire).
 pub fn session_doc(pool: &[Arc<dyn Tool>], tool: &Arc<dyn Tool>) -> Value {
     // The tool's stored entry: payload and publisher together, the unit every stored catalog holds.
     let doc = tool.stored().encode();
@@ -234,10 +210,6 @@ fn finalize(mut tools: Tools, request: &Resolve<'_>) -> Tools {
     tools
 }
 
-/// An executable tool whose definitions (the Lead's and a delegated agent's) name the one edit dialect
-/// the session's model can call (`bindEditDialectDescription`): `filterModelEditTools` rewrites the
-/// token of a static description in the session's tool list, and the model is sent the definitions of
-/// the executable set.
 struct EditDialect {
     spec: ToolSpec,
     agent: Option<ToolSpec>,
@@ -362,27 +334,9 @@ impl SessionToolBuilder {
         let resolved = resolve(
             &self.pool,
             listed,
-            &Resolve {
-                tool_spec: header.get("toolSpec"),
-                model,
-                skills_listed,
-                agent_owned: surface.agent_owned,
-                // The allowlist narrows the schema when the surface is created (`resolveSessionToolSurface`) and gates a call
-                // (`SessionSurface::refusal`), but the provider is sent the session's tools as they stand: the standalone
-                // tools `applyDeferredToolSurface` adds (`modelStandaloneTools()`, `session-runtime/tool-surface.mjs`) are
-                // not narrowed by it (the `lead, caller allowlist` recording).
-                schema_allowed: None,
-                // The denials too gate a call and not the schema: what a session was never allowed to have is already absent from
-                // its stored `tools` (the creation and resume paths resolve with them), and a gate that closes afterwards
-                // (`stage_tool_availability`: the desktop leaving, Computer Use toggled) is enforced at dispatch by
-                // `SessionSurface::refusal`, never by editing the definitions of a live epoch (Node `pre-dispatch-deny.mjs:128-131`).
-                disallowed: &[],
-            },
+            &Resolve { tool_spec: header.get("toolSpec"), model, skills_listed, agent_owned: surface.agent_owned, schema_allowed: None, disallowed: &[] },
         );
         let bridge = if surface.bridge { named(&self.pool, &BRIDGE) } else { Vec::new() };
-        // The standalone tools `applyDeferredToolSurface` adds to a Lead's schema are in the pool, not in its spec's
-        // list (a `readonly` spec holds the filesystem tools only, yet sends `web_search`, `load_tool` and `Skill`).
-        // A worker's list never holds the Lead-only control tools, whoever added them.
         let standalone: Tools = if surface.agent_owned { Vec::new() } else { internal_tools(&self.pool) };
         let fixed = fixed_surface_mode(header.get("deferredProviderMode"), header.get("toolExposureMode"));
         let tools: Tools = surface

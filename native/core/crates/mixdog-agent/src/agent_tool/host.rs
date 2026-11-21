@@ -1,7 +1,8 @@
-//! What the agent tool borrows from the rest of the runtime. Each trait is one Node
-//! collaborator of `createAgentExecute` (`agent-tool/execute.mjs`): the tag registry, the send
+//! What the agent tool borrows from the rest of the runtime: the tag registry, the send
 //! and spawn flows, the session manager, the background-task table, the views and the machine.
-//! The decision logic in this module is the port; these are its edges.
+
+use std::collections::HashMap;
+use std::collections::HashSet;
 
 use async_trait::async_trait;
 use mixdog_tools::orch::agent::HideFailed;
@@ -95,6 +96,17 @@ pub struct Cleaned {
 pub trait Registry: Send + Sync {
     fn resolve_tombstone_owners(&self);
     async fn refresh_tags_from_sessions(&self, scan_sessions: bool, scope: &Scope);
+    /// [`Self::refresh_tags_from_sessions`] and the agent sessions as the same listing holds them, for a cleanup. A
+    /// surface that lists none answers an empty one.
+    async fn refresh_topology(&self, scan_sessions: bool, scope: &Scope) -> (Topology, Recovered) {
+        self.refresh_tags_from_sessions(scan_sessions, scope).await;
+        (Topology::default(), Recovered::default())
+    }
+    /// The turn the session's worker map is at; `None` while it has no map. A surface that counts no turns answers
+    /// `None` for every session.
+    fn turn_mark(&self, _session_id: &str) -> Option<TurnMark> {
+        None
+    }
     /// `Err` when a tag is ambiguous across terminals.
     fn resolve_tag(&self, tag: &str, scope: &Scope, options: ResolveOptions) -> Result<Option<String>, String>;
     fn live_session(&self, session_id: &str) -> Option<SessionFacts>;
@@ -113,6 +125,27 @@ pub trait Registry: Send + Sync {
         false
     }
     fn read_worker_rows(&self, scope: &Scope) -> Result<Vec<TagRecord>, String>;
+    /// The session's worker row as it stands now, in any scope.
+    fn worker_row(&self, session_id: &str) -> Option<TagRecord> {
+        self.read_worker_rows(&Scope::default()).ok()?.into_iter().find(|row| row.session_id == session_id)
+    }
+    /// What a landed close leaves of its tree's rows (`close-flow.mjs`): the root's tag binding and row go, the rows
+    /// below it go, and every member is released.
+    fn release_closed(&self, tag: Option<&str>, root: &str, descendants: &[String]) {
+        self.forget_terminal_session(tag, root);
+        for descendant in descendants {
+            self.remove_worker_row(descendant);
+        }
+        let mut released = vec![root.to_owned()];
+        released.extend(descendants.iter().cloned());
+        self.mark_released(&released);
+    }
+    /// [`Self::release_closed`] for a cleanup: a member a turn started on since its close was decided (its turn is no
+    /// longer the one `at` names for it) keeps its row and its tag. Answers the members released.
+    fn release_closed_at(&self, tag: Option<&str>, root: &str, descendants: &[String], _at: &HashMap<String, Option<TurnMark>>) -> Vec<String> {
+        self.release_closed(tag, root, descendants);
+        std::iter::once(root.to_owned()).chain(descendants.iter().cloned()).collect()
+    }
     fn read_all_tag_tombstones(&self) -> Vec<TagRecord>;
     fn tag_tombstone_for_tag(&self, tag: &str, scope: &Scope) -> Option<TagRecord>;
     fn consume_tag_tombstone(&self, tombstone: &TagRecord);
@@ -163,9 +196,23 @@ pub trait Sessions: Send + Sync {
     async fn try_close_session(&self, session_id: &str, reason: &str, options: CloseOptions) -> Result<bool, String> {
         Ok(self.close_session(session_id, reason, options).await)
     }
+    /// A member's close inside a tree close that already holds the tree's admission: [`Self::try_close_session`]
+    /// without reading the tree again, stamped only while the session is at the turn `member` names.
+    async fn close_member(&self, session_id: &str, reason: &str, options: CloseOptions, _member: MemberClose) -> Result<MemberOutcome, String> {
+        Ok(if self.try_close_session(session_id, reason, options).await? { MemberOutcome::Closed } else { MemberOutcome::Nothing })
+    }
     fn descendant_session_ids(&self, session_id: &str) -> Vec<String>;
     /// `registry.childrenOf(id)`: the agent sessions linked directly below `session_id`.
     fn child_session_ids(&self, session_id: &str) -> Vec<String>;
+    /// While the returned guard lives, the agent-status signals of these sessions are owed, not sent one by one;
+    /// [`Self::publish_held`] (or its drop) announces what is owed once.
+    fn hold_publication(&self, _ids: &[String]) -> Box<dyn Send> {
+        Box::new(())
+    }
+    /// Ends a [`Self::hold_publication`] once the changes made under it have landed.
+    async fn publish_held(&self, hold: Box<dyn Send>) {
+        drop(hold);
+    }
     /// `registry.beginCancellation(ids)`: while the returned guard lives, these sessions refuse
     /// admission (a spawn or send under them). A surface with no admission has nothing to hold.
     fn begin_cancellation(&self, _ids: &[String]) -> Box<dyn Send> {
@@ -173,10 +220,8 @@ pub trait Sessions: Send + Sync {
     }
     /// The agent's statusline route, dropped when its session closes.
     fn clear_statusline_route(&self, session_id: &str);
-    /// `hideSessions(ids)` (`close-flow/hide-sessions.mjs`): the sessions an owner closed leave every session list.
-    /// The record stays. Node keeps a hidden set that its listings read as archived, and a desktop follows it with
-    /// the archive flag; here the archive flag is the header's `archivedAt`, which every listing reads. A session
-    /// whose flag cannot be written stays listed.
+    /// The sessions an owner closed leave every session list; the record stays, archived through the
+    /// header's `archivedAt`. A session whose flag cannot be written stays listed.
     /// Answers the sessions that stay listed, each with the reason (`failed`).
     async fn hide_sessions(&self, _session_ids: &[String]) -> Vec<HideFailed> {
         Vec::new()
@@ -205,6 +250,53 @@ pub trait Sessions: Send + Sync {
     async fn park_session(&self, _session_id: &str) -> bool {
         false
     }
+}
+
+/// The agent sessions as one listing holds them.
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct Topology {
+    /// Each session's children (linked by `parentSessionId || ownerSessionId`), in listing order.
+    pub children: HashMap<String, Vec<String>>,
+    /// Every listed session: present without asking the store.
+    pub present: HashSet<String>,
+    /// The open Lead sessions.
+    pub leads: HashSet<String>,
+    /// The sessions that are not closed, as [`Sessions::open_sessions`] lists them.
+    pub open: Vec<OpenSession>,
+}
+
+/// The sessions whose rows the scan of [`Registry::refresh_topology`] wrote, with the holds on their signals: a
+/// cleanup takes its own hold over them before these end, so they are announced with what it changes.
+#[derive(Default)]
+pub struct Recovered {
+    pub sessions: Vec<String>,
+    pub holds: Vec<Box<dyn Send>>,
+}
+
+/// Which turn a worker is at: how many turns its worker map counted as started, and the id of the last.
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
+pub struct TurnMark {
+    pub started: u64,
+    pub last: Option<String>,
+}
+
+/// How a member's close is fenced ([`Sessions::close_member`]).
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct MemberClose {
+    /// The turn the close was decided at ([`Registry::turn_mark`]): a session at any other turn is left as it is.
+    pub turn: Option<TurnMark>,
+    /// Its owner's close stamped it already and no turn started on it since: no second stamp.
+    pub stamped: bool,
+}
+
+/// What [`Sessions::close_member`] came to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MemberOutcome {
+    Closed,
+    /// There was nothing to close.
+    Nothing,
+    /// The session is at another turn, or running, since the close was decided: nothing was done to it.
+    Moved,
 }
 
 /// An agent session as `mgr.listSessions()` lists it.

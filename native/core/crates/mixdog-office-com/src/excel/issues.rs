@@ -98,6 +98,39 @@ pub(super) fn is_checks_sheet_name(name: &Com) -> bool {
     accepted.iter().any(|candidate| payload::names_equal(label, candidate))
 }
 
+/// The issues of one scanned row's hardcoded values: a numeric input with no source comment, one inside a row of formulas, and
+/// any value between the first and last of three or more formulas.
+fn hardcode_issues(state: &RowState, comment_addresses: &HashSet<String>, issues: &mut Vec<Value>, omitted: &mut i32) {
+    for entry in &state.values {
+        if entry.numeric {
+            if !comment_addresses.contains(&entry.address.to_uppercase()) {
+                add_capped_office_issue(
+                    issues,
+                    omitted,
+                    office_issue("warning", "hardcode_missing_source", &entry.path, "Hardcoded numeric input has no source comment."),
+                    ISSUE_CAP,
+                );
+            }
+            if state.formula_count > 0 {
+                add_capped_office_issue(
+                    issues,
+                    omitted,
+                    office_issue("warning", "rogue_hardcode", &entry.path, "Numeric hardcode appears inside a row that otherwise contains formulas."),
+                    ISSUE_CAP,
+                );
+            }
+        }
+        if state.formula_count >= 3 && entry.column > state.first_formula && entry.column < state.last_formula {
+            add_capped_office_issue(
+                issues,
+                omitted,
+                office_issue("warning", "formula_inconsistency", &entry.path, "A hardcoded value interrupts a row containing three or more formulas."),
+                ISSUE_CAP,
+            );
+        }
+    }
+}
+
 /// `Inspect-ExcelFinancialRange`: the issues of one sheet's range, capped at 500 with a note of how many were left out, and
 /// what was scanned.
 fn inspect_financial_range(sheet: &Com, used: &Com, fonts: &FontSet, comment_addresses: &HashSet<String>) -> Result<(Vec<Value>, Value)> {
@@ -173,34 +206,7 @@ fn inspect_financial_range(sheet: &Com, used: &Com, fonts: &FontSet, comment_add
             column_start += columns_per_block;
         }
         for state in &states {
-            for entry in &state.values {
-                if entry.numeric {
-                    if !comment_addresses.contains(&entry.address.to_uppercase()) {
-                        add_capped_office_issue(
-                            &mut issues,
-                            &mut omitted,
-                            office_issue("warning", "hardcode_missing_source", &entry.path, "Hardcoded numeric input has no source comment."),
-                            ISSUE_CAP,
-                        );
-                    }
-                    if state.formula_count > 0 {
-                        add_capped_office_issue(
-                            &mut issues,
-                            &mut omitted,
-                            office_issue("warning", "rogue_hardcode", &entry.path, "Numeric hardcode appears inside a row that otherwise contains formulas."),
-                            ISSUE_CAP,
-                        );
-                    }
-                }
-                if state.formula_count >= 3 && entry.column > state.first_formula && entry.column < state.last_formula {
-                    add_capped_office_issue(
-                        &mut issues,
-                        &mut omitted,
-                        office_issue("warning", "formula_inconsistency", &entry.path, "A hardcoded value interrupts a row containing three or more formulas."),
-                        ISSUE_CAP,
-                    );
-                }
-            }
+            hardcode_issues(state, comment_addresses, &mut issues, &mut omitted);
         }
         row_start += rows_per_block;
     }

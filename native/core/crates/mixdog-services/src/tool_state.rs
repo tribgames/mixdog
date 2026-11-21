@@ -1,6 +1,4 @@
-//! The local-model state the `toolModules` settings section shows, computed the
-//! way the Node product does (`onnxRuntimeSupported`, `getEmbeddingInfo`,
-//! `effortJudgeInfo` / `effortJudgeReady` / `effortJudgeLastError`), plus the
+//! The local-model state the `toolModules` settings section shows, plus the
 //! change tick that tells the settings service to read it again.
 
 use std::sync::Arc;

@@ -1,6 +1,4 @@
-//! `tools::run_nested`: a call made from inside a running tool (what `call_tool` runs its target
-//! through) meets the gate, the approval wait, the surface judgement, the tool and PostToolUse
-//! as a direct call of the target does. The approval texts are the real Node loop's
+//! The approval texts are the real Node loop's
 //! (`fixtures/tool-pool/dispatch.json`, recorded by `record-tool-pool.mjs`).
 
 use std::sync::Arc;

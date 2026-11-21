@@ -472,40 +472,51 @@ pub fn resolve_streaming_markdown_parts(text: &str, stream_key: Option<&str>) ->
         state = StableState::default();
     }
 
-    // Open-fence fast path: never lex a growing unclosed code block. The text before the fence line is settled markdown,
-    // lexed and rendered once; the open block is drawn flat until its closing fence lands.
-    if let Some(open) = find_open_fence_start(layout, key) {
-        let mut open_prefix = &layout[..open.index];
-        if is_whitespace_only(open_prefix) {
-            open_prefix = "";
-        }
-        state = stable_state_for_text(open_prefix, state);
-        if let Some(key) = key {
-            if open_prefix.is_empty() {
-                caches.stable_prefix.remove(key);
-            } else {
-                caches.stable_prefix.touch(key, state.clone());
-            }
-        }
-        let suffix = layout[open_prefix.len()..].to_owned();
-        let parts = StreamingParts {
-            plain: false,
-            open_fence: true,
-            stable_prefix: open_prefix.to_owned(),
-            stable_chunks: state.chunks,
-            unstable_for_render: suffix.clone(),
-            unstable_suffix: suffix,
-        };
-        return cache_resolved(&mut caches, key, layout, parts);
-    }
+    let parts = match find_open_fence_start(layout, key) {
+        Some(open) => open_fence_parts(&mut caches, key, layout, &open, state),
+        None => lexed_parts(&mut caches, key, layout, state),
+    };
+    cache_resolved(&mut caches, key, layout, parts)
+}
 
+/// Keeps `state` as the settled prefix of the stream, or forgets the stream's when there is none.
+fn remember_stable(caches: &mut Caches, key: Option<&str>, prefix: &str, state: &StableState) {
+    let Some(key) = key else { return };
+    if prefix.is_empty() {
+        caches.stable_prefix.remove(key);
+    } else {
+        caches.stable_prefix.touch(key, state.clone());
+    }
+}
+
+/// Never lex a growing unclosed code block: the text before the fence line is settled markdown, lexed and rendered once,
+/// and the open block is drawn flat until its closing fence lands.
+fn open_fence_parts(caches: &mut Caches, key: Option<&str>, layout: &str, open: &OpenFence, state: StableState) -> StreamingParts {
+    let mut open_prefix = &layout[..open.index];
+    if is_whitespace_only(open_prefix) {
+        open_prefix = "";
+    }
+    let state = stable_state_for_text(open_prefix, state);
+    remember_stable(caches, key, open_prefix, &state);
+    let suffix = layout[open_prefix.len()..].to_owned();
+    StreamingParts {
+        plain: false,
+        open_fence: true,
+        stable_prefix: open_prefix.to_owned(),
+        stable_chunks: state.chunks,
+        unstable_for_render: suffix.clone(),
+        unstable_suffix: suffix,
+    }
+}
+
+/// Lexes the part after the settled prefix; every block but the last content block settles.
+fn lexed_parts(caches: &mut Caches, key: Option<&str>, layout: &str, mut state: StableState) -> StreamingParts {
     let boundary = state.text.len();
     let tokens = lex(&layout[boundary..]).tokens;
     let is_space = |token: &Token| token.kind == TokenKind::Space;
     let first_content = tokens.iter().position(|token| !is_space(token)).unwrap_or(tokens.len());
     let last_content = tokens.iter().rposition(|token| !is_space(token));
-    // The blocks before the last content block are settled. Token lengths are UTF-16 units of the lexer's normalised
-    // text, as in Node.
+    // Token lengths are UTF-16 units of the lexer's normalised text, as in Node.
     let advance: usize = match last_content {
         Some(last) if first_content < last => tokens[first_content..last].iter().map(|token| utf16_len(&token.raw)).sum(),
         _ => 0,
@@ -518,30 +529,22 @@ pub fn resolve_streaming_markdown_parts(text: &str, stream_key: Option<&str>) ->
             stable_prefix.clear();
         }
         state = stable_state_for_text(&stable_prefix, state);
-        if let Some(key) = key {
-            if stable_prefix.is_empty() {
-                caches.stable_prefix.remove(key);
-            } else {
-                caches.stable_prefix.touch(key, state.clone());
-            }
-        }
+        remember_stable(caches, key, &stable_prefix, &state);
     }
     if is_whitespace_only(&stable_prefix) {
         stable_prefix.clear();
         state = StableState::default();
     }
     let unstable_suffix = layout[stable_prefix.len()..].to_owned();
-    let parts = StreamingParts {
+    StreamingParts {
         plain: false,
         open_fence: false,
         stable_prefix,
         stable_chunks: state.chunks,
         unstable_for_render: balance_streaming_markdown(&unstable_suffix),
         unstable_suffix,
-    };
-    cache_resolved(&mut caches, key, layout, parts)
+    }
 }
-
 // --- stream-finalize.mjs ------------------------------------------------------------------------------------------
 
 /// A patch that rewrites a streamed terminal block in place.

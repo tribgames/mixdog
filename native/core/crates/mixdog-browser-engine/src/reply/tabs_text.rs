@@ -1,10 +1,3 @@
-//! Owner: s4-engine-reply
-//! What the agent can see of the open pages (the list text of `tabs.ts`) and what closing one says. Which page a command runs
-//! against is the host's (`host/browser/pages/resolve`); this is only the words.
-//!
-//! A background page is listed with its page id and, in quotes, the name it was opened under (`tab_id`: what `close_tab` answers
-//! with and what the agent opens it by); a popup also names the page that opened it.
-
 use mixdog_app_protocol::v2::browser_engine::PageDescriptor;
 use mixdog_browser_policy::redaction::redact_browser_text;
 use mixdog_browser_policy::redaction::redact_url;

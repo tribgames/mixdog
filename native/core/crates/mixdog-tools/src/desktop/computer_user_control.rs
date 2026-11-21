@@ -958,6 +958,32 @@ fn paused_work_reply(command: &Map<String, Value>, reason: &str) -> Map<String, 
 /// whether the observation it carries is fresh. A fresh observation is a successful capture of a window; any other one is cut to
 /// the fields that say why it failed (`failedRecaptureObservation`).
 fn pending_work_reply(command: &Map<String, Value>, observation: Map<String, Value>) -> (Map<String, Value>, bool) {
+    let (fresh, observation) = reported_observation(command, observation);
+    let mut payload = Map::new();
+    payload.insert("ok".into(), json!(fresh));
+    payload.insert("action".into(), json!(text(command, "action")));
+    payload.insert("code".into(), json!(RESUME_RECAPTURE_CODE));
+    payload.insert(
+        "verdict".into(),
+        json!({"decision": if fresh { "verify_fresh_state" } else { "escalate" }, "recommended": if fresh { "continue_pending_work" } else { "recapture" }}),
+    );
+    payload.insert(
+        "recovery".into(),
+        json!({
+            "next": if fresh { "continue_from_observation" } else { "capture" },
+            "guidance": "The request waited for user control to end. Keep the task active. Use the fresh observation to check the target, focus and remaining intent, then continue pending steps. Completed steps must not be replayed. An uncertain step may already have dispatched input: resolve its effect before deciding what remains. Never resend it blindly.",
+        }),
+    );
+    if let Some(observation) = observation {
+        payload.insert("observation".into(), Value::Object(observation));
+    }
+    payload.insert("status".into(), json!("resumed"));
+    payload.extend(work_progress(command));
+    (payload, fresh)
+}
+
+/// Whether the recapture is fresh, and the part of it the reply carries.
+fn reported_observation(command: &Map<String, Value>, observation: Map<String, Value>) -> (bool, Option<Map<String, Value>>) {
     const FAILED_FIELDS: [&str; 11] = [
         "ok",
         "action",
@@ -986,27 +1012,7 @@ fn pending_work_reply(command: &Map<String, Value>, observation: Map<String, Val
     } else {
         Some(observation.into_iter().filter(|(field, _)| FAILED_FIELDS.contains(&field.as_str())).collect())
     };
-    let mut payload = Map::new();
-    payload.insert("ok".into(), json!(fresh));
-    payload.insert("action".into(), json!(text(command, "action")));
-    payload.insert("code".into(), json!(RESUME_RECAPTURE_CODE));
-    payload.insert(
-        "verdict".into(),
-        json!({"decision": if fresh { "verify_fresh_state" } else { "escalate" }, "recommended": if fresh { "continue_pending_work" } else { "recapture" }}),
-    );
-    payload.insert(
-        "recovery".into(),
-        json!({
-            "next": if fresh { "continue_from_observation" } else { "capture" },
-            "guidance": "The request waited for user control to end. Keep the task active. Use the fresh observation to check the target, focus and remaining intent, then continue pending steps. Completed steps must not be replayed. An uncertain step may already have dispatched input: resolve its effect before deciding what remains. Never resend it blindly.",
-        }),
-    );
-    if let Some(observation) = observation {
-        payload.insert("observation".into(), Value::Object(observation));
-    }
-    payload.insert("status".into(), json!("resumed"));
-    payload.extend(work_progress(command));
-    (payload, fresh)
+    (fresh, observation)
 }
 
 /// A reply object as a result (`{ text: JSON.stringify(payload) }`).

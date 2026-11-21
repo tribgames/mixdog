@@ -10,6 +10,7 @@ use mixdog_core_api::domain::provider::CacheTier;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::DeliveryState;
+use mixdog_core_api::domain::provider::EffortProjection;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
@@ -375,6 +376,21 @@ fn mark_block(message: &mut WireMessage, block_index: usize, ttl: CacheTtl) {
 
 // Tools
 
+fn variants_note(branch_descriptions: &[String]) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let mut used = 0usize;
+    for (i, branch) in branch_descriptions.iter().enumerate() {
+        let value = format!("(variant {}: {branch})", i + 1);
+        let separator = usize::from(!parts.is_empty());
+        if used + value.encode_utf16().count() + separator > 500 {
+            break;
+        }
+        used += value.encode_utf16().count() + separator;
+        parts.push(value);
+    }
+    parts.join(" ")
+}
+
 /// Anthropic forbids `oneOf`/`anyOf`/`allOf` at the top level of
 /// `input_schema`: such a schema is flattened into one object schema.
 pub(crate) fn sanitize_input_schema(schema: &Value) -> Value {
@@ -433,18 +449,7 @@ pub(crate) fn sanitize_input_schema(schema: &Value) -> Value {
         properties.insert("input".into(), Value::Object(input));
     }
     let own_description = map.get("description").filter(|d| truthy(d)).cloned();
-    let mut parts: Vec<String> = Vec::new();
-    let mut used = 0usize;
-    for (i, branch) in branch_descriptions.iter().enumerate() {
-        let value = format!("(variant {}: {branch})", i + 1);
-        let separator = usize::from(!parts.is_empty());
-        if used + value.encode_utf16().count() + separator > 500 {
-            break;
-        }
-        used += value.encode_utf16().count() + usize::from(!parts.is_empty());
-        parts.push(value);
-    }
-    let addition = parts.join(" ");
+    let addition = variants_note(&branch_descriptions);
     let description = if addition.is_empty() {
         own_description
     } else {
@@ -673,6 +678,47 @@ fn reasoning(cfg: &BodyConfig<'_>, request: &ModelRequest, effort: Option<&str>,
 
 // Assembly
 
+/// The request's messages lowered to the wire, with the message-tail cache breakpoint placed. The tail reminder rides
+/// apart from the history: the history is lowered and marked without it, and it is placed afterwards (turn-scoped on a
+/// model that takes `clear_at` messages, else legacy).
+fn lower_conversation(
+    cfg: &BodyConfig<'_>,
+    request: &ModelRequest,
+    context: &LowerContext<'_>,
+    updates: Option<&EffortProjection>,
+    cache: &CacheStrategy,
+    reserved: usize,
+) -> Vec<WireMessage> {
+    let (history, reminder) = split_tail_reminder(&request.messages);
+    let turn_scoped = cfg.first_party && turn_scoped_model(cfg.provider_name, &request.model);
+    let lower = |source: &[Message]| {
+        let lowered = match updates {
+            Some(projection) => {
+                let kept: BTreeMap<usize, String> =
+                    projection.updates.iter().filter(|(index, _)| **index < source.len()).map(|(index, effort)| (*index, effort.clone())).collect();
+                lower_with_updates(source, &kept, context)
+            }
+            None if turn_scoped => turn_scoped_layout(lower_messages(source, context)),
+            None => lower_messages(source, context),
+        };
+        if turn_scoped { with_turn_reminders(lowered) } else { lowered }
+    };
+    let mut messages = lower(history);
+    if let Some(ttl) = cache.messages
+        && reserved < MAX_CACHE_BREAKPOINTS
+        && message_slots_allow_tail(cfg.message_slots.as_deref())
+    {
+        match request.options.shared_cache_prefix_count.filter(|count| *count > 0) {
+            None => mark_message_tail(&mut messages, ttl),
+            Some(count) => {
+                let prefix = history.get(..count).map(lower);
+                mark_shared_prefix(&mut messages, prefix, ttl);
+            }
+        }
+    }
+    if turn_scoped { append_turn_reminder(messages, &reminder) } else { append_tail_reminder(messages, &reminder) }
+}
+
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result<BuiltBody, ProviderError> {
     let parameters = request.options.model_parameters.as_ref();
@@ -694,36 +740,7 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
             },
         )
     });
-    // The tail reminder rides the request apart from the history: the history is lowered and marked without it,
-    // and it is placed afterwards (turn-scoped on a model that takes `clear_at` messages, else legacy).
-    let (history, reminder) = split_tail_reminder(&request.messages);
-    let turn_scoped = cfg.first_party && turn_scoped_model(cfg.provider_name, &request.model);
-    let lower = |source: &[Message]| {
-        let lowered = match updates {
-            Some(projection) => {
-                let kept: BTreeMap<usize, String> =
-                    projection.updates.iter().filter(|(index, _)| **index < source.len()).map(|(index, effort)| (*index, effort.clone())).collect();
-                lower_with_updates(source, &kept, &context)
-            }
-            None if turn_scoped => turn_scoped_layout(lower_messages(source, &context)),
-            None => lower_messages(source, &context),
-        };
-        if turn_scoped { with_turn_reminders(lowered) } else { lowered }
-    };
-    let mut messages = lower(history);
-    if let Some(ttl) = cache.messages
-        && reserved < MAX_CACHE_BREAKPOINTS
-        && message_slots_allow_tail(cfg.message_slots.as_deref())
-    {
-        match request.options.shared_cache_prefix_count.filter(|count| *count > 0) {
-            None => mark_message_tail(&mut messages, ttl),
-            Some(count) => {
-                let prefix = history.get(..count).map(lower);
-                mark_shared_prefix(&mut messages, prefix, ttl);
-            }
-        }
-    }
-    let messages = if turn_scoped { append_turn_reminder(messages, &reminder) } else { append_tail_reminder(messages, &reminder) };
+    let messages = lower_conversation(cfg, request, &context, updates, &cache, reserved);
     let turn_scoped_system = messages.iter().any(|m| m.clear_at);
 
     let max_tokens = max_tokens(cfg, request);

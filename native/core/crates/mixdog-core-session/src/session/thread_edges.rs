@@ -1,18 +1,3 @@
-//! The catalog row writes as app-feed notifications: `thread/started` when a session's row becomes listed,
-//! `thread/summary/updated` when a listed row changes, `thread/deleted` when it stops being listed.
-//!
-//! Node pushed the whole roster to the phone whenever the stored-session catalog changed
-//! (`onSessionCatalogDbChange` -> `scheduleCatalogRefresh` -> `publishCatalogs`, `session-host-catalog.ts:170-247`),
-//! and `CatalogChannel.publish` (`session-host-publication.ts:109-146`) skipped a roster canonically equal to the last
-//! one. A row the previous roster lacked was a new session, a row in both that differed was an update, a row only the
-//! previous roster held was a removal. The index writer reports each row write that changed a row
-//! ([`mixdog_store::sqlite::RowSink`]), and the same three cases are decided on it, after the row is durable:
-//! - listed is the lead gate (`is_lead_visible_row`, Node's `leadSessionRow`) on a row that is not deleted;
-//! - an unchanged row, in the fields the summary carries, publishes nothing. The archived flag is the one field left
-//!   out of that comparison: `thread/archived` and `thread/unarchived` (`thread_settings.rs`) announce it;
-//! - a deleted row is announced by the delete itself (`purge.rs`, `thread/deleted`), so the write that marks it deleted
-//!   adds nothing.
-
 // Transparent names for existing callback/record shapes; no ownership or ordering change.
 type ThreadGoneHook = dyn Fn(&str) + Send + Sync;
 
@@ -34,7 +19,7 @@ use super::transcript::summary_of_list_row;
 
 const DELETED: &str = "thread/deleted";
 
-/// The list row of a stored row when it is listed: the catalog's lead gate, then the roster's own (Node's second gate).
+/// The list row of a stored row when it is listed: the catalog's lead gate, then the roster's own.
 fn listed(row: &StoredRow, task_workspace: &str) -> Option<LeadRow> {
     if row.deleted {
         return None;
@@ -49,7 +34,7 @@ fn place_of(row: &serde_json::Map<String, Value>) -> (f64, String) {
     (-number("lastUsedAt").or_else(|| number("updatedAt")).unwrap_or(0.0), row.get("id").and_then(Value::as_str).unwrap_or_default().to_owned())
 }
 
-/// `isTaskWorkspaceFolder` (`shared/task-workspace.ts`): slash style, a trailing slash and letter case do not matter; an unknown
+/// Whether `folder` is the task workspace: slash style, a trailing slash and letter case do not matter; an unknown
 /// task workspace (`""`) matches nothing.
 fn is_task_workspace_folder(folder: &str, task_workspace: &str) -> bool {
     let comparable = |value: &str| {
@@ -67,7 +52,7 @@ fn is_task_workspace_folder(folder: &str, task_workspace: &str) -> bool {
     !task_workspace.is_empty() && comparable(folder) == comparable(task_workspace)
 }
 
-/// Whether the row is a project (`desktop-state.ts:164-167`): the stored classification, else a legacy row with a folder outside the
+/// Whether the row is a project: the stored classification, else a legacy row with a folder outside the
 /// host's task workspace.
 fn is_project(meta: Option<&serde_json::Map<String, Value>>, cwd: &str, task_workspace: &str) -> bool {
     match meta.and_then(|meta| meta.get("classification")).and_then(Value::as_str) {
@@ -76,10 +61,6 @@ fn is_project(meta: Option<&serde_json::Map<String, Value>>, cwd: &str, task_wor
     }
 }
 
-/// Whether `desktopSessionSummaries` (`desktop-state.ts:144-246`) keeps the row. `name` is the name the user gave the session
-/// (Node's `names[id]`, which `renameSession` writes beside the runtime title, `session-host-lifecycle.ts:225-230`): here the
-/// header title when `titleSource` is `user` (`thread/name/set`), kept in the index with every session's row. `task_workspace` is
-/// the host's task workspace (its `taskWorkspace` input): a legacy row running there is a task and needs no project path.
 pub(super) fn roster_row(row: &serde_json::Map<String, Value>, name: Option<&str>, task_workspace: &str) -> bool {
     let text = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default().trim().to_owned();
     // Valid workspace paths (`workspaceText`): trimmed, non-empty, no NUL.
@@ -119,10 +100,6 @@ pub(super) fn roster_row(row: &serde_json::Map<String, Value>, name: Option<&str
         || (agent_home && message_count > 0)
 }
 
-/// The fields of the row `desktopSessionSummaries` (`desktop-state.ts:180-208, 244`) derives, which the list row leaves as the index
-/// stored them: the classification (stored, else a legacy row with a folder outside the host's task workspace is a project), the
-/// project path (workspace record, then folder, then stored path; none for a task), the activity time (`lastUsedAt`, else
-/// `updatedAt`) and the creation time when positive.
 pub(super) fn on_roster(
     mut thread: mixdog_protocol::ThreadSummary,
     row: &serde_json::Map<String, Value>,
@@ -153,7 +130,7 @@ pub(super) fn on_roster(
     thread.agent_session = (word("visibility") == "agent-only" || (word("owner") == "agent" && word("agent") != "lead")).then_some(true);
     thread.agent_home = Some(mixdog_store::agent_mode::agent_id_of_home_session(thread.id.as_str())).filter(|agent| !agent.is_empty());
     thread.created_at = number("createdAt").filter(|at| *at > 0.0).map(|at| at as i64);
-    // `sessionWorkspace` (`desktop-state.ts:25-48`): the catalog's workspace record, its transition cut down to a state and the
+    // The catalog's workspace record, its transition cut down to a state and the
     // transaction a non-idle state names.
     thread.workspace = workspace.map(|w| {
         let transition = w.get("transition").and_then(Value::as_object);
@@ -177,8 +154,8 @@ pub(super) fn on_roster(
 }
 
 /// The one way `thread/deleted` leaves for the app feed: the explicit delete (`purge.rs`) and a row that stopped being listed (below) both
-/// publish through it. What must end with a conversation's presence in the catalog (a paired phone's downloads, Node's `retainSessions`
-/// from `onSessions`, `remote-relay.ts:450`) is told in the same step, before the notification leaves, so no publication of a removal
+/// publish through it. What must end with a conversation's presence in the catalog (a paired phone's downloads)
+/// is told in the same step, before the notification leaves, so no publication of a removal
 /// exists without it.
 pub struct ThreadDeletions {
     app: Arc<SectionFeedState>,
@@ -230,8 +207,8 @@ impl ThreadEdgePublisher {
         Self { list, app, deleted, task_workspace, held: std::sync::Mutex::new(Vec::new()) }
     }
 
-    /// One catalog refresh (`publishCatalogs`, `session-host-catalog.ts:217-244`): it asks the host for the task workspace first
-    /// (`listSessions`, `session-host.ts:793`), and a lookup that fails rejects the listing, so the refresh publishes nothing and
+    /// One catalog refresh: it asks the host for the task workspace first,
+    /// and a lookup that fails rejects the listing, so the refresh publishes nothing and
     /// the next store event tries again. The roster that refresh publishes is then the whole change since the last one.
     pub async fn publish(&self, edge: RowEdge) {
         let looked_up = self.task_workspace.path().await;
@@ -248,11 +225,6 @@ impl ThreadEdgePublisher {
             std::mem::take(&mut *held)
         };
         let Ok(workspace) = looked_up else { return };
-        // Each side is judged with the name the user had given at its own write (the index keeps it with the row), as Node's
-        // summaries read `names` as of each roster: a rename that makes a meaningless title count is a start.
-        // The notifications of a recovered batch follow the roster Node pushed: the rows it lists (new and changed) by their place in
-        // the catalog's order (`ORDER BY activity DESC, id ASC`, `catalog-db/worker.mjs:186`), then the rows that left it by their
-        // place in the roster they left.
         let mut changes: Vec<_> = batch
             .into_iter()
             .map(|edge| {
@@ -307,9 +279,7 @@ impl ThreadEdgePublisher {
 }
 
 /// A hosted thread's live facts the roster lays over its row ([`super::thread_list::RowOverlay`]) moved: its turn began or ended,
-/// or the approval it shows came or went. Node's catalog refresh read them when it published (`withRuntimeActivity`,
-/// `withApprovalWaits` over `listSessions`, `session-host-catalog.ts:170-247` at b6f10295a), so its roster showed a turn's end and
-/// an approval's wait although no stored field changed; here the row is read as `thread/list` shows it now, after every row write
+/// or the approval it shows came or went. No stored field changes then, so the row is read as `thread/list` shows it now, after every row write
 /// made before it is on the app feed, and announced when it differs from the row last announced.
 pub struct LiveRows {
     list: Arc<ThreadListService>,

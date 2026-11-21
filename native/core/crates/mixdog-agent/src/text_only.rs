@@ -1,5 +1,4 @@
-//! Requests for a model that takes no media input (`input-capabilities.mjs`
-//! with `degradeMediaParts` of `media-normalization.mjs`).
+//! Requests for a model that takes no media input.
 //!
 //! The managed local model is text-only: every media part anywhere in the
 //! request becomes fixed text (images to a placeholder, a file or document to

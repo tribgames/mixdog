@@ -98,6 +98,11 @@ fn a_wedged_lane_resolves_every_caller_instead_of_stalling_them() {
     let parked_token = CancellationToken::new();
     let mut parked = Box::pin(lane.submit_wait(&parked_token, |_| 7));
     assert!(rt.block_on(poll_once(&mut parked)).is_pending(), "the caller waits behind the room");
+    // A caller beyond the full queue, whose wait is polled again only after the lane recovers.
+    let late_ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = late_ran.clone();
+    let mut late = Box::pin(lane.submit_wait(&parked_token, move |_| flag.store(true, std::sync::atomic::Ordering::SeqCst)));
+    assert!(rt.block_on(poll_once(&mut late)).is_pending(), "the caller waits beyond the far bound");
 
     // No healthy worker is left: queued jobs (which never ran) are dropped, the parked caller
     // and every new caller are answered `Wedged` at once. B, running, is not dropped.
@@ -107,8 +112,8 @@ fn a_wedged_lane_resolves_every_caller_instead_of_stalling_them() {
     bounded(
         &rt,
         Box::pin(async move {
-            assert_eq!(c1.await, Err(JobDropped::Dropped));
-            assert_eq!(c2.await, Err(JobDropped::Dropped));
+            assert_eq!(c1.await, Err(JobDropped::Wedged));
+            assert_eq!(c2.await, Err(JobDropped::Wedged));
             assert_eq!(parked.await.err(), Some(wedged));
             assert_eq!(after.await.unwrap(), Some(wedged));
         }),
@@ -149,4 +154,8 @@ fn a_wedged_lane_resolves_every_caller_instead_of_stalling_them() {
     );
     let served = rt.block_on(async { lane.submit_wait(&CancellationToken::new(), |_| 10).await.unwrap().await });
     assert_eq!(served, Ok(10));
+    // The late caller was answered in the drain: polled only now, it hears `Wedged`, and its job,
+    // which the lane held, never ran after the recovery.
+    assert_eq!(rt.block_on(late).err(), Some(wedged));
+    assert!(!late_ran.load(std::sync::atomic::Ordering::SeqCst));
 }

@@ -322,11 +322,8 @@ fn initialize_if_missing_has_one_winner() {
     assert!(config.write("desktop.activityRailPins", json!(["nope"]), replace()).is_err());
 }
 
-/// The browser-permission rules: origins must be exactly as the URL parser serializes them,
-/// duplicates collapse, defaults equal to the built-in ones are not stored, and the exception
-/// list may only grow up to 300 (one already past it may still shrink).
 #[test]
-fn browser_permissions_follow_the_node_rules() {
+fn browser_permissions_store_only_canonical_origins_and_non_default_settings() {
     let dir = tempfile::tempdir().unwrap();
     let (config, _) = open(&dir, None);
     let policy = json!({
@@ -352,7 +349,12 @@ fn browser_permissions_follow_the_node_rules() {
     assert_eq!(view["defaults"]["notifications"], "allow");
     assert_eq!(view["defaults"]["midi"], "ask");
     assert_eq!(view["defaults"].as_object().unwrap().len(), 13);
+}
 
+#[test]
+fn browser_permission_exceptions_grow_up_to_300_and_may_shrink_past_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
     let many = |n: usize| {
         json!({ "sites": (0..n).map(|i| json!({
             "origin": format!("https://s{i}.example.com"), "permission": "midi", "setting": "allow"
@@ -447,18 +449,22 @@ fn cookie_auto_import_write_validation_matches_node() {
     assert_eq!(browser_cookie_auto_import(&config.full()), (false, String::new()));
 }
 
-#[test]
-fn notifications_have_one_typed_shape() {
-    let dir = tempfile::tempdir().unwrap();
-    let (config, _) = open(&dir, None);
-    let pc = json!({
+fn notification_pc_device() -> Value {
+    json!({
         "scope": "bots",
         "events": { "finished": true, "question": true, "approval": true, "error": false },
         "automaticRuns": true,
         "quietHours": { "enabled": false, "start": "23:00", "end": "08:00", "days": "every", "allowWaiting": false },
         "holdWhileDesktopActive": true,
         "taskbarFlash": true
-    });
+    })
+}
+
+#[test]
+fn a_well_formed_notifications_document_is_stored_as_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
+    let pc = notification_pc_device();
     let doc = json!({
         "migratedAt": 9,
         "devices": { "pc": pc.clone() },
@@ -469,7 +475,13 @@ fn notifications_have_one_typed_shape() {
     });
     config.write("notifications", doc.clone(), replace()).unwrap();
     assert_eq!(config.get("notifications"), Some(doc));
+}
 
+#[test]
+fn malformed_notification_writes_are_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
+    let pc = notification_pc_device();
     let mut quiet = pc.clone();
     quiet["quietHours"]["start"] = json!("24:00");
     let bad = [
@@ -488,7 +500,13 @@ fn notifications_have_one_typed_shape() {
     for (path, value) in bad {
         assert!(config.write(path, value.clone(), replace()).is_err(), "{path} {value}");
     }
-    // Stored as the protocol type serializes: unknown fields are dropped, missing ones defaulted.
+}
+
+#[test]
+fn a_notification_device_is_stored_as_the_protocol_type_serializes() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
+    let pc = notification_pc_device();
     config.write("notifications.devices.phone", json!({ "unknown": true, "scope": "off" }), replace()).unwrap();
     let stored = config.get("notifications.devices.phone").unwrap();
     assert_eq!(stored["scope"], "off");
@@ -498,7 +516,12 @@ fn notifications_have_one_typed_shape() {
     config.write("notifications.overrides", json!([]), replace()).unwrap();
     assert_eq!(config.get("notifications.overrides"), Some(json!([])));
     assert!(config.get("notifications.devices.phone").is_some());
-    // Node keeps `devices[""]`, so an empty device id is accepted, whole or inside the document.
+}
+
+#[test]
+fn an_empty_notification_device_id_is_accepted_as_node_does() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
     config.write("notifications.devices", json!({ "": { "scope": "bots" } }), replace()).unwrap();
     assert_eq!(config.get("notifications.devices").unwrap()[""]["scope"], "bots");
     config.write("notifications", json!({ "migratedAt": 1, "devices": { "": {} } }), replace()).unwrap();

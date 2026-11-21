@@ -1,12 +1,3 @@
-//! The real [`SummaryHost`]: what a session's compaction summary route plan reads of the process
-//! around it (Node `session/loop/fresh-context.mjs` `compactionSummaryPlan` and
-//! `session/compact/summary-route.mjs`): the conversation's own route from the session header,
-//! the Maintainer's route from the saved config, the provider registry, the catalog's whole
-//! window, the token calibration, the summary sender and the provider's saved account catalog.
-//!
-//! One [`SummaryServices`] per process; [`SummaryServices::host`] binds it to one session, the
-//! value `CompactionFacts.summary` carries.
-
 use std::path::Path;
 use std::sync::Arc;
 

@@ -1,10 +1,4 @@
-//! Owner: s4-engine-reply
-//! How a snapshot reads to the agent (`snapshot-format.ts`): the untrusted-content framing, the ref lines, and the degraded-
-//! observation notes. It is decided by the payload plus the page's live diagnostics, so the wording can change without touching
-//! the host that produced the payload. Every text is byte for byte the one the TypeScript engine wrote.
-//!
-//! Reporting marks what it reports: console errors and network failures are said once, a dismissed dialog once, and the lists are
-//! capped with a note saying how many were left out. Hence the diagnostics are borrowed mutably.
+//! Every text is byte for byte the one the TypeScript engine wrote (`snapshot-format.ts`).
 
 use std::collections::HashMap;
 use std::collections::HashSet;

@@ -1,7 +1,5 @@
-//! Accessibility reads with a deadline, abandoned on their own thread when a
-//! provider never answers (BoundedUia.cs:35-199 MixBoundedUia.Run). A UIA or
-//! MSAA call cannot be cancelled, and the thread that would wait it out also
-//! hosts the input observer's hooks, which a restart would drop.
+//! A UIA or MSAA call cannot be cancelled, so a read past its deadline is
+//! abandoned on its own thread.
 
 use std::sync::Mutex;
 use std::sync::mpsc;
@@ -30,8 +28,7 @@ impl Deadline {
     }
 }
 
-/// A COM proxy that crosses to the read's thread and back. UIA and MSAA
-/// objects are free-threaded and come from the MTA, which the windows crate
+/// UIA and MSAA objects are free-threaded and come from the MTA, which the windows crate
 /// cannot know. Take the value with `get`: a closure that named the field
 /// would capture it alone, without this wrapper's `Send`.
 pub struct Mta<T>(T);

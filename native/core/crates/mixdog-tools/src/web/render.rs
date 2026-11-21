@@ -80,6 +80,21 @@ fn millis(value: f64) -> Duration {
     Duration::from_millis(value.max(1.0) as u64)
 }
 
+async fn fetch_paused(fetcher: &Fetcher, request: &Value) -> Result<super::http::BrowserResponse, FetchError> {
+    let url = Url::parse(text_of(request, "url")).map_err(|_| FetchError::policy("Invalid URL in browser request"))?;
+    let headers: Vec<(String, String)> = request
+        .get("headers")
+        .and_then(Value::as_object)
+        .map(|map| map.iter().map(|(name, value)| (name.clone(), value.as_str().unwrap_or_default().to_string())).collect())
+        .unwrap_or_default();
+    let method = match text_of(request, "method") {
+        "" => "GET",
+        method => method,
+    };
+    let body = request.get("postData").and_then(Value::as_str).map(str::to_string);
+    fetcher.fetch_for_browser(&url, method, &headers, body).await
+}
+
 impl BrowserRenderer {
     /// `version` is the product version sent in the user agent.
     pub fn new(endpoint: Arc<dyn BrowserEndpoint>, version: &str, lanes: WebLanes) -> Result<Arc<Self>, FetchError> {
@@ -100,22 +115,7 @@ impl BrowserRenderer {
         let request_id = text_of(params, "requestId");
         let request = params.get("request").cloned().unwrap_or(Value::Null);
         let is_main_document = text_of(params, "resourceType") == "Document" && text_of(params, "frameId") == main_frame;
-        let outcome = async {
-            let url = Url::parse(text_of(&request, "url")).map_err(|_| FetchError::policy("Invalid URL in browser request"))?;
-            let headers: Vec<(String, String)> = request
-                .get("headers")
-                .and_then(Value::as_object)
-                .map(|map| map.iter().map(|(name, value)| (name.clone(), value.as_str().unwrap_or_default().to_string())).collect())
-                .unwrap_or_default();
-            let method = match text_of(&request, "method") {
-                "" => "GET",
-                method => method,
-            };
-            let body = request.get("postData").and_then(Value::as_str).map(str::to_string);
-            fetcher.fetch_for_browser(&url, method, &headers, body).await
-        }
-        .await;
-        match outcome {
+        match fetch_paused(fetcher, &request).await {
             Ok(response) => {
                 if is_main_document {
                     *state.document.lock().unwrap_or_else(|p| p.into_inner()) = Some((response.status, response.headers.clone()));

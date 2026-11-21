@@ -352,18 +352,31 @@ async fn screen_replay_compacts_only_cancelled_ids_and_explicitly_requires_a_new
     phone("close", "live", 1).await.unwrap();
     phone("ready", "live", 1).await.unwrap();
     assert_eq!(&deps.calls()[before..], ["forward c1 close ice=None", "forward c1 ready ice=Some(1)", "forward c1 close ice=None"]);
+}
 
-    let before = deps.calls().len();
+#[tokio::test]
+async fn a_close_pending_authorization_is_dropped_when_its_connection_is_replaced() {
+    let (relay, deps) = relay();
+    *deps.screen_allowed.lock().unwrap() = true;
+    let signal = |kind: &str| {
+        let mut raw = json!({ "type": kind, "v": 1, "source": { "kind": "screen", "screenId": "live" }, "viewerAttempt": 1 });
+        if kind == "ready" {
+            raw["receiveCodecs"] = json!(["video/VP8"]);
+        } else {
+            raw["reason"] = json!("viewer-left");
+        }
+        relay.accept("c1", &raw).unwrap()
+    };
     let (allowed, held) = oneshot::channel();
     deps.screen_gates.lock().unwrap().push_back(held);
-    let old_close = signal("close", "live", 1);
+    let old_close = signal("close");
     let (result, ()) = futures::join!(relay.forward("c1", &old_close, 1), async {
         relay.connection_removed("c1");
-        relay.forward("c1", &signal("ready", "live", 1), 2).await.unwrap();
+        relay.forward("c1", &signal("ready"), 2).await.unwrap();
         allowed.send(true).unwrap();
     });
     assert_eq!(result, Ok(()));
-    assert_eq!(&deps.calls()[before..], ["forward c1 ready ice=Some(1)"], "only the replacement reaches the host");
+    assert_eq!(deps.calls(), ["forward c1 ready ice=Some(1)"], "only the replacement reaches the host");
 }
 
 #[tokio::test]
@@ -560,7 +573,7 @@ fn input(epoch: u64, seq: u64, text: &str) -> String {
 }
 
 #[tokio::test]
-async fn a_viewer_negotiates_promotes_applies_channel_input_and_hands_input_back_on_demotion() {
+async fn a_viewer_negotiates_and_is_promoted_only_after_the_phone_acknowledged_the_geometry_and_showed_the_page() {
     let (viewer, rig) = viewer();
     viewer.ready(codecs(), vec![stun()]).unwrap();
     let view = viewer.view();
@@ -581,8 +594,23 @@ async fn a_viewer_negotiates_promotes_applies_channel_input_and_hands_input_back
     assert_eq!((viewer.view().state, viewer.view().epoch), (TransportState::Promoting, 2));
     assert_eq!(rig.signals()[1], desktop(json!({ "type": "promote", "inputEpoch": 2, "geometryGeneration": 1 })));
     assert!(rig.log().contains(&"promoted".to_owned()));
+}
 
-    // Input of the new epoch is held until the phone acknowledges the promotion, then applied in order.
+fn promoting(viewer: &Viewer<Fx>) {
+    connect(viewer);
+    viewer.signal(&media_ready(CONN)).unwrap();
+}
+
+fn input_ack(seq: u64, epoch: u64, outcome: &str, queued: u64) -> String {
+    format!(
+        "channel {{\"v\":1,\"kind\":\"input-ack\",\"epoch\":{epoch},\"seq\":{seq},\"outcome\":\"{outcome}\",\"sentAt\":900,\"queuedMs\":{queued},\"dispatchMs\":0}}"
+    )
+}
+
+#[tokio::test]
+async fn channel_input_is_held_until_the_promote_ack_then_applied_in_order_and_stale_input_is_refused() {
+    let (viewer, rig) = viewer();
+    promoting(&viewer);
     viewer.channel(CONN, &input(2, 1, "hi"), 950.0).unwrap();
     assert!(!viewer.wants_pump(), "held while promoting");
     viewer.signal(&client(json!({ "type": "promote-ack", "inputEpoch": 2 }), &browser(), CONN)).unwrap();
@@ -590,21 +618,21 @@ async fn a_viewer_negotiates_promotes_applies_channel_input_and_hands_input_back
     assert!(viewer.wants_pump());
     viewer.pump().await;
     assert_eq!(*rig.dispatched.lock().unwrap(), [json!({ "type": "text", "documentId": "p1:2", "text": "hi" })]);
-    let ack = |seq: u64, outcome: &str, queued: u64| {
-        format!(
-            "channel {{\"v\":1,\"kind\":\"input-ack\",\"epoch\":2,\"seq\":{seq},\"outcome\":\"{outcome}\",\"sentAt\":900,\"queuedMs\":{queued},\"dispatchMs\":0}}"
-        )
-    };
-    assert!(rig.log().contains(&ack(1, "applied", 50)), "{:?}", rig.log());
+    assert!(rig.log().contains(&input_ack(1, 2, "applied", 50)), "{:?}", rig.log());
 
     // A repeat of a sequence number is never applied twice; an input of an old epoch is refused at once.
     viewer.channel(CONN, &input(2, 1, "hi"), 960.0).unwrap();
     viewer.channel(CONN, &input(1, 5, "late"), 960.0).unwrap();
     viewer.pump().await;
     assert_eq!(rig.dispatched.lock().unwrap().len(), 1);
-    assert!(rig.log().contains(&ack(5, "rejected", 0).replace("\"epoch\":2", "\"epoch\":1")));
+    assert!(rig.log().contains(&input_ack(5, 1, "rejected", 0)));
+}
 
-    // The channel failing demotes: a new epoch, nothing late is applied, and the phone must acknowledge the demotion.
+#[tokio::test]
+async fn a_failed_channel_demotes_to_a_new_epoch_and_the_phones_demote_ack_ends_the_connection() {
+    let (viewer, rig) = viewer();
+    promoting(&viewer);
+    viewer.signal(&client(json!({ "type": "promote-ack", "inputEpoch": 2 }), &browser(), CONN)).unwrap();
     viewer.fail(CloseReason::ChannelFailed).unwrap();
     assert_eq!((viewer.view().state, viewer.view().epoch), (TransportState::Demoting, 3));
     assert_eq!(rig.signals()[2], desktop(json!({ "type": "demote", "inputEpoch": 3, "reason": "channel-failed" })));

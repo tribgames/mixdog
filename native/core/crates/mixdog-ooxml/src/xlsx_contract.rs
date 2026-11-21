@@ -409,10 +409,6 @@ fn chart_source_areas(range: &str) -> Result<Vec<String>, String> {
     Ok(areas.into_iter().map(|entry| entry.area).collect())
 }
 
-/// A chart read by columns takes its categories down the first column and a series from every other column. Given a row
-/// of periods (years across, one measure under them) it drew one category and a series per year: five bars in five
-/// colours over a single label, with no legend to say which year is which. That shape is refused with the reading it
-/// wanted named, before either backend draws it.
 fn assert_chart_reads_its_data(operation: &Map<String, Value>, areas: &[XlsxRange]) -> Result<(), String> {
     let range = js_text(operation.get("range"));
     if js_to_lowercase(&text_or_empty(operation.get("plotBy"))) == "rows" {

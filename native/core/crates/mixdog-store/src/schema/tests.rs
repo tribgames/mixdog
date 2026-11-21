@@ -435,10 +435,15 @@ fn ddl_has_no_carriage_returns() {
     }
 }
 
-#[test]
-fn index_ddl_creates_the_catalog_and_serves_bounded_queries() {
+fn index_conn() -> Connection {
     let conn = Connection::open_in_memory().expect("open");
     conn.execute_batch(INDEX_DDL).expect("index ddl");
+    conn
+}
+
+#[test]
+fn index_ddl_creates_the_catalog() {
+    let conn = index_conn();
     assert_eq!(pragma(&conn, "application_id"), i64::from(INDEX_APPLICATION_ID));
     assert_eq!(pragma(&conn, "user_version"), i64::from(INDEX_USER_VERSION));
     let tables: Vec<String> = objects(&conn).into_iter().filter(|(t, _, _)| t == "table").map(|(_, name, _)| name).collect();
@@ -476,6 +481,11 @@ fn index_ddl_creates_the_catalog_and_serves_bounded_queries() {
             "worker_revision"
         ]
     );
+}
+
+#[test]
+fn index_ddl_serves_bounded_queries() {
+    let conn = index_conn();
     for query in [
         "SELECT ordinal, file_no, frame_offset, frame_len FROM compactions WHERE session = 'a' AND ordinal < 99 AND superseded_rev IS NULL ORDER BY ordinal DESC LIMIT 1",
         SEARCH_EMPTY,

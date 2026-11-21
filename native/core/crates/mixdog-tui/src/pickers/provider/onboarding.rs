@@ -1,5 +1,4 @@
-//! The first-run onboarding wizard (`onboarding-steps.mjs`, `onboarding/{step-data, models-step, role-model-picker, persist}.mjs`,
-//! `use-onboarding-start.mjs`): four steps, each ROOT screen carrying a confirm bar (Back and Next, Finish on the last step).
+//! The first-run onboarding wizard: four steps, each ROOT screen carrying a confirm bar (Back and Next, Finish on the last step).
 //!
 //! 1. provider auth: the provider setup picker with the wizard's title and a Next button ([`open_auth_step`]);
 //! 2. models: one row per routing slot (Main, Web Search, each agent), Enter opening that slot's model picker

@@ -9,6 +9,7 @@ use mixdog_ai::accounts::Account;
 use mixdog_ai::accounts::AccountChange;
 use mixdog_ai::accounts::AccountError;
 use mixdog_ai::accounts::AccountStore;
+use mixdog_ai::accounts::MAX_ACCOUNTS;
 use mixdog_ai::accounts::Policy;
 use mixdog_ai::accounts::new_account_id;
 use mixdog_ai::accounts::policy::Limit;
@@ -84,6 +85,59 @@ fn patch(entries: impl IntoIterator<Item = (&'static str, Value)>) -> Map<String
     entries.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()
 }
 
+/// What a Vertex AI key save takes from its options; only a location the user chose is saved, an empty one is unset.
+struct VertexOptions {
+    location_patch: bool,
+    location: Value,
+    project_id: String,
+}
+
+impl VertexOptions {
+    fn read(options: &Value, value: &str, adc: bool, express: bool) -> Result<Self, Failure> {
+        if adc && !value.is_empty() {
+            return Err(Failure::error("Vertex AI gcloud login takes no key"));
+        }
+        if express && value.chars().any(|c| mixdog_js::is_js_space(c) || c == '{') {
+            return Err(Failure::error("Vertex AI express mode takes an API key, not a JSON key file"));
+        }
+        if !adc && !express {
+            parse_service_account(value).map_err(|e| Failure::error(e.into_message()))?;
+        }
+        let location_option = options.get("location");
+        let location = match location_option {
+            None | Some(Value::Null) => String::new(),
+            Some(v) => mixdog_js::js_trim(&mixdog_js::value_to_string(v)).to_lowercase(),
+        };
+        let project_id = mixdog_js::js_trim(&text(options.get("projectId"))).to_owned();
+        let location_valid = location.len() <= 63 && location.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        if !location.is_empty() && !location_valid {
+            return Err(Failure::error("Vertex AI location is invalid"));
+        }
+        if express && !location.is_empty() && location != "global" {
+            return Err(Failure::error("Vertex AI express mode serves only the global location"));
+        }
+        let project_valid = (1..=128).contains(&project_id.len()) && project_id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b));
+        if !project_id.is_empty() && !project_valid {
+            return Err(Failure::error("Vertex AI project ID override is invalid"));
+        }
+        Ok(Self {
+            location_patch: !location.is_empty() || express || location_option.is_some(),
+            location: if location.is_empty() { Value::Null } else { json!(location) },
+            project_id,
+        })
+    }
+
+    fn entries(&self, auth_mode: &str) -> Map<String, Value> {
+        let mut entries = patch([("enabled", json!(true))]);
+        if self.location_patch {
+            entries.insert("location".into(), self.location.clone());
+        }
+        entries.insert("projectId".into(), if self.project_id.is_empty() { Value::Null } else { json!(self.project_id) });
+        entries.insert("authMode".into(), json!(auth_mode));
+        entries
+    }
+}
+
 /// The object at `key`, created (or replaced, when the stored value is not an object) in place.
 pub(crate) fn object_at<'a>(doc: &'a mut Map<String, Value>, key: &str) -> &'a mut Map<String, Value> {
     let slot = doc.entry(key).or_insert_with(|| Value::Object(Map::new()));
@@ -113,25 +167,17 @@ pub struct ProviderAdmin {
     usage_sweeps: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
-/// How old an account's reading is before a roster read measures it again. Node's sweep re-measures whatever its
-/// 60-second cache no longer holds, on every read of the roster; the desktop reads the roster each time its usage
-/// dashboard updates, so every account of every roster would be asked about once a minute. Five minutes is the age
-/// other clients keep a per-account reading for (oh-my-pi `USAGE_REPORT_TTL_MS`).
+/// Five minutes: the age other clients keep a per-account reading for (oh-my-pi `USAGE_REPORT_TTL_MS`).
 const SWEEP_READING_TTL_MS: i64 = 5 * 60_000;
 
-/// The age at which `account`'s reading is due: [`SWEEP_READING_TTL_MS`] moved by up to a quarter either way, fixed
-/// per account, so the accounts of a roster are not all asked in the same second (a provider answers a burst from
-/// one address with 429s).
+/// [`SWEEP_READING_TTL_MS`] moved by up to a quarter either way, fixed per account: a provider answers a burst from one
+/// address with 429s.
 fn sweep_ttl_ms(account: &str) -> i64 {
     let hash = account.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3));
     let quarter = SWEEP_READING_TTL_MS / 4;
     SWEEP_READING_TTL_MS - quarter + (hash % (2 * quarter as u64 + 1)) as i64
 }
 
-/// The accounts of `rows` whose reading a sweep takes again at `now`: never measured, or measured longer ago than
-/// their [`sweep_ttl_ms`]. The account in use (`selected`) is left out: the usage dashboard measures it, and every
-/// request it serves is followed by one. A roster of one account has nothing else to measure, so the sweep adds no
-/// request to it.
 fn sweep_due(rows: &[Account], selected: Option<&str>, now: i64) -> Vec<String> {
     rows.iter()
         .filter(|row| Some(row.id.as_str()) != selected)
@@ -292,6 +338,42 @@ mod sweep_tests {
     }
 }
 
+#[cfg(test)]
+mod vertex_tests {
+    use super::*;
+
+    fn entries(options: Value, value: &str, adc: bool, express: bool, mode: &str) -> Value {
+        Value::Object(VertexOptions::read(&options, value, adc, express).unwrap().entries(mode))
+    }
+
+    fn refusal(options: Value, value: &str, adc: bool, express: bool) -> String {
+        VertexOptions::read(&options, value, adc, express).err().expect("the options are refused").message().to_owned()
+    }
+
+    #[test]
+    fn a_vertex_save_writes_only_the_location_the_user_chose_and_unsets_an_empty_one() {
+        assert_eq!(
+            entries(json!({ "location": " Global ", "projectId": " my-proj_1 " }), "key", false, true, VERTEX_API_KEY_MODE),
+            json!({ "enabled": true, "location": "global", "projectId": "my-proj_1", "authMode": "api-key" })
+        );
+        assert_eq!(entries(json!({}), "", true, false, VERTEX_ADC_MODE), json!({ "enabled": true, "projectId": null, "authMode": "adc" }));
+        assert_eq!(
+            entries(json!({ "location": null }), "", true, false, VERTEX_ADC_MODE),
+            json!({ "enabled": true, "location": null, "projectId": null, "authMode": "adc" })
+        );
+        assert_eq!(entries(json!({}), "key", false, true, VERTEX_API_KEY_MODE)["location"], Value::Null, "express always writes its location");
+    }
+
+    #[test]
+    fn a_vertex_save_refuses_the_mode_the_key_or_the_options_do_not_fit() {
+        assert_eq!(refusal(json!({}), "key", true, false), "Vertex AI gcloud login takes no key");
+        assert_eq!(refusal(json!({}), "{ \"a\": 1 }", false, true), "Vertex AI express mode takes an API key, not a JSON key file");
+        assert_eq!(refusal(json!({ "location": "US_East" }), "key", false, true), "Vertex AI location is invalid");
+        assert_eq!(refusal(json!({ "location": "us-east1" }), "key", false, true), "Vertex AI express mode serves only the global location");
+        assert_eq!(refusal(json!({ "projectId": "bad id" }), "key", false, true), "Vertex AI project ID override is invalid");
+    }
+}
+
 fn vault_failure(error: mixdog_ai::registry::keys::VaultError) -> Failure {
     Failure::error(error.message)
 }
@@ -343,10 +425,6 @@ impl ProviderAdmin {
         })
     }
 
-    /// `getProviderAccounts`' background sweep (`sweepAccountUsage`, accounts.mjs:64-76): the stored readings are
-    /// answered as they are, and the accounts whose reading is due are measured behind the answer, four at a time,
-    /// one sweep per provider at a time. What it measures lands in the roster for the next read. An account that
-    /// is not in use is measured by nothing else until a send moves to it.
     fn sweep_account_usage(&self, provider: &str, rows: &[Account], selected: Option<&str>) {
         let due = sweep_due(rows, selected, chrono::Utc::now().timestamp_millis());
         if due.is_empty() || !self.usage_sweeps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(provider.to_owned()) {
@@ -498,27 +576,10 @@ impl ProviderAdmin {
             return Err(Failure::error(format!("{id} does not support interactive code login")));
         }
         assert_login_options(options)?;
-        let id_before = self.current_account_id(&id).await?;
         let add_account = options.get("addAccount") == Some(&Value::Bool(true));
-        let requested = options.get("accountId");
-        if let Some(requested) = requested {
-            let disconnected = add_account || {
-                let listed = self.list_provider_accounts(&id).await?;
-                !listed["accounts"].as_array().is_some_and(|rows| rows.iter().any(|row| row.get("id") == Some(requested)))
-            };
-            if disconnected {
-                return Err(Failure::type_error("Account is no longer connected."));
-            }
-        }
-        let account = if add_account {
-            new_account_id()
-        } else if requested.is_some_and(|r| truthy(Some(r))) {
-            text(requested)
-        } else {
-            id_before
-        };
+        let account = self.login_account(&id, options, add_account).await?;
         let include_default = Self::authenticated(&oauth.describe("default").await);
-        if add_account && self.accounts.pool(&id).await.map_err(acct)?.accounts.len() >= 20 {
+        if add_account && self.accounts.pool(&id).await.map_err(acct)?.accounts.len() >= MAX_ACCOUNTS {
             return Err(Failure::error("At most 20 accounts can be connected."));
         }
         // `oauth.begin({ openBrowser })`: a host with no browser signs in by device code where the provider has one.
@@ -541,6 +602,28 @@ impl ProviderAdmin {
             })
         });
         Ok((session, settle))
+    }
+
+    /// The account a sign-in is for: a new one with `addAccount`, the requested connected one, else the selected one.
+    async fn login_account(&self, id: &str, options: &Value, add_account: bool) -> Result<String, Failure> {
+        let selected = self.current_account_id(id).await?;
+        let requested = options.get("accountId");
+        if let Some(requested) = requested {
+            let disconnected = add_account || {
+                let listed = self.list_provider_accounts(id).await?;
+                !listed["accounts"].as_array().is_some_and(|rows| rows.iter().any(|row| row.get("id") == Some(requested)))
+            };
+            if disconnected {
+                return Err(Failure::type_error("Account is no longer connected."));
+            }
+        }
+        Ok(if add_account {
+            new_account_id()
+        } else if requested.is_some_and(|r| truthy(Some(r))) {
+            text(requested)
+        } else {
+            selected
+        })
     }
 
     /// `settleOAuthLogin`: registration and the enabled flag move together, on success only.
@@ -726,72 +809,33 @@ impl ProviderAdmin {
         }
         let mut entries = patch([("enabled", json!(true))]);
         if id == "vertex-ai" {
-            if adc && !value.is_empty() {
-                return Err(Failure::error("Vertex AI gcloud login takes no key"));
-            }
-            if express && value.chars().any(|c| mixdog_js::is_js_space(c) || c == '{') {
-                return Err(Failure::error("Vertex AI express mode takes an API key, not a JSON key file"));
-            }
-            if !adc && !express {
-                parse_service_account(&value).map_err(|e| Failure::error(e.into_message()))?;
-            }
-            // Only a location the user chose is saved: an empty one is unset.
-            let location_option = options.get("location");
-            let location = match location_option {
-                None | Some(Value::Null) => String::new(),
-                Some(v) => mixdog_js::js_trim(&mixdog_js::value_to_string(v)).to_lowercase(),
-            };
-            let project_id = mixdog_js::js_trim(&text(options.get("projectId"))).to_owned();
-            let location_valid = location.len() <= 63 && location.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
-            if !location.is_empty() && !location_valid {
-                return Err(Failure::error("Vertex AI location is invalid"));
-            }
-            if express && !location.is_empty() && location != "global" {
-                return Err(Failure::error("Vertex AI express mode serves only the global location"));
-            }
-            let location_patch = !location.is_empty() || express || location_option.is_some();
-            let location_value = if location.is_empty() { Value::Null } else { json!(location) };
-            let project_valid = (1..=128).contains(&project_id.len()) && project_id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b));
-            if !project_id.is_empty() && !project_valid {
-                return Err(Failure::error("Vertex AI project ID override is invalid"));
-            }
-            let project_value = if project_id.is_empty() { Value::Null } else { json!(project_id) };
+            let vertex = VertexOptions::read(options, &value, adc, express)?;
             if adc {
-                // gcloud login: nothing secret is stored, and the login must already be usable.
-                let project = self.vertex_adc.login(&project_id).await.map_err(Failure::error)?;
-                if project.as_deref().is_none_or(str::is_empty) {
-                    return Err(Failure::error(
-                        "No Google Cloud project found for the gcloud login. Enter a project ID override, or run `gcloud config set project PROJECT_ID`.",
-                    ));
-                }
-                // The login replaces a key saved earlier rather than sitting beside it.
-                let account = api_key_account(&id);
-                match self.vault.get(&account).await {
-                    Ok(Some(v)) if !v.is_empty() => self.vault.delete(&account).await.map_err(vault_failure)?,
-                    // A read that never ran leaves the old key in place under the new login.
-                    Err(error) if error.unrun => return Err(vault_failure(error)),
-                    _ => {}
-                }
-                let mut entries = patch([("enabled", json!(true))]);
-                if location_patch {
-                    entries.insert("location".into(), location_value);
-                }
-                entries.insert("projectId".into(), project_value);
-                entries.insert("authMode".into(), json!(VERTEX_ADC_MODE));
-                self.update_provider(&id, entries).await?;
-                return Ok(json!({ "provider": id, "type": "adc", "authenticated": true }));
+                return self.save_vertex_adc_login(&id, &vertex).await;
             }
-            entries = patch([("enabled", json!(true))]);
-            if location_patch {
-                entries.insert("location".into(), location_value);
-            }
-            entries.insert("projectId".into(), project_value);
-            entries.insert("authMode".into(), json!(if express { VERTEX_API_KEY_MODE } else { "service-account" }));
+            entries = vertex.entries(if express { VERTEX_API_KEY_MODE } else { "service-account" });
         }
         self.vault.set(&api_key_account(&id), &value).await.map_err(vault_failure)?;
         self.update_provider(&id, entries).await?;
         let kind = if id == "vertex-ai" && !express { "service-account" } else { "api-key" };
         Ok(json!({ "provider": id, "type": kind, "authenticated": true }))
+    }
+
+    async fn save_vertex_adc_login(&self, id: &str, vertex: &VertexOptions) -> Result<Value, Failure> {
+        let project = self.vertex_adc.login(&vertex.project_id).await.map_err(Failure::error)?;
+        if project.as_deref().is_none_or(str::is_empty) {
+            return Err(Failure::error(
+                "No Google Cloud project found for the gcloud login. Enter a project ID override, or run `gcloud config set project PROJECT_ID`.",
+            ));
+        }
+        let account = api_key_account(id);
+        match self.vault.get(&account).await {
+            Ok(Some(v)) if !v.is_empty() => self.vault.delete(&account).await.map_err(vault_failure)?,
+            Err(error) if error.unrun => return Err(vault_failure(error)),
+            _ => {}
+        }
+        self.update_provider(id, vertex.entries(VERTEX_ADC_MODE)).await?;
+        Ok(json!({ "provider": id, "type": "adc", "authenticated": true }))
     }
 
     pub async fn save_openai_usage_session_key(&self, secret: &str) -> Result<Value, Failure> {

@@ -191,15 +191,8 @@ fn create_device() -> Result<(ID3D11Device, ID3D11DeviceContext, IDirect3DDevice
     Ok((device, context, wrapper))
 }
 
-/// The frame's pixels through a staging texture, tightly packed BGRA.
-fn read_frame(
-    frame: &Direct3D11CaptureFrame,
-    device: &ID3D11Device,
-    context: &ID3D11DeviceContext,
-    target: &Target,
-    budget: &Budget,
-    cancellation: &mut Option<&'static str>,
-) -> Result<Vec<u8>, Cause> {
+/// A CPU-readable copy of the frame's texture, flushed to the GPU queue.
+fn copy_to_staging(frame: &Direct3D11CaptureFrame, device: &ID3D11Device, context: &ID3D11DeviceContext, target: &Target) -> Result<ID3D11Texture2D, Cause> {
     let access: IDirect3DDxgiInterfaceAccess = frame.Surface()?.cast()?;
     // SAFETY: the surface of a capture frame is a D3D11 texture of our device.
     let texture: ID3D11Texture2D = unsafe { access.GetInterface() }?;
@@ -215,35 +208,42 @@ fn read_frame(
     // SAFETY: desc and the out pointer outlive the call.
     unsafe { device.CreateTexture2D(&desc, None, Some(&mut staging)) }?;
     let staging = staging.ok_or_else(|| Cause::Text("staging texture is unavailable".into()))?;
-    // Await-WinRt (session.ps1:103-111) keeps up to 100 ms of the budget to
-    // see whether an abandoned copy settles.
-    let grace = budget.remaining()?.min(100);
     // SAFETY: both textures belong to this device and share one description.
     unsafe {
         context.CopyResource(&staging, &texture);
         context.Flush();
     }
+    Ok(staging)
+}
+
+/// Maps the staging texture without blocking. Past the budget, `grace` ms of it are kept
+/// to see whether the abandoned copy settles, which `cancellation` records.
+fn map_staging(
+    context: &ID3D11DeviceContext,
+    staging: &ID3D11Texture2D,
+    budget: &Budget,
+    grace: u32,
+    cancellation: &mut Option<&'static str>,
+) -> Result<D3D11_MAPPED_SUBRESOURCE, Cause> {
     let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
     let map = |mapped: &mut D3D11_MAPPED_SUBRESOURCE| {
         // SAFETY: mapped is a valid out pointer; DO_NOT_WAIT never blocks.
-        unsafe { context.Map(&staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(mapped)) }
+        unsafe { context.Map(staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT.0 as u32, Some(mapped)) }
     };
     loop {
         match map(&mut mapped) {
-            Ok(()) => break,
+            Ok(()) => return Ok(mapped),
             Err(error) if error.code() == DXGI_ERROR_WAS_STILL_DRAWING => {
                 if budget.remaining().is_ok_and(|left| left > grace) {
                     std::thread::sleep(Duration::from_millis(1));
                     continue;
                 }
-                // Timed out: the grace tells a copy that settled from one
-                // still in flight.
                 *cancellation = Some("unconfirmed");
                 while budget.remaining().is_ok() {
                     match map(&mut mapped) {
                         Ok(()) => {
                             // SAFETY: the staging texture was mapped just now.
-                            unsafe { context.Unmap(&staging, 0) };
+                            unsafe { context.Unmap(staging, 0) };
                             *cancellation = Some("settled");
                             break;
                         }
@@ -258,20 +258,38 @@ fn read_frame(
             Err(error) => return Err(error.into()),
         }
     }
+}
+
+/// The mapped B8G8R8A8 rows of `target`'s size, tightly packed; `None` for a mapping too narrow to hold them.
+fn packed_mapping(mapped: &D3D11_MAPPED_SUBRESOURCE, target: &Target) -> Option<Vec<u8>> {
     let (width, height) = (target.width as usize, target.height as usize);
     let row_pitch = mapped.RowPitch as usize;
-    let length = row_pitch.checked_mul(height.saturating_sub(1)).and_then(|rows| rows.checked_add(width * 4));
-    let pixels = match length {
-        // A pitch narrower than a row would put the slice's end past the
-        // mapping, so it is refused before the slice is made.
-        Some(length) if !mapped.pData.is_null() && row_pitch >= width * 4 => {
-            // SAFETY: a mapped B8G8R8A8 texture holds `height` rows `row_pitch`
-            // apart, the last at least `width * 4` bytes long, until Unmap.
-            let bytes = unsafe { std::slice::from_raw_parts(mapped.pData as *const u8, length) };
-            packed_rows(bytes, row_pitch, width, height)
-        }
-        _ => None,
-    };
+    let length = row_pitch.checked_mul(height.saturating_sub(1)).and_then(|rows| rows.checked_add(width * 4))?;
+    // A pitch narrower than a row would put the slice's end past the mapping.
+    if mapped.pData.is_null() || row_pitch < width * 4 {
+        return None;
+    }
+    // SAFETY: a mapped B8G8R8A8 texture holds `height` rows `row_pitch`
+    // apart, the last at least `width * 4` bytes long, until Unmap.
+    let bytes = unsafe { std::slice::from_raw_parts(mapped.pData as *const u8, length) };
+    packed_rows(bytes, row_pitch, width, height)
+}
+
+/// The frame's pixels through a staging texture, tightly packed BGRA.
+fn read_frame(
+    frame: &Direct3D11CaptureFrame,
+    device: &ID3D11Device,
+    context: &ID3D11DeviceContext,
+    target: &Target,
+    budget: &Budget,
+    cancellation: &mut Option<&'static str>,
+) -> Result<Vec<u8>, Cause> {
+    let staging = copy_to_staging(frame, device, context, target)?;
+    // Await-WinRt (session.ps1:103-111) keeps up to 100 ms of the budget to
+    // see whether an abandoned copy settles.
+    let grace = budget.remaining()?.min(100);
+    let mapped = map_staging(context, &staging, budget, grace, cancellation)?;
+    let pixels = packed_mapping(&mapped, target);
     // SAFETY: the staging texture was mapped above.
     unsafe { context.Unmap(&staging, 0) };
     pixels.ok_or_else(|| Cause::Text("capture_geometry_invalid|invalid BGRA surface dimensions".into()))

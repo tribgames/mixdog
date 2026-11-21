@@ -571,11 +571,7 @@ mod tests {
         assert_eq!(channel.sent().len(), 4, "every window command reached the host");
     }
 
-    /// A phone reads the panel from the core's copy of the tabs (`remote-visualize.ts`): the state without any host path, an inline
-    /// pane's source, Node's refusals for a closed tab, a bad pane index and a pane with no inline content, and none of it for a
-    /// desktop window.
-    #[tokio::test]
-    async fn a_phone_reads_the_tabs_path_free_and_nothing_else_reads_them() {
+    fn phone_rig() -> (VisualizeService, Arc<MockHostChannel>) {
         let (service, channel) = rig(json!({}));
         let panes = Arc::new(VisualizePanes::default());
         let state = json!({
@@ -589,14 +585,27 @@ mod tests {
             }]
         });
         panes.fold(&json!([state]));
-        let service = service.with_panes(panes);
-        let phone = |action: &str, input: Value| request(Origin::Relay, json!({ "action": action, "input": input }));
+        (service.with_panes(panes), channel)
+    }
+
+    fn phone(action: &str, input: Value) -> CoreRequest {
+        request(Origin::Relay, json!({ "action": action, "input": input }))
+    }
+
+    #[tokio::test]
+    async fn a_phone_reads_the_tab_state_without_a_host_path() {
+        let (service, _) = phone_rig();
         let Reply::Value(states) = service.call(phone("state", json!({}))).await.unwrap() else { panic!("a value reply") };
         let text = states.to_string();
         for host_path in ["/work/proj", "cwd", "\"path\"", "\"root\"", "\"target\""] {
             assert!(!text.contains(host_path), "{host_path} left the core: {text}");
         }
         assert_eq!(states[0]["tabs"][0]["panes"][0]["remoteTarget"], "a.html");
+    }
+
+    #[tokio::test]
+    async fn a_phone_reads_an_inline_pane_and_is_refused_a_closed_tab_a_bad_index_and_a_pane_without_content() {
+        let (service, _) = phone_rig();
         let Reply::Value(inline) = service.call(phone("paneInline", json!({ "sessionId": "s1", "tabId": "t1", "pane": 1 }))).await.unwrap() else {
             panic!("a value reply")
         };
@@ -613,12 +622,19 @@ mod tests {
         assert_eq!(refused(json!({ "sessionId": "s1", "tabId": "gone", "pane": 0 })).await, "This visualize tab is closed.");
         assert_eq!(refused(json!({ "sessionId": "s1", "tabId": "t1", "pane": 0 })).await, "This visualize pane has no inline content.");
         assert_eq!(refused(json!({ "sessionId": "s1", "tabId": "t1", "pane": 6 })).await, "pane index is invalid.");
-        // Pane files need the workspace's reads, bound by the composition.
-        assert_eq!(
-            message(service.call(phone("paneFile", json!({ "sessionId": "s1", "tabId": "t1", "pane": 0 }))).await.unwrap_err()),
-            "The visualize panel is unavailable on this connection."
-        );
-        // A desktop window is not a phone: the read action is not a tab command for it.
+    }
+
+    #[tokio::test]
+    async fn a_phone_cannot_read_pane_files_until_the_workspace_reads_are_bound() {
+        let (service, _) = phone_rig();
+        let error = service.call(phone("paneFile", json!({ "sessionId": "s1", "tabId": "t1", "pane": 0 }))).await.unwrap_err();
+        let CoreError::DomainError { message, .. } = error else { panic!("a domain error") };
+        assert_eq!(message.map(|m| m.to_string()).unwrap_or_default(), "The visualize panel is unavailable on this connection.");
+    }
+
+    #[tokio::test]
+    async fn a_desktop_window_is_not_served_the_phone_reads() {
+        let (service, channel) = phone_rig();
         assert!(service.call(request(Origin::Local, json!({ "action": "state", "input": {} }))).await.is_err());
         assert!(channel.sent().is_empty(), "no read reached the desktop host");
     }

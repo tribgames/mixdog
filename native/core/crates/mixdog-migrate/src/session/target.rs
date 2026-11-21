@@ -1,13 +1,13 @@
 //! The target side of verification: reads a published `sessions/<id>/` with the frozen
 //! record types, checks every frame and checkpoint, folds it (FORMAT.md §5.3), and
-//! derives the observable state. It never reads an old format. (Stand-in for the
-//! runtime store reader until WP-STORE lands; same frame and record rules.)
+//! derives the observable state. It never reads an old format.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::Path;
 
 use mixdog_store::schema::blob::Slot;
+use mixdog_store::schema::checkpoint::CheckpointState;
 use mixdog_store::schema::frame::LOG_FILE_DIGITS;
 use mixdog_store::schema::frame::LOG_FILE_PREFIX;
 use mixdog_store::schema::frame::ScanEnd;
@@ -16,8 +16,11 @@ use mixdog_store::schema::migration::Manifest;
 use mixdog_store::schema::record::ArchiveTag;
 use mixdog_store::schema::record::Form;
 use mixdog_store::schema::record::Header;
+use mixdog_store::schema::record::ItemRecord;
 use mixdog_store::schema::record::MigrationOrigin;
+use mixdog_store::schema::record::ModelSwitchRecord;
 use mixdog_store::schema::record::QueueAction;
+use mixdog_store::schema::record::QueueRecord;
 use mixdog_store::schema::record::Record;
 use mixdog_store::schema::record::RunPhase;
 use serde::de::DeserializeOwned;
@@ -102,6 +105,97 @@ fn log_files(dir: &Path) -> Result<Vec<std::path::PathBuf>, String> {
     Ok(names.into_iter().map(|n| dir.join(n)).collect())
 }
 
+fn check_checkpoint(folded: &Folded, log_id: &str, ordinal: u64, state: &CheckpointState) -> Result<(), String> {
+    let rows = folded.rows.len() as u64;
+    let visible = folded.rows.iter().filter(|r| r.visible).count() as u64;
+    let queue: Vec<&str> = folded.queue.iter().map(|q| q.0.as_str()).collect();
+    let state_queue: Vec<&str> = state.queue.iter().map(|q| q.qid.as_str()).collect();
+    if state.covers_ordinal != ordinal
+        || state.log_id != log_id
+        || state.rows != rows
+        || state.visible_rows != visible
+        || state.header != folded.header
+        || state_queue != queue
+    {
+        return Err(format!("checkpoint {ordinal} disagrees with the frames"));
+    }
+    Ok(())
+}
+
+fn folded_row(cx: &ItemContext<'_>, ordinal: u64, item: ItemRecord) -> Result<FoldedRow, String> {
+    let (body, blob) = resolve(cx, item.body)?;
+    let (prompt, prompt_blob) = match item.prompt {
+        Some(slot) => {
+            let (text, blob) = resolve(cx, slot)?;
+            (Some(text), blob)
+        }
+        None => (None, None),
+    };
+    let refs = item
+        .refs
+        .as_slice()
+        .iter()
+        .map(|d| d.as_str().trim_start_matches("sha256:").to_string())
+        .filter(|h| Some(h) != blob.as_ref() && Some(h) != prompt_blob.as_ref())
+        .collect();
+    Ok(FoldedRow {
+        ordinal,
+        iid: item.iid.as_str().to_string(),
+        turn: item.turn.map(|t| t.as_str().to_string()),
+        form: item.form,
+        model: item.model,
+        visible: item.visible,
+        archive: item.archive,
+        prompt,
+        refs,
+        body,
+    })
+}
+
+fn apply_queue(cx: &ItemContext<'_>, queue: &mut Vec<(String, Value)>, qr: QueueRecord) -> Result<(), String> {
+    match qr.action {
+        QueueAction::Enqueue => {
+            let entry = qr.entry.ok_or("enqueue without entry")?;
+            queue.push((qr.qid.as_str().to_string(), resolve(cx, entry)?.0));
+        }
+        QueueAction::Update => {
+            let entry = qr.entry.ok_or("update without entry")?;
+            let entry = resolve(cx, entry)?.0;
+            if let Some(queued) = queue.iter_mut().find(|q| q.0 == qr.qid.as_str()) {
+                queued.1 = entry;
+            }
+        }
+        QueueAction::Prioritize => {
+            let entry = qr.entry.ok_or("prioritize without entry")?;
+            let entry = resolve(cx, entry)?.0;
+            if let Some(at) = queue.iter().position(|q| q.0 == qr.qid.as_str()) {
+                let mut queued = queue.remove(at);
+                queued.1 = entry;
+                queue.insert(0, queued);
+            }
+        }
+        QueueAction::Dequeue => queue.retain(|q| q.0 != qr.qid.as_str()),
+    }
+    Ok(())
+}
+
+/// Folded back into its anchor's `meta.modelSwitches`, where 1.4.5 kept it (a reader shows it there:
+/// `transcript_boundary.rs` `fold_model_switches`).
+fn fold_model_switch(cx: &ItemContext<'_>, rows: &mut [FoldedRow], ordinal: u64, s: ModelSwitchRecord) -> Result<(), String> {
+    let row = rows
+        .iter_mut()
+        .rev()
+        .find(|r| r.ordinal == s.anchor.ordinal && r.ordinal < ordinal)
+        .filter(|r| r.iid == s.anchor.iid.as_str() && r.form == Form::Message)
+        .ok_or_else(|| format!("frame {ordinal}: a model switch of no earlier message row"))?;
+    let entry = serde_json::to_value(resolve(cx, s.entry)?.0).expect("an entry encodes");
+    let body = row.body.as_object_mut().ok_or("a message body is an object")?;
+    let meta = body.entry("meta").or_insert_with(|| Value::Object(Default::default()));
+    let switches = meta.as_object_mut().ok_or("a message meta is an object")?.entry("modelSwitches").or_insert_with(|| Value::Array(Vec::new()));
+    switches.as_array_mut().ok_or("modelSwitches is a list")?.push(entry);
+    Ok(())
+}
+
 pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> {
     let mut folded = Folded {
         id: String::new(),
@@ -137,19 +231,7 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                 _ if file_no == 0 && frame.ordinal == 0 => return Err("log does not open with session".into()),
                 Record::Checkpoint(c) => {
                     let (state, _) = resolve(cx, c.state)?;
-                    let rows = folded.rows.len() as u64;
-                    let visible = folded.rows.iter().filter(|r| r.visible).count() as u64;
-                    let queue: Vec<&str> = folded.queue.iter().map(|q| q.0.as_str()).collect();
-                    let state_queue: Vec<&str> = state.queue.iter().map(|q| q.qid.as_str()).collect();
-                    if state.covers_ordinal != frame.ordinal
-                        || state.log_id != log_id
-                        || state.rows != rows
-                        || state.visible_rows != visible
-                        || state.header != folded.header
-                        || state_queue != queue
-                    {
-                        return Err(format!("checkpoint {} disagrees with the frames", frame.ordinal));
-                    }
+                    check_checkpoint(&folded, &log_id, frame.ordinal, &state)?;
                 }
                 _ if first && file_no > 0 => {
                     return Err(format!("{} does not start with a checkpoint", path.display()));
@@ -162,33 +244,8 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                     folded.header.extend(change.set);
                 }
                 Record::Item(item) => {
-                    let (body, blob) = resolve(cx, item.body)?;
-                    let (prompt, prompt_blob) = match item.prompt {
-                        Some(slot) => {
-                            let (text, blob) = resolve(cx, slot)?;
-                            (Some(text), blob)
-                        }
-                        None => (None, None),
-                    };
-                    let refs = item
-                        .refs
-                        .as_slice()
-                        .iter()
-                        .map(|d| d.as_str().trim_start_matches("sha256:").to_string())
-                        .filter(|h| Some(h) != blob.as_ref() && Some(h) != prompt_blob.as_ref())
-                        .collect();
-                    folded.rows.push(FoldedRow {
-                        ordinal: frame.ordinal,
-                        iid: item.iid.as_str().to_string(),
-                        turn: item.turn.map(|t| t.as_str().to_string()),
-                        form: item.form,
-                        model: item.model,
-                        visible: item.visible,
-                        archive: item.archive,
-                        prompt,
-                        refs,
-                        body,
-                    });
+                    let row = folded_row(cx, frame.ordinal, item)?;
+                    folded.rows.push(row);
                 }
                 Record::Amend(a) => {
                     let (body, _) = resolve(cx, a.body)?;
@@ -207,46 +264,8 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                         None => folded.runs.push((r.rid.as_str().to_string(), vec![(r.phase, detail)], frame.ordinal)),
                     }
                 }
-                Record::Queue(qr) => match qr.action {
-                    QueueAction::Enqueue => {
-                        let entry = qr.entry.ok_or("enqueue without entry")?;
-                        folded.queue.push((qr.qid.as_str().to_string(), resolve(cx, entry)?.0));
-                    }
-                    QueueAction::Update => {
-                        let entry = qr.entry.ok_or("update without entry")?;
-                        let entry = resolve(cx, entry)?.0;
-                        if let Some(queued) = folded.queue.iter_mut().find(|q| q.0 == qr.qid.as_str()) {
-                            queued.1 = entry;
-                        }
-                    }
-                    QueueAction::Prioritize => {
-                        let entry = qr.entry.ok_or("prioritize without entry")?;
-                        let entry = resolve(cx, entry)?.0;
-                        if let Some(at) = folded.queue.iter().position(|q| q.0 == qr.qid.as_str()) {
-                            let mut queued = folded.queue.remove(at);
-                            queued.1 = entry;
-                            folded.queue.insert(0, queued);
-                        }
-                    }
-                    QueueAction::Dequeue => folded.queue.retain(|q| q.0 != qr.qid.as_str()),
-                },
-                // Folded back into its anchor's `meta.modelSwitches`, where 1.4.5 kept it
-                // (a reader shows it there: `transcript_boundary.rs` `fold_model_switches`).
-                Record::ModelSwitch(s) => {
-                    let row = folded
-                        .rows
-                        .iter_mut()
-                        .rev()
-                        .find(|r| r.ordinal == s.anchor.ordinal && r.ordinal < frame.ordinal)
-                        .filter(|r| r.iid == s.anchor.iid.as_str() && r.form == Form::Message)
-                        .ok_or_else(|| format!("frame {}: a model switch of no earlier message row", frame.ordinal))?;
-                    let entry = serde_json::to_value(resolve(cx, s.entry)?.0).expect("an entry encodes");
-                    let body = row.body.as_object_mut().ok_or("a message body is an object")?;
-                    let meta = body.entry("meta").or_insert_with(|| Value::Object(Default::default()));
-                    let switches =
-                        meta.as_object_mut().ok_or("a message meta is an object")?.entry("modelSwitches").or_insert_with(|| Value::Array(Vec::new()));
-                    switches.as_array_mut().ok_or("modelSwitches is a list")?.push(entry);
-                }
+                Record::Queue(qr) => apply_queue(cx, &mut folded.queue, qr)?,
+                Record::ModelSwitch(s) => fold_model_switch(cx, &mut folded.rows, frame.ordinal, s)?,
                 Record::Rewind(_) | Record::Approval(_) | Record::Op(_) | Record::Draft(_) | Record::WorkStop(_) => {
                     return Err(format!("frame {}: a record migration never writes", frame.ordinal));
                 }

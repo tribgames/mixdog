@@ -1,9 +1,3 @@
-//! WORKFLOW.md packs: discovery of one pack (user copy first, then the shipped one, then the
-//! shipped default), the editor reads and writes, and the "equal to the shipped pack keeps no
-//! copy" rule (`runtime-core/workflow/packs.mjs`, `workflow-agents-api/workflow-packs.mjs`,
-//! `shared/markdown-frontmatter.mjs`, `shared/shipped-definitions.mjs`).
-//!
-//! Everything here is synchronous file work; the service runs it as lane jobs.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "lane job bodies: the service runs these functions on io lanes")]
 
 use std::path::Path;

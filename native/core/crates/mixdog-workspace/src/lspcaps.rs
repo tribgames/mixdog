@@ -1,7 +1,4 @@
-//! Language-server capabilities as the editor sees them (port of
-//! `normalizeLanguageServerCapabilities`, `capabilitiesWithDynamicRegistrations`
-//! and `methodSupported` in `language-server-manager.ts`). A capability set is a
-//! flat JSON object with the camelCase keys the editor reads.
+//! Language-server capabilities as the editor sees them: a flat JSON object with the camelCase keys the editor reads.
 
 use serde_json::Map;
 use serde_json::Value;

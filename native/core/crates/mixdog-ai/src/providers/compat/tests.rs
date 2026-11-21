@@ -226,8 +226,11 @@ fn media_and_tool_results_lower_to_chat_content() {
             {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
         ])
     );
+}
 
-    // An image inside a tool result follows the tool messages as a user turn.
+#[test]
+fn an_image_inside_a_tool_result_follows_the_tool_messages_as_a_user_turn() {
+    let codec = plain_codec();
     let mut request = followup_request("m");
     request.messages[3].content = Content::Parts(vec![ContentPart::Image(ImageSource::Url("https://x/y.png".into()))]);
     let body = body_of(&codec, &request);

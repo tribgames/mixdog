@@ -1,7 +1,6 @@
-//! The session side of Mixy's heartbeat wake (`mixy-heartbeat.mjs` `wakeMixy`): her hidden
-//! session is created and closed here, the Lead route read, and her reply handed to the
-//! home-chat delivery queue. A close that did not land is the runner's to keep and retry
-//! (`keepUnreleased`, `retryReleases` over this close).
+//! The session side of Mixy's heartbeat wake: her hidden session is created and closed here, the
+//! Lead route read, and her reply handed to the home-chat delivery queue. A close that did not
+//! land is the runner's to keep and retry.
 
 use std::sync::Arc;
 

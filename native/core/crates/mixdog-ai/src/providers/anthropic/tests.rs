@@ -283,10 +283,6 @@ fn unknown_model_gets_no_thinking_and_the_floor_max_tokens() {
     assert!(body.get("thinking").is_none());
 }
 
-/// Server-side fallback and fast speed are decided from Claude ids, first-party knowledge a custom endpoint never gets
-/// (`buildAnthropicApiRequest`: `applyAnthropicServerFallback` `enabled: !isCustom`, `!isCustom && opts.fast`): the same
-/// fast request of `claude-opus-5` carries `fallbacks` and `speed` with their betas on the engine's own route, and
-/// neither on a custom endpoint (provider-custom-reasoning `anthropic-custom-vs-first-party-isolated`, case `custom`).
 #[test]
 fn a_custom_endpoint_gets_no_server_fallback_or_fast_speed() {
     let sent = |custom: bool| {

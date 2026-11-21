@@ -53,6 +53,16 @@ pub struct LiveHostRuntime {
 /// `activity-guards.mjs:14-17`.
 const ACTIVE_STAGES: [&str; 6] = ["connecting", "requesting", "streaming", "tool_running", "running", "cancelling"];
 
+fn memory_agent_id(id: &str, header: &Map<String, Value>) -> String {
+    let mut record = header.clone();
+    record.insert("id".to_owned(), Value::String(id.to_owned()));
+    let owner_agent = text(header, "ownerAgentId").filter(|a| !a.trim().is_empty()).or_else(|| text(header, "agent").filter(|a| a != "lead"));
+    if let Some(agent) = owner_agent {
+        record.insert("ownerAgentId".to_owned(), Value::String(agent));
+    }
+    mixdog_core_run::run_host::route_chain::resolve_session_mode(&Value::Object(record)).1
+}
+
 fn text(row: &Map<String, Value>, key: &str) -> Option<String> {
     row.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned)
 }
@@ -123,17 +133,9 @@ impl HostRuntime for LiveHostRuntime {
         let owner_is_agent = header.get("owner").and_then(Value::as_str) == Some("agent");
         // Node `getMemoryAgentId()` = `resolveSessionMode({ session, sessionId, profile }).agentId`: the reserved id, then the owning agent; a Lead created with a
         // `homeAgent` profile keeps that agent in its header `agent` (never the `lead` default), which is the profile's seat in the resolver.
-        let memory_agent_id = {
-            let mut record = (*header).clone();
-            record.insert("id".to_owned(), Value::String(id.to_owned()));
-            let owner_agent = text(&header, "ownerAgentId").filter(|a| !a.trim().is_empty()).or_else(|| text(&header, "agent").filter(|a| a != "lead"));
-            if let Some(agent) = owner_agent {
-                record.insert("ownerAgentId".to_owned(), Value::String(agent));
-            }
-            mixdog_core_run::run_host::route_chain::resolve_session_mode(&Value::Object(record)).1
-        };
+        let memory_agent_id = memory_agent_id(id, &header);
         // Node `refreshWorkspacePrompt` -> `buildWorkspacePromptContext(session, cwd, { instructionFilesMode })` (workspace/transitions.mjs:78, session-prompt-composition.mjs:95).
-        // `prewarmGitStartupProbes([cwd])` is `prewarm::compose`'s probe-and-compose-again step: the composition asks for what it lacks, it is probed, and the job runs once more.
+        // `prewarmGitStartupProbes([cwd])` is `prewarm::compose`'s probe-and-compose-again step: the composition asks for what it lacks, it is probed, and it is assembled once more.
         let tool_free_role = owner_is_agent && header.get("schemaAllowedTools").and_then(Value::as_array).is_some_and(Vec::is_empty);
         let names = |key: &str| {
             header
@@ -148,20 +150,33 @@ impl HostRuntime for LiveHostRuntime {
         let skip_instruction_files = header.get("skipInstructionFiles") == Some(&Value::Bool(true));
         let agent_mode = mixdog_store::agent_mode::session_mode_of(&header) == "agent";
         let (session_id, cwd_owned, mode) = (id.to_owned(), cwd.to_owned(), (self.instruction_files)());
-        let job: mixdog_core::run_host::prewarm::ComposeJob<mixdog_core::run_host::prompt_session::WorkspaceContext> = Arc::new(move |lane, host, observed| {
-            let sources = mixdog_core_prompt::prompt::real_sources::RealSources::new(lane, host, observed);
-            let facts = mixdog_core::run_host::prompt_session::WorkspaceFacts {
-                session_id: &session_id,
-                owner_is_agent,
-                tool_free_role,
-                has_git_tool,
-                skip_instruction_files,
-                agent_mode,
-            };
-            mixdog_core::run_host::prompt_session::workspace_prompt_context(&facts, &cwd_owned, Some(&mode), &sources)
-        });
-        let prompt =
-            mixdog_core::run_host::prewarm::compose(&self.prompt_io, &self.probes, &self.observed, self.facts.clone(), job).await.map_err(ScmFailure::git)?;
+        let facts = mixdog_core::run_host::prompt_session::WorkspaceFacts {
+            session_id: "",
+            owner_is_agent,
+            tool_free_role,
+            has_git_tool,
+            skip_instruction_files,
+            agent_mode,
+        };
+        let wants = mixdog_core::run_host::prompt_session::workspace_prompt_wants(
+            &mixdog_core::run_host::prompt_session::WorkspaceFacts { session_id: &session_id, ..facts },
+            &cwd_owned,
+            Some(&mode),
+        );
+        let job = mixdog_core::run_host::prewarm::ComposeJob {
+            wants,
+            reads: Arc::new(|_: mixdog_core::run_host::prompt_session::PromptPaths<'_>| {}),
+            assemble: Arc::new(
+                move |_: mixdog_core::run_host::prompt_session::PromptPaths<'_>, sources: &mixdog_core_prompt::prompt::real_sources::RealSources<'_>| {
+                    let facts = mixdog_core::run_host::prompt_session::WorkspaceFacts { session_id: &session_id, ..facts };
+                    mixdog_core::run_host::prompt_session::workspace_prompt_context(&facts, &cwd_owned, Some(&mode), sources)
+                },
+            ),
+        };
+        let cancel = mixdog_agent::compact::blob_reads::turn_cancel();
+        let prompt = mixdog_core::run_host::prewarm::compose(&self.prompt_io, &self.probes, &self.observed, self.facts.clone(), &cancel, job)
+            .await
+            .map_err(ScmFailure::git)?;
         // The Lead only (workers never carried project memory): `loadCoreMemoryContext()` is not called for an agent.
         let core_memory_context = if owner_is_agent { None } else { Some(self.core_memory.load(cwd, &memory_agent_id).await) };
         Ok(WorkspaceContext {

@@ -70,10 +70,6 @@ pub const DELEGATION_PIPE_NAME: &str = r"\\.\pipe\mixdog-secure-desktop-delegate
 /// before allocating.
 const MAX_FRAME: usize = 4096;
 
-/// How often the server wakes to re-check [`STOP`] while waiting for a
-/// connected client's bytes. This is a shutdown-responsiveness poll cadence,
-/// not a timeout on any external wait: the request arrives in one write right
-/// after connect, so the first poll almost always has it.
 const STOP_POLL: Duration = Duration::from_millis(50);
 
 /// Set on service stop so the server loop exits; [`request_stop`] also wakes a
@@ -147,11 +143,6 @@ impl Reply {
     }
 }
 
-/// Decide whether a delegated caller may change the key set. Pure, so the gate
-/// is unit-tested without a pipe: delegation must be enabled, the caller must
-/// be the installing user in the active console session, and its image must be
-/// the authorized signer. `signer_ok` is the result of the (impure) Authenticode
-/// verification against the stored policy.
 fn caller_allowed(enabled: bool, installing_sid: &str, serviced_session: u32, caller_sid: &str, caller_session: u32, signer_ok: bool) -> Result<(), Denial> {
     if !enabled {
         return Err(Denial::Disabled);
@@ -247,11 +238,6 @@ pub fn request_key_change(op: &str, key: &str) -> i32 {
 
 // ---- server (the SYSTEM service's dedicated thread) -------------------------
 
-/// Serve the delegation pipe until the service stops. The pipe DACL admits only
-/// the installing user and SYSTEM ([`crate::security::pipe_sddl`]); every
-/// connection is still authenticated per request. Logs and returns on a create
-/// failure (a squatter owns the name, or an invalid SID): delegation is simply
-/// unavailable then, and the client reports it.
 pub fn serve(installing_sid: &str) {
     let Some(sddl) = security::pipe_sddl(installing_sid) else {
         log::event("delegation", "install state has an invalid user SID; delegation server not started");

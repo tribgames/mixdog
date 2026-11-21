@@ -48,10 +48,29 @@ pub fn run(args: &ProgramArgs, host: &dyn EnsureHost, access: &dyn CoreAccess, o
     }
 }
 
-/// The end of a stop: the exit of a core that answered it, or, for one that stayed silent on it, Node's `stopDaemon`
-/// without a reply (`terminateProcess`: SIGTERM, the grace, SIGKILL).
-pub(super) fn retire(access: &dyn CoreAccess, core: &ServerCore, answered: bool) -> Result<(), EnsureError> {
-    if answered { access.wait_exit(core) } else { access.terminate(core) }
+/// Stops `core` once it is idle (or at the confirmed token) and waits for its exit; a core that stayed silent on the stop is
+/// terminated as Node's `stopDaemon` does (`terminateProcess`: SIGTERM, the grace, SIGKILL). Returns whether the core answered.
+pub(super) fn retire(
+    access: &dyn CoreAccess,
+    core: &ServerCore,
+    reason: StopReason,
+    confirm_token: Option<&str>,
+    replacement: Option<&ReplacementBuild>,
+) -> Result<bool, EnsureError> {
+    let answered = match access.stop_when_idle(core, reason, replacement)? {
+        Some(drain) => match confirm_token {
+            Some(token) => access.stop_confirmed(core, reason, token, replacement)?,
+            None if drain.running.is_empty() => true,
+            None => return Err(EnsureError::Busy { server_version: core.version.clone(), drain }),
+        },
+        None => false,
+    };
+    if answered {
+        access.wait_exit(core)?
+    } else {
+        access.terminate(core)?
+    }
+    Ok(answered)
 }
 
 pub(super) fn lock_options(args: &ProgramArgs, purpose: String) -> LockOptions {
@@ -78,21 +97,11 @@ fn decide(order: Order) -> Decision {
     }
 }
 
-fn ensure(args: &ProgramArgs, host: &dyn EnsureHost, access: &dyn CoreAccess, own_exe: &Path) -> Result<Report, EnsureError> {
-    let desktop = compat::parse(&args.version).map_err(|e| EnsureError::BadVersion(e.0))?;
-    let paths = RemotePaths::new(&host.home());
-    let spec = InstallSpec { install_id: &args.install_id, version: &args.version, build: &args.build, sha256: args.sha256.as_deref() };
-    let version_dir = paths.version_dir(&args.install_id)?;
-    private_dir(&paths.root)?;
-    let _lock = InstallLock::acquire(&paths.lock, &lock_options(args, format!("install {}", args.install_id)), host)?;
-
-    // A core of a newer version than this desktop is never touched, and nothing is installed.
+/// The core discovery names, once it has settled. A core of this install that has not reached `serving` has published nothing a
+/// decision can use (no model proxy endpoint yet, no rpc), so it is waited for, as `await_core` waits for a launched one; one that
+/// exits meanwhile is gone and discovery is read again. The whole attempt has one deadline, counted from the first wait.
+fn settled_core(args: &ProgramArgs, access: &dyn CoreAccess) -> Result<Option<ServerCore>, EnsureError> {
     let mut found = access.discovery()?;
-    // One rule for every discovery read: a core of this install that has not reached `serving` has published nothing a
-    // decision can use (no model proxy endpoint yet, no rpc), so it is waited for, as `await_core` waits for a launched
-    // one. One that exits meanwhile is gone and discovery is read again, and the rule applies to what it now names (a
-    // replacement instance may be migrating too). Only a settled core, or none, is decided on. The whole attempt has one
-    // deadline, counted from the first wait.
     let mut waiting_since = None;
     while let Some(core) = found
         .clone()
@@ -104,17 +113,31 @@ fn ensure(args: &ProgramArgs, host: &dyn EnsureHost, access: &dyn CoreAccess, ow
             CoreReport::Exited { .. } => access.discovery()?,
         };
     }
+    Ok(found)
+}
+
+/// What to do with the core found: a core of a newer version than this desktop is never touched, and nothing is installed.
+fn install_decision(args: &ProgramArgs, desktop: &semver::Version, core: &ServerCore) -> Result<Decision, EnsureError> {
+    let server = compat::parse(&core.version).map_err(|e| EnsureError::BadVersion(e.0))?;
+    let decision = decide(compat::order(desktop, &server));
+    if decision == Decision::RefuseOutdated {
+        return Err(EnsureError::ClientOutdated { desktop_version: args.version.clone(), server_version: core.version.clone() });
+    }
+    // Same version but another build or another model-login mode is not the core asked for: it is replaced, never attached to.
+    Ok(if decision == Decision::Attach && !is_intended(core, args) { Decision::Replace } else { decision })
+}
+
+fn ensure(args: &ProgramArgs, host: &dyn EnsureHost, access: &dyn CoreAccess, own_exe: &Path) -> Result<Report, EnsureError> {
+    let desktop = compat::parse(&args.version).map_err(|e| EnsureError::BadVersion(e.0))?;
+    let paths = RemotePaths::new(&host.home());
+    let spec = InstallSpec { install_id: &args.install_id, version: &args.version, build: &args.build, sha256: args.sha256.as_deref() };
+    let version_dir = paths.version_dir(&args.install_id)?;
+    private_dir(&paths.root)?;
+    let _lock = InstallLock::acquire(&paths.lock, &lock_options(args, format!("install {}", args.install_id)), host)?;
+
+    let found = settled_core(args, access)?;
     let decision = match &found {
-        Some(core) => {
-            let server = compat::parse(&core.version).map_err(|e| EnsureError::BadVersion(e.0))?;
-            let decision = decide(compat::order(&desktop, &server));
-            if decision == Decision::RefuseOutdated {
-                return Err(EnsureError::ClientOutdated { desktop_version: args.version.clone(), server_version: core.version.clone() });
-            }
-            // Same version but another build or another model-login mode: not the core asked for, so it goes the ordinary
-            // way of a replacement (hold, idle drain, the user's confirmation when it is busy) and is never attached to.
-            if decision == Decision::Attach && !is_intended(core, args) { Decision::Replace } else { decision }
-        }
+        Some(core) => install_decision(args, &desktop, core)?,
         None => Decision::Replace,
     };
 
@@ -140,15 +163,7 @@ fn ensure(args: &ProgramArgs, host: &dyn EnsureHost, access: &dyn CoreAccess, ow
         }
         // Node's replacement text names the build that replaces the core (`daemon.mjs:589`).
         let replacement = ReplacementBuild { revision: args.build.clone(), version: args.version.clone() };
-        let graceful = match access.stop_when_idle(&core, StopReason::SshReplace, Some(&replacement))? {
-            Some(drain) => match &args.confirm_token {
-                Some(token) => access.stop_confirmed(&core, StopReason::SshReplace, token, Some(&replacement))?,
-                None if drain.running.is_empty() => true,
-                None => return Err(EnsureError::Busy { server_version: core.version, drain }),
-            },
-            None => false,
-        };
-        retire(access, &core, graceful)?;
+        let graceful = retire(access, &core, StopReason::SshReplace, args.confirm_token.as_deref(), Some(&replacement))?;
         replaced = Some(Replaced { pid: core.pid, version: core.version, graceful });
     }
 

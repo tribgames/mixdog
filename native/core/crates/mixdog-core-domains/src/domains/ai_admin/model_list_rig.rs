@@ -505,10 +505,6 @@ async fn the_registered_providers_listings_are_the_catalogs_sources() {
     assert_eq!(refreshed, ["custom-aaaa"]);
 }
 
-// A quick read starts the warm load; the endpoint holds it between its preparation and `adopt` while something else
-// moves the cache's state, so the order is the test's, not the scheduler's. The load that listed under the old state must
-// not fill the new one. The gate is closed before the quick read and opened by `finish`; the startup catalog refresh is past
-// (a load joins it during its preparation, where the gate would hold the refresh instead).
 async fn warm_parked() -> Rig {
     let rig = rig(&custom_discovery(), &seeds(), false).await;
     rig.past_startup_refresh().await;

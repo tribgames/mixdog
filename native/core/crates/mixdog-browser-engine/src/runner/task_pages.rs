@@ -1,9 +1,3 @@
-//! Owner: s4-engine-runner
-//! Which pages a turn opened for itself (`task-lifecycle.ts`). Task-owned pages are disposable; user pages and explicit handoffs are
-//! not. A finished turn is not a finished conversation: the next message usually continues the same work, and closing its pages would
-//! throw away the sign-ins, half-filled forms and tab names already reported, so only a turn that ended badly (aborted) reclaims them
-//! here. Releasing the whole session (`forget`) does too.
-
 use std::collections::HashMap;
 use std::collections::HashSet;
 

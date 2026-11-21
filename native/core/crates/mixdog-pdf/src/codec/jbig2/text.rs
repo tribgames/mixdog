@@ -1,6 +1,8 @@
 //! Text region decoding (T.88 6.4, PDFium's `CJBig2_TRDProc`) in both coding modes, the text region segment (types 4, 6
 //! and 7), and the symbol-id Huffman table of a Huffman coded text region (T.88 7.4.3.1.7).
 
+use std::borrow::Cow;
+
 use super::huffman::{Code, HuffmanTable, assigned};
 use super::image::{ComposeOp, Image};
 use super::refine::{self, RefinementRegion};
@@ -104,16 +106,7 @@ fn refined_symbol(
     decoder: &mut ArithDecoder,
     cx: &mut [ArithCx],
 ) -> Result<Option<Symbol>, Failure> {
-    let blank;
-    let reference = match original {
-        Symbol::Null => return Err(Failure),
-        // nothing to read: every pixel of the reference is white
-        Symbol::Empty => {
-            blank = Image::new(1, 1).ok_or(Failure)?;
-            &blank
-        }
-        Symbol::Bitmap(image) => image,
-    };
+    let reference = reference_bitmap(original).ok_or(Failure)?;
     let [rdw, rdh, rdx, rdy] = deltas;
     let width = original.width().wrapping_add(rdw);
     let height = original.height().wrapping_add(rdh);
@@ -127,7 +120,7 @@ fn refined_symbol(
         height,
         template: r_template,
         tpgron: false,
-        reference,
+        reference: &reference,
         // T.88 6.4.11: the reference moves by half the change of size, rounded down, plus the offset coded.
         dx: (rdw >> 1).wrapping_add(rdx),
         dy: (rdh >> 1).wrapping_add(rdy),
@@ -136,7 +129,32 @@ fn refined_symbol(
     Ok(region.decode(decoder, cx).map(Symbol::Bitmap))
 }
 
+/// The bitmap a refinement of `symbol` reads: the symbol's, or for an empty one (nothing to read, every pixel white)
+/// a 1 x 1 blank. `None` for a symbol that has no bitmap.
+pub(super) fn reference_bitmap(symbol: &Symbol) -> Option<Cow<'_, Image>> {
+    match symbol {
+        Symbol::Null => None,
+        Symbol::Empty => Some(Cow::Owned(Image::new(1, 1)?)),
+        Symbol::Bitmap(image) => Some(Cow::Borrowed(image)),
+    }
+}
+
 impl TextRegion<'_> {
+    /// Places the symbol of an instance at strip position `t` and moves `cur_s` along; `Some(false)` for a symbol with
+    /// no bitmap (not an instance), `None` for one the region cannot hold.
+    fn place_instance(&self, region: &mut Image, symbol: &Symbol, cur_s: &mut i32, t: i32) -> Option<bool> {
+        match symbol {
+            Symbol::Null => return Some(false),
+            Symbol::Empty => return None,
+            Symbol::Bitmap(_) => {}
+        }
+        let (width, height) = (symbol.width(), symbol.height());
+        *cur_s = cur_s.wrapping_add(self.corner_offset_s(width, height));
+        self.place(region, symbol.image(), width, height, *cur_s, t);
+        *cur_s = cur_s.wrapping_add(self.corner_advance_s(width, height));
+        Some(true)
+    }
+
     fn corner_offset_s(&self, width: i32, height: i32) -> i32 {
         match (self.transposed, self.ref_corner) {
             (false, Corner::TopRight | Corner::BottomRight) => width.wrapping_sub(1),
@@ -220,17 +238,9 @@ impl TextRegion<'_> {
                     };
                     &owned
                 };
-                match symbol {
-                    Symbol::Null => continue,
-                    // composing an image that has no pixels fails the region
-                    Symbol::Empty => return None,
-                    Symbol::Bitmap(_) => {}
+                if self.place_instance(&mut region, symbol, &mut cur_s, t)? {
+                    instances += 1;
                 }
-                let (width, height) = (symbol.width(), symbol.height());
-                cur_s = cur_s.wrapping_add(self.corner_offset_s(width, height));
-                self.place(&mut region, symbol.image(), width, height, cur_s, t);
-                cur_s = cur_s.wrapping_add(self.corner_advance_s(width, height));
-                instances += 1;
             }
         }
         Some(region)
@@ -282,25 +292,15 @@ impl TextRegion<'_> {
                     let mut decoder = ArithDecoder::new(stream.data(), start);
                     let refined = refined_symbol(original, self.r_template, self.r_at, [rdw, rdh, rdx, rdy], &mut decoder, gr_cx).ok()?;
                     owned = refined?;
-                    stream.set_byte_index(decoder.byte_index());
-                    stream.align_byte();
-                    stream.add_offset(2);
+                    stream.end_arith(decoder.byte_index());
                     if size as u32 != stream.byte_index().wrapping_sub(start) {
                         return None;
                     }
                     &owned
                 };
-                match symbol {
-                    Symbol::Null => continue,
-                    // composing an image that has no pixels fails the region
-                    Symbol::Empty => return None,
-                    Symbol::Bitmap(_) => {}
+                if self.place_instance(&mut region, symbol, &mut cur_s, t)? {
+                    instances += 1;
                 }
-                let (width, height) = (symbol.width(), symbol.height());
-                cur_s = cur_s.wrapping_add(self.corner_offset_s(width, height));
-                self.place(&mut region, symbol.image(), width, height, cur_s, t);
-                cur_s = cur_s.wrapping_add(self.corner_advance_s(width, height));
-                instances += 1;
             }
         }
         Some(region)
@@ -469,9 +469,7 @@ impl Context<'_> {
             let mut ids = IntStates::new(symbol_code_length(count));
             let mut decoder = ArithDecoder::new(stream.data(), stream.byte_index());
             let image = region.decode_arith(&mut decoder, &mut gr_cx, &mut ids).ok_or(Failure)?;
-            stream.set_byte_index(decoder.byte_index());
-            stream.align_byte();
-            stream.add_offset(2);
+            stream.end_arith(decoder.byte_index());
             image
         };
         Self::finish_region(segment, image, &info, page, 4);

@@ -215,6 +215,19 @@ fn to_index(value: i64, what: &str) -> Result<usize> {
     usize::try_from(value).map_err(|_| PdfError::format(format!("Invalid {what}.")))
 }
 
+/// A big-endian unsigned field of `width` bytes of an xref stream entry (`what` names it in the error).
+fn read_field(data: &mut ByteStream, width: i64, what: &str) -> Result<i32> {
+    let mut value: i32 = 0;
+    for _ in 0..width {
+        let byte = data.get_byte();
+        if byte == -1 {
+            return Err(PdfError::format(format!("Invalid XRef byteWidths '{what}'.")));
+        }
+        value = (value << 8) | byte;
+    }
+    Ok(value)
+}
+
 impl Xref {
     /// Opens a file: checks the header, finds `startxref`, reads the cross-reference data and, when pdf.js's
     /// `XRefParseException` says it is unusable, rebuilds the table by scanning the file. A password failure
@@ -545,8 +558,13 @@ impl Xref {
             self.read_xref(false)?.ok_or(PdfError::XRefParse)?
         };
         self.state.borrow_mut().trailer = Some(trailer.clone());
+        self.install_decryptor(&trailer)?;
+        self.check_root(&trailer, recovery_mode)
+    }
 
-        let encrypt = match self.get(&trailer, "Encrypt") {
+    /// Builds the decryptor when the trailer names an `Encrypt` dictionary.
+    fn install_decryptor(&self, trailer: &Dict) -> Result<()> {
+        let encrypt = match self.get(trailer, "Encrypt") {
             Ok(obj) => obj,
             Err(e) if e.is_fatal() => return Err(e),
             Err(e) => {
@@ -555,7 +573,7 @@ impl Xref {
             }
         };
         if let Obj::Dict(encrypt) = encrypt {
-            let ids = self.get(&trailer, "ID")?;
+            let ids = self.get(trailer, "ID")?;
             let file_id: Vec<u8> = match &ids {
                 Obj::Array(items) => items.first().and_then(Obj::as_str).map(<[u8]>::to_vec).unwrap_or_default(),
                 _ => Vec::new(),
@@ -571,8 +589,12 @@ impl Xref {
             let decryptor = factory.create(&encrypt_dict, &file_id, self)?;
             self.state.borrow_mut().encrypt = Some(decryptor);
         }
+        Ok(())
+    }
 
-        let root = match self.get(&trailer, "Root") {
+    /// Accepts the trailer's `Root` when it is a dictionary with a `/Pages` dictionary.
+    fn check_root(&self, trailer: &Dict, recovery_mode: bool) -> Result<()> {
+        let root = match self.get(trailer, "Root") {
             Ok(obj) => obj,
             Err(e) if e.is_fatal() => return Err(e),
             Err(e) => {
@@ -753,33 +775,9 @@ impl Xref {
             let mut i: i64 = 0;
             while i < n {
                 guard.tick()?;
-                let mut kind: i32 = 0;
-                let mut offset: i32 = 0;
-                let mut generation: i32 = 0;
-                for _ in 0..type_width {
-                    let byte = data.get_byte();
-                    if byte == -1 {
-                        return Err(PdfError::format("Invalid XRef byteWidths 'type'."));
-                    }
-                    kind = (kind << 8) | byte;
-                }
-                if type_width == 0 {
-                    kind = 1;
-                }
-                for _ in 0..offset_width {
-                    let byte = data.get_byte();
-                    if byte == -1 {
-                        return Err(PdfError::format("Invalid XRef byteWidths 'offset'."));
-                    }
-                    offset = (offset << 8) | byte;
-                }
-                for _ in 0..generation_width {
-                    let byte = data.get_byte();
-                    if byte == -1 {
-                        return Err(PdfError::format("Invalid XRef byteWidths 'generation'."));
-                    }
-                    generation = (generation << 8) | byte;
-                }
+                let kind = if type_width == 0 { 1 } else { read_field(&mut data, type_width, "type")? };
+                let offset = read_field(&mut data, offset_width, "offset")?;
+                let generation = read_field(&mut data, generation_width, "generation")?;
                 let mut entry = Entry { offset: i64::from(offset), generation: i64::from(generation), free: false, uncompressed: false };
                 match kind {
                     0 => entry.free = true,

@@ -1,9 +1,3 @@
-//! The delivered-completions registry (`delivered-completions.mjs`): a completion whose body
-//! already reached the model by another path (a task read's ACK, a UI that injected it) is
-//! recognised by its execution id or by a hash of its text, so a queued twin is not delivered
-//! again. One registry per daemon, held by its single owner: sliding 6 h expiry, at most 512
-//! keys, the oldest key (insertion order, refreshed by every record and hit) evicted first.
-
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::LazyLock;

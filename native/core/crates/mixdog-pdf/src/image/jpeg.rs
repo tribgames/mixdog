@@ -531,23 +531,12 @@ fn decode_scan(
         spectral_end: spectral.1,
         successive,
     };
-    let mode = if frame.progressive {
-        if spectral.0 == 0 {
-            if successive_prev == 0 { Mode::DcFirst } else { Mode::DcSuccessive }
-        } else if successive_prev == 0 {
-            Mode::AcFirst
-        } else {
-            Mode::AcSuccessive
-        }
-    } else {
-        Mode::Baseline
-    };
-    let mcus_per_line = frame.mcus_per_line;
+    let mode = Mode::of(frame.progressive, spectral.0, successive_prev);
     let mcu_expected = if selected.len() == 1 {
         let c = &frame.components[selected[0]];
         c.blocks_per_line * c.blocks_per_column
     } else {
-        mcus_per_line * frame.mcus_per_column
+        frame.mcus_per_line * frame.mcus_per_column
     };
     let mut mcu = 0usize;
     while mcu <= mcu_expected {
@@ -560,32 +549,7 @@ fn decode_scan(
                 frame.components[ci].pred = 0;
             }
             scan.eobrun = 0;
-            if selected.len() == 1 {
-                let c = &mut frame.components[selected[0]];
-                for _ in 0..to_read {
-                    let bpl = c.blocks_per_line;
-                    scan.block_row = if bpl == 0 { 0 } else { mcu / bpl };
-                    let off = if bpl == 0 { None } else { Some(block_offset(c, scan.block_row, mcu % bpl)) };
-                    scan.run(mode, c, off)?;
-                    mcu += 1;
-                }
-            } else {
-                for _ in 0..to_read {
-                    for &ci in selected {
-                        let c = &mut frame.components[ci];
-                        let (h, v) = (c.h as usize, c.v as usize);
-                        for j in 0..v {
-                            for k in 0..h {
-                                let (mcu_row, mcu_col) = if mcus_per_line == 0 { (0, None) } else { (mcu / mcus_per_line, Some(mcu % mcus_per_line)) };
-                                scan.block_row = mcu_row * v + j;
-                                let off = mcu_col.map(|col| block_offset(c, scan.block_row, col * h + k));
-                                scan.run(mode, c, off)?;
-                            }
-                        }
-                    }
-                    mcu += 1;
-                }
-            }
+            scan.decode_mcus(frame, selected, mode, &mut mcu, to_read)?;
         }
         scan.bits_count = 0;
         let Some(marker) = find_next_file_marker(data, scan.offset, scan.offset as isize)? else {
@@ -605,7 +569,54 @@ fn decode_scan(
     Ok(scan.offset - start)
 }
 
+impl Mode {
+    fn of(progressive: bool, spectral_start: usize, successive_prev: u32) -> Mode {
+        if !progressive {
+            Mode::Baseline
+        } else if spectral_start == 0 {
+            if successive_prev == 0 { Mode::DcFirst } else { Mode::DcSuccessive }
+        } else if successive_prev == 0 {
+            Mode::AcFirst
+        } else {
+            Mode::AcSuccessive
+        }
+    }
+}
+
 impl Scan<'_> {
+    /// Decodes `to_read` MCUs from number `*mcu` on: the blocks of the one selected component in raster order, or the
+    /// interleaved blocks of each selected component's `h x v` grid.
+    fn decode_mcus(&mut self, frame: &mut Frame, selected: &[usize], mode: Mode, mcu: &mut usize, to_read: usize) -> Step<()> {
+        if let [only] = selected {
+            let c = &mut frame.components[*only];
+            for _ in 0..to_read {
+                let bpl = c.blocks_per_line;
+                self.block_row = if bpl == 0 { 0 } else { *mcu / bpl };
+                let off = if bpl == 0 { None } else { Some(block_offset(c, self.block_row, *mcu % bpl)) };
+                self.run(mode, c, off)?;
+                *mcu += 1;
+            }
+            return Ok(());
+        }
+        let mcus_per_line = frame.mcus_per_line;
+        for _ in 0..to_read {
+            for &ci in selected {
+                let c = &mut frame.components[ci];
+                let (h, v) = (c.h as usize, c.v as usize);
+                for j in 0..v {
+                    for k in 0..h {
+                        let (mcu_row, mcu_col) = if mcus_per_line == 0 { (0, None) } else { (*mcu / mcus_per_line, Some(*mcu % mcus_per_line)) };
+                        self.block_row = mcu_row * v + j;
+                        let off = mcu_col.map(|col| block_offset(c, self.block_row, col * h + k));
+                        self.run(mode, c, off)?;
+                    }
+                }
+            }
+            *mcu += 1;
+        }
+        Ok(())
+    }
+
     fn run(&mut self, mode: Mode, c: &mut Component, off: Option<usize>) -> Step<()> {
         match mode {
             Mode::Baseline => self.decode_baseline(c, off),
@@ -628,9 +639,17 @@ fn quantize_and_inverse(component: &mut Component, at: usize, p: &mut [i16; 64])
     if at + 64 > block.len() {
         return fail("Cannot read properties of undefined");
     }
+    let block = &mut block[at..at + 64];
+    dequantize_rows(block, &qt, p);
+    transform_columns(p, block);
+    Ok(())
+}
+
+/// The row pass of the inverse DCT: dequantises the 8x8 `block` into `p`.
+fn dequantize_rows(block: &[i16], qt: &[u16; 64], p: &mut [i16; 64]) {
     let q = |i: usize| i64::from(qt[i]);
     for row in (0..64).step_by(8) {
-        let b = |i: usize| i64::from(block[at + row + i]);
+        let b = |i: usize| i64::from(block[row + i]);
         let mut p0 = b(0);
         let (mut p1, mut p2, mut p3, mut p4, mut p5, mut p6, mut p7) = (b(1), b(2), b(3), b(4), b(5), b(6), b(7));
         p0 *= q(row);
@@ -684,6 +703,10 @@ fn quantize_and_inverse(component: &mut Component, at: usize, p: &mut [i16; 64])
         p[row + 3] = (v3 + v4) as i16;
         p[row + 4] = (v3 - v4) as i16;
     }
+}
+
+/// The column pass of the inverse DCT: transforms `p` into the clamped samples of the 8x8 `block`.
+fn transform_columns(p: &[i16; 64], block: &mut [i16]) {
     for col in 0..8 {
         let pv = |i: usize| i64::from(p[col + 8 * i]);
         let p0 = pv(0);
@@ -698,7 +721,7 @@ fn quantize_and_inverse(component: &mut Component, at: usize, p: &mut [i16; 64])
                 t = sh(t + 2056, 4);
             }
             for i in 0..8 {
-                block[at + col + 8 * i] = t as i16;
+                block[col + 8 * i] = t as i16;
             }
             continue;
         }
@@ -739,10 +762,9 @@ fn quantize_and_inverse(component: &mut Component, at: usize, p: &mut [i16; 64])
             } else {
                 sh(x, 4)
             };
-            block[at + col + 8 * i] = y as i16;
+            block[col + 8 * i] = y as i16;
         }
     }
-    Ok(())
 }
 
 fn build_component_data(component: &mut Component) -> Step<()> {
@@ -754,6 +776,165 @@ fn build_component_data(component: &mut Component) -> Step<()> {
         }
     }
     Ok(())
+}
+
+// ---- segments ------------------------------------------------------------------------------------------------------
+
+type QuantizationTables = [Option<Arc<[u16; 64]>>];
+type HuffmanTables = [Option<Arc<Huffman>>];
+
+/// The DQT segment at `offset`.
+fn read_quantization_tables(data: &[u8], offset: &mut usize, tables: &mut QuantizationTables) -> Step<()> {
+    let length = u16_at(data, *offset)? as usize;
+    *offset += 2;
+    let end = length + *offset - 2;
+    while *offset < end {
+        let spec = byte(data, *offset);
+        *offset += 1;
+        let mut table = [0u16; 64];
+        match spec >> 4 {
+            0 => {
+                for j in 0..64 {
+                    table[ZIGZAG[j] as usize] = byte(data, *offset) as u16;
+                    *offset += 1;
+                }
+            }
+            1 => {
+                for j in 0..64 {
+                    table[ZIGZAG[j] as usize] = u16_at(data, *offset)? as u16;
+                    *offset += 2;
+                }
+            }
+            _ => return fail("DQT - invalid table spec"),
+        }
+        tables[(spec & 15) as usize] = Some(Arc::new(table));
+    }
+    Ok(())
+}
+
+/// The SOF segment at `offset`; `dnl_scan_lines` is the line count of a DNL marker found by an earlier parse.
+fn read_frame_header(data: &[u8], offset: &mut usize, progressive: bool, dnl_scan_lines: Option<u32>) -> Step<Frame> {
+    *offset += 2;
+    let precision = byte(data, *offset);
+    *offset += 1;
+    let sof_scan_lines = u16_at(data, *offset)?;
+    *offset += 2;
+    let scan_lines = match dnl_scan_lines {
+        Some(lines) if lines != 0 => lines,
+        _ => sof_scan_lines,
+    };
+    let samples_per_line = u16_at(data, *offset)?;
+    *offset += 2;
+    let count = byte(data, *offset);
+    *offset += 1;
+    let mut components = Vec::new();
+    let mut ids = HashMap::new();
+    let (mut max_h, mut max_v) = (0u32, 0u32);
+    for _ in 0..count {
+        let id = byte(data, *offset);
+        let h = byte(data, *offset + 1) >> 4;
+        let v = byte(data, *offset + 1) & 15;
+        max_h = max_h.max(h);
+        max_v = max_v.max(v);
+        components.push(Component {
+            h,
+            v,
+            quantization_id: byte(data, *offset + 2),
+            quantization_table: None,
+            index: None,
+            block_data: Vec::new(),
+            blocks_per_line: 0,
+            blocks_per_column: 0,
+            pred: 0,
+            huffman_dc: None,
+            huffman_ac: None,
+        });
+        ids.insert(id, components.len() - 1);
+        *offset += 3;
+    }
+    let mut frame = Frame { progressive, precision, scan_lines, samples_per_line, components, component_ids: ids, mcus_per_line: 0, mcus_per_column: 0 };
+    prepare_components(&mut frame, max_h, max_v)?;
+    Ok(frame)
+}
+
+/// The DHT segment at `offset`.
+fn read_huffman_tables(data: &[u8], offset: &mut usize, dc: &mut HuffmanTables, ac: &mut HuffmanTables) -> Step<()> {
+    let length = u16_at(data, *offset)? as usize;
+    *offset += 2;
+    let mut i = 2usize;
+    while i < length {
+        let spec = byte(data, *offset);
+        *offset += 1;
+        let mut lengths = [0u8; 16];
+        let mut sum = 0usize;
+        for slot in lengths.iter_mut() {
+            *slot = byte(data, *offset) as u8;
+            sum += usize::from(*slot);
+            *offset += 1;
+        }
+        let values: Vec<u8> = (0..sum).map(|j| byte(data, *offset + j) as u8).collect();
+        *offset += sum;
+        i += 17 + sum;
+        let table = Arc::new(build_huffman(&lengths, &values)?);
+        let list = if spec >> 4 == 0 { &mut *dc } else { &mut *ac };
+        list[(spec & 15) as usize] = Some(table);
+    }
+    Ok(())
+}
+
+/// The SOS segment at `offset` (just past the marker) and the entropy-coded data after it; `offset` ends after the data.
+fn read_scan(
+    data: &[u8],
+    offset: &mut usize,
+    frame: &mut Frame,
+    (huffman_dc, huffman_ac): (&HuffmanTables, &HuffmanTables),
+    reset_interval: Option<u32>,
+    parse_dnl: bool,
+) -> Step<()> {
+    *offset += 2;
+    let count = byte(data, *offset);
+    *offset += 1;
+    let mut selected = Vec::new();
+    for _ in 0..count {
+        let index = byte(data, *offset);
+        *offset += 1;
+        let Some(&ci) = frame.component_ids.get(&index) else {
+            return fail("Cannot set properties of undefined");
+        };
+        let spec = byte(data, *offset);
+        *offset += 1;
+        let c = &mut frame.components[ci];
+        c.index = Some(index);
+        c.huffman_dc = huffman_dc[(spec >> 4) as usize].clone();
+        c.huffman_ac = huffman_ac[(spec & 15) as usize].clone();
+        selected.push(ci);
+    }
+    let spectral_start = byte(data, *offset) as usize;
+    let spectral_end = byte(data, *offset + 1) as usize;
+    let approximation = byte(data, *offset + 2);
+    *offset += 3;
+    *offset += decode_scan(data, *offset, frame, &selected, reset_interval, (spectral_start, spectral_end), approximation >> 4, approximation & 15, parse_dnl)?;
+    Ok(())
+}
+
+/// Inverse-transforms every component of the frame into its output plane.
+fn finish_components(frame: &mut Frame, quantization_tables: &QuantizationTables) -> Step<Vec<Output>> {
+    let (max_h, max_v) = frame.components.iter().fold((0u32, 0u32), |(h, v), c| (h.max(c.h), v.max(c.v)));
+    let mut components = Vec::with_capacity(frame.components.len());
+    for component in &mut frame.components {
+        if let Some(Some(table)) = quantization_tables.get(component.quantization_id as usize) {
+            component.quantization_table = Some(table.clone());
+        }
+        build_component_data(component)?;
+        components.push(Output {
+            index: component.index,
+            output: std::mem::take(&mut component.block_data),
+            scale_x: f64::from(component.h) / f64::from(max_h),
+            scale_y: f64::from(component.v) / f64::from(max_v),
+            blocks_per_line: component.blocks_per_line,
+        });
+    }
+    Ok(components)
 }
 
 // ---- the image -----------------------------------------------------------------------------------------------------
@@ -823,109 +1004,14 @@ impl JpegImage {
                         adobe_transform = Some(at(11));
                     }
                 }
-                0xffdb => {
-                    let length = u16_at(data, offset)? as usize;
-                    offset += 2;
-                    let end = length + offset - 2;
-                    while offset < end {
-                        let spec = byte(data, offset);
-                        offset += 1;
-                        let mut table = [0u16; 64];
-                        match spec >> 4 {
-                            0 => {
-                                for j in 0..64 {
-                                    table[ZIGZAG[j] as usize] = byte(data, offset) as u16;
-                                    offset += 1;
-                                }
-                            }
-                            1 => {
-                                for j in 0..64 {
-                                    table[ZIGZAG[j] as usize] = u16_at(data, offset)? as u16;
-                                    offset += 2;
-                                }
-                            }
-                            _ => return fail("DQT - invalid table spec"),
-                        }
-                        quantization_tables[(spec & 15) as usize] = Some(Arc::new(table));
-                    }
-                }
+                0xffdb => read_quantization_tables(data, &mut offset, &mut quantization_tables)?,
                 0xffc0..=0xffc2 => {
                     if frame.is_some() {
                         return fail("Only single frame JPEGs supported");
                     }
-                    offset += 2;
-                    let precision = byte(data, offset);
-                    offset += 1;
-                    let sof_scan_lines = u16_at(data, offset)?;
-                    offset += 2;
-                    let scan_lines = match dnl_scan_lines {
-                        Some(lines) if lines != 0 => lines,
-                        _ => sof_scan_lines,
-                    };
-                    let samples_per_line = u16_at(data, offset)?;
-                    offset += 2;
-                    let count = byte(data, offset);
-                    offset += 1;
-                    let mut components = Vec::new();
-                    let mut ids = HashMap::new();
-                    let (mut max_h, mut max_v) = (0u32, 0u32);
-                    for _ in 0..count {
-                        let id = byte(data, offset);
-                        let h = byte(data, offset + 1) >> 4;
-                        let v = byte(data, offset + 1) & 15;
-                        max_h = max_h.max(h);
-                        max_v = max_v.max(v);
-                        components.push(Component {
-                            h,
-                            v,
-                            quantization_id: byte(data, offset + 2),
-                            quantization_table: None,
-                            index: None,
-                            block_data: Vec::new(),
-                            blocks_per_line: 0,
-                            blocks_per_column: 0,
-                            pred: 0,
-                            huffman_dc: None,
-                            huffman_ac: None,
-                        });
-                        ids.insert(id, components.len() - 1);
-                        offset += 3;
-                    }
-                    let mut f = Frame {
-                        progressive: file_marker == 0xffc2,
-                        precision,
-                        scan_lines,
-                        samples_per_line,
-                        components,
-                        component_ids: ids,
-                        mcus_per_line: 0,
-                        mcus_per_column: 0,
-                    };
-                    prepare_components(&mut f, max_h, max_v)?;
-                    frame = Some(f);
+                    frame = Some(read_frame_header(data, &mut offset, file_marker == 0xffc2, dnl_scan_lines)?);
                 }
-                0xffc4 => {
-                    let length = u16_at(data, offset)? as usize;
-                    offset += 2;
-                    let mut i = 2usize;
-                    while i < length {
-                        let spec = byte(data, offset);
-                        offset += 1;
-                        let mut lengths = [0u8; 16];
-                        let mut sum = 0usize;
-                        for slot in lengths.iter_mut() {
-                            *slot = byte(data, offset) as u8;
-                            sum += usize::from(*slot);
-                            offset += 1;
-                        }
-                        let values: Vec<u8> = (0..sum).map(|j| byte(data, offset + j) as u8).collect();
-                        offset += sum;
-                        i += 17 + sum;
-                        let table = Arc::new(build_huffman(&lengths, &values)?);
-                        let list = if spec >> 4 == 0 { &mut huffman_dc } else { &mut huffman_ac };
-                        list[(spec & 15) as usize] = Some(table);
-                    }
-                }
+                0xffc4 => read_huffman_tables(data, &mut offset, &mut huffman_dc, &mut huffman_ac)?,
                 0xffdd => {
                     offset += 2;
                     reset_interval = Some(u16_at(data, offset)?);
@@ -934,43 +1020,11 @@ impl JpegImage {
                 0xffda => {
                     num_sos += 1;
                     let parse_dnl = num_sos == 1 && dnl_scan_lines.is_none_or(|lines| lines == 0);
-                    offset += 2;
-                    let count = byte(data, offset);
-                    offset += 1;
                     let Some(f) = frame.as_mut() else {
                         return fail("Cannot read properties of undefined");
                     };
-                    let mut selected = Vec::new();
-                    for _ in 0..count {
-                        let index = byte(data, offset);
-                        offset += 1;
-                        let Some(&ci) = f.component_ids.get(&index) else {
-                            return fail("Cannot set properties of undefined");
-                        };
-                        let spec = byte(data, offset);
-                        offset += 1;
-                        let c = &mut f.components[ci];
-                        c.index = Some(index);
-                        c.huffman_dc = huffman_dc[(spec >> 4) as usize].clone();
-                        c.huffman_ac = huffman_ac[(spec & 15) as usize].clone();
-                        selected.push(ci);
-                    }
-                    let spectral_start = byte(data, offset) as usize;
-                    let spectral_end = byte(data, offset + 1) as usize;
-                    let approximation = byte(data, offset + 2);
-                    offset += 3;
-                    match decode_scan(
-                        data,
-                        offset,
-                        f,
-                        &selected,
-                        reset_interval,
-                        (spectral_start, spectral_end),
-                        approximation >> 4,
-                        approximation & 15,
-                        parse_dnl,
-                    ) {
-                        Ok(processed) => offset += processed,
+                    match read_scan(data, &mut offset, f, (&huffman_dc[..], &huffman_ac[..]), reset_interval, parse_dnl) {
+                        Ok(()) => {}
                         Err(Stop::Eoi) => {
                             tracing::warn!("Found EOI marker (0xFFD9) while parsing scan data -- ignoring the rest of the image data.");
                             break 'markers;
@@ -1007,21 +1061,7 @@ impl JpegImage {
         let Some(mut f) = frame else {
             return fail("JpegImage.parse - no frame data found.");
         };
-        let (max_h, max_v) = f.components.iter().fold((0u32, 0u32), |(h, v), c| (h.max(c.h), v.max(c.v)));
-        let mut components = Vec::with_capacity(f.components.len());
-        for component in &mut f.components {
-            if let Some(Some(table)) = quantization_tables.get(component.quantization_id as usize) {
-                component.quantization_table = Some(table.clone());
-            }
-            build_component_data(component)?;
-            components.push(Output {
-                index: component.index,
-                output: std::mem::take(&mut component.block_data),
-                scale_x: f64::from(component.h) / f64::from(max_h),
-                scale_y: f64::from(component.v) / f64::from(max_v),
-                blocks_per_line: component.blocks_per_line,
-            });
-        }
+        let components = finish_components(&mut f, &quantization_tables)?;
         Ok(JpegImage { width: f.samples_per_line, height: f.scan_lines, adobe_transform, components, color_transform })
     }
 
@@ -1223,6 +1263,25 @@ mod tests {
     fn a_stream_that_is_not_a_jpeg_fails() {
         assert!(JpegImage::parse(&[1, 2, 3, 4], None).is_err());
         assert!(JpegImage::parse(&[0xff, 0xd8, 0xff, 0xd9], None).is_err());
+    }
+
+    /// An 8x8 gray image whose columns step by 30 and rows by 3 (libjpeg decodes row 0 to 1, 30, 61, ..., 210 and row
+    /// 7 to 21, 50, 82, ..., 230), written at quality 90 once as a baseline and once as a progressive JPEG.
+    const GRADIENT_BASELINE: &str = "ffd8ffe000104a46494600010100000100010000ffdb0043000302020302020303030304030304050805050404050a070706080c0a0c0c0b0a0b0b0d0e12100d0e110e0b0b1016101113141515150c0f171816141812141514ffc0000b080008000801011100ffc4001f0000010501010101010100000000000000000102030405060708090a0bffc400b5100002010303020403050504040000017d01020300041105122131410613516107227114328191a1082342b1c11552d1f02433627282090a161718191a25262728292a3435363738393a434445464748494a535455565758595a636465666768696a737475767778797a838485868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5c6c7c8c9cad2d3d4d5d6d7d8d9dae1e2e3e4e5e6e7e8e9eaf1f2f3f4f5f6f7f8f9faffda0008010100003f00e7bfe09dda27fc833e5feed7ffd9";
+    const GRADIENT_PROGRESSIVE: &str = "ffd8ffe000104a46494600010100000100010000ffdb0043000302020302020303030304030304050805050404050a070706080c0a0c0c0b0a0b0b0d0e12100d0e110e0b0b1016101113141515150c0f171816141812141514ffc2000b080008000801011100ffc40014000100000000000000000000000000000005ffda00080101000000013bffc400161000030000000000000000000000000000000307ffda00080101000105029da4ffc4001510010100000000000000000000000000000003ffda0008010100063f029bffc4001510010100000000000000000000000000005100ffda0008010100013f21197fffda0008010100000010ff00ffc40014100100000000000000000000000000000000ffda0008010100013f1073ffd9";
+
+    fn from_hex(hex: &str) -> Vec<u8> {
+        (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("hex")).collect()
+    }
+
+    #[test]
+    fn baseline_and_progressive_scans_decode_the_same_gradient() {
+        for hex in [GRADIENT_BASELINE, GRADIENT_PROGRESSIVE] {
+            let data = JpegImage::parse(&from_hex(hex), None).expect("parses").get_data(8, 8, false, false).expect("data");
+            for (got, want) in data[..8].iter().zip([1u8, 30, 61, 90, 121, 150, 181, 210]).chain(data[56..].iter().zip([21, 50, 82, 110, 141, 170, 201, 230])) {
+                assert!(got.abs_diff(want) <= 3, "{got} against {want}");
+            }
+        }
     }
 
     #[test]

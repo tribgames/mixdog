@@ -1,4 +1,4 @@
-//! The owning layer of the bottom panels (`app/panel-surface.mjs` and `usePanelOwnership` of `App.jsx`).
+//! The owning layer of the bottom panels.
 //!
 //! [`PanelSurface`] holds the picker, the context panel and the usage panel, the supersession counter and the Enter latch.
 //! The only way to write a panel is a claim taken at the user action that is allowed to own the screen:
@@ -12,11 +12,9 @@
 //! ```
 //!
 //! A claim carries the panel epoch it was taken at and every write re-validates it, so a late async result (an Esc that came
-//! first, a newer panel that replaced it) is dropped instead of painted. The async races of the Node app (promises and
-//! timers settling in any order) are ordered events here: the caller feeds them in the order they settle.
+//! first, a newer panel that replaced it) is dropped instead of painted. The caller feeds the results in the order they settle.
 //!
-//! Two rules make a claim behave like the hand-written guards it replaces: a paint can itself be the handover (a panel
-//! identity change), so a successful write re-arms the claim on the surface it just took; and `close` drops ownership for
+//! Two rules: a paint can itself be the handover (a panel identity change), so a successful write re-arms the claim on the surface it just took; and `close` drops ownership for
 //! good, which stops a late ack from re-opening a panel the user dismissed. Use `paint(None)`, not `close`, when the same flow
 //! clears the picker and goes on (Enter to prompt).
 

@@ -6,9 +6,10 @@
 //! returns what the owner has to do; nothing here reads a clock, the clipboard or the terminal.
 //!
 //! * [`picker`], [`palette`], [`question`], [`confirm_bar`], [`sign_in_url`], [`text_entry`], [`hint_overprint`]: the
-//!   panels and bars of this crate's first task.
+//!   panels and bars.
 //! * [`panel_cell_text`] and [`text_layout`]: the cell-width helpers the panels share.
-//! * [`transcript`], [`tool_cards`], [`spinner`], [`statusline`], [`panels`]: filled by the widget tasks that follow.
+//! * [`transcript`], [`tool_cards`], [`spinner`], [`statusline`], [`panels`]: the transcript, tool cards, spinner,
+//!   statusline and floating panels.
 
 use mixdog_term::frame::{Color, Rgb, Style};
 use mixdog_term::paint::{Painter, TextWrap};

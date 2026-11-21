@@ -60,6 +60,7 @@ use mixdog_core_base::support::OpScopes;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::failed;
 use mixdog_core_base::support::on_lane;
+use mixdog_core_base::support::on_lane_wait;
 use mixdog_core_base::support::wrong_method;
 
 const DOMAIN: &str = "config";
@@ -225,7 +226,7 @@ impl WorkflowConfig {
     async fn get_pack(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let params: mixdog_app_protocol::v2::params::ConfigGetWorkflowPackParams = decode(req)?;
         let paths = self.paths.clone();
-        let view = on_lane(self.interactive, &req.ctx.cancel, move |_| pack::get_pack(&paths, &params.workflow_id)).await??;
+        let view = on_lane_wait(self.interactive, &req.ctx.cancel, move |_| pack::get_pack(&paths, &params.workflow_id)).await??;
         Ok(Reply::Value(view))
     }
 
@@ -241,7 +242,7 @@ impl WorkflowConfig {
                 move || async move { on_lane(durability, &cancel, move |lane| pack::save_pack(lane, &paths, &payload, &*now)).await? },
                 move || async move {
                     let id = ids::clean(replay_payload.get("id"));
-                    on_lane(interactive, &replay_cancel, move |_| pack::get_pack(&replay_paths, &id)).await?
+                    on_lane_wait(interactive, &replay_cancel, move |_| pack::get_pack(&replay_paths, &id)).await?
                 },
             )
             .await
@@ -258,7 +259,7 @@ impl WorkflowConfig {
                 None,
                 move || async move { on_lane(durability, &cancel, move |lane| pack::create_pack(lane, &paths, &payload, &*now)).await? },
                 move || async move {
-                    on_lane(interactive, &replay_cancel, move |_| match pack::created_id(&replay_paths, &replay_payload) {
+                    on_lane_wait(interactive, &replay_cancel, move |_| match pack::created_id(&replay_paths, &replay_payload) {
                         Some(id) => pack::get_pack(&replay_paths, &id),
                         None => Err(failed(DOMAIN, "workflow id must contain letters/numbers (dashes and dots allowed)")),
                     })
@@ -293,7 +294,7 @@ impl WorkflowConfig {
                 },
                 move || async move {
                     let id = workflow_id(&replay_requested).unwrap_or_default();
-                    let reverted = on_lane(interactive, &replay_cancel, {
+                    let reverted = on_lane_wait(interactive, &replay_cancel, {
                         let id = id.clone();
                         move |_| pack::pack_exists(&replay_paths, &id)
                     })
@@ -356,7 +357,7 @@ impl WorkflowConfig {
     /// `listWorkflows()`: the catalog with the configured workflow marked active.
     pub async fn list_workflows(&self) -> Result<Value, CoreError> {
         let paths = self.paths.clone();
-        let packs = on_lane(self.interactive, &mixdog_rt::CancellationToken::new(), move |_| pack::list_packs(&paths)).await?;
+        let packs = on_lane_wait(self.interactive, &mixdog_rt::CancellationToken::new(), move |_| pack::list_packs(&paths)).await?;
         let active = ids::active_workflow_id(&self.config.agent());
         let rows = packs.into_iter().map(|listed| {
             let mut row = Map::new();

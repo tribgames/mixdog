@@ -198,72 +198,109 @@ async fn execute(
     }
     let project = project_id.as_deref();
     let agent = agent_id.as_deref();
-    // The category is not part of the public schema: a new entry takes the
-    // internal default, an edit keeps the stored one.
-    let mut write_args = args.clone();
-    if matches!(op, Op::Add | Op::Edit) {
-        if let Some(object) = write_args.as_object_mut() {
-            object.shift_remove("category");
-        }
-        let normalized = store::normalize_input(&write_args, Require { element: true, summary: true, category: false });
-        let mut errors = normalized.errors.clone();
-        if op == Op::Add && project == Some("*") {
-            errors.insert(0, "project_id \"*\" only valid for op=\"list\"".to_owned());
-        }
-        if !errors.is_empty() {
-            return Ok(ToolReply::error(format!("core {}: {}", op.name(), errors.join("; "))));
-        }
-        if let Some(object) = write_args.as_object_mut() {
-            object.insert("element".into(), normalized.element.into());
-            object.insert("summary".into(), normalized.summary.into());
-            if op == Op::Add {
-                object.insert("category".into(), normalized.category.into());
-            }
-        }
-    }
+    let write_args = match prepare_write_args(args, op, project) {
+        Ok(write_args) => write_args,
+        Err(reply) => return Ok(reply),
+    };
     if project == Some("*") && op != Op::List {
         return Ok(ToolReply::error(format!("core {}: project_id \"*\" only valid for op=\"list\"", op.name())));
     }
     match op {
         Op::List => run_list(ctx, args, project, agent, &caller).await,
-        Op::Add => {
-            if agent.is_none() && args.get("project_id").and_then(Value::as_str).is_some_and(|id| !id.trim().is_empty()) {
-                check_destination(ctx, args, project).await?;
-            }
-            let entry = store::add_cancellable(ctx.db, &write_args, project, agent, &caller, cancel).await?;
-            refresh_snapshot(ctx).await?;
-            Ok(ToolReply::ok(format!("core added {}", describe(ctx, &entry).await?)))
-        }
-        Op::Edit => {
-            if agent.is_some() && (args.get("target_project_id").is_some() || args.get("target_cwd").is_some_and(truthy)) {
-                return Err(MemoryError::rejected("agent memory has no project scope"));
-            }
-            let record =
-                index::resolve(ctx.db, project, agent, args.get("id").unwrap_or(&Value::Null), args.get("index_revision").unwrap_or(&Value::Null)).await?;
-            let target = if agent.is_some() { None } else { edit_target(args, project, ctx).await? };
-            let entry = store::edit_cancellable(
-                ctx.db,
-                record,
-                Edit { input: &write_args, expected_project_id: project, expected_agent_id: agent, target_project_id: target.as_deref(), caller: &caller },
-                cancel,
-            )
-            .await?;
-            refresh_snapshot(ctx).await?;
-            Ok(ToolReply::ok(format!("core edited {}", describe(ctx, &entry).await?)))
-        }
-        Op::Delete => {
-            let id = args.get("id").unwrap_or(&Value::Null);
-            let record = index::resolve(ctx.db, project, agent, id, args.get("index_revision").unwrap_or(&Value::Null)).await?;
-            let removed = store::delete_cancellable(ctx.db, record, project, agent, &caller, cancel, settlement).await?;
-            refresh_snapshot(ctx).await?;
-            Ok(ToolReply::ok(format!(
-                "core deleted ({} id={}): {}. Remaining indices were compacted; list memories before the next write.",
-                Pool { project_id: project, agent_id: agent }.label(),
-                value_to_string(id),
-                removed.element
-            )))
+        Op::Add => run_add(ctx, args, &write_args, project, agent, &caller, cancel).await,
+        Op::Edit => run_edit(ctx, args, &write_args, project, agent, &caller, cancel).await,
+        Op::Delete => run_delete(ctx, args, project, agent, &caller, cancel, settlement).await,
+    }
+}
+
+/// The arguments a write stores: the category is not part of the public schema, so a new entry takes the internal default and an edit keeps the stored one.
+fn prepare_write_args(args: &Value, op: Op, project: Option<&str>) -> std::result::Result<Value, ToolReply> {
+    let mut write_args = args.clone();
+    if !matches!(op, Op::Add | Op::Edit) {
+        return Ok(write_args);
+    }
+    if let Some(object) = write_args.as_object_mut() {
+        object.shift_remove("category");
+    }
+    let normalized = store::normalize_input(&write_args, Require { element: true, summary: true, category: false });
+    let mut errors = normalized.errors.clone();
+    if op == Op::Add && project == Some("*") {
+        errors.insert(0, "project_id \"*\" only valid for op=\"list\"".to_owned());
+    }
+    if !errors.is_empty() {
+        return Err(ToolReply::error(format!("core {}: {}", op.name(), errors.join("; "))));
+    }
+    if let Some(object) = write_args.as_object_mut() {
+        object.insert("element".into(), normalized.element.into());
+        object.insert("summary".into(), normalized.summary.into());
+        if op == Op::Add {
+            object.insert("category".into(), normalized.category.into());
         }
     }
+    Ok(write_args)
+}
+
+async fn run_add(
+    ctx: &CoreContext<'_>,
+    args: &Value,
+    write_args: &Value,
+    project: Option<&str>,
+    agent: Option<&str>,
+    caller: &MemoryCaller,
+    cancel: Option<&tokio_util::sync::CancellationToken>,
+) -> Result<ToolReply> {
+    if agent.is_none() && args.get("project_id").and_then(Value::as_str).is_some_and(|id| !id.trim().is_empty()) {
+        check_destination(ctx, args, project).await?;
+    }
+    let entry = store::add_cancellable(ctx.db, write_args, project, agent, caller, cancel).await?;
+    refresh_snapshot(ctx).await?;
+    Ok(ToolReply::ok(format!("core added {}", describe(ctx, &entry).await?)))
+}
+
+async fn run_edit(
+    ctx: &CoreContext<'_>,
+    args: &Value,
+    write_args: &Value,
+    project: Option<&str>,
+    agent: Option<&str>,
+    caller: &MemoryCaller,
+    cancel: Option<&tokio_util::sync::CancellationToken>,
+) -> Result<ToolReply> {
+    if agent.is_some() && (args.get("target_project_id").is_some() || args.get("target_cwd").is_some_and(truthy)) {
+        return Err(MemoryError::rejected("agent memory has no project scope"));
+    }
+    let record = index::resolve(ctx.db, project, agent, args.get("id").unwrap_or(&Value::Null), args.get("index_revision").unwrap_or(&Value::Null)).await?;
+    let target = if agent.is_some() { None } else { edit_target(args, project, ctx).await? };
+    let entry = store::edit_cancellable(
+        ctx.db,
+        record,
+        Edit { input: write_args, expected_project_id: project, expected_agent_id: agent, target_project_id: target.as_deref(), caller },
+        cancel,
+    )
+    .await?;
+    refresh_snapshot(ctx).await?;
+    Ok(ToolReply::ok(format!("core edited {}", describe(ctx, &entry).await?)))
+}
+
+async fn run_delete(
+    ctx: &CoreContext<'_>,
+    args: &Value,
+    project: Option<&str>,
+    agent: Option<&str>,
+    caller: &MemoryCaller,
+    cancel: Option<&tokio_util::sync::CancellationToken>,
+    settlement: Option<&store::DeleteSettlement>,
+) -> Result<ToolReply> {
+    let id = args.get("id").unwrap_or(&Value::Null);
+    let record = index::resolve(ctx.db, project, agent, id, args.get("index_revision").unwrap_or(&Value::Null)).await?;
+    let removed = store::delete_cancellable(ctx.db, record, project, agent, caller, cancel, settlement).await?;
+    refresh_snapshot(ctx).await?;
+    Ok(ToolReply::ok(format!(
+        "core deleted ({} id={}): {}. Remaining indices were compacted; list memories before the next write.",
+        Pool { project_id: project, agent_id: agent }.label(),
+        value_to_string(id),
+        removed.element
+    )))
 }
 
 fn truthy(value: &Value) -> bool {

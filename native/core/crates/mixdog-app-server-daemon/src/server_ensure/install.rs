@@ -122,18 +122,9 @@ pub fn ensure_installed(paths: &RemotePaths, spec: &InstallSpec, now_ms: u64, so
     result.map(|()| Installed { exe: dir.join(BINARY_NAME), fresh: true })
 }
 
-fn stage_and_publish(
-    staging: &Path,
-    dir: &Path,
-    spec: &InstallSpec,
-    sha256: &str,
-    now_ms: u64,
-    upload: &mut dyn Read,
-    payload: Option<&Path>,
-) -> Result<(), EnsureError> {
-    fs::create_dir(staging).map_err(|e| io_failed("Cannot create the staging directory", &e))?;
-    let staged_exe = staging.join(BINARY_NAME);
-    let mut file = fs::File::create(&staged_exe).map_err(|e| io_failed("Cannot create the binary", &e))?;
+/// Writes the uploaded binary to `staged_exe`, checks it against `sha256` and makes it executable.
+fn receive_binary(staged_exe: &Path, sha256: &str, upload: &mut dyn Read) -> Result<(), EnsureError> {
+    let mut file = fs::File::create(staged_exe).map_err(|e| io_failed("Cannot create the binary", &e))?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 256 * 1024];
     loop {
@@ -153,8 +144,22 @@ fn stage_and_publish(
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&staged_exe, fs::Permissions::from_mode(0o755)).map_err(|e| io_failed("Cannot make the binary executable", &e))?;
+        fs::set_permissions(staged_exe, fs::Permissions::from_mode(0o755)).map_err(|e| io_failed("Cannot make the binary executable", &e))?;
     }
+    Ok(())
+}
+
+fn stage_and_publish(
+    staging: &Path,
+    dir: &Path,
+    spec: &InstallSpec,
+    sha256: &str,
+    now_ms: u64,
+    upload: &mut dyn Read,
+    payload: Option<&Path>,
+) -> Result<(), EnsureError> {
+    fs::create_dir(staging).map_err(|e| io_failed("Cannot create the staging directory", &e))?;
+    receive_binary(&staging.join(BINARY_NAME), sha256, upload)?;
     // The JS runtime travels in the same bundle: `js-runtime.json`, the bundled node and the package
     // root move beside the binary (the bootstrap extracts both under one filesystem), so one rename
     // publishes them together and `js_runtime::resolve` finds them next to `mixdogd`.

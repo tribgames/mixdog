@@ -205,42 +205,53 @@ fn collect_paths(value: Option<&JsonValue>, out: &mut Vec<String>) {
 /// Touched paths of a patch (`*** Update/Add/Delete File:` lines and unified-diff headers), as
 /// written in it.
 pub(crate) fn touched_paths(patch: &str) -> Vec<String> {
-    fn strip_metadata(raw: &str) -> String {
-        let mut text = mixdog_js::js_trim(raw).to_owned();
-        if let Some(tab) = text.find('\t') {
-            text = text[..tab].trim_end().to_owned();
-        }
-        if let Some(q @ ('"' | '\'')) = text.chars().next()
-            && text.len() > 1
-            && let Some(end) = text[1..].find(q)
-        {
-            text = text[1..1 + end].to_owned();
-        }
-        text
-    }
-    fn push(raw: &str, out: &mut Vec<String>) {
-        let mut touched = strip_metadata(raw);
-        if touched.is_empty() || touched == "/dev/null" {
-            return;
-        }
-        touched = touched.trim_matches(['"', '\'']).replace('\\', "/");
-        if let Some(rest) = touched.strip_prefix("a/").or_else(|| touched.strip_prefix("b/")) {
-            touched = rest.to_owned();
-        }
-        if touched.is_empty() || touched == "/dev/null" || out.contains(&touched) {
-            return;
-        }
-        out.push(touched);
-    }
     let lines: Vec<&str> = patch.split('\n').collect();
     let mut out = Vec::new();
-    for line in &lines {
+    push_marker_paths(&lines, &mut out);
+    push_diff_header_paths(&lines, &mut out);
+    out
+}
+
+fn strip_metadata(raw: &str) -> String {
+    let mut text = mixdog_js::js_trim(raw).to_owned();
+    if let Some(tab) = text.find('\t') {
+        text = text[..tab].trim_end().to_owned();
+    }
+    if let Some(q @ ('"' | '\'')) = text.chars().next()
+        && text.len() > 1
+        && let Some(end) = text[1..].find(q)
+    {
+        text = text[1..1 + end].to_owned();
+    }
+    text
+}
+
+fn push_touched(raw: &str, out: &mut Vec<String>) {
+    let mut touched = strip_metadata(raw);
+    if touched.is_empty() || touched == "/dev/null" {
+        return;
+    }
+    touched = touched.trim_matches(['"', '\'']).replace('\\', "/");
+    if let Some(rest) = touched.strip_prefix("a/").or_else(|| touched.strip_prefix("b/")) {
+        touched = rest.to_owned();
+    }
+    if touched.is_empty() || touched == "/dev/null" || out.contains(&touched) {
+        return;
+    }
+    out.push(touched);
+}
+
+fn push_marker_paths(lines: &[&str], out: &mut Vec<String>) {
+    for line in lines {
         for marker in ["*** Update File:", "*** Add File:", "*** Delete File:"] {
             if let Some(rest) = line.strip_prefix(marker) {
-                push(rest, &mut out);
+                push_touched(rest, out);
             }
         }
     }
+}
+
+fn push_diff_header_paths(lines: &[&str], out: &mut Vec<String>) {
     let mut i = 0;
     while i + 1 < lines.len() {
         let (minus, plus) = (lines[i], lines[i + 1]);
@@ -251,16 +262,15 @@ pub(crate) fn touched_paths(patch: &str) -> Vec<String> {
             let to = to.strip_prefix("b/").unwrap_or(to);
             if to == "/dev/null" {
                 if from != "/dev/null" {
-                    push(from, &mut out);
+                    push_touched(from, out);
                 }
             } else {
-                push(to, &mut out);
+                push_touched(to, out);
             }
             i += 1;
         }
         i += 1;
     }
-    out
 }
 
 /// A stored read result that is not a body: a receipt of an earlier delivery, or an error.
@@ -288,6 +298,12 @@ impl Inner {
     fn reset_read(&mut self) {
         self.read = Bounded::new();
         self.read_epoch = Arc::new(());
+    }
+
+    /// Writes begun under the earlier epochs can no longer land.
+    fn fence_pending_writes(&mut self) {
+        self.read_epoch = Arc::new(());
+        self.scoped_epoch = Arc::new(());
     }
 }
 
@@ -323,6 +339,11 @@ mod tests {
         fn now_ms(&self) -> i64 {
             self.0
         }
+    }
+
+    /// A temporary folder at its real path: a read of a path through a symlink or a short name is never cached.
+    fn tempdir() -> tempfile::TempDir {
+        tempfile::Builder::new().tempdir_in(pathguard::canonical(&std::env::temp_dir()).unwrap()).unwrap()
     }
 
     fn call(name: &str, args: JsonValue) -> ToolCall {
@@ -381,7 +402,7 @@ mod tests {
     }
     #[tokio::test]
     async fn a_read_is_reused_until_the_file_changes() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         let file = dir.path().join("a.txt");
         std::fs::write(&file, "one").unwrap();
         let r = reuse(dir.path(), 0);
@@ -397,7 +418,7 @@ mod tests {
     }
     #[tokio::test]
     async fn a_same_size_rewrite_with_the_old_timestamps_is_not_reused() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         let file = dir.path().join("a.txt");
         std::fs::write(&file, "one").unwrap();
         let before = std::fs::metadata(&file).unwrap().modified().unwrap();
@@ -411,7 +432,7 @@ mod tests {
     }
     #[tokio::test]
     async fn a_file_replaced_by_rename_is_not_reused_unless_its_bytes_are_the_same() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         let file = dir.path().join("a.txt");
         std::fs::write(&file, "one").unwrap();
         let r = reuse(dir.path(), 0);
@@ -423,7 +444,7 @@ mod tests {
     }
     #[tokio::test]
     async fn a_body_read_while_something_else_wrote_the_file_is_not_stored() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         let file = dir.path().join("a.txt");
         std::fs::write(&file, "").unwrap();
         let r = reuse(dir.path(), 0);
@@ -435,7 +456,7 @@ mod tests {
     }
     #[tokio::test]
     async fn a_read_without_a_valid_pre_execution_snapshot_cannot_fill_the_cache() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         let r = reuse(dir.path(), 0);
         let c = call("read", json!({"path": "a.txt"}));
         assert!(r.prepare(&c, "t1").await.is_none());
@@ -445,7 +466,7 @@ mod tests {
     /// Decided departure from Node: a read is only ever replayed as a body, on every route (`reuse` here is not the Cursor one).
     #[tokio::test]
     async fn a_stored_stub_receipt_or_error_is_never_replayed_for_a_read_but_a_body_is() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         std::fs::write(dir.path().join("a.txt"), "one").unwrap();
         let r = reuse(dir.path(), 0);
         let c = call("read", json!({"path": "a.txt"}));
@@ -463,7 +484,7 @@ mod tests {
     }
     #[tokio::test]
     async fn public_and_legacy_read_offsets_do_not_collide() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         std::fs::write(dir.path().join("a.txt"), "x").unwrap();
         let cache = reuse(dir.path(), 0);
         let public = call("read", json!({"file_path": "a.txt", "offset": 1}));
@@ -474,7 +495,7 @@ mod tests {
     }
     #[tokio::test]
     async fn a_patch_drops_the_files_it_touches_and_the_scoped_entries_over_them() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         std::fs::create_dir(dir.path().join("src")).unwrap();
         std::fs::write(dir.path().join("src/a.txt"), "one").unwrap();
         let r = reuse(dir.path(), 0);
@@ -489,7 +510,7 @@ mod tests {
     }
     #[tokio::test]
     async fn scoped_entries_expire_after_thirty_seconds() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         let clock = Arc::new(Mutex::new(0i64));
         struct Shared(Arc<Mutex<i64>>);
         impl Clock for Shared {
@@ -506,7 +527,7 @@ mod tests {
     }
     #[tokio::test]
     async fn shell_and_git_mutations_clear_scoped_entries() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         let r = reuse(dir.path(), 0);
         let list = call("list", json!({}));
         r.fill(&list, "x", "t").await;
@@ -516,7 +537,7 @@ mod tests {
     }
     #[tokio::test]
     async fn grep_cache_keeps_executor_modes_and_argument_types_distinct() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         let r = reuse(dir.path(), 0);
         let stored = call("grep", json!({"pattern": "foo", "mode": "count", "head_limit": 5, "include_noise": true}));
         r.fill(&stored, "hit", "t").await;
@@ -531,7 +552,7 @@ mod tests {
     }
     #[tokio::test]
     async fn clearing_a_session_empties_the_caches_of_its_live_runs_only() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         std::fs::write(dir.path().join("a.txt"), "one").unwrap();
         let live = watched();
         let mine = CacheAt(live.run(io(), "sess_1", Arc::new(Fixed(0))), dir.path());
@@ -549,8 +570,8 @@ mod tests {
     }
     #[tokio::test]
     async fn a_project_switch_rejects_in_flight_fills_and_keys_new_fills_to_the_project_that_ran() {
-        let dir = tempfile::tempdir().unwrap();
-        let next = tempfile::tempdir().unwrap();
+        let dir = tempdir();
+        let next = tempdir();
         std::fs::write(dir.path().join("a.txt"), "one").unwrap();
         std::fs::write(next.path().join("a.txt"), "two").unwrap();
         let live = watched();
@@ -574,8 +595,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_scoped_result_started_before_invalidation_cannot_replace_a_fresh_result() {
-        let dir = tempfile::tempdir().unwrap();
-        let other = tempfile::tempdir().unwrap();
+        let dir = tempdir();
+        let other = tempdir();
         let live = watched();
         let cache = CacheAt(live.run(io(), "reader", Arc::new(Fixed(0))), dir.path());
         let writer = CacheAt(live.run(io(), "writer", Arc::new(Fixed(0))), dir.path());
@@ -598,8 +619,8 @@ mod tests {
 
     #[tokio::test]
     async fn external_glob_coverage_is_required_and_its_loss_rejects_hits_and_pending_fills() {
-        let cwd = tempfile::tempdir().unwrap();
-        let external = tempfile::tempdir().unwrap();
+        let cwd = tempdir();
+        let external = tempdir();
         let root = pathguard::canonical(external.path()).unwrap();
         let live = LiveReuses::default();
         let revision = Arc::new(Mutex::new(None));
@@ -621,7 +642,7 @@ mod tests {
 
     #[tokio::test]
     async fn scoped_reuse_requires_known_complete_and_cache_safe_output() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         let cache = reuse(dir.path(), 0);
         let list = call("list", json!({"mode": "tree"}));
         for meta in [None, Some(json!({"complete": false})), Some(json!({"complete": true, "cacheSafe": false}))] {
@@ -635,7 +656,7 @@ mod tests {
 
     #[tokio::test]
     async fn directory_watch_alone_does_not_prove_global_or_parent_ignore_inputs() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         std::fs::write(dir.path().join("a.rs"), "x").unwrap();
         let cache = reuse(dir.path(), 0);
         for request in [call("glob", json!({"pattern": "*.rs"})), call("grep", json!({"pattern": "x"})), call("code_graph", json!({"mode": "overview"}))] {
@@ -651,7 +672,7 @@ mod tests {
 
     #[tokio::test]
     async fn only_static_find_windows_can_be_reused() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         let cache = reuse(dir.path(), 0);
         for args in [json!({"mode": "find", "modified_after": "90m"}), json!({"path": "*.rs", "modified_before": "12h"})] {
             assert!(cache.prepare(&call("list", args), "relative").await.is_none());
@@ -663,7 +684,7 @@ mod tests {
 
     #[tokio::test]
     async fn pdf_reads_cannot_fill_the_route_independent_text_cache() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         std::fs::write(dir.path().join("manual.PDF"), b"fake PDF").unwrap();
         std::fs::write(dir.path().join("manual"), b"%PDF-1.7").unwrap();
         let cache = reuse(dir.path(), 0);
@@ -987,6 +1008,51 @@ impl ToolResultReuse {
             _ => cwd.to_owned(),
         }
     }
+
+    /// The paths a mutating call names and the directory they are relative to; `None` for a call that mutates nothing the caches track.
+    fn written_paths(name: &str, args: &JsonValue, cwd: &Path) -> Option<(Vec<String>, PathBuf)> {
+        let mut paths = Vec::new();
+        let base: PathBuf = if name == "apply_patch" {
+            paths = touched_paths(args.get("patch").and_then(|p| p.as_str()).unwrap_or_default());
+            Self::patch_base(args, &cwd.to_string_lossy()).into()
+        } else if matches!(name, "edit" | "write") {
+            for key in ["file_path", "path", "file"] {
+                collect_paths(args.get(key), &mut paths);
+            }
+            cwd.to_path_buf()
+        } else if is_shell_tool(name) || is_git_mutation(name, args) {
+            // These commands can write outside their invocation cwd.
+            cwd.to_path_buf()
+        } else {
+            return None;
+        };
+        Some((paths, base))
+    }
+
+    /// `paths` resolved under `base`, each with its canonical form; `None` when one is unresolvable or a device path.
+    async fn resolve_touched(&self, paths: Vec<String>, base: PathBuf) -> Option<Vec<PathBuf>> {
+        let job = self.io.interactive.submit(&CancellationToken::new(), move |_| {
+            let mut touched = Vec::new();
+            for path in paths {
+                let lexical = mixdog_tools::fs::result_root(&base, &path)?;
+                let text = lexical.to_str()?;
+                if device_paths::is_unc_path(text)
+                    || device_paths::is_windows_device_path(text)
+                    || device_paths::has_unsafe_win32_component(text)
+                    || device_paths::is_blocked_device_path(text)
+                {
+                    return None;
+                }
+                touched.push(pathguard::canonical_through_existing(&lexical).ok()?);
+                touched.push(lexical);
+            }
+            Some(touched)
+        });
+        match job {
+            Ok(job) => job.await.ok().flatten(),
+            Err(_) => None,
+        }
+    }
 }
 #[async_trait::async_trait]
 impl ResultReuse for ToolResultReuse {
@@ -1059,59 +1125,19 @@ impl ResultReuse for ToolResultReuse {
         let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         self.mutations.fetch_add(1, Ordering::SeqCst);
         for inner in sessions.values_mut() {
-            inner.read_epoch = Arc::new(());
-            inner.scoped_epoch = Arc::new(());
+            inner.fence_pending_writes();
         }
         Some(Box::new(ActiveMutation(self.mutations.clone())))
     }
 
     async fn after_call(&self, name: &str, args: &JsonValue, cwd: &Path, _failed: bool) {
-        let name = strip_mcp(name);
-        let mut paths = Vec::new();
-        let base: PathBuf = if name == "apply_patch" {
-            paths = touched_paths(args.get("patch").and_then(|p| p.as_str()).unwrap_or_default());
-            Self::patch_base(args, &cwd.to_string_lossy()).into()
-        } else if matches!(name, "edit" | "write") {
-            for key in ["file_path", "path", "file"] {
-                collect_paths(args.get(key), &mut paths);
-            }
-            cwd.to_path_buf()
-        } else if is_shell_tool(name) || is_git_mutation(name, args) {
-            // These commands can write outside their invocation cwd.
-            cwd.to_path_buf()
-        } else {
-            return;
-        };
-        let touched = if paths.is_empty() {
-            None
-        } else {
-            match self.io.interactive.submit(&CancellationToken::new(), move |_| {
-                let mut touched = Vec::new();
-                for path in paths {
-                    let lexical = mixdog_tools::fs::result_root(&base, &path)?;
-                    let text = lexical.to_str()?;
-                    if device_paths::is_unc_path(text)
-                        || device_paths::is_windows_device_path(text)
-                        || device_paths::has_unsafe_win32_component(text)
-                        || device_paths::is_blocked_device_path(text)
-                    {
-                        return None;
-                    }
-                    touched.push(pathguard::canonical_through_existing(&lexical).ok()?);
-                    touched.push(lexical);
-                }
-                Some(touched)
-            }) {
-                Ok(job) => job.await.ok().flatten(),
-                Err(_) => None,
-            }
-        };
+        let Some((paths, base)) = Self::written_paths(strip_mcp(name), args, cwd) else { return };
+        let touched = if paths.is_empty() { None } else { self.resolve_touched(paths, base).await };
         let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         for inner in sessions.values_mut() {
             // Fills can discover additional dependencies during execution.
             // Fence pending writes without evicting established nonoverlapping rows.
-            inner.read_epoch = Arc::new(());
-            inner.scoped_epoch = Arc::new(());
+            inner.fence_pending_writes();
             if let Some(touched) = &touched {
                 let overlaps = |root: &Path| touched.iter().any(|path| pathguard::is_within(root, path) || pathguard::is_within(path, root));
                 inner.read.entries.retain(|row| !row.meta.stats.iter().any(|(path, _)| overlaps(Path::new(path))));

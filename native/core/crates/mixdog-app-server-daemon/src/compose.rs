@@ -309,6 +309,20 @@ mod tests {
         }
     }
 
+    /// [`config_in`] for a test that composes without installing PostgreSQL: an install attempt fails with `why`.
+    pub(super) fn config_without_postgres(
+        data: &Path,
+        dir: &Path,
+        log: crate::daemon_log::DaemonLog,
+        stop: tokio_util::sync::CancellationToken,
+        why: &'static str,
+    ) -> ComposeConfig {
+        ComposeConfig {
+            pg_install: Some(Arc::new(move |_| Box::pin(async move { Err(mixdog_services::memory::error::MemoryError::Runtime(why.into())) }))),
+            ..config_in(data, dir, log, stop)
+        }
+    }
+
     /// A cell left unbound fails startup, naming it; once every cell is bound the check passes.
     #[test]
     fn startup_fails_when_a_late_cell_is_left_unbound() {
@@ -337,7 +351,7 @@ mod tests {
         crate::compose_test_support::in_child(
             module_path!(),
             "release_runs_the_barriers_then_the_stop_steps_once",
-            tokio::runtime::Builder::new_current_thread(),
+            tokio::runtime::Builder::new_multi_thread(),
             |dir| async move {
                 let log =
                     crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
@@ -351,10 +365,13 @@ mod tests {
                 core.on_stop("step", async move { steps.lock().unwrap().push("step") });
                 // The release states the reason before its first step (`release_started`); the directory's and the channels' steps read it.
                 core.set_stop_reason("test");
-                core.run_final_barriers();
-                core.run_stop_steps().await;
-                core.run_final_barriers();
-                core.run_stop_steps().await;
+                crate::compose_test_support::on_current_thread(async move {
+                    core.run_final_barriers();
+                    core.run_stop_steps().await;
+                    core.run_final_barriers();
+                    core.run_stop_steps().await;
+                })
+                .await;
                 assert_eq!(*order.lock().unwrap(), ["first", "second", "step"]);
             },
         );
@@ -372,7 +389,7 @@ mod tests {
         crate::compose_test_support::in_child(
             module_path!(),
             "the_release_has_requested_closing_before_its_first_budgeted_step",
-            tokio::runtime::Builder::new_current_thread(),
+            tokio::runtime::Builder::new_multi_thread(),
             |dir| async move {
                 use crate::lifecycle::testing::Recorder;
                 use crate::lifecycle::{CorePort, DrainNotice, Lifecycle, LifecycleConfig, Ports, ReleaseBudgets, Running};
@@ -472,7 +489,7 @@ mod tests {
         crate::compose_test_support::in_child(
             module_path!(),
             "an_exec_core_counts_its_requests_and_logs_no_unbound_lifecycle",
-            tokio::runtime::Builder::new_current_thread(),
+            tokio::runtime::Builder::new_multi_thread(),
             |dir| async move {
                 let stop = tokio_util::sync::CancellationToken::new();
                 let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, stop.clone());
@@ -499,7 +516,7 @@ mod tests {
         crate::compose_test_support::in_child(
             module_path!(),
             "the_stop_steps_flush_the_daemon_log_and_then_end_the_run_token",
-            tokio::runtime::Builder::new_current_thread(),
+            tokio::runtime::Builder::new_multi_thread(),
             |dir| async move {
                 let stop = tokio_util::sync::CancellationToken::new();
                 let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, stop.clone());
@@ -509,7 +526,7 @@ mod tests {
                 core.on_stop("log a line", async move { writer.log("closing") });
                 assert!(!stop.is_cancelled());
                 core.set_stop_reason("test");
-                core.run_stop_steps().await;
+                crate::compose_test_support::on_current_thread(async move { core.run_stop_steps().await }).await;
                 assert!(stop.is_cancelled());
                 let text = std::fs::read_to_string(dir.join("daemon.log")).unwrap();
                 assert!(text.contains("[daemon] closing"), "{text}");
@@ -732,11 +749,12 @@ impl CoreHandle for ComposedCore {
         origin: mixdog_protocol::Origin,
         device: &str,
         kind: mixdog_protocol::ConnectionKind,
-    ) {
-        crate::domain_seams::remote::register_local(&self.real.remote.registry, connection, origin, device, kind);
+    ) -> String {
+        let stamped = crate::domain_seams::remote::register_local(&self.real.remote.registry, connection, origin, device, kind);
         if let Err(said) = self.real.late_lifecycle.client_opened(connection, origin, kind) {
             self.log.log(said);
         }
+        stamped
     }
 
     fn request_started(&self, method: &str, params: &serde_json::Value) -> mixdog_core_api::handle::RequestGuard {
@@ -935,20 +953,7 @@ async fn compose_inner(
     } = config;
     let data_dir = data_dir.as_path();
     log.boot_mark("compose-start");
-    let state_dir = data_dir.join("state");
-    create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
-    let (state, _, set_aside) =
-        CoreState::open_or_set_aside(tokens.sqlite_writer_thread, tokens.interactive_io, &state_dir.join("core.sqlite")).map_err(ComposeError::State)?;
-    log.boot_mark("core-state-open");
-    // Node carries on with a state file it finds corrupt; so does the daemon, and says once what it kept.
-    if let Some((kept, why)) = &set_aside.file {
-        log.log(&format!("state/core.sqlite is not a usable database ({why}); kept as {}; started a new one", kept.display()));
-        // The sessions' archive entries went with it: retention never acts on a state only a header still says.
-        mixdog_store::archive_state::ArchiveStates::mark_lost(&state).await.map_err(ComposeError::State)?;
-    }
-    if set_aside.project_rows > 0 {
-        log.log(&format!("{} unreadable project row(s) of state/core.sqlite kept in its meta table (corrupt:projects:<path>)", set_aside.project_rows));
-    }
+    let (state, set_aside) = open_core_state(tokens, data_dir, &log).await?;
     let feed_index = Arc::new(CoreScopedFeeds::new(FeedLimits { ring_bytes: APP_RING_BYTES, max_snapshot_bytes: MAX_SNAPSHOT_BYTES }, tokens.cpu_interactive));
     let scoped_feeds: Arc<dyn ScopedFeeds> = feed_index.clone();
     let js = &js_runtime;
@@ -1062,16 +1067,7 @@ async fn compose_inner(
     // A new database after a set-aside gets back what the session catalog still records (Projects, rooms), before any client connects.
     // The rebuild is best effort: the daemon runs without it, as Node runs with an empty registry.
     if let Some(state) = rebuild_into {
-        match mixdog_store::state_rebuild::rebuild_projects(&state, &real.catalog_index).await {
-            Ok(count) => log.log(&format!("rebuilt {count} project row(s) from the sessions' recorded folders")),
-            Err(error) => log.log(&format!("rebuilding the project rows failed: {error}")),
-        }
-        match mixdog_core_rooms::rooms::rebuild::rebuild_rooms(&state, &real.catalog_index).await {
-            Ok(done) => {
-                log.log(&format!("rebuilt {} room(s) from their logs and member sessions; {} room log(s) had too little left", done.rooms, done.skipped))
-            }
-            Err(error) => log.log(&format!("rebuilding the room rows failed: {error}")),
-        }
+        rebuild_state_rows(&state, &real.catalog_index, &log).await;
     }
     // The stop procedure's first steps, in this order: the quota resume timer ends before the directory it resumes sessions on shuts down, then the directory.
     let resume_timer = real.resume_timer.clone();
@@ -1136,6 +1132,51 @@ async fn compose_inner(
         stall_description,
         telemetry_started: std::sync::atomic::AtomicBool::new(false),
     };
+    register_stop_steps(&core, resume_timer, shutdown);
+    for (name, step) in later {
+        core.on_stop(name, step);
+    }
+    Ok(core)
+}
+
+async fn open_core_state(
+    tokens: &LaneTokens,
+    data_dir: &Path,
+    log: &crate::daemon_log::DaemonLog,
+) -> Result<(CoreState, mixdog_store::state::SetAside), ComposeError> {
+    let state_dir = data_dir.join("state");
+    create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
+    let (state, _, set_aside) =
+        CoreState::open_or_set_aside(tokens.sqlite_writer_thread, tokens.interactive_io, &state_dir.join("core.sqlite")).map_err(ComposeError::State)?;
+    log.boot_mark("core-state-open");
+    // Node carries on with a state file it finds corrupt; so does the daemon, and says once what it kept.
+    if let Some((kept, why)) = &set_aside.file {
+        log.log(&format!("state/core.sqlite is not a usable database ({why}); kept as {}; started a new one", kept.display()));
+        // The sessions' archive entries went with it: retention never acts on a state only a header still says.
+        mixdog_store::archive_state::ArchiveStates::mark_lost(&state).await.map_err(ComposeError::State)?;
+    }
+    if set_aside.project_rows > 0 {
+        log.log(&format!("{} unreadable project row(s) of state/core.sqlite kept in its meta table (corrupt:projects:<path>)", set_aside.project_rows));
+    }
+    Ok((state, set_aside))
+}
+
+async fn rebuild_state_rows(state: &CoreState, catalog_index: &mixdog_store::sqlite::SqliteStore, log: &crate::daemon_log::DaemonLog) {
+    match mixdog_store::state_rebuild::rebuild_projects(state, catalog_index).await {
+        Ok(count) => log.log(&format!("rebuilt {count} project row(s) from the sessions' recorded folders")),
+        Err(error) => log.log(&format!("rebuilding the project rows failed: {error}")),
+    }
+    match mixdog_core_rooms::rooms::rebuild::rebuild_rooms(state, catalog_index).await {
+        Ok(done) => log.log(&format!("rebuilt {} room(s) from their logs and member sessions; {} room log(s) had too little left", done.rooms, done.skipped)),
+        Err(error) => log.log(&format!("rebuilding the room rows failed: {error}")),
+    }
+}
+
+fn register_stop_steps(
+    core: &ComposedCore,
+    resume_timer: Arc<mixdog_core_session::session::quota_resume_scheduler::QuotaResumeScheduler>,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) {
     // Node's first step after the heartbeat (`daemon.mjs:302`): the relayed model calls are aborted and settle before anything they depend on stops.
     let (name, halt) = core.real.heartbeat_halt_step(); // stopHeartbeat?.(), the first act of Node's shutdown after its flags (daemon.mjs:285)
     core.on_stop(name, halt);
@@ -1143,8 +1184,7 @@ async fn compose_inner(
     core.on_stop(name, close);
     let (name, ended) = core.real.heartbeat_ended_step(); // await heartbeatEnded right after the model proxy closed, before the session service stops (daemon.mjs:312)
     core.on_stop(name, ended);
-    let timer = resume_timer.clone();
-    core.on_stop("quota resume timer", async move { timer.stop().await });
+    core.on_stop("quota resume timer", async move { resume_timer.stop().await });
     // The retention cycle reads and deletes sessions through the directory: it has ended before the directory shuts down.
     let (name, retention) = core.real.sub_agent_retention_step();
     core.on_stop(name, retention);
@@ -1155,10 +1195,6 @@ async fn compose_inner(
     // The background projection of the archive entries (started once the core serves) is cancelled and joined before the store closes.
     let archive_trees = core.real.archive_trees.clone();
     core.on_stop("session archive projection", async move { archive_trees.archive_states().close_projection().await });
-    for (name, step) in later {
-        core.on_stop(name, step);
-    }
-    Ok(core)
 }
 
 /// Every scope the composition asks an op gate for must be in `OP_SCOPES`, or `compose` fails at startup with "the op gate of `<scope>` was not passed".

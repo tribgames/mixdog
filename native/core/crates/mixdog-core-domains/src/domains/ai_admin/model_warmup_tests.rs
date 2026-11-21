@@ -359,11 +359,6 @@ async fn an_account_switch_warms_through_the_one_shared_load() {
     shared.host.settle_warm().await;
     assert_eq!(hits(&shared) - before, single);
 }
-// The account-change effect after a stored provider change (`accounts.mjs:92-94`: the config is reloaded, the caches
-// dropped, then the model cache warmed). The warm prepares the providers of the config as it is now: the profile
-// starts as Node's `custom-manual`, the stored config becomes Node's `custom-discovery`, the config sync hands it to
-// the readiness, and the production account effects run. The warm alone must have registered and listed the new
-// provider; the rows then are the ones Node recorded for that profile.
 #[tokio::test]
 async fn an_account_change_warm_lists_the_providers_of_the_config_as_it_is_now() {
     let new = custom_discovery();
@@ -400,9 +395,6 @@ async fn an_account_change_warm_lists_the_providers_of_the_config_as_it_is_now()
     stop.cancel();
     sync.task.await.unwrap();
 }
-// The claim a load makes after its preparation is one step (`ownsLoad`, the revision sync, the sequence): a load an
-// invalidation superseded before it keeps the sequence it began under and is refused, one that is still current takes
-// the sequence in force and is adopted, and an invalidation after the claim refuses it.
 #[tokio::test]
 async fn a_loads_claim_is_refused_after_an_invalidation_and_adopted_before_one() {
     let rig = scenario("custom-discovery").await;
@@ -424,10 +416,6 @@ async fn a_loads_claim_is_refused_after_an_invalidation_and_adopted_before_one()
     rig.host.adopt(seq);
     assert!(rig.service.cache_loaded(), "a current load is adopted");
 }
-// An invalidation attempted exactly between the claim's ownership check and its sequence choice. The hook is a
-// concurrent caller that invalidates the moment the cache lock is free. Held across the claim, the lock keeps it out
-// until the claim is done, which then refuses the adoption; a claim that let the lock go between its steps lets the
-// invalidation land inside, takes the new sequence for a load that was superseded, and adopts it.
 #[tokio::test]
 async fn an_invalidation_between_the_claims_steps_cannot_land_and_a_superseded_load_is_never_adopted() {
     let rig = scenario("custom-discovery").await;

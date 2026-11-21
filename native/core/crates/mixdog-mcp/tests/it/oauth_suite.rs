@@ -1,8 +1,3 @@
-//! MCP OAuth end to end against a loopback server that is both the MCP server and its
-//! authorization server: discovery from the 401 challenge, dynamic registration, the browser
-//! login through a LoginFlow (loopback callback), the connect that follows, a refused token
-//! renewed from its refresh token, and sign-out.
-
 use std::collections::HashMap;
 use std::future::{Future, poll_fn};
 use std::sync::Arc;
@@ -375,12 +370,7 @@ async fn sign_in_connect_refresh_and_sign_out() {
     hub.close_all().await;
 }
 
-/// The sign-in follows the whole challenge the server refused its own transport's request with — a 403 asking for more
-/// scope as much as a 401 (`authorizedFetch`): its discovery asks the resource metadata that challenge names, and the
-/// authorization asks for the scope it names. A request answered afterwards clears the refusal.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_sign_in_starts_from_the_challenge_of_the_refused_transport_request() {
-    let _seams = crate::oauth_seams().await;
+async fn hub_refused_with_a_scope_challenge() -> (tempfile::TempDir, Arc<McpHub>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
@@ -427,7 +417,13 @@ async fn a_sign_in_starts_from_the_challenge_of_the_refused_transport_request() 
     let server = hub.server("acme").unwrap();
     let mut states = server.subscribe();
     mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
+    (dir, hub)
+}
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sign_in_starts_from_the_challenge_of_the_refused_transport_request() {
+    let _seams = crate::oauth_seams().await;
+    let (_dir, hub) = hub_refused_with_a_scope_challenge().await;
     let oauth = hub.oauth("acme").unwrap();
     let challenge = oauth.refusal_challenge().expect("the refusal of the transport's request is kept");
     assert!(challenge.contains("insufficient_scope"), "{challenge}");
@@ -448,8 +444,14 @@ async fn a_sign_in_starts_from_the_challenge_of_the_refused_transport_request() 
     assert_eq!(query.get("scope").map(String::as_str), Some("files"), "{authorize}");
     oauth.answered(None);
     assert_eq!(oauth.refusal_challenge(), None, "an answered request clears the refusal");
+    hub.close_all().await;
+}
 
-    // A renewed token refused with another challenge: the explicit sign-in answers that last one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_renewed_token_refused_with_another_challenge_keeps_the_last_challenge() {
+    let _seams = crate::oauth_seams().await;
+    let (_dir, hub) = hub_refused_with_a_scope_challenge().await;
+    let oauth = hub.oauth("acme").unwrap();
     let first = "Bearer scope=\"files\"";
     let last = "Bearer error=\"insufficient_scope\", scope=\"files admin\"";
     let _ = oauth.renew(Some("old".to_owned()), Some(first.to_owned())).await;

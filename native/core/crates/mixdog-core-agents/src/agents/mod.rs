@@ -54,7 +54,7 @@ pub use lead_service::DesktopLeadStatus;
 pub use lead_service::LEAD_METHODS;
 pub use lead_service::LeadService;
 pub use permissions::AgentPermissions;
-pub use pool_list::{AgentPool, HEADER_FIELDS, PoolError, PoolLive, PoolStore, RuntimeEntry, todo_progress};
+pub use pool_list::{AgentPool, HEADER_FIELDS, PoolError, PoolLive, PoolStore, RuntimeEntry, SettleFix, todo_progress};
 pub use service::AgentLifecycle;
 pub use service::AgentService;
 pub use service::METHODS as AGENT_METHODS;
@@ -87,7 +87,7 @@ use self::files::Folders;
 use self::files::Lane;
 use self::files::STARTERS;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
-use mixdog_core_base::support::on_lane;
+use mixdog_core_base::support::{on_lane, on_lane_wait};
 use mixdog_core_config::config::AgentRoutes;
 use mixdog_core_config::config::ConfigError;
 use mixdog_core_config::config::RouteHome;
@@ -467,7 +467,8 @@ impl AgentDefinitions {
             })
             .await?
             .map_err(AgentsError::Refused)?;
-        let (raw, _) = self.write_job(&writes, None, move |_, lane| read_raw_policy(lane, &file)).await?;
+        // A read on the writers' lane, so it sees what they stored; it waits out a full lane.
+        let raw = on_lane_wait(writes.lane, &CancellationToken::new(), move |lane| read_raw_policy(lane, &file)).await.map_err(AgentsError::Lane)?;
         Ok(Stored::of_raw(raw))
     }
 
@@ -530,7 +531,7 @@ impl AgentDefinitions {
 
     async fn job<R: Send + 'static>(&self, work: impl FnOnce(&Folders, &Lane) -> R + Send + 'static) -> Result<R, AgentsError> {
         let folders = self.folders.clone();
-        on_lane(self.lane, &CancellationToken::new(), move |lane| work(&folders, lane)).await.map_err(AgentsError::Lane)
+        on_lane_wait(self.lane, &CancellationToken::new(), move |lane| work(&folders, lane)).await.map_err(AgentsError::Lane)
     }
 
     /// `isHiddenAgent(name)`: whether `name` is an internal agent of `defaults/agents.json`.
@@ -813,7 +814,7 @@ impl AgentDefinitions {
     #[allow(clippy::disallowed_methods, reason = "the closure is a lane job body")]
     pub async fn task_workspace(&self) -> Result<String, AgentsError> {
         let path = self.task_workspace.clone();
-        let made = on_lane(self.lane, &CancellationToken::new(), move |_| std::fs::create_dir_all(&path).and_then(|()| std::fs::canonicalize(&path)))
+        let made = on_lane_wait(self.lane, &CancellationToken::new(), move |_| std::fs::create_dir_all(&path).and_then(|()| std::fs::canonicalize(&path)))
             .await
             .map_err(AgentsError::Lane)?;
         let path = made.map_err(|error| AgentsError::Evidence(error.to_string()))?;

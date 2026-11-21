@@ -1,19 +1,17 @@
-//! Side-by-side renderer releases (`lib/renderer-releases.mjs`). Each desktop build ships its own web renderer; the relay
-//! keeps several and serves a phone or a second PC the one that matches the desktop version of the main PC it is paired
-//! with.
+//! Side-by-side renderer releases. Each desktop build ships its own web renderer; the relay keeps several and serves a phone or a
+//! second PC the one that matches the desktop version of the main PC it is paired with.
 //!
-//! Layout of the releases directory (`RENDERER_RELEASES_DIR`, by default `renderer-releases` beside `RENDERER_DIR`):
-//! `index.json` is the registry below (written atomically by the deploy tool) and `<releaseId>/` is one complete staged
-//! renderer tree per release.
+//! Layout of the releases directory (`RENDERER_RELEASES_DIR`, by default `renderer-releases` beside `RENDERER_DIR`): `index.json`
+//! is the registry below (written atomically by the deploy tool) and `<releaseId>/` is one complete staged renderer tree per
+//! release.
 //!
-//! Selection rule ([`ReleaseIndex::select`]): choose the exact desktop version, preferring its exact shell hash. An
-//! adopted shell without version metadata can be identified by its exact hash unless a known version contradicts it.
-//! Only a desktop that reports neither identifier gets the legacy/default fallback.
+//! Selection rule ([`ReleaseIndex::select`]): choose the exact desktop version, preferring its exact shell hash. An adopted shell
+//! without version metadata can be identified by its exact hash unless a known version contradicts it. Only a desktop that reports
+//! neither identifier gets the legacy/default fallback.
 //!
-//! Retention rule ([`ReleaseIndex::plan_retention`]): the legacy release is never collected; the newest
-//! [`KEEP_LATEST_RELEASES`] releases are kept; any release still selected for a device seen within
-//! [`DEVICE_REFERENCE_WINDOW_MS`] is kept too, newest first, until [`MAX_RETAINED_RELEASES`] releases (without legacy) are
-//! retained.
+//! Retention rule ([`ReleaseIndex::plan_retention`]): the legacy release is never collected; the newest [`KEEP_LATEST_RELEASES`]
+//! releases are kept; any release still selected for a device seen within [`DEVICE_REFERENCE_WINDOW_MS`] is kept too, newest
+//! first, until [`MAX_RETAINED_RELEASES`] releases (without legacy) are retained.
 
 use std::cmp::Ordering;
 use std::collections::HashSet;

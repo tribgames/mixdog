@@ -1,15 +1,5 @@
-//! `route/set` and `fast/set`: the model route and Fast mode of a thread, an agent or the default.
-//!
-//! The desktop's `setModelRoute` / `setRoute` (`tui/session/session-api/routes-write.mjs`
-//! `createRouteWrite.setRoute`), `setAgentRoute` and `setFast` (`settings.mjs`) in one method each.
-//! The adoption is [`RouteService`] and [`AgentRouteSetter`]; this is the wire half: which of the
-//! request's keys are options of the write (`applyToCurrentSession`, `keepMainModel`,
-//! `sessionOnly`, `onlyIfEmpty`) and which are the selection, and the completion of a
-//! session-only request against the selected route.
-//!
-//! A request that names neither a thread nor an agent writes the runtime's route before any
-//! session exists (Node's `rt.route` with no `getSession()`): its route lives in the
-//! [`PRE_SESSION`] cell and no session follows it.
+//! `route/set` and `fast/set`. A request that names neither a thread nor an agent writes the
+//! route before any session exists: it lives in the [`PRE_SESSION`] cell and no session follows it.
 
 use std::sync::Arc;
 

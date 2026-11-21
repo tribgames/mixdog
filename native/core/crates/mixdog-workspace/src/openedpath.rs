@@ -3,10 +3,6 @@
     clippy::disallowed_types,
     reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
 )]
-//! Where an OPEN file lives, and the page server's open of a response file (`opened-file-path.ts`, `opened-file-authorization.ts`).
-//! A check made on a resolved path covers the bytes a handle reads only when the handle is shown to be the file at that path: an
-//! ancestor swapped for a junction or a link between resolving and opening redirects the open without changing the path text, so
-//! the folder check is repeated on the location the open handle itself reports.
 
 use std::fs::File;
 use std::io;

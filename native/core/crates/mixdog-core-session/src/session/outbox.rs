@@ -544,7 +544,31 @@ impl Outbox {
     /// was not written, never reorders it, and a close whose write fails keeps the session open with everything not written
     /// held (`SessionActor::close_undone`, the close rule).
     pub fn handoff(&mut self, room: usize, retry: bool) -> Vec<HandedUnit> {
-        // The units that can go: the entries up to `end` (exclusive) whose records are all encoded.
+        let end = self.handable_end(room, retry);
+        let mut out: Vec<HandedUnit> = Vec::new();
+        let mut last_unit = None;
+        for entry in self.entries.iter_mut().take(end) {
+            let Some(durable) = entry.durable.as_mut() else {
+                continue;
+            };
+            if !matches!(durable.stage, Stage::Encoded(_) | Stage::Held(_)) {
+                continue;
+            }
+            let (Stage::Encoded(encoded) | Stage::Held(encoded)) = std::mem::replace(&mut durable.stage, Stage::Encoding) else {
+                unreachable!("matched Encoded or Held");
+            };
+            durable.stage = Stage::Handed(encoded.clone());
+            if last_unit != Some(durable.unit) {
+                out.push(HandedUnit { records: Vec::new() });
+                last_unit = Some(durable.unit);
+            }
+            out.last_mut().expect("pushed").records.push((entry.id, CommitRecord { record: durable.record.clone(), encoded }, durable.bytes));
+        }
+        out
+    }
+
+    /// The units that can go: the entries up to the returned index (exclusive) whose records are all encoded.
+    fn handable_end(&self, room: usize, retry: bool) -> usize {
         let mut end = 0;
         let mut units = 0;
         let mut current: Option<u64> = None;
@@ -587,26 +611,7 @@ impl Outbox {
         if current.is_some() && index == self.entries.len() {
             end = index;
         }
-        let mut out: Vec<HandedUnit> = Vec::new();
-        let mut last_unit = None;
-        for entry in self.entries.iter_mut().take(end) {
-            let Some(durable) = entry.durable.as_mut() else {
-                continue;
-            };
-            if !matches!(durable.stage, Stage::Encoded(_) | Stage::Held(_)) {
-                continue;
-            }
-            let (Stage::Encoded(encoded) | Stage::Held(encoded)) = std::mem::replace(&mut durable.stage, Stage::Encoding) else {
-                unreachable!("matched Encoded or Held");
-            };
-            durable.stage = Stage::Handed(encoded.clone());
-            if last_unit != Some(durable.unit) {
-                out.push(HandedUnit { records: Vec::new() });
-                last_unit = Some(durable.unit);
-            }
-            out.last_mut().expect("pushed").records.push((entry.id, CommitRecord { record: durable.record.clone(), encoded }, durable.bytes));
-        }
-        out
+        end
     }
 
     pub fn acked(&mut self, id: u64, ordinal: u64) {

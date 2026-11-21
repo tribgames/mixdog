@@ -231,83 +231,8 @@ pub fn decode_available_models(bytes: &[u8]) -> Result<Vec<CursorModel>, PbError
     let mut models: Vec<CursorModel> = Vec::new();
     let mut position: HashMap<String, usize> = HashMap::new();
     for model_bytes in raw {
-        let mut name = String::new();
-        let mut server_name = String::new();
-        let (mut display, mut short, mut tagline) = (String::new(), String::new(), String::new());
-        let mut tooltip = (String::new(), String::new(), String::new());
-        let (mut ctx, mut auto_ctx, mut ctx_max, mut auto_ctx_max) = (0u64, 0u64, 0u64, 0u64);
-        let (mut max_mode, mut non_max, mut images, mut thinking, mut hidden) = (false, false, false, false, false);
-        let mut definitions = Vec::new();
-        let mut variants = Vec::new();
-        let mut aliases = Vec::new();
-        let mut f = Reader::new(model_bytes);
-        while let Some((n, v)) = f.next_field()? {
-            match n {
-                1 => name = v.text(),
-                8 => {
-                    let mut t = Reader::new(v.bytes());
-                    while let Some((k, x)) = t.next_field()? {
-                        match k {
-                            1 => tooltip.0 = x.text(),
-                            2 => tooltip.1 = x.text(),
-                            7 => tooltip.2 = x.text(),
-                            _ => {}
-                        }
-                    }
-                }
-                9 => thinking = v.as_bool(),
-                10 => images = v.as_bool(),
-                12 => auto_ctx = v.as_u64(),
-                13 => auto_ctx_max = v.as_u64(),
-                14 => max_mode = v.as_bool(),
-                15 => ctx = v.as_u64(),
-                16 => ctx_max = v.as_u64(),
-                17 => display = v.text(),
-                18 => server_name = v.text(),
-                19 => non_max = v.as_bool(),
-                24 => short = v.text(),
-                29 => definitions.push(decode_definition(v.bytes())?),
-                30 => variants.push(decode_variant(v.bytes())?),
-                35 => hidden = v.as_bool(),
-                36 | 37 => aliases.push(js_trim(&v.text()).to_owned()),
-                39 => tagline = v.text(),
-                _ => {}
-            }
-        }
-        let raw_id = js_trim(if name.is_empty() { &server_name } else { &name }).to_owned();
-        if raw_id.is_empty() || hidden {
-            continue;
-        }
-        let id = canonical_model_id(&raw_id);
-        definitions.retain(|d: &ParameterDefinition| !d.id.is_empty() && !d.values.is_empty());
-        aliases.extend(variants.iter().filter(|v| !v.legacy_slug.is_empty()).map(|v| v.legacy_slug.clone()));
-        if raw_id != id {
-            aliases.push(raw_id.clone());
-        }
-        let mut seen = std::collections::BTreeSet::new();
-        aliases.retain(|a| !a.is_empty() && *a != id && seen.insert(a.clone()));
-        let next = CursorModel {
-            name: if is_auto_model_id(&raw_id) {
-                "Auto".to_owned()
-            } else if !display.is_empty() {
-                display
-            } else if !short.is_empty() {
-                short
-            } else {
-                id.clone()
-            },
-            description: [tagline, tooltip.2, tooltip.1].into_iter().find(|s| !s.is_empty()).unwrap_or_default(),
-            context_window: [ctx, auto_ctx].into_iter().find(|n| *n > 0).unwrap_or(0),
-            max_context_window: [ctx_max, auto_ctx_max].into_iter().find(|n| *n > 0).unwrap_or(0),
-            supports_max_mode: max_mode,
-            supports_non_max_mode: non_max,
-            supports_vision: images,
-            supports_reasoning: thinking || definitions.iter().any(|d| is_effort_parameter_id(&d.id)),
-            definitions,
-            variants,
-            aliases,
-            id: id.clone(),
-        };
+        let Some(next) = decode_model(model_bytes)? else { continue };
+        let id = next.id.clone();
         let rank = |m: &CursorModel| {
             usize::from(!m.definitions.is_empty()) * 2 + usize::from(m.supports_max_mode || m.supports_non_max_mode || m.max_context_window > 0)
         };
@@ -322,6 +247,88 @@ pub fn decode_available_models(bytes: &[u8]) -> Result<Vec<CursorModel>, PbError
     }
     with_auto_first(&mut models);
     Ok(models)
+}
+
+/// One `AvailableModel` row; `None` for a hidden row or one without an id.
+fn decode_model(model_bytes: &[u8]) -> Result<Option<CursorModel>, PbError> {
+    let mut name = String::new();
+    let mut server_name = String::new();
+    let (mut display, mut short, mut tagline) = (String::new(), String::new(), String::new());
+    let mut tooltip = (String::new(), String::new(), String::new());
+    let (mut ctx, mut auto_ctx, mut ctx_max, mut auto_ctx_max) = (0u64, 0u64, 0u64, 0u64);
+    let (mut max_mode, mut non_max, mut images, mut thinking, mut hidden) = (false, false, false, false, false);
+    let mut definitions = Vec::new();
+    let mut variants = Vec::new();
+    let mut aliases = Vec::new();
+    let mut f = Reader::new(model_bytes);
+    while let Some((n, v)) = f.next_field()? {
+        match n {
+            1 => name = v.text(),
+            8 => {
+                let mut t = Reader::new(v.bytes());
+                while let Some((k, x)) = t.next_field()? {
+                    match k {
+                        1 => tooltip.0 = x.text(),
+                        2 => tooltip.1 = x.text(),
+                        7 => tooltip.2 = x.text(),
+                        _ => {}
+                    }
+                }
+            }
+            9 => thinking = v.as_bool(),
+            10 => images = v.as_bool(),
+            12 => auto_ctx = v.as_u64(),
+            13 => auto_ctx_max = v.as_u64(),
+            14 => max_mode = v.as_bool(),
+            15 => ctx = v.as_u64(),
+            16 => ctx_max = v.as_u64(),
+            17 => display = v.text(),
+            18 => server_name = v.text(),
+            19 => non_max = v.as_bool(),
+            24 => short = v.text(),
+            29 => definitions.push(decode_definition(v.bytes())?),
+            30 => variants.push(decode_variant(v.bytes())?),
+            35 => hidden = v.as_bool(),
+            36 | 37 => aliases.push(js_trim(&v.text()).to_owned()),
+            39 => tagline = v.text(),
+            _ => {}
+        }
+    }
+    let raw_id = js_trim(if name.is_empty() { &server_name } else { &name }).to_owned();
+    if raw_id.is_empty() || hidden {
+        return Ok(None);
+    }
+    let id = canonical_model_id(&raw_id);
+    definitions.retain(|d: &ParameterDefinition| !d.id.is_empty() && !d.values.is_empty());
+    aliases.extend(variants.iter().filter(|v| !v.legacy_slug.is_empty()).map(|v| v.legacy_slug.clone()));
+    if raw_id != id {
+        aliases.push(raw_id.clone());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    aliases.retain(|a| !a.is_empty() && *a != id && seen.insert(a.clone()));
+    let next = CursorModel {
+        name: if is_auto_model_id(&raw_id) {
+            "Auto".to_owned()
+        } else if !display.is_empty() {
+            display
+        } else if !short.is_empty() {
+            short
+        } else {
+            id.clone()
+        },
+        description: [tagline, tooltip.2, tooltip.1].into_iter().find(|s| !s.is_empty()).unwrap_or_default(),
+        context_window: [ctx, auto_ctx].into_iter().find(|n| *n > 0).unwrap_or(0),
+        max_context_window: [ctx_max, auto_ctx_max].into_iter().find(|n| *n > 0).unwrap_or(0),
+        supports_max_mode: max_mode,
+        supports_non_max_mode: non_max,
+        supports_vision: images,
+        supports_reasoning: thinking || definitions.iter().any(|d| is_effort_parameter_id(&d.id)),
+        definitions,
+        variants,
+        aliases,
+        id,
+    };
+    Ok(Some(next))
 }
 
 fn plain_model(id: &str, name: &str, context_window: u64, reasoning: bool) -> CursorModel {

@@ -205,6 +205,37 @@ pub async fn work_tree_tree(
     built
 }
 
+async fn read_patches(
+    git: &Git,
+    cancel: &CancellationToken,
+    root: &std::path::Path,
+    base: &str,
+    current: &str,
+    tracked_paths: &[&str],
+    options: &RunOptions,
+) -> Result<HashMap<String, String>, ScmFailure> {
+    let mut patches = if tracked_paths.is_empty() {
+        HashMap::new()
+    } else {
+        let mut args = vec!["--no-optional-locks", "diff"];
+        args.extend(DISPLAY_DIFF_ARGS);
+        args.extend(["--no-renames", base, current]);
+        let diff = git.text(cancel, root, &args, options).await?;
+        split_patches(&diff, tracked_paths)
+    };
+    // A header git quoted: ask for that one file alone.
+    for path in tracked_paths {
+        if !patches.contains_key(*path) {
+            let mut args = vec!["--no-optional-locks", "diff"];
+            args.extend(DISPLAY_DIFF_ARGS);
+            let literal = format!(":(literal){path}");
+            args.extend(["--no-renames", base, current, "--", &literal]);
+            patches.insert((*path).to_owned(), git.text(cancel, root, &args, options).await?);
+        }
+    }
+    Ok(patches)
+}
+
 pub async fn compute(
     git: &Git,
     lane: MaintenanceIo,
@@ -224,25 +255,7 @@ pub async fn compute(
     let raw = git.text(cancel, &root, &diff_args, &options).await?;
     let tracked = parse_raw_numstat(&raw);
     let tracked_paths: Vec<&str> = tracked.keys().map(String::as_str).collect();
-    let mut patches = if tracked_paths.is_empty() {
-        HashMap::new()
-    } else {
-        let mut args = vec!["--no-optional-locks", "diff"];
-        args.extend(DISPLAY_DIFF_ARGS);
-        args.extend(["--no-renames", &base.0, &current]);
-        let diff = git.text(cancel, &root, &args, &options).await?;
-        split_patches(&diff, &tracked_paths)
-    };
-    // A header git quoted: ask for that one file alone.
-    for path in &tracked_paths {
-        if !patches.contains_key(*path) {
-            let mut args = vec!["--no-optional-locks", "diff"];
-            args.extend(DISPLAY_DIFF_ARGS);
-            let literal = format!(":(literal){path}");
-            args.extend(["--no-renames", &base.0, &current, "--", &literal]);
-            patches.insert((*path).to_owned(), git.text(cancel, &root, &args, &options).await?);
-        }
-    }
+    let mut patches = read_patches(git, cancel, &root, &base.0, &current, &tracked_paths, &options).await?;
     // Every changed file is listed: the work tree's tree has no cap to omit anything under.
     let omitted = 0u32;
     let mut files = Vec::new();

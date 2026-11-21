@@ -1,8 +1,4 @@
-//! The Word reader (`Snapshot-Word`, the docx branch of `Snapshot-Selection`, `Issues-Word`) against a scripted Word object
-//! model.
-//!
-//! The scripted model answers what the reader asks and records every access, so a test states both what the record says and
-//! in which order Word was asked. It is written from `office-com-host.ps1`.
+//! The scripted Word object model is written from `office-com-host.ps1`.
 
 use std::any::Any;
 use std::cell::Cell;

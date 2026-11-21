@@ -210,8 +210,8 @@ impl Rhythm {
 /// How much the content pages differ from each other, and the two findings a deck that repeats itself earns. Only a
 /// deck has rhythm; every other format reports the empty reading.
 fn deck_rhythm(measured: &[PageMetric], format: &str) -> (Rhythm, Vec<Value>) {
-    let empty = Rhythm { page_count: measured.len(), feature_spread: 0.0, adjacent_change: 0.0, repeated_pairs: 0, maximum_similarity: 0.0 };
     if format != "pptx" {
+        let empty = Rhythm { page_count: measured.len(), feature_spread: 0.0, adjacent_change: 0.0, repeated_pairs: 0, maximum_similarity: 0.0 };
         return (empty, Vec::new());
     }
     let content = content_pages(measured);
@@ -224,6 +224,20 @@ fn deck_rhythm(measured: &[PageMetric], format: &str) -> (Rhythm, Vec<Value>) {
         column(|metric| metric.foreground_coverage),
     ]);
     let adjacent: Vec<f64> = content.windows(2).map(|pair| metric_distance(&pair[0], &pair[1])).collect();
+    let (repeated_pairs, maximum_similarity) = structure_repeats(content);
+    let rhythm = Rhythm {
+        page_count: measured.len(),
+        feature_spread: rounded(feature_spread, 4),
+        adjacent_change: rounded(mean(&adjacent), 4),
+        repeated_pairs,
+        maximum_similarity: rounded(maximum_similarity, 4),
+    };
+    let issues = rhythm_issues(&rhythm, content.len());
+    (rhythm, issues)
+}
+
+/// The pairs of pages whose rendered structure is near-identical, and the highest similarity of any pair.
+fn structure_repeats(content: &[PageMetric]) -> (usize, f64) {
     let mut repeated_pairs = 0usize;
     let mut maximum_similarity = 0.0f64;
     for left in 0..content.len() {
@@ -235,31 +249,27 @@ fn deck_rhythm(measured: &[PageMetric], format: &str) -> (Rhythm, Vec<Value>) {
             }
         }
     }
-    let rhythm = Rhythm {
-        page_count: measured.len(),
-        feature_spread: rounded(feature_spread, 4),
-        adjacent_change: rounded(mean(&adjacent), 4),
-        repeated_pairs,
-        maximum_similarity: rounded(maximum_similarity, 4),
-    };
+    (repeated_pairs, maximum_similarity)
+}
+
+fn rhythm_issues(rhythm: &Rhythm, content_count: usize) -> Vec<Value> {
     let mut issues = Vec::new();
-    if content.len() >= 4 && rhythm.feature_spread < 0.06 && rhythm.adjacent_change < 0.065 && rhythm.maximum_similarity >= 0.9 {
+    if content_count >= 4 && rhythm.feature_spread < 0.06 && rhythm.adjacent_change < 0.065 && rhythm.maximum_similarity >= 0.9 {
         issues.push(aesthetic_issue(
             "flat_visual_rhythm",
             "/",
             "Rendered content slides keep nearly the same background, density, color, and complexity; introduce deliberate deck rhythm.",
         ));
     }
-    if content.len() >= 4 && repeated_pairs as f64 >= max(2.0, (content.len() as f64 / 2.0).ceil()) {
+    if content_count >= 4 && rhythm.repeated_pairs as f64 >= max(2.0, (content_count as f64 / 2.0).ceil()) {
         issues.push(aesthetic_issue(
             "repeated_render_composition",
             "/",
-            &format!("{repeated_pairs} content-slide pairs share a near-identical rendered structure."),
+            &format!("{} content-slide pairs share a near-identical rendered structure.", rhythm.repeated_pairs),
         ));
     }
-    (rhythm, issues)
+    issues
 }
-
 struct Score {
     contrast: f64,
     palette: f64,

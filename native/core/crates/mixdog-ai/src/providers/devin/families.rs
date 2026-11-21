@@ -295,38 +295,7 @@ fn collapse(specs: Vec<Spec>, families: &[Family]) -> Vec<Spec> {
             continue;
         }
         let members: Vec<&Spec> = raw_present.iter().map(|id| by_id[id.as_str()]).collect();
-        let mut routing = Routing::new();
-        let mut has_effort_route = false;
-        for key in ROUTING_KEYS {
-            let Some(target) = family.routing.get(key).filter(|t| present.contains(*t)) else { continue };
-            routing.insert(key.to_owned(), target.clone());
-            has_effort_route |= key != "off";
-        }
-        // Routing efforts to a live member means the family reasons.
-        let reasoning = members.iter().any(|m| m.reasoning) || has_effort_route;
-        let mut collapsed = members[0].clone();
-        collapsed.id = family.id.clone();
-        collapsed.name = family.name.clone();
-        collapsed.reasoning = reasoning;
-        collapsed.images = members.iter().any(|m| m.images);
-        collapsed.context_window = members.iter().map(|m| m.context_window).max().unwrap_or_default();
-        collapsed.max_tokens = members.iter().map(|m| m.max_tokens).max().unwrap_or_default();
-        if members.iter().any(|m| m.is_provider_default) {
-            collapsed.is_provider_default = true;
-        }
-        let default_wire = family.default_member.as_ref().filter(|d| present.contains(*d)).unwrap_or(raw_present[0]);
-        collapsed.request_model_id = (*default_wire != family.id).then(|| default_wire.clone());
-        // A single-uid family keeps `reasoning` but has no tier to select.
-        collapsed.thinking = match (&family.thinking, reasoning) {
-            (Some(declared), true) => Some(Thinking {
-                efforts: declared.efforts.clone(),
-                default_level: declared.default_level.clone(),
-                requires_effort: declared.requires_effort,
-                effort_routing: (!routing.is_empty()).then_some(routing),
-            }),
-            _ => None,
-        };
-        replacement.insert(family.id.clone(), collapsed);
+        replacement.insert(family.id.clone(), merge_members(&members, family, &present, raw_present[0]));
     }
 
     if replacement.is_empty() {
@@ -348,6 +317,42 @@ fn collapse(specs: Vec<Spec>, families: &[Family]) -> Vec<Spec> {
         }
     }
     out
+}
+
+/// One logical model from a family's live members: the strongest of their capabilities, routing only to members present.
+fn merge_members(members: &[&Spec], family: &Family, present: &HashSet<String>, first: &String) -> Spec {
+    let mut routing = Routing::new();
+    let mut has_effort_route = false;
+    for key in ROUTING_KEYS {
+        let Some(target) = family.routing.get(key).filter(|t| present.contains(*t)) else { continue };
+        routing.insert(key.to_owned(), target.clone());
+        has_effort_route |= key != "off";
+    }
+    // Routing efforts to a live member means the family reasons.
+    let reasoning = members.iter().any(|m| m.reasoning) || has_effort_route;
+    let mut collapsed = members[0].clone();
+    collapsed.id = family.id.clone();
+    collapsed.name = family.name.clone();
+    collapsed.reasoning = reasoning;
+    collapsed.images = members.iter().any(|m| m.images);
+    collapsed.context_window = members.iter().map(|m| m.context_window).max().unwrap_or_default();
+    collapsed.max_tokens = members.iter().map(|m| m.max_tokens).max().unwrap_or_default();
+    if members.iter().any(|m| m.is_provider_default) {
+        collapsed.is_provider_default = true;
+    }
+    let default_wire = family.default_member.as_ref().filter(|d| present.contains(*d)).unwrap_or(first);
+    collapsed.request_model_id = (*default_wire != family.id).then(|| default_wire.clone());
+    // A single-uid family keeps `reasoning` but has no tier to select.
+    collapsed.thinking = match (&family.thinking, reasoning) {
+        (Some(declared), true) => Some(Thinking {
+            efforts: declared.efforts.clone(),
+            default_level: declared.default_level.clone(),
+            requires_effort: declared.requires_effort,
+            effort_routing: (!routing.is_empty()).then_some(routing),
+        }),
+        _ => None,
+    };
+    collapsed
 }
 
 const PAIR_TOKENS: [&str; 3] = ["thinking", "reasoning", "reasoner"];

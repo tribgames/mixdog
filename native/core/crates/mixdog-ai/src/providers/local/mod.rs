@@ -1,8 +1,5 @@
-//! `mixdog-local`: the managed llama.cpp server, spoken to on the Chat
-//! Completions wire. The endpoint (base URL and key) comes from the managed
-//! runtime per turn; the only wire difference is that llama.cpp chat templates
-//! accept one system message at position zero, so the instructions are merged
-//! on the wire copy.
+//! `mixdog-local`: the managed llama.cpp server on the Chat Completions wire. llama.cpp chat templates accept one
+//! system message at position zero, so the instructions are merged on the wire copy.
 #![allow(clippy::result_large_err, reason = "ProviderError is the contract's error type")]
 
 pub mod listing;
@@ -157,10 +154,7 @@ pub trait LocalRuntime: InstalledModels {
     fn installed_now(&self) -> Option<Vec<Value>>;
 }
 
-/// `MixdogLocalProvider` as the registry holds it (`registry.mjs`'s `mixdog-local` row): registered with no endpoint,
-/// because the server starts on a send. Each attempt asks the runtime for the model's server and sends through the
-/// Chat adapter aimed at it; the adapter is kept while the endpoint stays the same (`_providerFor`). It is text-only
-/// (`nativePdf = false`) and lists the installed models.
+/// Registry entry of `mixdog-local`: registered with no endpoint, because the server starts on a send; text-only.
 pub struct RegisteredAdapter {
     id: ProviderId,
     codec: Arc<dyn WireCodec>,
@@ -254,64 +248,12 @@ impl ProviderAdapter for RegisteredAdapter {
         )
     }
 
-    /// `MixdogLocalProvider.send`: the request takes its turn in the runtime's queue (`runLocalProviderRequest`), starts its
-    /// measurement, brings the server up and sends; the slot is held until the answer's stream has ended. Node holds the
-    /// slot around the whole inner send, retries included: the attempts of one send group share one slot and one
-    /// measurement, which end with the answer or with `settle_send`.
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         let group = request.options.send_group.clone();
-        let kept = group.as_ref().and_then(|id| self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(id).cloned());
-        let state = match kept {
-            Some(state) => state,
-            None => {
-                let state = Arc::new(SendState::new(self.runtime.begin(&request.model).await?, group.is_some()));
-                if let Some(id) = &group {
-                    self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id.clone(), state.clone());
-                }
-                state
-            }
-        };
+        let state = self.send_state(&request.model, group.as_ref()).await?;
         let stop = state.inference.startup_cancel();
-        let cleanup = match (state.inference.attempt_cleanup(), &stop) {
-            (Some(cleanup), Some(stop)) => Some(tokio::select! {
-                biased;
-                _ = stop.cancelled() => return Err(stopped(DeliveryState::NotSent)),
-                guard = cleanup.acquire_owned() => guard.expect("the cleanup gate is never closed"),
-            }),
-            (Some(cleanup), None) => Some(cleanup.acquire_owned().await.expect("the cleanup gate is never closed")),
-            (None, _) => None,
-        };
-        if stop.as_ref().is_some_and(CancellationToken::is_cancelled) {
-            return Err(stopped(DeliveryState::NotSent));
-        }
-        let endpoint = match self.runtime.ensure_server(&request.model, stop.clone()).await {
-            Ok(endpoint) => endpoint,
-            Err(error) => {
-                state.failed(&error.message);
-                return Err(error);
-            }
-        };
-        if !request.tools.is_empty() && self.runtime.supports_tools(&request.model) == Some(false) {
-            let row = self.runtime.installed_now();
-            let name = row
-                .as_ref()
-                .and_then(|rows| rows.iter().find(|row| row["id"].as_str() == Some(request.model.as_str())))
-                .and_then(|row| row["name"].as_str())
-                .unwrap_or(&request.model);
-            let error = refusal(&format!("[local-provider] {name} does not support the requested tool interface. Choose a tool-capable model.",));
-            state.failed(&error.message);
-            return Err(error);
-        }
-        let adapter = self.inner_for(endpoint);
-        let opened = match &stop {
-            Some(stop) => tokio::select! {
-                biased;
-                _ = stop.cancelled() => Err(stopped(DeliveryState::Ambiguous)),
-                result = adapter.attempt(request) => result,
-            },
-            None => adapter.attempt(request).await,
-        };
-        match opened {
+        let cleanup = cleanup_permit(state.inference.as_ref(), stop.as_ref()).await?;
+        match self.open_stream(request, stop.as_ref()).await {
             Ok(stream) => {
                 let measured =
                     Measured { inner: stream, state, group: group.map(|id| (id, self.groups.clone())), usage: None, ended: false, _cleanup: cleanup };
@@ -353,6 +295,67 @@ impl ProviderAdapter for RegisteredAdapter {
     fn input_excludes_cache(&self) -> Option<bool> {
         Some(false)
     }
+}
+
+/// The state the attempts of one send group share, begun by the first attempt.
+impl RegisteredAdapter {
+    async fn send_state(&self, model: &str, group: Option<&String>) -> Result<Arc<SendState>, ProviderError> {
+        let kept = group.and_then(|id| self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(id).cloned());
+        if let Some(state) = kept {
+            return Ok(state);
+        }
+        let state = Arc::new(SendState::new(self.runtime.begin(model).await?, group.is_some()));
+        if let Some(id) = group {
+            self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id.clone(), state.clone());
+        }
+        Ok(state)
+    }
+
+    async fn open_stream(&self, request: Arc<ModelRequest>, stop: Option<&CancellationToken>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let endpoint = self.runtime.ensure_server(&request.model, stop.cloned()).await?;
+        if let Some(error) = self.tool_refusal(&request) {
+            return Err(error);
+        }
+        let adapter = self.inner_for(endpoint);
+        match stop {
+            Some(stop) => tokio::select! {
+                biased;
+                _ = stop.cancelled() => Err(stopped(DeliveryState::Ambiguous)),
+                result = adapter.attempt(request) => result,
+            },
+            None => adapter.attempt(request).await,
+        }
+    }
+
+    fn tool_refusal(&self, request: &ModelRequest) -> Option<ProviderError> {
+        if request.tools.is_empty() || self.runtime.supports_tools(&request.model) != Some(false) {
+            return None;
+        }
+        let row = self.runtime.installed_now();
+        let name = row
+            .as_ref()
+            .and_then(|rows| rows.iter().find(|row| row["id"].as_str() == Some(request.model.as_str())))
+            .and_then(|row| row["name"].as_str())
+            .unwrap_or(&request.model);
+        Some(refusal(&format!("[local-provider] {name} does not support the requested tool interface. Choose a tool-capable model.")))
+    }
+}
+
+/// The lock that makes a stop wait for the active attempt to drop its body, taken unless the stop comes first.
+async fn cleanup_permit(inference: &dyn Inference, stop: Option<&CancellationToken>) -> Result<Option<tokio::sync::OwnedSemaphorePermit>, ProviderError> {
+    let cleanup = match (inference.attempt_cleanup(), stop) {
+        (Some(cleanup), Some(stop)) => Some(tokio::select! {
+            biased;
+            _ = stop.cancelled() => return Err(stopped(DeliveryState::NotSent)),
+            guard = cleanup.acquire_owned() => guard.expect("the cleanup gate is never closed"),
+        }),
+        (Some(cleanup), None) => Some(cleanup.acquire_owned().await.expect("the cleanup gate is never closed")),
+        (None, _) => None,
+    };
+    if stop.is_some_and(CancellationToken::is_cancelled) {
+        return Err(stopped(DeliveryState::NotSent));
+    }
+    Ok(cleanup)
 }
 
 fn stopped(delivery: DeliveryState) -> ProviderError {
@@ -690,67 +693,83 @@ mod tests {
         assert!(merge_instructions(&mut body).is_err());
     }
 
-    #[tokio::test]
-    async fn a_tool_refusal_learned_during_cold_start_prevents_the_post() {
+    struct Cold(std::sync::atomic::AtomicBool);
+    impl Inference for Cold {
+        fn progress(&self, _: &str) {}
+        fn finish(&self, _: Option<u64>, _: Option<u64>, _: Option<&str>) {}
+    }
+    #[async_trait]
+    impl InstalledModels for Cold {
+        async fn installed(&self) -> Result<Vec<Value>, ProviderError> {
+            Ok(Vec::new())
+        }
+    }
+    #[async_trait]
+    impl LocalRuntime for Cold {
+        async fn ensure_server(&self, _: &str, _: Option<CancellationToken>) -> Result<Endpoint, ProviderError> {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(Endpoint { base_url: "http://127.0.0.1/v1".into(), api_key: String::new() })
+        }
+        async fn begin(&self, _: &str) -> Result<Box<dyn Inference>, ProviderError> {
+            Ok(Box::new(Self(std::sync::atomic::AtomicBool::new(false))))
+        }
+        fn installed_now(&self) -> Option<Vec<Value>> {
+            None
+        }
+        fn supports_tools(&self, _: &str) -> Option<bool> {
+            self.0.load(std::sync::atomic::Ordering::SeqCst).then_some(false)
+        }
+    }
+
+    fn cold_request(with_tool: bool) -> ModelRequest {
         use mixdog_core_api::domain::provider::{Content, Message, Role, ToolDefinition};
-        use std::sync::atomic::{AtomicBool, Ordering};
-
-        struct Cold(AtomicBool);
-        impl Inference for Cold {
-            fn progress(&self, _: &str) {}
-            fn finish(&self, _: Option<u64>, _: Option<u64>, _: Option<&str>) {}
-        }
-        #[async_trait]
-        impl InstalledModels for Cold {
-            async fn installed(&self) -> Result<Vec<Value>, ProviderError> {
-                Ok(Vec::new())
-            }
-        }
-        #[async_trait]
-        impl LocalRuntime for Cold {
-            async fn ensure_server(&self, _: &str, _: Option<CancellationToken>) -> Result<Endpoint, ProviderError> {
-                self.0.store(true, Ordering::SeqCst);
-                Ok(Endpoint { base_url: "http://127.0.0.1/v1".into(), api_key: String::new() })
-            }
-            async fn begin(&self, _: &str) -> Result<Box<dyn Inference>, ProviderError> {
-                Ok(Box::new(Self(AtomicBool::new(false))))
-            }
-            fn installed_now(&self) -> Option<Vec<Value>> {
-                None
-            }
-            fn supports_tools(&self, _: &str) -> Option<bool> {
-                self.0.load(Ordering::SeqCst).then_some(false)
-            }
-        }
-
-        let http = Arc::new(crate::providers::listing_row::testing::Replay::new(|_| (400, b"{}".to_vec())));
-        let runtime = Arc::new(Cold(AtomicBool::new(false)));
-        let adapter = RegisteredAdapter::new(http.clone(), runtime.clone());
-        let mut request = ModelRequest {
+        ModelRequest {
             model: "cold".into(),
             messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
-            tools: vec![ToolDefinition {
-                name: "read".into(),
-                description: "Read".into(),
-                input_schema: json!({"type":"object","properties":{}}),
-                defer_loading: false,
-                freeform: None,
-            }],
+            tools: if with_tool {
+                vec![ToolDefinition {
+                    name: "read".into(),
+                    description: "Read".into(),
+                    input_schema: json!({"type":"object","properties":{}}),
+                    defer_loading: false,
+                    freeform: None,
+                }]
+            } else {
+                Vec::new()
+            },
             options: Default::default(),
-        };
-        let error = adapter.attempt(Arc::new(request.clone())).await.err().expect("tools refused");
+        }
+    }
+
+    fn replay_400() -> Arc<crate::providers::listing_row::testing::Replay> {
+        Arc::new(crate::providers::listing_row::testing::Replay::new(|_| (400, b"{}".to_vec())))
+    }
+
+    #[tokio::test]
+    async fn a_tool_refusal_learned_during_cold_start_prevents_the_post() {
+        let http = replay_400();
+        let adapter = RegisteredAdapter::new(http.clone(), Arc::new(Cold(std::sync::atomic::AtomicBool::new(false))));
+        let error = adapter.attempt(Arc::new(cold_request(true))).await.err().expect("tools refused");
         assert_eq!(error.delivery, DeliveryState::NotSent);
         assert!(error.message.contains("does not support the requested tool interface"));
         assert!(http.requests.lock().unwrap().is_empty());
+    }
 
-        request.tools.clear();
-        let _ = adapter.attempt(Arc::new(request.clone())).await;
-        assert_eq!(http.requests.lock().unwrap().len(), 1, "a text-only request still reaches Chat Completions");
+    #[tokio::test]
+    async fn a_text_only_request_still_reaches_chat_completions_after_a_tool_refusal() {
+        let http = replay_400();
+        let adapter = RegisteredAdapter::new(http.clone(), Arc::new(Cold(std::sync::atomic::AtomicBool::new(false))));
+        let _ = adapter.attempt(Arc::new(cold_request(true))).await;
+        let _ = adapter.attempt(Arc::new(cold_request(false))).await;
+        assert_eq!(http.requests.lock().unwrap().len(), 1);
+    }
 
-        // The provider's configured `extraHeaders` ride every request to the managed server (`mixdog-local.mjs:35-40`).
-        let http = Arc::new(crate::providers::listing_row::testing::Replay::new(|_| (400, b"{}".to_vec())));
-        let adapter = RegisteredAdapter::new(http.clone(), runtime).with_extra_headers(vec![("x-team".into(), "blue".into())]);
-        let _ = adapter.attempt(Arc::new(request)).await;
+    #[tokio::test]
+    async fn the_configured_extra_headers_ride_every_request_to_the_managed_server() {
+        let http = replay_400();
+        let adapter = RegisteredAdapter::new(http.clone(), Arc::new(Cold(std::sync::atomic::AtomicBool::new(false))))
+            .with_extra_headers(vec![("x-team".into(), "blue".into())]);
+        let _ = adapter.attempt(Arc::new(cold_request(false))).await;
         let sent = http.requests.lock().unwrap()[0].clone();
         assert!(sent.headers.iter().any(|(name, value)| name.eq_ignore_ascii_case("x-team") && value == "blue"), "{:?}", sent.headers);
     }

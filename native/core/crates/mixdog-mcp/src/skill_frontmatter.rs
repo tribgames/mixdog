@@ -134,19 +134,7 @@ pub fn update_document(markdown: &str, fields: &Fields, body: &str) -> Result<St
             }
             (None, Some(value)) => appended.push(pair(key, value, &Site::fresh())?),
             (Some(at), None) => {
-                let entry = &entries[at];
-                // The comment lines written directly above a key belong to it; so, past the first
-                // key, do the blank lines and comments since the previous key.
-                let from = if at == 0 {
-                    let mut from = entry.start;
-                    while from > 0 && !is_blank(lines[from - 1]) {
-                        from -= 1;
-                    }
-                    from
-                } else {
-                    entries[at - 1].end
-                };
-                edits.push(Edit { from, to: entry.end, text: Vec::new() });
+                edits.push(Edit { from: removal_start(&lines, &entries, at), to: entries[at].end, text: Vec::new() });
             }
             (None, None) => {}
         }
@@ -161,6 +149,19 @@ pub fn update_document(markdown: &str, fields: &Fields, body: &str) -> Result<St
         out.splice(edit.from..edit.to, text);
     }
     render(&out.join("\n"), body)
+}
+
+/// Where removing entry `at` starts: the comment lines written directly above a key belong to it;
+/// so, past the first key, do the blank lines and comments since the previous key.
+fn removal_start(lines: &[&str], entries: &[Entry], at: usize) -> usize {
+    if at > 0 {
+        return entries[at - 1].end;
+    }
+    let mut from = entries[0].start;
+    while from > 0 && !is_blank(lines[from - 1]) {
+        from -= 1;
+    }
+    from
 }
 
 struct Edit {
@@ -417,78 +418,83 @@ fn value_site(lines: &[&str], entry: &Entry) -> Result<(Site, usize), SkillDocum
             let end = flow_end(lines, at, column).ok_or_else(|| SkillDocumentError::InvalidYaml("missing closing bracket".to_owned()))?;
             return Ok((Site::fresh(), end + 1));
         }
-        Some(quote @ ('"' | '\'')) => {
-            site.kind = if quote == '"' { Kind::Double } else { Kind::Single };
-            let (end_line, end_byte) =
-                closing_quote(lines, at, column + 1, quote).ok_or_else(|| SkillDocumentError::InvalidYaml("missing closing quote".to_owned()))?;
-            if end_line == at {
-                site.source = lines[at][column + 1..end_byte].to_owned();
-            }
-            let tail = lines[end_line][end_byte + 1..].trim_start_matches([' ', '\t']);
-            if let Some(comment) = tail.strip_prefix('#') {
-                site.comment = Some(comment.to_owned());
-            }
-            end_line + 1
-        }
-        Some(indicator @ ('|' | '>')) => {
-            site.kind = if indicator == '|' { Kind::Literal } else { Kind::Folded };
-            let header = &text[1..];
-            let token_end = header.find([' ', '\t']).unwrap_or(header.len());
-            let explicit = header[..token_end].chars().find_map(|c| c.to_digit(10)).map(|d| d as usize);
-            if let Some(comment) = header[token_end..].trim_start_matches([' ', '\t']).strip_prefix('#') {
-                site.comment = Some(comment.to_owned());
-            }
-            let mut content_indent = explicit;
-            let mut last = at;
-            for (k, line) in lines.iter().enumerate().skip(at + 1) {
-                if is_blank(line) {
-                    continue;
-                }
-                let indent = indent_of(line);
-                let content = *content_indent.get_or_insert(indent);
-                if indent == 0 || indent < content {
-                    break;
-                }
-                last = k;
-            }
-            // Keep chomping makes the blank lines after the text part of the value.
-            if header[..token_end].contains('+') {
-                while lines.get(last + 1).is_some_and(|l| is_blank(l)) {
-                    last += 1;
-                }
-            }
-            last + 1
-        }
-        _ => {
-            let mut last = at;
-            let mut line_text = text;
-            let mut k = at;
-            let mut words: Vec<&str> = Vec::new();
-            loop {
-                if let Some(c) = find_comment(line_text) {
-                    site.comment = Some(line_text[c + 1..].to_owned());
-                    words.push(line_text[..c].trim_end_matches([' ', '\t']));
-                    break;
-                }
-                words.push(line_text.trim_end_matches([' ', '\t']));
-                // The next line continues the scalar when it is indented text (not a comment).
-                let next = (k + 1..entry.end).find(|&m| !is_blank(lines[m]));
-                match next {
-                    Some(m) if indent_of(lines[m]) > 0 && !lines[m].trim_start_matches(' ').starts_with('#') => {
-                        k = m;
-                        last = m;
-                        line_text = lines[m].trim_start_matches(' ');
-                    }
-                    _ => break,
-                }
-            }
-            site.source = words.join(" ");
-            last + 1
-        }
+        Some(quote @ ('"' | '\'')) => quoted_site(lines, at, column, quote, &mut site)?,
+        Some(indicator @ ('|' | '>')) => block_site(lines, at, text, indicator, &mut site),
+        _ => plain_site(lines, entry, at, text, &mut site),
     };
     Ok((site, scalar_end))
 }
 
+fn quoted_site(lines: &[&str], at: usize, column: usize, quote: char, site: &mut Site) -> Result<usize, SkillDocumentError> {
+    site.kind = if quote == '"' { Kind::Double } else { Kind::Single };
+    let (end_line, end_byte) =
+        closing_quote(lines, at, column + 1, quote).ok_or_else(|| SkillDocumentError::InvalidYaml("missing closing quote".to_owned()))?;
+    if end_line == at {
+        site.source = lines[at][column + 1..end_byte].to_owned();
+    }
+    let tail = lines[end_line][end_byte + 1..].trim_start_matches([' ', '\t']);
+    if let Some(comment) = tail.strip_prefix('#') {
+        site.comment = Some(comment.to_owned());
+    }
+    Ok(end_line + 1)
+}
+
+fn block_site(lines: &[&str], at: usize, text: &str, indicator: char, site: &mut Site) -> usize {
+    site.kind = if indicator == '|' { Kind::Literal } else { Kind::Folded };
+    let header = &text[1..];
+    let token_end = header.find([' ', '\t']).unwrap_or(header.len());
+    let explicit = header[..token_end].chars().find_map(|c| c.to_digit(10)).map(|d| d as usize);
+    if let Some(comment) = header[token_end..].trim_start_matches([' ', '\t']).strip_prefix('#') {
+        site.comment = Some(comment.to_owned());
+    }
+    let mut content_indent = explicit;
+    let mut last = at;
+    for (k, line) in lines.iter().enumerate().skip(at + 1) {
+        if is_blank(line) {
+            continue;
+        }
+        let indent = indent_of(line);
+        let content = *content_indent.get_or_insert(indent);
+        if indent == 0 || indent < content {
+            break;
+        }
+        last = k;
+    }
+    // Keep chomping makes the blank lines after the text part of the value.
+    if header[..token_end].contains('+') {
+        while lines.get(last + 1).is_some_and(|l| is_blank(l)) {
+            last += 1;
+        }
+    }
+    last + 1
+}
+
+fn plain_site(lines: &[&str], entry: &Entry, at: usize, text: &str, site: &mut Site) -> usize {
+    let mut last = at;
+    let mut line_text = text;
+    let mut k = at;
+    let mut words: Vec<&str> = Vec::new();
+    loop {
+        if let Some(c) = find_comment(line_text) {
+            site.comment = Some(line_text[c + 1..].to_owned());
+            words.push(line_text[..c].trim_end_matches([' ', '\t']));
+            break;
+        }
+        words.push(line_text.trim_end_matches([' ', '\t']));
+        // The next line continues the scalar when it is indented text (not a comment).
+        let next = (k + 1..entry.end).find(|&m| !is_blank(lines[m]));
+        match next {
+            Some(m) if indent_of(lines[m]) > 0 && !lines[m].trim_start_matches(' ').starts_with('#') => {
+                k = m;
+                last = m;
+                line_text = lines[m].trim_start_matches(' ');
+            }
+            _ => break,
+        }
+    }
+    site.source = words.join(" ");
+    last + 1
+}
 /// The line holding the bracket that closes the flow collection starting at `lines[line][byte..]`.
 fn flow_end(lines: &[&str], line: usize, byte: usize) -> Option<usize> {
     let mut depth = 0usize;
@@ -991,12 +997,27 @@ fn consume_more_indented_lines(t: &[u16], mut i: isize, indent: isize) -> isize 
 /// when `track_overflow`).
 fn fold_flow_lines(text: &str, indent: &str, mode: Mode, indent_at_start: Option<usize>, track_overflow: bool) -> (String, bool) {
     let t: Vec<u16> = text.encode_utf16().collect();
+    let Some(plan) = plan_folds(&t, indent.len() as isize, mode, indent_at_start) else { return (text.to_owned(), false) };
+    let overflowed = plan.overflow && track_overflow;
+    if plan.folds.is_empty() {
+        return (text.to_owned(), overflowed);
+    }
+    (apply_folds(&t, indent, mode, &plan), overflowed)
+}
+
+struct FoldPlan {
+    folds: Vec<isize>,
+    escaped_folds: HashSet<isize>,
+    overflow: bool,
+}
+
+/// Where `t` folds; `None` when it stays as written.
+fn plan_folds(t: &[u16], indent_len: isize, mode: Mode, indent_at_start: Option<usize>) -> Option<FoldPlan> {
     let at = |k: isize| usize::try_from(k).ok().and_then(|k| t.get(k).copied());
     let unit = |c: u8| Some(u16::from(c));
-    let indent_len = indent.len() as isize;
     let end_step = (1 + MIN_CONTENT_WIDTH).max(1 + LINE_WIDTH - indent_len);
     if t.len() as isize <= end_step {
-        return (text.to_owned(), false);
+        return None;
     }
     let mut folds: Vec<isize> = Vec::new();
     let mut escaped_folds: HashSet<isize> = HashSet::new();
@@ -1014,7 +1035,7 @@ fn fold_flow_lines(text: &str, indent: &str, mode: Mode, indent_at_start: Option
     let mut i: isize = -1;
     let (mut esc_start, mut esc_end): (isize, isize) = (-1, -1);
     if mode == Mode::Block {
-        i = consume_more_indented_lines(&t, i, indent_len);
+        i = consume_more_indented_lines(t, i, indent_len);
         if i != -1 {
             end = i + end_step;
         }
@@ -1035,7 +1056,7 @@ fn fold_flow_lines(text: &str, indent: &str, mode: Mode, indent_at_start: Option
         }
         if ch == unit(b'\n') {
             if mode == Mode::Block {
-                i = consume_more_indented_lines(&t, i, indent_len);
+                i = consume_more_indented_lines(t, i, indent_len);
             }
             end = i + indent_len + end_step;
             split = None;
@@ -1061,7 +1082,7 @@ fn fold_flow_lines(text: &str, indent: &str, mode: Mode, indent_at_start: Option
                     }
                     let j = if i > esc_end + 1 { i - 2 } else { esc_start - 1 };
                     if escaped_folds.contains(&j) {
-                        return (text.to_owned(), false);
+                        return None;
                     }
                     folds.push(j);
                     escaped_folds.insert(j);
@@ -1074,10 +1095,12 @@ fn fold_flow_lines(text: &str, indent: &str, mode: Mode, indent_at_start: Option
         }
         prev = ch;
     }
-    let overflowed = overflow && track_overflow;
-    if folds.is_empty() {
-        return (text.to_owned(), overflowed);
-    }
+    Some(FoldPlan { folds, escaped_folds, overflow })
+}
+
+fn apply_folds(t: &[u16], indent: &str, mode: Mode, plan: &FoldPlan) -> String {
+    let FoldPlan { folds, escaped_folds, .. } = plan;
+    let at = |k: isize| usize::try_from(k).ok().and_then(|k| t.get(k).copied());
     let slice = |from: isize, to: isize| -> Vec<u16> {
         let (from, to) = (from.max(0) as usize, (to.max(0) as usize).min(t.len()));
         if from < to { t[from..to].to_vec() } else { Vec::new() }
@@ -1105,5 +1128,5 @@ fn fold_flow_lines(text: &str, indent: &str, mode: Mode, indent_at_start: Option
             res.extend(slice(fold + 1, stop));
         }
     }
-    (String::from_utf16_lossy(&res), overflowed)
+    String::from_utf16_lossy(&res)
 }

@@ -1,9 +1,3 @@
-//! The progress watchdog's sweep (Node `agent-dispatch/watchdog.mjs`, `startDispatchWatchdog`): a
-//! one-second poll that aborts the run's signal with the verdict's sentence when an unattended
-//! run stops making progress under its policy (`agent_tool::watchdog::resolve_policy`). The abort
-//! frees whatever the run holds, its admission slot included. An attended run is never armed:
-//! a person can stop it, and SPEC §4.9 keeps content timers off it.
-
 use std::sync::Arc;
 use std::time::Duration;
 

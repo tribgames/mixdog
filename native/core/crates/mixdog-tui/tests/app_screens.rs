@@ -7,7 +7,8 @@ use mixdog_term::frame::{CursorPos, Grid};
 use mixdog_term::paint::Painter;
 use mixdog_tui::editor::Draft;
 use mixdog_tui::surface::layout::{
-    HintText, PickerLayout, QueuedCommand, ShellLayoutInput, ShellRefs, ShellState, StreamingTail, TextEntryPrompt, TranscriptTail, compute_shell_layout,
+    HintText, PickerLayout, QueuedCommand, ShellLayout, ShellLayoutInput, ShellRefs, ShellState, StreamingTail, TextEntryPrompt, TranscriptTail,
+    compute_shell_layout,
 };
 use mixdog_tui::transcript::window::heights::ItemHeights;
 use mixdog_tui::transcript::window::render_window::RenderWindow;
@@ -72,6 +73,42 @@ struct Scene {
     conditional_tip: String,
 }
 
+fn picker_of(spec: &Value) -> (PickerProps, usize) {
+    let items = spec["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| {
+            let mut row = PickerItem::new(&text(item, "value"), &text(item, "label"));
+            row.description = text(item, "description");
+            row
+        })
+        .collect();
+    let mut props = PickerProps::new(items, &text(spec, "title"));
+    props.description = text(spec, "description");
+    props.help = Some(text(spec, "help")).filter(|help| !help.is_empty());
+    (props, number(spec, "initialIndex") as usize)
+}
+
+fn live_spinner_of(spinner: &Value) -> LiveSpinner {
+    LiveSpinner {
+        verb: spinner.get("verb").and_then(Value::as_str).map(str::to_owned),
+        started_at: number(spinner, "startedAt"),
+        output_tokens: spinner.get("outputTokens").and_then(Value::as_f64),
+        tokens: spinner.get("tokens").and_then(Value::as_f64),
+        thinking: spinner.get("thinking").and_then(Value::as_bool).unwrap_or(false),
+        thinking_segment_started_at: number(spinner, "thinkingSegmentStartedAt"),
+        thinking_accumulated_ms: number(spinner, "thinkingAccumulatedMs"),
+        quiet: present(spinner, "quiet").map(|quiet| Quiet {
+            since: number(quiet, "since"),
+            wait: text(quiet, "wait"),
+            tool: quiet.get("tool").and_then(Value::as_str).map(str::to_owned),
+            warn_ms: number(quiet, "warnMs"),
+        }),
+        mode: text(spinner, "mode"),
+    }
+}
+
 impl Scene {
     fn of(scene: &Value) -> Self {
         let state = &scene["state"];
@@ -85,23 +122,7 @@ impl Scene {
                 (prompt, draft)
             })
         };
-        let picker = panel.filter(|_| kind == "picker").map(|panel| {
-            let spec = &panel["picker"];
-            let items = spec["items"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|item| {
-                    let mut row = PickerItem::new(&text(item, "value"), &text(item, "label"));
-                    row.description = text(item, "description");
-                    row
-                })
-                .collect();
-            let mut props = PickerProps::new(items, &text(spec, "title"));
-            props.description = text(spec, "description");
-            props.help = Some(text(spec, "help")).filter(|help| !help.is_empty());
-            (props, number(spec, "initialIndex") as usize)
-        });
+        let picker = panel.filter(|_| kind == "picker").map(|panel| picker_of(&panel["picker"]));
         let request = panel.filter(|_| kind == "approval" || kind == "question").map(|panel| {
             let mut request = panel["request"].clone();
             request["id"] = json!("call-1");
@@ -113,22 +134,7 @@ impl Scene {
                 panel["commands"].as_array().unwrap().iter().map(|command| SlashCommand::new(&text(command, "name"), &text(command, "description"))).collect()
             })
             .unwrap_or_default();
-        let spinner = present(state, "spinner").map(|spinner| LiveSpinner {
-            verb: spinner.get("verb").and_then(Value::as_str).map(str::to_owned),
-            started_at: number(spinner, "startedAt"),
-            output_tokens: spinner.get("outputTokens").and_then(Value::as_f64),
-            tokens: spinner.get("tokens").and_then(Value::as_f64),
-            thinking: spinner.get("thinking").and_then(Value::as_bool).unwrap_or(false),
-            thinking_segment_started_at: number(spinner, "thinkingSegmentStartedAt"),
-            thinking_accumulated_ms: number(spinner, "thinkingAccumulatedMs"),
-            quiet: present(spinner, "quiet").map(|quiet| Quiet {
-                since: number(quiet, "since"),
-                wait: text(quiet, "wait"),
-                tool: quiet.get("tool").and_then(Value::as_str).map(str::to_owned),
-                warn_ms: number(quiet, "warnMs"),
-            }),
-            mode: text(spinner, "mode"),
-        });
+        let spinner = present(state, "spinner").map(live_spinner_of);
         Self {
             items: list("items"),
             queued: list("queued"),
@@ -189,6 +195,62 @@ impl Scene {
     }
 }
 
+fn scene_spinner_lines(scene: &Scene, layout: &ShellLayout) -> Vec<Line> {
+    scene.spinner.as_ref().map_or_else(Vec::new, |live| {
+        let props = spinner_props(&SpinnerContext {
+            live,
+            thinking: false,
+            effort: "high",
+            web_search_active: false,
+            approval_pending: scene.request.is_some(),
+            busy: true,
+            spinner_active: true,
+            columns: layout.prompt_spinner_columns,
+        });
+        render_spinner(&mut SpinnerProgress::new(NOW, live.started_at), &props, NOW, false)
+    })
+}
+
+fn scene_footer() -> String {
+    let stats = json!({});
+    let local = LocalLineArgs {
+        model: "gpt-5",
+        effort: "high",
+        fast: false,
+        ultra: false,
+        stats: Some(&stats),
+        context_window: 1000.0,
+        display_context_window: 0.0,
+        raw_context_window: 0.0,
+        agent_workers: &[],
+        agent_jobs: &[],
+        active_tools: None,
+        shell_status: None,
+        terminal_columns: None,
+    };
+    build_local_snap_line(&local, "", NOW)
+}
+
+fn scene_panel_slots<'a>(scene: &'a Scene, panel_kind: &str) -> PanelSlots<'a> {
+    let mut slots = PanelSlots::default();
+    if let Some(request) = &scene.request {
+        slots.tool_approval = Some(ToolApprovalSlot { request, selected: 0, question: None });
+    }
+    if let Some((props, selected)) = &scene.picker {
+        slots.picker = Some(PickerSlot { props, selected: *selected, confirm_focus: 0, status: CopyStatus::Idle });
+    }
+    if panel_kind == "palette" {
+        slots.slash_palette = Some(PaletteSlot { commands: &scene.commands, selected: scene.palette_selected, query: &scene.query, skills: false });
+    }
+    if let Some((prompt, draft)) = &scene.provider_prompt {
+        slots.provider_prompt = Some(TextEntrySlot { prompt, draft, status: CopyStatus::Idle });
+    }
+    if let Some((prompt, draft)) = &scene.settings_prompt {
+        slots.settings_prompt = Some(TextEntrySlot { prompt, draft, status: CopyStatus::Idle });
+    }
+    slots
+}
+
 fn render_screen(case: &Value) -> (Grid, Option<CursorPos>) {
     let (columns, rows) = (case["columns"].as_u64().unwrap() as usize, case["rows"].as_u64().unwrap() as usize);
     let scene_json = &case["scene"];
@@ -224,56 +286,14 @@ fn render_screen(case: &Value) -> (Grid, Option<CursorPos>) {
         },
     );
 
-    let spinner_lines: Vec<Line> = scene.spinner.as_ref().map_or_else(Vec::new, |live| {
-        let props = spinner_props(&SpinnerContext {
-            live,
-            thinking: false,
-            effort: "high",
-            web_search_active: false,
-            approval_pending: scene.request.is_some(),
-            busy: true,
-            spinner_active: true,
-            columns: layout.prompt_spinner_columns,
-        });
-        render_spinner(&mut SpinnerProgress::new(NOW, live.started_at), &props, NOW, false)
-    });
-    let stats = json!({});
+    let spinner_lines = scene_spinner_lines(&scene, &layout);
     let cwd = Some(text(&scene_json["state"], "cwd")).filter(|cwd| !cwd.is_empty()).unwrap_or_else(|| "C:/work/project".to_owned());
-    let local = LocalLineArgs {
-        model: "gpt-5",
-        effort: "high",
-        fast: false,
-        ultra: false,
-        stats: Some(&stats),
-        context_window: 1000.0,
-        display_context_window: 0.0,
-        raw_context_window: 0.0,
-        agent_workers: &[],
-        agent_jobs: &[],
-        active_tools: None,
-        shell_status: None,
-        terminal_columns: None,
-    };
-    let footer = build_local_snap_line(&local, "", NOW);
+    let footer = scene_footer();
     let workflow = json!({ "id": "team", "name": "Team" });
-
-    let mut slots = PanelSlots::default();
-    if let Some(request) = &scene.request {
-        slots.tool_approval = Some(ToolApprovalSlot { request, selected: 0, question: None });
-    }
-    if let Some((props, selected)) = &mut scene.picker {
+    if let Some((props, _)) = &mut scene.picker {
         fit_picker(props, frame_columns, &layout);
-        slots.picker = Some(PickerSlot { props, selected: *selected, confirm_focus: 0, status: CopyStatus::Idle });
     }
-    if panel_kind == "palette" {
-        slots.slash_palette = Some(PaletteSlot { commands: &scene.commands, selected: scene.palette_selected, query: &scene.query, skills: false });
-    }
-    if let Some((prompt, draft)) = &scene.provider_prompt {
-        slots.provider_prompt = Some(TextEntrySlot { prompt, draft, status: CopyStatus::Idle });
-    }
-    if let Some((prompt, draft)) = &scene.settings_prompt {
-        slots.settings_prompt = Some(TextEntrySlot { prompt, draft, status: CopyStatus::Idle });
-    }
+    let slots = scene_panel_slots(&scene, &panel_kind);
 
     let props = AppViewProps {
         columns,

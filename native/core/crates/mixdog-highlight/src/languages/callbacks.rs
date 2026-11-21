@@ -1,11 +1,6 @@
 //! The functions a language definition holds, ported by hand: the `on:begin` / `on:end` callbacks and the
 //! compiler extension of highlight.js 10.7.3. The data names them by id (`{"cb": "<id>"}`); the dump fails on a
 //! function that is not in this table.
-//!
-//! Which language uses which: `shebang` (hljs.SHEBANG), `endSameAsBeginBegin` / `endSameAsBeginEnd`
-//! (hljs.END_SAME_AS_BEGIN), `isTrulyOpeningTag` (the JSX tag of javascript.js and typescript.js),
-//! `skipIfHasPrecedingDot` (the internal `__beforeBegin` of every `beginKeywords` mode), `beforeMatch`
-//! (r.js's compiler extension).
 
 use super::callbacks_extra;
 use super::{Raw, RawObject};

@@ -109,7 +109,26 @@ fn quantize_to_palette(rgba: &mut [u8]) {
     if colours.len() <= budget {
         return;
     }
-    let channel = |key: u32, shift: u32| ((key >> shift) & 0xFF) as u8;
+    let palette = median_cut_palette(&colours, budget);
+    let nearest = |key: u32| -> [u8; 3] {
+        let (r, g, b) = (i32::from(channel(key, 16)), i32::from(channel(key, 8)), i32::from(channel(key, 0)));
+        let best = palette.iter().min_by_key(|entry| (entry[0] - r).pow(2) + (entry[1] - g).pow(2) + (entry[2] - b).pow(2)).copied().unwrap_or([0; 3]);
+        [best[0] as u8, best[1] as u8, best[2] as u8]
+    };
+    let mapped: std::collections::HashMap<u32, [u8; 3]> = colours.iter().map(|&(key, _)| (key, nearest(key))).collect();
+    for pixel in rgba.as_chunks_mut::<4>().0.iter_mut().filter(|pixel| pixel[3] != 0) {
+        let key = u32::from(pixel[0]) << 16 | u32::from(pixel[1]) << 8 | u32::from(pixel[2]);
+        pixel[..3].copy_from_slice(&mapped[&key]);
+    }
+}
+
+fn channel(key: u32, shift: u32) -> u8 {
+    ((key >> shift) & 0xFF) as u8
+}
+
+/// `budget` palette entries, the mean colour of each box of a median cut over `colours` (colour, pixel count) that
+/// always splits the box with the widest channel range at the pixel-count median.
+fn median_cut_palette(colours: &[(u32, u64)], budget: usize) -> Vec<[i32; 3]> {
     let range_of = |boxed: &[(u32, u64)]| -> (u8, u32) {
         let mut best = (0u8, 0u32);
         for shift in [16u32, 8, 0] {
@@ -122,7 +141,7 @@ fn quantize_to_palette(rgba: &mut [u8]) {
         best
     };
     // Each box carries its widest channel range, worked out once when the box is made.
-    let mut boxes: Vec<(ColourBox, (u8, u32))> = vec![(colours.clone(), range_of(&colours))];
+    let mut boxes: Vec<(ColourBox, (u8, u32))> = vec![(colours.to_vec(), range_of(colours))];
     while boxes.len() < budget {
         let split =
             boxes.iter().enumerate().filter(|(_, (boxed, _))| boxed.len() > 1).map(|(at, &(_, range))| (at, range)).max_by_key(|&(_, (range, _))| range);
@@ -144,24 +163,14 @@ fn quantize_to_palette(rgba: &mut [u8]) {
         boxes.push((boxed, lower_range));
         boxes.push((upper, upper_range));
     }
-    let palette: Vec<[i32; 3]> = boxes
+    boxes
         .iter()
         .map(|(boxed, _)| {
             let total: u64 = boxed.iter().map(|&(_, count)| count).sum();
             let mean = |shift: u32| ((boxed.iter().map(|&(key, count)| u64::from(channel(key, shift)) * count).sum::<u64>() + total / 2) / total) as i32;
             [mean(16), mean(8), mean(0)]
         })
-        .collect();
-    let nearest = |key: u32| -> [u8; 3] {
-        let (r, g, b) = (i32::from(channel(key, 16)), i32::from(channel(key, 8)), i32::from(channel(key, 0)));
-        let best = palette.iter().min_by_key(|entry| (entry[0] - r).pow(2) + (entry[1] - g).pow(2) + (entry[2] - b).pow(2)).copied().unwrap_or([0; 3]);
-        [best[0] as u8, best[1] as u8, best[2] as u8]
-    };
-    let mapped: std::collections::HashMap<u32, [u8; 3]> = colours.iter().map(|&(key, _)| (key, nearest(key))).collect();
-    for pixel in rgba.as_chunks_mut::<4>().0.iter_mut().filter(|pixel| pixel[3] != 0) {
-        let key = u32::from(pixel[0]) << 16 | u32::from(pixel[1]) << 8 | u32::from(pixel[2]);
-        pixel[..3].copy_from_slice(&mapped[&key]);
-    }
+        .collect()
 }
 
 fn encode_gif(raster: &Raster) -> Result<Vec<u8>, ImagingError> {

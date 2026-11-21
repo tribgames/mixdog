@@ -1,11 +1,6 @@
-//! `repl/turn-output.mjs` and the turn side of `repl.mjs`: what the REPL prints once a turn has settled (the markdown
-//! re-render of the streamed block, on a terminal and for text-only turns, and the per-turn statusline), and the fold of the
-//! session's state into the pieces a turn prints while it runs.
-//!
-//! Node's REPL drove an in-process runtime that called back with text deltas, tool calls and the final content. The session
-//! the REPL follows now is a core's: its state holds the transcript rows of the turn and the line being streamed.
-//! [`TurnFollow`] turns each state into the same steps the callbacks were: text to append, a tail to take back, a tool card,
-//! and the end of the turn with its final text.
+//! What the REPL prints once a turn has settled (the markdown re-render of the streamed block and the per-turn statusline), and
+//! the fold of the session's state into the pieces a turn prints while it runs: [`TurnFollow`] turns each state into text to
+//! append, a tail to take back, a tool card, and the end of the turn with its final text.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -34,9 +29,8 @@ impl Footer for StatuslineRenderer {
     }
 }
 
-/// `finalizeTurnOutput({ out, sink, finalText, renderMarkdown })`: the raw streamed block is cleared and printed again as
-/// markdown, but only on a terminal (a cursor escape must never reach a pipe or an `NO_COLOR` log) and only for a turn that
-/// printed no tool card (the cursor would have to move through the card rows). A turn that streamed nothing is rendered once;
+/// The raw streamed block is cleared and printed again as markdown, but only on a terminal (a cursor escape must never reach a
+/// pipe or an `NO_COLOR` log) and only for a turn that printed no tool card. A turn that streamed nothing is rendered once;
 /// every other turn keeps its raw stream and only ends the line.
 pub fn finalize_turn_output(out: &mut dyn Out, sink: &StreamSink, final_text: &str, color: bool, render_markdown: &dyn Fn(&str) -> String) -> io::Result<()> {
     if final_text.is_empty() {
@@ -201,27 +195,27 @@ impl TurnFollow {
             }
         }
         if let Some(end) = ended {
-            let wanted = end["finalAssistantId"].as_str();
-            let final_text = rows
-                .iter()
-                .filter(|row| row["kind"] == "assistant" && !self.before.contains(&id_of(row)))
-                .rev()
-                .find(|row| wanted.is_none_or(|wanted| id_of(row) == wanted))
-                .or_else(|| rows.iter().rfind(|row| row["kind"] == "assistant" && !self.before.contains(&id_of(row))))
-                .and_then(|row| row["text"].as_str())
-                .filter(|text| !text.is_empty())
-                .map(str::to_owned);
-            let failed = matches!(end["status"].as_str(), Some("failed"));
-            let error = failed.then(|| {
-                ["errorDetails", "detail"]
-                    .into_iter()
-                    .find_map(|field| end[field].as_str().filter(|text| !text.is_empty()))
-                    .unwrap_or("the turn failed")
-                    .to_owned()
-            });
-            steps.push(TurnStep::Done(TurnEnd { final_text, error }));
+            steps.push(TurnStep::Done(self.turn_end(end, rows)));
         }
         steps
+    }
+
+    fn turn_end(&self, end: &Value, rows: &[Value]) -> TurnEnd {
+        let wanted = end["finalAssistantId"].as_str();
+        let final_text = rows
+            .iter()
+            .filter(|row| row["kind"] == "assistant" && !self.before.contains(&id_of(row)))
+            .rev()
+            .find(|row| wanted.is_none_or(|wanted| id_of(row) == wanted))
+            .or_else(|| rows.iter().rfind(|row| row["kind"] == "assistant" && !self.before.contains(&id_of(row))))
+            .and_then(|row| row["text"].as_str())
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned);
+        let failed = matches!(end["status"].as_str(), Some("failed"));
+        let error = failed.then(|| {
+            ["errorDetails", "detail"].into_iter().find_map(|field| end[field].as_str().filter(|text| !text.is_empty())).unwrap_or("the turn failed").to_owned()
+        });
+        TurnEnd { final_text, error }
     }
 }
 

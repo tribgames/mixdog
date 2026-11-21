@@ -597,10 +597,6 @@ mod tests {
         }
     }
 
-    /// Node answers `createAgentRoom` after `deps.republishCatalog()` (`agent-rooms.ts` `create`, `session-host.ts:357-360`
-    /// publishes the catalog synchronously): the room is listed and announced when the call answers. Polled while the
-    /// publish is held, the creation has not answered; once the gate opens it answers with the room it made. Everything
-    /// the creation awaits here is in memory, so one poll runs it to the gate or to its answer.
     #[tokio::test]
     async fn room_create_answers_only_after_the_catalog_is_published() {
         let (open_tx, open) = tokio::sync::oneshot::channel();

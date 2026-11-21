@@ -361,22 +361,110 @@ fn ycc_to_rgb(y: u8, cb: u8, cr: u8) -> [u8; 3] {
     [r.clamp(0, 255) as u8, g.clamp(0, 255) as u8, b.clamp(0, 255) as u8]
 }
 
-/// libjpeg-turbo's decode of `bytes`, or `None` when the file is not one this decoder takes (see the module text).
-pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
+struct Frame<'a> {
+    quant: [[i32; 64]; 4],
+    quant_set: [bool; 4],
+    dc_tables: [Option<Huffman>; 4],
+    ac_tables: [Option<Huffman>; 4],
+    components: Vec<Component>,
+    width: usize,
+    height: usize,
+    restart: usize,
+    profile_chunks: Vec<(u8, Vec<u8>)>,
+    jfif: bool,
+    scan_header: &'a [u8],
+    scan_at: usize,
+}
+
+struct Layout {
+    single: bool,
+    h_max: usize,
+    v_max: usize,
+    mcus_x: usize,
+    mcus_y: usize,
+}
+
+fn read_quant_tables(body: &[u8], quant: &mut [[i32; 64]; 4], quant_set: &mut [bool; 4]) -> Option<()> {
+    let mut rest = body;
+    while !rest.is_empty() {
+        let (precision, id) = (rest[0] >> 4, usize::from(rest[0] & 15));
+        let size = if precision == 0 { 64 } else { 128 };
+        let table = rest.get(1..1 + size)?;
+        if id > 3 || precision > 1 {
+            return None;
+        }
+        for k in 0..64 {
+            quant[id][ZIGZAG[k]] = if precision == 0 { i32::from(table[k]) } else { i32::from(table[2 * k]) << 8 | i32::from(table[2 * k + 1]) };
+        }
+        quant_set[id] = true;
+        rest = &rest[1 + size..];
+    }
+    Some(())
+}
+
+fn read_huffman_tables(body: &[u8], dc_tables: &mut [Option<Huffman>; 4], ac_tables: &mut [Option<Huffman>; 4]) -> Option<()> {
+    let mut rest = body;
+    while !rest.is_empty() {
+        let (class, id) = (rest[0] >> 4, usize::from(rest[0] & 15));
+        let counts: [u8; 16] = rest.get(1..17)?.try_into().ok()?;
+        let total: usize = counts.iter().map(|c| usize::from(*c)).sum();
+        let symbols = rest.get(17..17 + total)?;
+        if id > 3 || class > 1 {
+            return None;
+        }
+        let table = Huffman::build(&counts, symbols)?;
+        if class == 0 {
+            dc_tables[id] = Some(table)
+        } else {
+            ac_tables[id] = Some(table)
+        }
+        rest = &rest[17 + total..];
+    }
+    Some(())
+}
+
+/// A baseline or extended sequential frame header: the picture's size and its components.
+fn read_frame_header(body: &[u8], frame: &mut Frame<'_>) -> Option<()> {
+    if !frame.components.is_empty() || body.len() < 6 || body[0] != 8 {
+        return None;
+    }
+    frame.height = be16(body, 1)?;
+    frame.width = be16(body, 3)?;
+    let count = usize::from(body[5]);
+    if frame.width == 0 || frame.height == 0 || !(count == 1 || count == 3) || body.len() < 6 + count * 3 {
+        return None;
+    }
+    for c in 0..count {
+        let spec = &body[6 + c * 3..9 + c * 3];
+        let (h, v) = (usize::from(spec[1] >> 4), usize::from(spec[1] & 15));
+        if !(1..=2).contains(&h) || !(1..=2).contains(&v) || spec[2] > 3 {
+            return None;
+        }
+        frame.components.push(Component { id: spec[0], h, v, quant: usize::from(spec[2]), dc: 0, ac: 0, width: 0, height: 0, stride: 0, samples: Vec::new() });
+    }
+    Some(())
+}
+
+/// The markers up to the start of the scan: tables, the frame header, the restart interval, the colour profile.
+fn read_markers(bytes: &[u8]) -> Option<Frame<'_>> {
     if bytes.get(..2)? != [0xFF, 0xD8] {
         return None;
     }
-    let mut quant = [[0i32; 64]; 4];
-    let mut quant_set = [false; 4];
-    let mut dc_tables: [Option<Huffman>; 4] = [None, None, None, None];
-    let mut ac_tables: [Option<Huffman>; 4] = [None, None, None, None];
-    let mut components: Vec<Component> = Vec::new();
-    let (mut width, mut height) = (0usize, 0usize);
-    let mut restart = 0usize;
-    let mut profile_chunks: Vec<(u8, Vec<u8>)> = Vec::new();
-    let mut jfif = false;
+    let mut frame = Frame {
+        quant: [[0i32; 64]; 4],
+        quant_set: [false; 4],
+        dc_tables: [None, None, None, None],
+        ac_tables: [None, None, None, None],
+        components: Vec::new(),
+        width: 0,
+        height: 0,
+        restart: 0,
+        profile_chunks: Vec::new(),
+        jfif: false,
+        scan_header: &[],
+        scan_at: 0,
+    };
     let mut at = 2usize;
-    let scan_header: &[u8];
     loop {
         // Skip to the next marker.
         while *bytes.get(at)? != 0xFF {
@@ -395,101 +483,40 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
         let length = be16(bytes, at)?;
         let body = bytes.get(at + 2..at + length)?;
         match marker {
-            // Quantisation tables.
-            0xDB => {
-                let mut rest = body;
-                while !rest.is_empty() {
-                    let (precision, id) = (rest[0] >> 4, usize::from(rest[0] & 15));
-                    let size = if precision == 0 { 64 } else { 128 };
-                    let table = rest.get(1..1 + size)?;
-                    if id > 3 || precision > 1 {
-                        return None;
-                    }
-                    for k in 0..64 {
-                        quant[id][ZIGZAG[k]] = if precision == 0 { i32::from(table[k]) } else { i32::from(table[2 * k]) << 8 | i32::from(table[2 * k + 1]) };
-                    }
-                    quant_set[id] = true;
-                    rest = &rest[1 + size..];
-                }
-            }
-            // Huffman tables.
-            0xC4 => {
-                let mut rest = body;
-                while !rest.is_empty() {
-                    let (class, id) = (rest[0] >> 4, usize::from(rest[0] & 15));
-                    let counts: [u8; 16] = rest.get(1..17)?.try_into().ok()?;
-                    let total: usize = counts.iter().map(|c| usize::from(*c)).sum();
-                    let symbols = rest.get(17..17 + total)?;
-                    if id > 3 || class > 1 {
-                        return None;
-                    }
-                    let table = Huffman::build(&counts, symbols)?;
-                    if class == 0 {
-                        dc_tables[id] = Some(table)
-                    } else {
-                        ac_tables[id] = Some(table)
-                    }
-                    rest = &rest[17 + total..];
-                }
-            }
-            // Baseline and extended sequential, Huffman coded.
-            0xC0 | 0xC1 => {
-                if !components.is_empty() || body.len() < 6 || body[0] != 8 {
-                    return None;
-                }
-                height = be16(body, 1)?;
-                width = be16(body, 3)?;
-                let count = usize::from(body[5]);
-                if width == 0 || height == 0 || !(count == 1 || count == 3) || body.len() < 6 + count * 3 {
-                    return None;
-                }
-                for c in 0..count {
-                    let spec = &body[6 + c * 3..9 + c * 3];
-                    let (h, v) = (usize::from(spec[1] >> 4), usize::from(spec[1] & 15));
-                    if !(1..=2).contains(&h) || !(1..=2).contains(&v) || spec[2] > 3 {
-                        return None;
-                    }
-                    components.push(Component {
-                        id: spec[0],
-                        h,
-                        v,
-                        quant: usize::from(spec[2]),
-                        dc: 0,
-                        ac: 0,
-                        width: 0,
-                        height: 0,
-                        stride: 0,
-                        samples: Vec::new(),
-                    });
-                }
-            }
+            0xDB => read_quant_tables(body, &mut frame.quant, &mut frame.quant_set)?,
+            0xC4 => read_huffman_tables(body, &mut frame.dc_tables, &mut frame.ac_tables)?,
+            0xC0 | 0xC1 => read_frame_header(body, &mut frame)?,
             // Progressive, lossless, arithmetic coded, hierarchical: not here.
             0xC2 | 0xC3 | 0xC5..=0xC7 | 0xC9..=0xCB | 0xCD..=0xCF => return None,
             0xDD => {
-                restart = be16(body, 0)?;
+                frame.restart = be16(body, 0)?;
             }
             // A colour profile is handed back to be applied; an Adobe transform changes the colours the general decoder applies.
-            0xE2 if body.starts_with(b"ICC_PROFILE\0") && body.len() >= 14 => profile_chunks.push((body[12], body[14..].to_vec())),
+            0xE2 if body.starts_with(b"ICC_PROFILE\0") && body.len() >= 14 => frame.profile_chunks.push((body[12], body[14..].to_vec())),
             0xEE if body.starts_with(b"Adobe") => return None,
-            0xE0 if body.starts_with(b"JFIF ") => jfif = true,
+            0xE0 if body.starts_with(b"JFIF ") => frame.jfif = true,
             0xDA => {
-                scan_header = body;
-                at += length;
-                break;
+                frame.scan_header = body;
+                frame.scan_at = at + length;
+                return Some(frame);
             }
             _ => {}
         }
         at += length;
     }
-    if components.is_empty() || (width as u64) * (height as u64) > pixel_limit {
+}
+
+/// Checks the scan header (every component in one interleaved scan, baseline parameters) and sizes the component planes.
+fn prepare_scan(frame: &mut Frame<'_>, pixel_limit: u64) -> Option<Layout> {
+    let components = &mut frame.components;
+    if components.is_empty() || (frame.width as u64) * (frame.height as u64) > pixel_limit {
         return None;
     }
     // Without a JFIF marker libjpeg-turbo reads three components named R, G and B as RGB, not YCbCr.
-    if !jfif && components.iter().map(|c| c.id).eq([b'R', b'G', b'B']) {
+    if !frame.jfif && components.iter().map(|c| c.id).eq([b'R', b'G', b'B']) {
         return None;
     }
-    // The scan header: every component in one interleaved scan, baseline parameters.
-    let header = scan_header;
+    let header = frame.scan_header;
     let count = usize::from(*header.first()?);
     if count != components.len() || header.len() < 1 + count * 2 + 3 {
         return None;
@@ -515,24 +542,28 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
     }
     let h_max = components.iter().map(|c| c.h).max()?;
     let v_max = components.iter().map(|c| c.v).max()?;
-    let mcu_width = 8 * h_max;
-    let mcu_height = 8 * v_max;
-    let (mcus_x, mcus_y) = (width.div_ceil(mcu_width), height.div_ceil(mcu_height));
-    for component in &mut components {
-        component.width = (width * component.h).div_ceil(h_max);
-        component.height = (height * component.v).div_ceil(v_max);
+    let (mcus_x, mcus_y) = (frame.width.div_ceil(8 * h_max), frame.height.div_ceil(8 * v_max));
+    for component in components.iter_mut() {
+        component.width = (frame.width * component.h).div_ceil(h_max);
+        component.height = (frame.height * component.v).div_ceil(v_max);
         component.stride = mcus_x * component.h * 8;
         component.samples = vec![0u8; component.stride * mcus_y * component.v * 8];
-        if !quant_set[component.quant] || dc_tables[component.dc].is_none() || ac_tables[component.ac].is_none() {
+        if !frame.quant_set[component.quant] || frame.dc_tables[component.dc].is_none() || frame.ac_tables[component.ac].is_none() {
             return None;
         }
     }
-    let mut bits = Bits::new(bytes, at);
-    let mut predictors = vec![0i64; components.len()];
+    Some(Layout { single, h_max, v_max, mcus_x, mcus_y })
+}
+
+/// Decodes the entropy-coded scan into the component planes; `None` for a stream that is damaged or was cut.
+fn decode_scan(bytes: &[u8], frame: &mut Frame<'_>, layout: &Layout) -> Option<()> {
+    let Layout { single, mcus_x, mcus_y, .. } = *layout;
+    let mut bits = Bits::new(bytes, frame.scan_at);
+    let mut predictors = vec![0i64; frame.components.len()];
     let mut block = [0i64; 64];
     let mut done = 0usize;
-    let total = mcus_x * mcus_y;
-    for mcu in 0..total {
+    let restart = frame.restart;
+    for mcu in 0..mcus_x * mcus_y {
         if restart > 0 && done == restart {
             if !bits.restart(((mcu / restart - 1) & 7) as u8) {
                 return None;
@@ -541,10 +572,10 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
             done = 0;
         }
         let (mx, my) = (mcu % mcus_x, mcu / mcus_x);
-        for (index, component) in components.iter_mut().enumerate() {
-            let dc = dc_tables[component.dc].as_ref()?;
-            let ac = ac_tables[component.ac].as_ref()?;
-            let quant = &quant[component.quant];
+        for (index, component) in frame.components.iter_mut().enumerate() {
+            let dc = frame.dc_tables[component.dc].as_ref()?;
+            let ac = frame.ac_tables[component.ac].as_ref()?;
+            let quant = &frame.quant[component.quant];
             let (blocks_x, blocks_y) = if single { (1, 1) } else { (component.h, component.v) };
             for by in 0..blocks_y {
                 for bx in 0..blocks_x {
@@ -585,12 +616,14 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
         done += 1;
     }
     // The data ends at a marker; a stream that was cut has none.
-    if !bytes[bits.at.min(bytes.len())..].windows(2).any(|pair| pair == [0xFF, 0xD9]) {
-        return None;
-    }
+    bytes[bits.at.min(bytes.len())..].windows(2).any(|pair| pair == [0xFF, 0xD9]).then_some(())
+}
+
+fn to_rgb(frame: &Frame<'_>, layout: &Layout) -> Option<Vec<u8>> {
+    let (width, height) = (frame.width, frame.height);
     let mut data = Vec::with_capacity(width * height * 3);
-    if single {
-        let component = &components[0];
+    if layout.single {
+        let component = &frame.components[0];
         for y in 0..height {
             for x in 0..width {
                 let value = component.samples[y * component.stride + x];
@@ -598,17 +631,27 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
             }
         }
     } else {
-        let planes: Vec<Vec<u8>> = components.iter().map(|c| full_size(c, h_max, v_max, width, height)).collect::<Option<_>>()?;
+        let planes: Vec<Vec<u8>> = frame.components.iter().map(|c| full_size(c, layout.h_max, layout.v_max, width, height)).collect::<Option<_>>()?;
         for i in 0..width * height {
             data.extend_from_slice(&ycc_to_rgb(planes[0][i], planes[1][i], planes[2][i]));
         }
     }
+    Some(data)
+}
+
+/// libjpeg-turbo's decode of `bytes`, or `None` when the file is not one this decoder takes (see the module text).
+pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
+    let mut frame = read_markers(bytes)?;
+    let layout = prepare_scan(&mut frame, pixel_limit)?;
+    decode_scan(bytes, &mut frame, &layout)?;
+    let data = to_rgb(&frame, &layout)?;
+    let mut profile_chunks = std::mem::take(&mut frame.profile_chunks);
     profile_chunks.sort_by_key(|(sequence, _)| *sequence);
     let profile: Vec<u8> = profile_chunks.into_iter().flat_map(|(_, chunk)| chunk).collect();
     Some(Jpeg {
-        raster: Raster { width: width as u32, height: height as u32, has_alpha: false, data },
+        raster: Raster { width: frame.width as u32, height: frame.height as u32, has_alpha: false, data },
         profile: (!profile.is_empty()).then_some(profile),
-        grey: single,
+        grey: layout.single,
     })
 }
 
@@ -651,5 +694,37 @@ mod tests {
         assert_eq!(ycc_to_rgb(100, 128, 128), [100, 100, 100]);
         let [r, g, b] = ycc_to_rgb(100, 128, 200);
         assert!(r > 100 && g < 100 && b == 100);
+    }
+
+    const COLOUR_420: &str = "ffd8ffe000104a46494600010100000100010000ffdb0043000d090a0b0a080d0b0a0b0e0e0d0f13201513121213271c1e17202e2931302e292d2c333a4a3e333646372c2d405741464c4e525352323e5a615a50604a51524fffdb0043010e0e0e131113261515264f352d354f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4fffc0001108000a001203012200021101031101ffc4001f0000010501010101010100000000000000000102030405060708090a0bffc400b5100002010303020403050504040000017d01020300041105122131410613516107227114328191a1082342b1c11552d1f02433627282090a161718191a25262728292a3435363738393a434445464748494a535455565758595a636465666768696a737475767778797a838485868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5c6c7c8c9cad2d3d4d5d6d7d8d9dae1e2e3e4e5e6e7e8e9eaf1f2f3f4f5f6f7f8f9faffc4001f0100030101010101010101010000000000000102030405060708090a0bffc400b51100020102040403040705040400010277000102031104052131061241510761711322328108144291a1b1c109233352f0156272d10a162434e125f11718191a262728292a35363738393a434445464748494a535455565758595a636465666768696a737475767778797a82838485868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5c6c7c8c9cad2d3d4d5d6d7d8d9dae2e3e4e5e6e7e8e9eaf2f3f4f5f6f7f8f9faffda000c03010002110311003f00e6ed342ce3e4adab6f0f8001650056dd82af1f28fcab5a1553372a3b76ae155b968aa92576dd8e5cbb31ad748e70683163a7fe3a68aed822e07ca3f2a2b4f68ff963f73ff33e8ffb4aa9ffd9";
+    const GREY: &str = "ffd8ffe000104a46494600010100000100010000ffdb0043000d090a0b0a080d0b0a0b0e0e0d0f13201513121213271c1e17202e2931302e292d2c333a4a3e333646372c2d405741464c4e525352323e5a615a50604a51524fffc0000b080009000901011100ffc4001f0000010501010101010100000000000000000102030405060708090a0bffc400b5100002010303020403050504040000017d01020300041105122131410613516107227114328191a1082342b1c11552d1f02433627282090a161718191a25262728292a3435363738393a434445464748494a535455565758595a636465666768696a737475767778797a838485868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5c6c7c8c9cad2d3d4d5d6d7d8d9dae1e2e3e4e5e6e7e8e9eaf1f2f3f4f5f6f7f8f9faffda0008010100003f006f81ede38625966658e345dceec70140e4927b0aa7ff000b275eff009f2d37fefd49ff00c5d5fd2bfe455d4ffebca6ff00d00d7115ffd9";
+
+    fn hex(text: &str) -> Vec<u8> {
+        (0..text.len()).step_by(2).map(|at| u8::from_str_radix(&text[at..at + 2], 16).unwrap()).collect()
+    }
+
+    fn fnv(bytes: &[u8]) -> u64 {
+        bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(0x100_0000_01b3))
+    }
+
+    #[test]
+    fn a_colour_jpeg_with_half_sampled_chroma_decodes_as_libjpeg_turbo_does() {
+        let jpeg = decode(&hex(COLOUR_420), 1 << 20).expect("decoded");
+        assert_eq!((jpeg.raster.width, jpeg.raster.height, jpeg.grey, jpeg.profile.is_none()), (18, 10, false, true));
+        assert_eq!(fnv(&jpeg.raster.data), 0xde37_a019_c134_9b99);
+    }
+
+    #[test]
+    fn a_grey_jpeg_decodes_as_libjpeg_turbo_does() {
+        let jpeg = decode(&hex(GREY), 1 << 20).expect("decoded");
+        assert_eq!((jpeg.raster.width, jpeg.raster.height, jpeg.grey), (9, 9, true));
+        assert_eq!(fnv(&jpeg.raster.data), 0x9f0b_2644_adca_9738);
+    }
+
+    #[test]
+    fn a_picture_over_the_pixel_limit_or_cut_short_is_refused() {
+        assert!(decode(&hex(COLOUR_420), 179).is_none());
+        let whole = hex(COLOUR_420);
+        assert!(decode(&whole[..whole.len() - 2], 1 << 20).is_none());
     }
 }

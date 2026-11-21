@@ -109,7 +109,6 @@ pub async fn start(
     migrate: impl FnOnce() -> Result<(), String> + Send + 'static,
 ) -> Result<Started, StartupError> {
     let cancel = CancellationToken::new();
-    // Creating the directory, opening the handle and taking the OS lock block: a maintenance job.
     let ownership = {
         let data_dir = startup.data_dir.clone();
         Arc::new(

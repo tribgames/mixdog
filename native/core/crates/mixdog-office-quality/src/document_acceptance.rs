@@ -70,21 +70,11 @@ fn page_reasons(entry: Option<&Value>, extra: usize, checks: &[&str]) -> Vec<Str
     reasons
 }
 
-/// `reviewDocumentPages(format, design, state)`: one verdict per rendered page from the author's critique entries,
-/// whether the review is current for the last render, and why it is not accepted, in the order a caller can act on it.
-/// `None` for a format without paginated review.
-pub fn review_document_pages(format: &str, design: &Value, state: &Value) -> Option<Value> {
-    let checks = document_visual_checks(format)?;
-    let count = {
-        let number = to_number_of(field(state, "renderedPageCount"));
-        if number.is_nan() { 0.0 } else { number }
-    };
-    let entries: &[Value] = match field(design, "critique") {
-        Some(Value::Array(items)) => items,
-        _ => &[],
-    };
-    // One row per rendered page: the record and the reasons it is not passed.
-    let mut pages: Vec<(f64, Value, Vec<String>)> = Vec::new();
+/// One row per rendered page: its page number, its record and the reasons it is not passed.
+type PageRow = (f64, Value, Vec<String>);
+
+fn page_rows(entries: &[Value], count: f64, checks: &[&str]) -> Vec<PageRow> {
+    let mut pages: Vec<PageRow> = Vec::new();
     let mut page = 1.0;
     while page <= count {
         let mut matching = entries.iter().filter(|entry| to_number_of(field(entry, "page")) == page);
@@ -108,40 +98,73 @@ pub fn review_document_pages(format: &str, design: &Value, state: &Value) -> Opt
         pages.push((page, Value::Object(record), reasons));
         page += 1.0;
     }
-    let entry_count = entries.len() as f64;
-    let complete = count > 0.0 && entry_count == count && pages.iter().all(|(_, _, reasons)| reasons.is_empty());
-    let reviewed = is_true(field(design, "reviewed"));
-    let token = field(state, "reviewToken");
-    let same_token = strict_equals(field(design, "reviewToken"), token);
-    let same_version = strict_equals(field(state, "renderedVersion"), field(state, "snapshotVersion"));
-    let covered = is_true(field_of(field(state, "renderedCoverage"), "complete"));
-    let current = is_truthy(token) && same_token && same_version && covered;
-    // Why the review is not accepted, in the order a caller can act on it.
+    pages
+}
+
+/// Whether the critique answers the render the document was last saved to.
+struct RenderCurrency {
+    has_token: bool,
+    same_token: bool,
+    same_version: bool,
+    covered: bool,
+}
+
+/// Why the review is not accepted, in the order a caller can act on it.
+fn review_blockers(count: f64, entry_count: f64, pages: &[PageRow], complete: bool, render: &RenderCurrency, reviewed: bool) -> Vec<String> {
     let mut blockers: Vec<String> = Vec::new();
     if count == 0.0 {
         blockers.push("no rendered pages: render first".to_owned());
     } else if entry_count != count {
-        blockers.push(format!("{} critique entries for {} rendered pages", entries.len(), number_to_string(count)));
+        blockers.push(format!("{} critique entries for {} rendered pages", entry_count, number_to_string(count)));
     }
-    for (number, _, reasons) in &pages {
+    for (number, _, reasons) in pages {
         if !reasons.is_empty() {
             blockers.push(format!("page {}: {}", number_to_string(*number), reasons.join("; ")));
         }
     }
     if complete {
-        if !is_truthy(token) {
+        if !render.has_token {
             blockers.push("no current render: render first".to_owned());
-        } else if !same_token {
+        } else if !render.same_token {
             blockers.push("reviewToken is not the current render token".to_owned());
-        } else if !same_version {
+        } else if !render.same_version {
             blockers.push("the document changed after the render: render again".to_owned());
-        } else if !covered {
+        } else if !render.covered {
             blockers.push("the last render did not cover every page: render all pages".to_owned());
         }
         if !reviewed {
             blockers.push("design.reviewed is not true".to_owned());
         }
     }
+    blockers
+}
+
+/// `reviewDocumentPages(format, design, state)`: one verdict per rendered page from the author's critique entries,
+/// whether the review is current for the last render, and why it is not accepted, in the order a caller can act on it.
+/// `None` for a format without paginated review.
+pub fn review_document_pages(format: &str, design: &Value, state: &Value) -> Option<Value> {
+    let checks = document_visual_checks(format)?;
+    let count = {
+        let number = to_number_of(field(state, "renderedPageCount"));
+        if number.is_nan() { 0.0 } else { number }
+    };
+    let entries: &[Value] = match field(design, "critique") {
+        Some(Value::Array(items)) => items,
+        _ => &[],
+    };
+    let pages = page_rows(entries, count, checks);
+    let entry_count = entries.len() as f64;
+    let complete = count > 0.0 && entry_count == count && pages.iter().all(|(_, _, reasons)| reasons.is_empty());
+    let reviewed = is_true(field(design, "reviewed"));
+    let token = field(state, "reviewToken");
+    let render = RenderCurrency {
+        has_token: is_truthy(token),
+        same_token: strict_equals(field(design, "reviewToken"), token),
+        same_version: strict_equals(field(state, "renderedVersion"), field(state, "snapshotVersion")),
+        covered: is_true(field_of(field(state, "renderedCoverage"), "complete")),
+    };
+    let current = render.has_token && render.same_token && render.same_version && render.covered;
+    let blockers = review_blockers(count, entry_count, &pages, complete, &render, reviewed);
     let acknowledged = complete && current && reviewed;
     let mut review = Map::new();
     review.insert("format".to_owned(), Value::String(format.to_owned()));
@@ -158,7 +181,6 @@ pub fn review_document_pages(format: &str, design: &Value, state: &Value) -> Opt
     review.insert("userAcceptance".to_owned(), json!("not-recorded"));
     Some(Value::Object(review))
 }
-
 /// `isAutomatedReady`: mechanical readiness shared by document and presentation acceptance: a structural review ran,
 /// every expected page rendered, nothing blocking left.
 pub fn is_automated_ready(evidence: &Value) -> bool {

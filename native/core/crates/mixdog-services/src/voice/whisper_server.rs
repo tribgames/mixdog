@@ -593,15 +593,7 @@ impl Core {
         let lane = self.processes.durability();
         let pid_path = pid_file(&contract.server_cmd);
         let cwd = contract.server_cmd.parent().unwrap_or(Path::new(".")).to_owned();
-        // Reclaim only a child the pid file proves is ours; a foreign listener is never touched.
-        // A pid file that cannot be read stops the start: a stale child would be orphaned when
-        // the new pid file replaces its record.
-        let recorded = read_pid_file(lane, pid_path.clone()).await.map_err(|e| VoiceError(format!("the whisper-server pid file could not be read: {e}")))?;
-        if let Some(meta) = recorded
-            && reclaim_stale(&self.processes, &meta, &contract.model_path.to_string_lossy(), self.preferred_port, &cwd).await
-        {
-            clear_pid_file(lane, pid_path.clone()).await;
-        }
+        self.reclaim_recorded_child(contract, &pid_path, &cwd).await?;
         let port = select_port(&contract.host, self.preferred_port).map_err(VoiceError)?;
         let args = [
             "--model".to_owned(),
@@ -649,6 +641,24 @@ impl Core {
             };
             write_pid_file(lane, pid_path, &meta).await;
         }
+        self.await_ready(running, contract, port, pid, &cwd).await
+    }
+
+    async fn reclaim_recorded_child(&self, contract: &ServerContract, pid_path: &Path, cwd: &Path) -> Result<(), VoiceError> {
+        let lane = self.processes.durability();
+        // Reclaim only a child the pid file proves is ours; a foreign listener is never touched.
+        // A pid file that cannot be read stops the start: a stale child would be orphaned when
+        // the new pid file replaces its record.
+        let recorded = read_pid_file(lane, pid_path.to_owned()).await.map_err(|e| VoiceError(format!("the whisper-server pid file could not be read: {e}")))?;
+        if let Some(meta) = recorded
+            && reclaim_stale(&self.processes, &meta, &contract.model_path.to_string_lossy(), self.preferred_port, cwd).await
+        {
+            clear_pid_file(lane, pid_path.to_owned()).await;
+        }
+        Ok(())
+    }
+
+    async fn await_ready(&self, running: Running, contract: &ServerContract, port: u16, pid: Option<u32>, cwd: &Path) -> Result<Running, VoiceError> {
         // The ownership queries end with the readiness budget.
         let readiness = CancellationToken::new();
         let _end = readiness.clone().drop_guard();
@@ -678,7 +688,7 @@ impl Core {
             let bound = matches!(mixdog_rt::time::timeout(PROBE_CONNECT, TcpStream::connect(&addr)).await, Ok(Ok(_)));
             if bound
                 && pid.is_some_and(|pid| pid > 0)
-                && listener_owned(&self.processes, &contract.host, port, pid.unwrap_or(0), &cwd, &readiness).await
+                && listener_owned(&self.processes, &contract.host, port, pid.unwrap_or(0), cwd, &readiness).await
                 && !running.exited()
             {
                 return Ok(running);

@@ -1,5 +1,4 @@
-//! Owner: s4-engine-target-points
-//! One realm-preserving path to an observed element (`ref-access.ts`): a function is called on the element a snapshot ref
+//! One realm-preserving path to an observed element: a function is called on the element a snapshot ref
 //! names through `host/browser/ref/call`, which resolves the node in the session that minted the ref (an accessibility ref or
 //! a page-side DOM ref alike) and returns the page's own exception as data. A ref whose element left the document is stale.
 //!

@@ -219,7 +219,9 @@ mod tests {
         let sent = manager.lines();
         let writable: Vec<&Value> = sent[reads.len()..].iter().filter(|line| line.get("read_only").is_none()).collect();
         assert!(!writable.is_empty(), "the act's input is not a read-only run: {sent:?}");
-        assert!(writable.iter().all(|line| line["allow_elevated_input"] == json!(true)), "{sent:?}");
+        // Only the Windows helper takes the elevation flag; the macOS one is sent none.
+        let flagged = !cfg!(target_os = "macos");
+        assert!(writable.iter().all(|line| line.get("allow_elevated_input") == flagged.then(|| &json!(true))), "{sent:?}");
     }
 
     /// The commands a tool call becomes: the reads pass while observing only, and each one that could change the desktop is

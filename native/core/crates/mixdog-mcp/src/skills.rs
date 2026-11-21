@@ -219,12 +219,6 @@ fn required_features(frontmatter: &Value) -> Vec<String> {
     items.into_iter().map(|s| js_trim(&s).to_owned()).filter(|s| !s.is_empty()).collect()
 }
 
-/// Every `SKILL.md` under `dir`, through links: Node lists with `readdirSync(dir, { recursive: true })`, which decides
-/// "directory" by `stat` and so follows a link (a symlink, a Windows junction) to a directory, and reads a link to a file.
-/// Node has no cycle guard of its own (a link to an ancestor repeats the tree until the OS refuses the path, and the
-/// repeats are dropped by name); here a directory already being walked is not entered again.
-/// The listing is breadth-first, as Node's is: a directory's own files come before anything in its
-/// subfolders, so of two skills of one name the shallower one is met (and kept) first.
 fn skill_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let mut queue = std::collections::VecDeque::from([(dir.to_path_buf(), Vec::<PathBuf>::new())]);
     while let Some((dir, mut ancestors)) = queue.pop_front() {

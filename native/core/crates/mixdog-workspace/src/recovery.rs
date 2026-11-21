@@ -3,12 +3,9 @@
     clippy::disallowed_types,
     reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
 )]
-//! Host-private byte journals for multi-file edits (port of
-//! `project-recovery-store.ts` and `project-recovery.ts`). Publication precedes
-//! the first target mutation; this module never restores a file without an
-//! approved revision. The store lives outside the project tree.
+//! Host-private byte journals for multi-file edits, stored outside the project tree.
 //!
-//! Layout: `<base>/<sha256(root)>/<record>/{manifest.json,state.json,N.before,N.after}`
+//! Layout:`<base>/<sha256(root)>/<record>/{manifest.json,state.json,N.before,N.after}`
 //! where `<record>` is `<id>` at rest, `<id>--<pid>--<instance>--<uuid>` while owned
 //! by a running operation, and `retired-` prefixed once removal began.
 
@@ -679,47 +676,9 @@ impl RecoveryStore {
         fs::create_dir(&directory)?;
         crate::killpoint::hit("journal-dir");
         self.active_set().insert(directory.clone());
-        let written = (|| -> WsResult<Manifest> {
-            let manifest = Manifest {
-                version: 1,
-                id: id.clone(),
-                created_at: now_ms(),
-                root: canonical(root)?,
-                root_identity: identity_of(root)?,
-                files: files
-                    .iter()
-                    .map(|f| RecoveryFile {
-                        rel_path: f.rel_path.clone(),
-                        destination: f.destination.clone(),
-                        parent: f.parent.clone(),
-                        mode: f.mode,
-                        before: ByteRef { size: f.before.len() as u64, sha256: hex_digest(&f.before) },
-                        after: ByteRef { size: f.after.len() as u64, sha256: hex_digest(&f.after) },
-                    })
-                    .collect(),
-            };
-            if !valid_manifest(&manifest, &id) {
-                return Err(WsError::invalid("Recovery input is invalid."));
-            }
-            let bytes = serde_json::to_vec(&manifest).expect("manifest json");
-            if bytes.len() as u64 > MANIFEST_MAX {
-                return Err(WsError::invalid("Recovery manifest exceeds its size limit."));
-            }
-            for (index, file) in files.iter().enumerate() {
-                validate_directory(&directory)?;
-                private_file(&directory.join(format!("{index}.before")), &file.before)?;
-                private_file(&directory.join(format!("{index}.after")), &file.after)?;
-            }
-            crate::killpoint::hit("payloads");
-            private_file(&directory.join("manifest.json"), &bytes)?;
-            crate::killpoint::hit("manifest");
-            sync_directory(&directory)?;
-            sync_directory(&parent)?;
-            crate::killpoint::hit("published");
-            Ok(manifest)
-        })();
+        let written = manifest_for(root, &id, &files).and_then(|manifest| publish_journal(&directory, &parent, &files, &manifest));
         match written {
-            Ok(_) => Ok(Journal { id, directory }),
+            Ok(()) => Ok(Journal { id, directory }),
             Err(error) => {
                 self.active_set().remove(&directory);
                 let _ = fs::remove_dir_all(&directory);
@@ -763,6 +722,50 @@ impl RecoveryStore {
 pub enum Side {
     Before,
     After,
+}
+
+fn manifest_for(root: &Path, id: &str, files: &[PreparedFile]) -> WsResult<Manifest> {
+    let manifest = Manifest {
+        version: 1,
+        id: id.to_owned(),
+        created_at: now_ms(),
+        root: canonical(root)?,
+        root_identity: identity_of(root)?,
+        files: files
+            .iter()
+            .map(|f| RecoveryFile {
+                rel_path: f.rel_path.clone(),
+                destination: f.destination.clone(),
+                parent: f.parent.clone(),
+                mode: f.mode,
+                before: ByteRef { size: f.before.len() as u64, sha256: hex_digest(&f.before) },
+                after: ByteRef { size: f.after.len() as u64, sha256: hex_digest(&f.after) },
+            })
+            .collect(),
+    };
+    if !valid_manifest(&manifest, id) {
+        return Err(WsError::invalid("Recovery input is invalid."));
+    }
+    Ok(manifest)
+}
+
+fn publish_journal(directory: &Path, parent: &Path, files: &[PreparedFile], manifest: &Manifest) -> WsResult<()> {
+    let bytes = serde_json::to_vec(manifest).expect("manifest json");
+    if bytes.len() as u64 > MANIFEST_MAX {
+        return Err(WsError::invalid("Recovery manifest exceeds its size limit."));
+    }
+    for (index, file) in files.iter().enumerate() {
+        validate_directory(directory)?;
+        private_file(&directory.join(format!("{index}.before")), &file.before)?;
+        private_file(&directory.join(format!("{index}.after")), &file.after)?;
+    }
+    crate::killpoint::hit("payloads");
+    private_file(&directory.join("manifest.json"), &bytes)?;
+    crate::killpoint::hit("manifest");
+    sync_directory(directory)?;
+    sync_directory(parent)?;
+    crate::killpoint::hit("published");
+    Ok(())
 }
 
 fn valid_identity(id: &Identity) -> bool {
@@ -944,6 +947,30 @@ impl RecoveryStore {
         Ok(Detail { summary: Summary::new(owner.id, 0, 0, None, phase), revision, active: busy, files: Vec::new(), message: None })
     }
 
+    fn observe_file(&self, root: &Path, directory: &Path, manifest: &Manifest, state: Option<&State>, index: usize) -> WsResult<(FileStatus, String)> {
+        let entry = &manifest.files[index];
+        let file = validate_target(root, manifest, entry)?;
+        self.read_payload(directory, entry, index, Side::Before)?;
+        self.read_payload(directory, entry, index, Side::After)?;
+        let meta = fs::symlink_metadata(&file)?;
+        if !meta.is_file() {
+            return Err(WsError::new(Reason::NotAFile, "Target is not a regular file."));
+        }
+        let bytes = read_limited(&file, entry.before.size.max(entry.after.size))?;
+        validate_target(root, manifest, entry)?;
+        let digest = hex_digest(&bytes);
+        let observed = format!("{:?}", (&entry.rel_path, &digest, crate::ident::mtime_ns(&meta)));
+        let size = bytes.len() as u64;
+        let status = if size == entry.before.size && digest == entry.before.sha256 {
+            if state.is_some_and(|s| s.restored.contains(&entry.rel_path)) { FileStatus::Restored } else { FileStatus::Original }
+        } else if size == entry.after.size && digest == entry.after.sha256 {
+            FileStatus::Written
+        } else {
+            FileStatus::External
+        };
+        Ok((status, observed))
+    }
+
     fn inspect_directory(&self, root: &Path, directory: &Path, leased: bool) -> WsResult<Detail> {
         if Self::is_retired(directory) {
             return self.inspect_storage(directory, leased);
@@ -954,29 +981,7 @@ impl RecoveryStore {
         let mut observations = vec![fingerprint.clone(), format!("{:?}", (identity_of(directory)?, self.storage_inventory(directory)?))];
         let mut files = Vec::new();
         for (index, entry) in manifest.files.iter().enumerate() {
-            let outcome = (|| -> WsResult<(FileStatus, String)> {
-                let file = validate_target(root, &manifest, entry)?;
-                self.read_payload(directory, entry, index, Side::Before)?;
-                self.read_payload(directory, entry, index, Side::After)?;
-                let meta = fs::symlink_metadata(&file)?;
-                if !meta.is_file() {
-                    return Err(WsError::new(Reason::NotAFile, "Target is not a regular file."));
-                }
-                let bytes = read_limited(&file, entry.before.size.max(entry.after.size))?;
-                validate_target(root, &manifest, entry)?;
-                let digest = hex_digest(&bytes);
-                let observed = format!("{:?}", (&entry.rel_path, &digest, crate::ident::mtime_ns(&meta)));
-                let size = bytes.len() as u64;
-                let status = if size == entry.before.size && digest == entry.before.sha256 {
-                    if state.as_ref().is_some_and(|s| s.restored.contains(&entry.rel_path)) { FileStatus::Restored } else { FileStatus::Original }
-                } else if size == entry.after.size && digest == entry.after.sha256 {
-                    FileStatus::Written
-                } else {
-                    FileStatus::External
-                };
-                Ok((status, observed))
-            })();
-            match outcome {
+            match self.observe_file(root, directory, &manifest, state.as_ref(), index) {
                 Ok((status, observed)) => {
                     observations.push(observed);
                     files.push(FileDetail { rel_path: entry.rel_path.clone(), status, reason: None });
@@ -1071,6 +1076,24 @@ impl RecoveryStore {
         Ok(Response { detail: Some(self.inspect_directory(root, &again, false)?), ..overview })
     }
 
+    fn restore_file(&self, root: &Path, owned: &Path, manifest: &Manifest, index: usize) -> WsResult<()> {
+        let entry = &manifest.files[index];
+        let file = validate_target(root, manifest, entry)?;
+        let before = self.read_payload(owned, entry, index, Side::Before)?;
+        let after = self.read_payload(owned, entry, index, Side::After)?;
+        if !fs::symlink_metadata(&file)?.is_file() {
+            return Err(WsError::new(Reason::NotAFile, "Target is not a regular file."));
+        }
+        let mut opened = open_authorized_rw(&file, root)?;
+        if read_all(&mut opened.file)? != after {
+            return Err(WsError::precondition("", ""));
+        }
+        if validate_target(root, manifest, entry)? != file {
+            return Err(WsError::new(Reason::Changed, "Recovery destination changed."));
+        }
+        rewrite_or_restore(&mut opened.file, &before, &after)
+    }
+
     fn restore(&self, root: &Path, owned: &Path, revision: &str) -> WsResult<()> {
         let not_restorable = || recovery_err("RECOVERY_NOT_RESTORABLE", "This record cannot restore files; recovery is not an undo command.");
         if Self::is_retired(owned) {
@@ -1093,24 +1116,9 @@ impl RecoveryStore {
             if approved.files[index].status != FileStatus::Written {
                 continue;
             }
-            let attempt = (|| -> WsResult<()> {
-                let file = validate_target(root, &manifest, entry)?;
-                let before = self.read_payload(owned, entry, index, Side::Before)?;
-                let after = self.read_payload(owned, entry, index, Side::After)?;
-                if !fs::symlink_metadata(&file)?.is_file() {
-                    return Err(WsError::new(Reason::NotAFile, "Target is not a regular file."));
-                }
-                let mut opened = open_authorized_rw(&file, root)?;
-                if read_all(&mut opened.file)? != after {
-                    return Err(WsError::precondition("", ""));
-                }
-                if validate_target(root, &manifest, entry)? != file {
-                    return Err(WsError::new(Reason::Changed, "Recovery destination changed."));
-                }
-                rewrite_or_restore(&mut opened.file, &before, &after)?;
+            let attempt = self.restore_file(root, owned, &manifest, index).map(|()| {
                 restored.insert(entry.rel_path.clone());
-                Ok(())
-            })();
+            });
             if let Err(error) = attempt {
                 let message = if matches!(error.reason, Reason::PreconditionFailed { .. }) {
                     "File changed on disk. Reload or keep your edits before saving.".to_owned()
@@ -1149,12 +1157,17 @@ mod tests {
     use super::*;
     use serde_json::Value;
 
+    /// A temporary folder at its real path: the store refuses a folder it reaches through a link or a short name.
+    fn tempdir() -> tempfile::TempDir {
+        tempfile::Builder::new().tempdir_in(canonical(&std::env::temp_dir()).unwrap()).unwrap()
+    }
+
     /// A journal of the old app's interrupted save, left by an earlier migration under `desktop/editor-recovery`, is found by the
     /// store at `recovery`, and what the store already holds stays.
     #[test]
     fn journals_an_earlier_migration_left_under_desktop_are_found_by_the_core_store() {
-        let data = tempfile::tempdir().unwrap();
-        let project = tempfile::tempdir().unwrap();
+        let data = tempdir();
+        let project = tempdir();
         let root = canonical(project.path()).unwrap();
         let file = PreparedFile {
             rel_path: "a.txt".to_owned(),
@@ -1183,7 +1196,7 @@ mod tests {
 
     #[test]
     fn journal_adoption_is_whole_and_resumes_after_archive_rename_failure() {
-        let data = tempfile::tempdir().unwrap();
+        let data = tempdir();
         let from = data.path().join("legacy");
         let to = data.path().join("current");
         let archive = data.path().join("archive");
@@ -1217,11 +1230,6 @@ mod tests {
         assert!(!to.join(id).exists());
     }
 
-    /// A journal whose paths held a lone surrogate (Node writes one for a desktop batch edit of such a name: relPath and
-    /// destination with the escape, `native/core/fixtures/lone-surrogate-files` `project-recovery-lone-path`). A path is no
-    /// free text and no shipped client sends one holding a lone unit (decisions.md "frame-lone-surrogate"): the record is
-    /// invalid and nothing is restored, not over the file whose name holds a real U+FFFD either, whether the two paths held
-    /// the same lone unit or different ones (`\ud800` and `\udc00` read as the same U+FFFD).
     #[test]
     fn a_journal_whose_paths_held_a_lone_surrogate_restores_nothing() {
         for edit in [(|raw: String| raw) as fn(String) -> String, |raw: String| raw.replacen(r"\ud83d", r"\ud800", 1).replacen(r"\ud83d", r"\udc00", 1)] {
@@ -1250,7 +1258,7 @@ mod tests {
     /// `edit`ed; with `src/<file>` holding the after bytes.
     #[allow(clippy::type_complexity)]
     fn node_record(name: &str, file: &str, edit: impl Fn(String) -> String) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, RecoveryStore, String, Value) {
-        let project = tempfile::tempdir().unwrap();
+        let project = tempdir();
         let root = canonical(project.path()).unwrap();
         fs::create_dir(root.join("src")).unwrap();
         fs::write(root.join("src").join(file), "after\n").unwrap();
@@ -1264,7 +1272,7 @@ mod tests {
             root_identity = identity(&root),
             parent = identity(&root.join("src")),
         );
-        let base = tempfile::tempdir().unwrap();
+        let base = tempdir();
         let store = RecoveryStore::new(base.path().to_path_buf());
         let directory = store.store_path(&root).join(id);
         fs::create_dir_all(&directory).unwrap();
@@ -1294,7 +1302,7 @@ mod tests {
     #[test]
     fn electron_journal_conflicts_are_preserved_without_resurrection() {
         let (_project, _base, root, old, id, _case) = node_record("project-recovery", "a.txt", |raw| raw);
-        let data = tempfile::tempdir().unwrap();
+        let data = tempdir();
         let digest = old.store_path(&root).file_name().unwrap().to_owned();
         let legacy = data.path().join("desktop/editor-recovery").join(&digest).join(&id);
         let current = data.path().join(JOURNALS_DIR).join(&digest).join(&id);
@@ -1325,7 +1333,7 @@ mod tests {
     #[test]
     fn journal_archive_obstruction_blocks_retirement_and_preserves_distinct_record() {
         let (_project, _base, root, old, id, _case) = node_record("project-recovery", "a.txt", |raw| raw);
-        let data = tempfile::tempdir().unwrap();
+        let data = tempdir();
         let digest = old.store_path(&root).file_name().unwrap().to_owned();
         let legacy = data.path().join(MIGRATED_JOURNALS).join(&digest).join(&id);
         let current = data.path().join(JOURNALS_DIR).join(&digest).join(&id);

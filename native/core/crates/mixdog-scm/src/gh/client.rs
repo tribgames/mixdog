@@ -316,6 +316,16 @@ mod tests {
         ) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
             Err(mixdog_core_api::domain::process::ProcessError::PermissionDenied)
         }
+        fn subscribe_holding(
+            &self,
+            handle: &mixdog_protocol::ProcessHandle,
+            from_seq: Option<u64>,
+        ) -> Result<
+            Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+            mixdog_core_api::domain::process::ProcessError,
+        > {
+            self.subscribe(handle, from_seq)
+        }
         fn subscribe(
             &self,
             _handle: &mixdog_protocol::ProcessHandle,

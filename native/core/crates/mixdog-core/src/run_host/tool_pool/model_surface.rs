@@ -1,8 +1,3 @@
-//! The standalone tools the model is offered (`session-runtime/tool-surface.mjs`
-//! `modelStandaloneTools` and `workflowAllowsAgents`): the profile's allowlist, the `agent` tool
-//! hidden where the workflow does not delegate, the Lead-only control tools withheld from a
-//! delegated worker, and the tools a setting switched off.
-
 use std::collections::HashSet;
 use std::sync::Arc;
 

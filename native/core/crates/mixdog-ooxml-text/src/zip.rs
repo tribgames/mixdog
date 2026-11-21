@@ -51,26 +51,19 @@ pub fn utf8_text(bytes: Vec<u8>) -> String {
     String::from_utf8(bytes).unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())
 }
 
+/// The end-of-central-directory record, searched backwards: at most 22 + 65535 (comment) bytes from the end.
+fn find_eocd(buf: &[u8]) -> Option<usize> {
+    if buf.len() < 22 {
+        return None;
+    }
+    let scan_from = buf.len().saturating_sub(22 + 65535);
+    (scan_from..=buf.len() - 22).rev().find(|&at| u32_at(buf, at) == EOCD_SIG)
+}
+
 impl<'a> Zip<'a> {
     /// `zipCentralDirectory(buf, limits)`.
     pub fn open(buf: &'a [u8], limits: &Limits) -> Result<Self, Failure> {
-        // EOCD is at most 22 + 65535 (comment) bytes from the end.
-        let mut eocd = None;
-        if buf.len() >= 22 {
-            let scan_from = buf.len().saturating_sub(22 + 65535);
-            let mut i = buf.len() - 22;
-            loop {
-                if u32_at(buf, i) == EOCD_SIG {
-                    eocd = Some(i);
-                    break;
-                }
-                if i == scan_from {
-                    break;
-                }
-                i -= 1;
-            }
-        }
-        let Some(eocd) = eocd else {
+        let Some(eocd) = find_eocd(buf) else {
             return Err(Failure::Other("not a ZIP container (no end-of-central-directory record)".into()));
         };
         let count = u16_at(buf, eocd + 10);

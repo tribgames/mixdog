@@ -7,7 +7,7 @@ use mixdog_js::JsRegex;
 use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;
 use mixdog_js::time::date_parse;
-use mixdog_protocol::text_class::parse_task_notification;
+use mixdog_protocol::text_class::{TaskNotification, parse_task_notification};
 use mixdog_tui_style::time_format::format_elapsed;
 use serde_json::Map;
 use serde_json::Value;
@@ -86,21 +86,29 @@ pub fn parse_background_task_result(value: &str) -> Option<BackgroundMeta> {
         return None;
     }
     if let Some(notification) = parse_task_notification(text) {
-        let has_response = !notification.result.is_empty() && !is_background_error_only_body(&notification.result, &notification.error, None);
-        return Some(BackgroundMeta {
-            task_id: notification.task_id,
-            surface: Value::from(notification.surface),
-            operation: string_value(""),
-            label: Value::from(notification.tag),
-            status: notification.status,
-            started_at: string_value(""),
-            finished_at: string_value(""),
-            body: notification.result,
-            error: Value::from(notification.error),
-            kind: None,
-            has_response,
-        });
+        return Some(meta_from_notification(notification));
     }
+    parse_header_block(text)
+}
+
+fn meta_from_notification(notification: TaskNotification) -> BackgroundMeta {
+    let has_response = !notification.result.is_empty() && !is_background_error_only_body(&notification.result, &notification.error, None);
+    BackgroundMeta {
+        task_id: notification.task_id,
+        surface: Value::from(notification.surface),
+        operation: string_value(""),
+        label: Value::from(notification.tag),
+        status: notification.status,
+        started_at: string_value(""),
+        finished_at: string_value(""),
+        body: notification.result,
+        error: Value::from(notification.error),
+        kind: None,
+        has_response,
+    }
+}
+
+fn parse_header_block(text: &str) -> Option<BackgroundMeta> {
     let all_lines: Vec<&str> = text.split('\n').collect();
     let start = all_lines.iter().position(|line| js_trim(line) == "background task")?;
     let rest = &all_lines[start + 1..];

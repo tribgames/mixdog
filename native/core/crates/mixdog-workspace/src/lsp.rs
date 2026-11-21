@@ -1,9 +1,5 @@
-//! Language servers (DS §4.6; port of `language-server-*.ts`): one server per
-//! (project root, server id), started on demand through the `ProcessManager`,
-//! spoken to over stdio JSON-RPC. The editor sends document events and
-//! requests; the manager owns lifecycle (idle stop, crash → `stopped` with a
-//! backoff, restart on the next document), dynamic capability registrations and
-//! diagnostics. Status and diagnostics are pushed through an [`LspSink`].
+//! Language servers: one per (project root, server id), started on demand and spoken to over stdio JSON-RPC.
+//! Status and diagnostics are pushed through an [`LspSink`].
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -135,47 +131,12 @@ fn project_specs(root: &Path) -> WsResult<HashMap<String, Spec>> {
     if rows.len() > 64 {
         return Err(WsError::invalid("LSP servers configuration is invalid."));
     }
-    let text = |v: Option<&Value>, name: &str, max: usize| -> WsResult<String> {
-        match v.and_then(Value::as_str) {
-            Some(s) if !s.trim().is_empty() && s.len() <= max && !s.contains('\0') => Ok(s.trim().to_owned()),
-            _ => Err(WsError::invalid(format!("{name} is invalid."))),
-        }
-    };
-    let list = |v: Option<&Value>, name: &str, max: usize, len: usize| -> WsResult<Vec<String>> {
-        match v.and_then(Value::as_array) {
-            Some(a) if !a.is_empty() && a.len() <= max => a.iter().enumerate().map(|(i, e)| text(Some(e), &format!("{name}[{i}]"), len)).collect(),
-            _ => Err(WsError::invalid(format!("{name} is invalid."))),
-        }
-    };
     let mut by_language = HashMap::new();
     for (index, row) in rows.iter().enumerate() {
-        let Some(server) = row.as_object() else { return Err(WsError::invalid(format!("LSP server {index} is invalid."))) };
-        let id = text(server.get("id"), &format!("LSP server {index} id"), 128)?;
-        if !id.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) {
-            return Err(WsError::invalid(format!("LSP server {index} id is invalid.")));
-        }
-        let command = text(server.get("command"), &format!("LSP server {id} command"), 4096)?;
-        let languages: Vec<String> =
-            list(server.get("languages"), &format!("LSP server {id} languages"), 32, 128)?.into_iter().map(|l| l.to_lowercase()).collect();
-        let args = if server.get("args").is_none() { Vec::new() } else { list(server.get("args"), &format!("LSP server {id} args"), 64, 4096)? };
-        let candidates =
-            if server.get("candidates").is_none() { Vec::new() } else { list(server.get("candidates"), &format!("LSP server {id} candidates"), 32, 4096)? };
-        let mut resolved = Vec::new();
-        for candidate in candidates {
-            if Path::new(&candidate).is_absolute() {
-                return Err(WsError::invalid(format!("LSP server {id} candidate must be project-relative.")));
-            }
-            let target = crate::pathguard::lexical(&root.join(&candidate));
-            if !is_within(root, &target) {
-                return Err(WsError::invalid(format!("LSP server {id} candidate escaped the project.")));
-            }
-            resolved.push(target);
-        }
-        let name = if server.get("name").is_some() { text(server.get("name"), &format!("LSP server {id} name"), 128)? } else { id.clone() };
-        let built = Spec { id: id.clone(), name, command, args, project_candidates: resolved };
+        let (built, languages) = parse_server(root, index, row)?;
         for language in languages {
             if !language.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_+.-".contains(c)) {
-                return Err(WsError::invalid(format!("LSP server {id} language is invalid.")));
+                return Err(WsError::invalid(format!("LSP server {} language is invalid.", built.id)));
             }
             if by_language.insert(language.clone(), built.clone()).is_some() {
                 return Err(WsError::invalid(format!("LSP language {language} is configured more than once.")));
@@ -183,6 +144,48 @@ fn project_specs(root: &Path) -> WsResult<HashMap<String, Spec>> {
         }
     }
     Ok(by_language)
+}
+
+fn config_text(v: Option<&Value>, name: &str, max: usize) -> WsResult<String> {
+    match v.and_then(Value::as_str) {
+        Some(s) if !s.trim().is_empty() && s.len() <= max && !s.contains('\0') => Ok(s.trim().to_owned()),
+        _ => Err(WsError::invalid(format!("{name} is invalid."))),
+    }
+}
+
+fn config_list(v: Option<&Value>, name: &str, max: usize, len: usize) -> WsResult<Vec<String>> {
+    match v.and_then(Value::as_array) {
+        Some(a) if !a.is_empty() && a.len() <= max => a.iter().enumerate().map(|(i, e)| config_text(Some(e), &format!("{name}[{i}]"), len)).collect(),
+        _ => Err(WsError::invalid(format!("{name} is invalid."))),
+    }
+}
+
+/// One `servers` row of the project configuration, and the languages it serves.
+fn parse_server(root: &Path, index: usize, row: &Value) -> WsResult<(Spec, Vec<String>)> {
+    let Some(server) = row.as_object() else { return Err(WsError::invalid(format!("LSP server {index} is invalid."))) };
+    let id = config_text(server.get("id"), &format!("LSP server {index} id"), 128)?;
+    if !id.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) {
+        return Err(WsError::invalid(format!("LSP server {index} id is invalid.")));
+    }
+    let command = config_text(server.get("command"), &format!("LSP server {id} command"), 4096)?;
+    let languages: Vec<String> =
+        config_list(server.get("languages"), &format!("LSP server {id} languages"), 32, 128)?.into_iter().map(|l| l.to_lowercase()).collect();
+    let args = if server.get("args").is_none() { Vec::new() } else { config_list(server.get("args"), &format!("LSP server {id} args"), 64, 4096)? };
+    let candidates =
+        if server.get("candidates").is_none() { Vec::new() } else { config_list(server.get("candidates"), &format!("LSP server {id} candidates"), 32, 4096)? };
+    let mut resolved = Vec::new();
+    for candidate in candidates {
+        if Path::new(&candidate).is_absolute() {
+            return Err(WsError::invalid(format!("LSP server {id} candidate must be project-relative.")));
+        }
+        let target = crate::pathguard::lexical(&root.join(&candidate));
+        if !is_within(root, &target) {
+            return Err(WsError::invalid(format!("LSP server {id} candidate escaped the project.")));
+        }
+        resolved.push(target);
+    }
+    let name = if server.get("name").is_some() { config_text(server.get("name"), &format!("LSP server {id} name"), 128)? } else { id.clone() };
+    Ok((Spec { id, name, command, args, project_candidates: resolved }, languages))
 }
 
 fn variants(path: PathBuf) -> Vec<PathBuf> {
@@ -456,6 +459,62 @@ fn client_capabilities() -> Value {
     })
 }
 
+fn sync_document(session: &Session, input: &DocumentInput, uri: &str, known: bool) {
+    let doc = DocInfo { language_id: input.language_id.clone(), rel_path: input.rel_path.clone() };
+    if !known {
+        // A restarted server lost its documents; any event on an unopened one becomes didOpen.
+        session.conn.notify(
+            "textDocument/didOpen",
+            json!({ "textDocument": {
+                "uri": uri, "languageId": document_language_id(&input.rel_path, &input.language_id),
+                "version": input.version, "text": input.content,
+            } }),
+        );
+        session.documents.lock().expect("lsp documents").insert(uri.to_owned(), doc);
+    } else if input.kind == "save" {
+        session.conn.notify("textDocument/didSave", json!({ "textDocument": { "uri": uri }, "text": input.content }));
+    } else {
+        session.conn.notify(
+            "textDocument/didChange",
+            json!({ "textDocument": { "uri": uri, "version": input.version }, "contentChanges": [{ "text": input.content }] }),
+        );
+        session.documents.lock().expect("lsp documents").insert(uri.to_owned(), doc);
+    }
+}
+
+fn spawn_request(handle: &ProcessHandle, executable: &Path, spec: &Spec, root: &Path, language_id: &str) -> Option<SpawnRequest> {
+    Some(SpawnRequest {
+        handle: handle.clone(),
+        command: CommandSpec::Argv { program: executable.to_string_lossy().into_owned(), args: spec.args.clone() },
+        cwd: AbsPath::new(root.to_path_buf())?,
+        env: EnvSpec { inherit: true, set: Vec::new(), remove: Vec::new() },
+        pty: None,
+        stdin_piped: true,
+        output: OutputMode::Separate,
+        owner: ProcessOwner::Lsp { root: AbsPath::new(root.to_path_buf())?, language: language_id.to_owned() },
+        time_limit: None,
+    })
+}
+
+fn initialize_params(root: &Path, spec: &Spec) -> Value {
+    let workspace_folders = json!([{
+        "uri": file_uri(root),
+        "name": root.file_name().map_or_else(|| root.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned()),
+    }]);
+    let mut params = json!({
+        "processId": std::process::id(),
+        "clientInfo": { "name": "Mixdog Desktop", "version": "0.9" },
+        "rootUri": file_uri(root),
+        "rootPath": root.to_string_lossy(),
+        "workspaceFolders": workspace_folders,
+        "capabilities": client_capabilities(),
+    });
+    if let Some(options) = initialization_options(spec) {
+        params["initializationOptions"] = options;
+    }
+    params
+}
+
 fn relative_document_path(root: &Path, uri: &str) -> Option<String> {
     let absolute = crate::pathguard::lexical(&uri_to_path(uri)?);
     if !is_within(root, &absolute) {
@@ -594,19 +653,8 @@ impl LspManager {
             return None;
         };
         let handle = ProcessHandle::from(format!("lsp-{}-{}", std::process::id(), self.next_handle.fetch_add(1, Ordering::SeqCst)).as_str());
-        let cwd = AbsPath::new(root.to_path_buf())?;
-        let request = SpawnRequest {
-            handle: handle.clone(),
-            command: CommandSpec::Argv { program: executable.to_string_lossy().into_owned(), args: spec.args.clone() },
-            cwd,
-            env: EnvSpec { inherit: true, set: Vec::new(), remove: Vec::new() },
-            pty: None,
-            stdin_piped: true,
-            output: OutputMode::Separate,
-            owner: ProcessOwner::Lsp { root: AbsPath::new(root.to_path_buf())?, language: language_id.to_owned() },
-            time_limit: None,
-        };
-        let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let request = spawn_request(&handle, &executable, spec, root, language_id)?;
+        let (out_tx, out_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let conn = Arc::new(Conn { out: out_tx, next_id: AtomicI64::new(1), pending: Mutex::default() });
         let session = Arc::new(Session {
             key: key.clone(),
@@ -624,16 +672,44 @@ impl LspManager {
             idle_generation: AtomicU64::new(0),
             stderr: Mutex::default(),
         });
-        let events = match self.pm.spawn(request).await.and_then(|_| self.pm.subscribe(&handle, None)) {
+        let events = match self.pm.spawn(request).await.and_then(|_| self.pm.subscribe_holding(&handle, None)) {
             Ok(events) => events,
             Err(error) => {
                 self.fail_start(&session, language_id, &format!("{} could not be started: {error:?}", spec.name)).await;
                 return None;
             }
         };
-        // Writer: one task keeps frames in order.
+        self.attach_io(&session, events, out_rx, language_id);
+        let params = initialize_params(root, spec);
+        let message = format!("{} did not finish initializing.", spec.name);
+        match conn.request("initialize", params, INITIALIZE_TIMEOUT, &message).await {
+            Ok(initialization) => {
+                let caps = lspcaps::normalize(&initialization);
+                *session.base_caps.lock().expect("lsp caps") = caps.clone();
+                self.sessions.lock().expect("lsp sessions").insert(key.clone(), session.clone());
+                self.health.lock().expect("lsp health").failures.remove(&key);
+                session.ready.store(true, Ordering::SeqCst);
+                conn.notify("initialized", json!({}));
+                self.emit_status((project_path, root, language_id), Some(spec), "ready", None, Some(&caps), None);
+                Some(session)
+            }
+            Err(error) => {
+                self.fail_start(&session, language_id, &error).await;
+                None
+            }
+        }
+    }
+
+    /// A writer task keeps outgoing frames in order; a reader task dispatches everything the server sends, from before `initialize`.
+    fn attach_io(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        events: Box<dyn mixdog_core_api::domain::common::EventSource<ProcessEvent>>,
+        mut out_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+        language_id: &str,
+    ) {
         let pm = self.pm.clone();
-        let writer_handle = handle.clone();
+        let writer_handle = session.handle.clone();
         tokio::spawn(async move {
             while let Some(bytes) = out_rx.recv().await {
                 if pm.write_stdin(&writer_handle, bytes).await.is_err() {
@@ -641,7 +717,6 @@ impl LspManager {
                 }
             }
         });
-        // Reader: dispatches everything the server sends, from before `initialize`.
         let this = self.clone();
         let reader_session = session.clone();
         let reader_language = language_id.to_owned();
@@ -673,38 +748,6 @@ impl LspManager {
                 this.stopped(&reader_session, &reader_language);
             }
         });
-        let workspace_folders = json!([{
-            "uri": file_uri(root),
-            "name": root.file_name().map_or_else(|| root.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned()),
-        }]);
-        let mut params = json!({
-            "processId": std::process::id(),
-            "clientInfo": { "name": "Mixdog Desktop", "version": "0.9" },
-            "rootUri": file_uri(root),
-            "rootPath": root.to_string_lossy(),
-            "workspaceFolders": workspace_folders,
-            "capabilities": client_capabilities(),
-        });
-        if let Some(options) = initialization_options(spec) {
-            params["initializationOptions"] = options;
-        }
-        let message = format!("{} did not finish initializing.", spec.name);
-        match conn.request("initialize", params, INITIALIZE_TIMEOUT, &message).await {
-            Ok(initialization) => {
-                let caps = lspcaps::normalize(&initialization);
-                *session.base_caps.lock().expect("lsp caps") = caps.clone();
-                self.sessions.lock().expect("lsp sessions").insert(key.clone(), session.clone());
-                self.health.lock().expect("lsp health").failures.remove(&key);
-                session.ready.store(true, Ordering::SeqCst);
-                conn.notify("initialized", json!({}));
-                self.emit_status((project_path, root, language_id), Some(spec), "ready", None, Some(&caps), None);
-                Some(session)
-            }
-            Err(error) => {
-                self.fail_start(&session, language_id, &error).await;
-                None
-            }
-        }
     }
 
     /// A handshake that never completed: end the process, report why with the retry delay.
@@ -827,8 +870,7 @@ impl LspManager {
         let _ = self.pm.kill(&session.handle);
     }
 
-    /// Editor document events (`lsp/document`). An entry `projectEntryPathIn` refuses fails the call, as Node's
-    /// `LanguageServerRouter.document` threw it, and leaves the language's status alone.
+    /// Editor document events (`lsp/document`). An entry the project refuses fails the call and leaves the language's status alone.
     pub async fn document(self: &Arc<Self>, project_path: &str, root: &Path, input: DocumentInput) -> WsResult<Value> {
         let spec = match self.spec_for(root, &input.language_id).await {
             Ok(Some(spec)) => spec,
@@ -852,41 +894,25 @@ impl LspManager {
         let caps = || session.capabilities(&input.language_id, Some(&uri));
         if input.kind == "close" {
             if known {
-                session.conn.notify("textDocument/didClose", json!({ "textDocument": { "uri": uri } }));
-                session.documents.lock().expect("lsp documents").remove(&uri);
-                self.sink.diagnostics(json!({
-                    "projectPath": project_path, "relPath": input.rel_path, "uri": uri,
-                    "server": spec.name, "diagnostics": [],
-                }));
+                self.close_document(&session, &spec, project_path, &input.rel_path, &uri);
             }
             self.schedule_idle(&session);
-            return Ok(public_state(Some(&spec), "ready", None, Some(&caps())));
-        }
-        let doc = DocInfo { language_id: input.language_id.clone(), rel_path: input.rel_path.clone() };
-        if !known {
-            // A restarted server lost its documents; any event on an unopened one becomes didOpen.
-            session.conn.notify(
-                "textDocument/didOpen",
-                json!({ "textDocument": {
-                    "uri": uri, "languageId": document_language_id(&input.rel_path, &input.language_id),
-                    "version": input.version, "text": input.content,
-                } }),
-            );
-            session.documents.lock().expect("lsp documents").insert(uri.clone(), doc);
-        } else if input.kind == "save" {
-            session.conn.notify("textDocument/didSave", json!({ "textDocument": { "uri": uri }, "text": input.content }));
         } else {
-            session.conn.notify(
-                "textDocument/didChange",
-                json!({ "textDocument": { "uri": uri, "version": input.version }, "contentChanges": [{ "text": input.content }] }),
-            );
-            session.documents.lock().expect("lsp documents").insert(uri.clone(), doc);
+            sync_document(&session, &input, &uri, known);
         }
         Ok(public_state(Some(&spec), "ready", None, Some(&caps())))
     }
 
-    /// A language-server request (`lsp/request`). An entry `projectEntryPathIn` refuses fails the call, as Node's
-    /// `LanguageServerRouter.request` threw it (the idle stop re-armed all the same).
+    fn close_document(&self, session: &Session, spec: &Spec, project_path: &str, rel_path: &str, uri: &str) {
+        session.conn.notify("textDocument/didClose", json!({ "textDocument": { "uri": uri } }));
+        session.documents.lock().expect("lsp documents").remove(uri);
+        self.sink.diagnostics(json!({
+            "projectPath": project_path, "relPath": rel_path, "uri": uri,
+            "server": spec.name, "diagnostics": [],
+        }));
+    }
+
+    /// A language-server request (`lsp/request`). An entry the project refuses fails the call; the idle stop is re-armed all the same.
     pub async fn request(
         self: &Arc<Self>,
         project_path: &str,

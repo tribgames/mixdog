@@ -265,6 +265,78 @@ mod tests {
     }
 }
 
+fn add(sink: &mut PlanSink, key: String, kind: ItemKind, contract: Contract, sources: Vec<SourceFile>) -> Result<()> {
+    sink.add_item(plan::item(&key, KindGroup::Data, kind, contract, sources, None)?)
+}
+
+/// Pending spools, worker indexes and release markers; a file naming no session that migrates is retired.
+fn plan_shared_files(
+    roots: &MigrationRoots,
+    sink: &mut PlanSink,
+    sessions: &BTreeMap<String, Vec<SourceFile>>,
+    reaped: Vec<(String, Vec<String>)>,
+    loaded: &std::cell::RefCell<BTreeMap<String, Loaded>>,
+) -> Result<()> {
+    let data = Root::Data;
+    let mut shared: Vec<String> = durable::list_dir(&roots.data.join(source::SPOOL_DIR))?
+        .into_iter()
+        .filter(|(n, d)| !d && n.ends_with(".json"))
+        .map(|(n, _)| format!("{}/{n}", source::SPOOL_DIR))
+        .collect();
+    shared.extend(SHARED_FILES.iter().filter(|n| durable::is_file(&roots.data.join(n))).map(|n| n.to_string()));
+    let mut link_parents: BTreeSet<String> = BTreeSet::new();
+    for (child, parents) in reaped {
+        if sessions.contains_key(&child) || parents.is_empty() {
+            continue;
+        }
+        let migrating: Vec<String> = parents.into_iter().filter(|p| sessions.contains_key(p)).collect();
+        if migrating.is_empty() {
+            let key = plan::retire_key(data, &format!("{}/{child}", archived::DROPPED_PREFIX));
+            add(sink, key, ItemKind::OrphanArchivedAgent, Contract::Retire, Vec::new())?;
+        }
+        link_parents.extend(migrating);
+    }
+    // Read only when a tombstone without a `sessionId` needs its session found.
+    let mut candidates = None;
+    for rel in shared {
+        let file = sink.source(data, &rel, false)?;
+        let bytes = durable::read(&roots.resolve(data, &rel)?)?;
+        let named = if archived::LINK_FILES[1..].contains(&rel.as_str()) { Some((Vec::new(), Vec::new())) } else { source::shared_session_ids(&rel, &bytes) };
+        match named {
+            None => add(sink, plan::retain_key(data, &rel), ItemKind::Retired, Contract::Retain, vec![file.clone()])?,
+            Some((mut ids, ownerless)) => {
+                if archived::LINK_FILES.contains(&rel.as_str()) {
+                    ids.extend(link_parents.iter().cloned());
+                }
+                // One no session owns is dropped with the rows without a session.
+                if !ownerless.is_empty() {
+                    if candidates.is_none() {
+                        candidates = Some(source::session_candidates(
+                            sessions.iter().map(|(id, sources)| (id.as_str(), sources.as_slice())),
+                            |id| loaded.borrow().get(id).and_then(|l| l.header.clone()),
+                            |id, f| {
+                                note_plan_read(id);
+                                durable::read(&roots.resolve(f.root, &f.path)?)
+                            },
+                            |_, f| durable::open_buffered(&roots.resolve(f.root, &f.path)?),
+                        )?);
+                    }
+                    let all = candidates.as_deref().unwrap_or_default();
+                    ids.extend(ownerless.iter().filter_map(|t| source::recover_owner(t, all)).map(|c| c.id().to_string()));
+                }
+                let consumers: BTreeSet<String> = ids.into_iter().filter(|id| sessions.contains_key(id)).collect();
+                if consumers.is_empty() {
+                    add(sink, plan::retire_key(data, &rel), ItemKind::Retired, Contract::Retire, vec![file.clone()])?;
+                }
+                for id in consumers {
+                    sink.add_shared(file.clone(), &format!("session/{id}"));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod pending_tests;
 
@@ -273,9 +345,6 @@ impl ItemDriver for SessionDriver {
         let data = Root::Data;
         let mut sessions: BTreeMap<String, Vec<SourceFile>> = BTreeMap::new();
         let mut sidecars: Vec<(String, String)> = Vec::new();
-        let add = |sink: &mut PlanSink, key: String, kind, contract, sources| -> Result<()> {
-            sink.add_item(plan::item(&key, KindGroup::Data, kind, contract, sources, None)?)
-        };
         let listed = durable::list_dir(&roots.data.join(SESSIONS_DIR))?;
         let checkpoints = durable::list_dir(&roots.data.join(CHECKPOINT_DIR))?;
         let ahead: Vec<String> = listed
@@ -380,66 +449,7 @@ impl ItemDriver for SessionDriver {
                 Some(Target::Session { id: id.clone() }),
             )?)?;
         }
-        // Shared files: pending spools, worker indexes and release markers; a file naming
-        // no session that migrates is retired.
-        let mut shared: Vec<String> = durable::list_dir(&roots.data.join(source::SPOOL_DIR))?
-            .into_iter()
-            .filter(|(n, d)| !d && n.ends_with(".json"))
-            .map(|(n, _)| format!("{}/{n}", source::SPOOL_DIR))
-            .collect();
-        shared.extend(SHARED_FILES.iter().filter(|n| durable::is_file(&roots.data.join(n))).map(|n| n.to_string()));
-        let mut link_parents: BTreeSet<String> = BTreeSet::new();
-        for (child, parents) in reaped {
-            if sessions.contains_key(&child) || parents.is_empty() {
-                continue;
-            }
-            let migrating: Vec<String> = parents.into_iter().filter(|p| sessions.contains_key(p)).collect();
-            if migrating.is_empty() {
-                let key = plan::retire_key(data, &format!("{}/{child}", archived::DROPPED_PREFIX));
-                add(sink, key, ItemKind::OrphanArchivedAgent, Contract::Retire, Vec::new())?;
-            }
-            link_parents.extend(migrating);
-        }
-        // Read only when a tombstone without a `sessionId` needs its session found.
-        let mut candidates = None;
-        for rel in shared {
-            let file = sink.source(data, &rel, false)?;
-            let bytes = durable::read(&roots.resolve(data, &rel)?)?;
-            let named =
-                if archived::LINK_FILES[1..].contains(&rel.as_str()) { Some((Vec::new(), Vec::new())) } else { source::shared_session_ids(&rel, &bytes) };
-            match named {
-                None => add(sink, plan::retain_key(data, &rel), ItemKind::Retired, Contract::Retain, vec![file.clone()])?,
-                Some((mut ids, ownerless)) => {
-                    if archived::LINK_FILES.contains(&rel.as_str()) {
-                        ids.extend(link_parents.iter().cloned());
-                    }
-                    // One no session owns is dropped with the rows without a session.
-                    if !ownerless.is_empty() {
-                        if candidates.is_none() {
-                            candidates = Some(source::session_candidates(
-                                sessions.iter().map(|(id, sources)| (id.as_str(), sources.as_slice())),
-                                |id| loaded.borrow().get(id).and_then(|l| l.header.clone()),
-                                |id, f| {
-                                    note_plan_read(id);
-                                    durable::read(&roots.resolve(f.root, &f.path)?)
-                                },
-                                |_, f| durable::open_buffered(&roots.resolve(f.root, &f.path)?),
-                            )?);
-                        }
-                        let all = candidates.as_deref().unwrap_or_default();
-                        ids.extend(ownerless.iter().filter_map(|t| source::recover_owner(t, all)).map(|c| c.id().to_string()));
-                    }
-                    let consumers: BTreeSet<String> = ids.into_iter().filter(|id| sessions.contains_key(id)).collect();
-                    if consumers.is_empty() {
-                        add(sink, plan::retire_key(data, &rel), ItemKind::Retired, Contract::Retire, vec![file.clone()])?;
-                    }
-                    for id in consumers {
-                        sink.add_shared(file.clone(), &format!("session/{id}"));
-                    }
-                }
-            }
-        }
-        Ok(())
+        plan_shared_files(roots, sink, &sessions, reaped, &loaded)
     }
 
     fn owns(&self, item: &ManifestItem) -> bool {

@@ -49,7 +49,7 @@ fn pdf(content: &str, font: &str, extra: &[Vec<u8>]) -> Vec<u8> {
 
 /// The dark pixels of the first image of the PDF rendered for a person.
 fn dark_pixels(name: &str, bytes: Vec<u8>) -> usize {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("render-text").join(name);
+    let dir = mixdog_testkit::target_tmpdir!().join("render-text").join(name);
     if mixdog_testkit::exists(&dir) {
         mixdog_testkit::remove_dir_all(&dir);
     }

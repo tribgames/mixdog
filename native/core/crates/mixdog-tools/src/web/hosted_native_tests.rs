@@ -1,9 +1,3 @@
-//! The hosted web search over the real routes and sender against what Node does
-//! (`benchmarks/rust-core/recorders/record-hosted-search.mjs`): the candidates the config and Main
-//! route give, and for each send the request the provider gets, the answer, the
-//! spend the asking turn hears and the ledger rows written. The provider is
-//! scripted; nothing leaves the process.
-
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -500,52 +494,60 @@ async fn check_sends(sends: &[Value], start: i64) {
         };
         let got = search.search(request, CancellationToken::new()).await;
 
-        match (&case["result"], &case["error"]) {
-            (Value::Object(want), _) => {
-                let got = got.unwrap_or_else(|error| panic!("{name}: {error:?}"));
-                assert_eq!(got.answer, want["content"].as_str().unwrap(), "{name}");
-                assert_eq!(got.provider, want["provider"].as_str().unwrap(), "{name}");
-                let urls: Vec<(String, String)> = got.citations.iter().map(|c| (c.title.clone(), c.url.clone())).collect();
-                let want_urls: Vec<(String, String)> = want["citations"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|c| (c["title"].as_str().unwrap().to_owned(), c["url"].as_str().unwrap().to_owned()))
-                    .collect();
-                assert_eq!(urls, want_urls, "{name}");
-            }
-            (_, Value::String(error)) => assert_eq!(got.unwrap_err().message(), error.as_str(), "{name}"),
-            _ => panic!("{name}: no expectation"),
-        }
-
-        let requests = world.requests.lock().unwrap();
-        let calls = case["calls"].as_array().unwrap();
-        assert_eq!(requests.len(), calls.len(), "{name}");
-        for ((provider, request), call) in requests.iter().zip(calls) {
-            let opts = &call["opts"];
-            assert_eq!(provider, call["provider"].as_str().unwrap(), "{name}");
-            assert_eq!(request.model, call["model"].as_str().unwrap(), "{name}");
-            let messages: Vec<Value> = request
-                .messages
-                .iter()
-                .map(|m| json!({ "role": if m.role == Role::System { "system" } else { "user" }, "content": text_of(&m.content) }))
-                .collect();
-            assert_eq!(Value::Array(messages), call["messages"], "{name}");
-            assert!(request.tools.is_empty(), "{name}");
-            let options = &request.options;
-            assert_eq!(options.session_id.as_deref(), opts["sessionId"].as_str(), "{name}");
-            assert_eq!(options.effort.as_deref(), opts["effort"].as_str(), "{name}");
-            assert_eq!(options.fast, opts["fast"].as_bool().unwrap(), "{name}");
-            assert_eq!(options.tool_choice.as_deref(), opts["toolChoice"].as_str(), "{name}");
-            assert_eq!(options.model_parameters.as_ref(), Some(&opts["modelParameters"]), "{name}");
-            let [HostedTool::WebSearch(tool)] = options.hosted_tools.as_slice() else { panic!("{name}: one hosted tool") };
-            assert_eq!(json!([native_tool(provider, tool)]), opts["nativeTools"], "{name}");
-            let include: Vec<&str> = if tool.include_sources { vec!["web_search_call.action.sources"] } else { vec![] };
-            assert_eq!(json!(include), opts["nativeInclude"], "{name}");
-        }
-
+        assert_answer(case, got);
+        assert_provider_requests(case, &world);
         assert_eq!(Value::Array(heard.lock().unwrap().clone()), case["deltas"], "{name}");
         assert_eq!(row_views(&ledger), departed_rows(case), "{name}");
+    }
+}
+
+fn assert_answer(case: &Value, got: Result<super::NativeSearchResult, super::NativeSearchError>) {
+    let name = &case["name"];
+    match (&case["result"], &case["error"]) {
+        (Value::Object(want), _) => {
+            let got = got.unwrap_or_else(|error| panic!("{name}: {error:?}"));
+            assert_eq!(got.answer, want["content"].as_str().unwrap(), "{name}");
+            assert_eq!(got.provider, want["provider"].as_str().unwrap(), "{name}");
+            let urls: Vec<(String, String)> = got.citations.iter().map(|c| (c.title.clone(), c.url.clone())).collect();
+            let want_urls: Vec<(String, String)> = want["citations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| (c["title"].as_str().unwrap().to_owned(), c["url"].as_str().unwrap().to_owned()))
+                .collect();
+            assert_eq!(urls, want_urls, "{name}");
+        }
+        (_, Value::String(error)) => assert_eq!(got.unwrap_err().message(), error.as_str(), "{name}"),
+        _ => panic!("{name}: no expectation"),
+    }
+}
+
+fn assert_provider_requests(case: &Value, world: &World) {
+    let name = &case["name"];
+    let requests = world.requests.lock().unwrap();
+    let calls = case["calls"].as_array().unwrap();
+    assert_eq!(requests.len(), calls.len(), "{name}");
+    for ((provider, request), call) in requests.iter().zip(calls) {
+        let opts = &call["opts"];
+        assert_eq!(provider, call["provider"].as_str().unwrap(), "{name}");
+        assert_eq!(request.model, call["model"].as_str().unwrap(), "{name}");
+        let messages: Vec<Value> = request
+            .messages
+            .iter()
+            .map(|m| json!({ "role": if m.role == Role::System { "system" } else { "user" }, "content": text_of(&m.content) }))
+            .collect();
+        assert_eq!(Value::Array(messages), call["messages"], "{name}");
+        assert!(request.tools.is_empty(), "{name}");
+        let options = &request.options;
+        assert_eq!(options.session_id.as_deref(), opts["sessionId"].as_str(), "{name}");
+        assert_eq!(options.effort.as_deref(), opts["effort"].as_str(), "{name}");
+        assert_eq!(options.fast, opts["fast"].as_bool().unwrap(), "{name}");
+        assert_eq!(options.tool_choice.as_deref(), opts["toolChoice"].as_str(), "{name}");
+        assert_eq!(options.model_parameters.as_ref(), Some(&opts["modelParameters"]), "{name}");
+        let [HostedTool::WebSearch(tool)] = options.hosted_tools.as_slice() else { panic!("{name}: one hosted tool") };
+        assert_eq!(json!([native_tool(provider, tool)]), opts["nativeTools"], "{name}");
+        let include: Vec<&str> = if tool.include_sources { vec!["web_search_call.action.sources"] } else { vec![] };
+        assert_eq!(json!(include), opts["nativeInclude"], "{name}");
     }
 }
 

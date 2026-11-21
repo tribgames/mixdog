@@ -1,16 +1,3 @@
-//! The session actions that end a piece of work, and the machine they run on: `qa`, `finalize`, `save` and `close`
-//! (`core/office-actions.mjs` and the files it gathers).
-//!
-//! - [`qa`]: the review pipeline. The document is calculated, its issues read (and repaired when `autoFix` asks), the pages drawn
-//!   and compared with the transaction's baseline, the design and the rendered pages reviewed, and one verdict assembled.
-//! - [`finalize`]: the gates of a delivery (the review stage, the holds) and the commit stage (save, validate, close, composition
-//!   history).
-//! - [`lifecycle`]: `finalize` itself, the gated pipeline recalculate, review, hold checks, save, validate, close.
-//!
-//! A [`Machine`] is what one call of the tool runs with: the author host (the sessions, the render, the inspection and the Office
-//! host of the call), the batch context, the tools a create needs and the readings a design review is held to. The engine
-//! builds one per call; a test builds its own.
-
 pub mod finalize;
 pub mod lifecycle;
 pub mod qa;

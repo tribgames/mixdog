@@ -1,14 +1,9 @@
-//! The cached provider setup: `getProviderSetup` of `session-runtime/provider-auth/setup.mjs` over
-//! `cachedProviderSetup` of `session-runtime/provider-usage.mjs`.
-//!
-//! An unforced read never blocks on the OS keychain: until the keychain warm-up is done and a
-//! complete setup is cached it answers the no-secrets snapshot, flagged `pendingSecrets`, and lets a
-//! background read publish the authoritative one. A complete read waits for the warm-up, retries a
-//! locked keyring, re-checks the keychain passively and overlays what is live (the keyring alert,
-//! the catalog failures). Everything the flow reads of the process is a seam below, so the flow is
-//! what is tested: the builder is [`SetupBuilder`] (the gatherer in `setup_world.rs`), the keychain
-//! is [`KeychainLive`], the overlays are [`SetupOverlays`] and the boot's own switches
-//! [`SetupHost`].
+//! The cached provider setup. An unforced read never blocks on the OS keychain: until the keychain
+//! warm-up is done and a complete setup is cached it answers the no-secrets snapshot, flagged
+//! `pendingSecrets`, and lets a background read publish the authoritative one. A complete read waits for
+//! the warm-up, retries a locked keyring, re-checks the keychain passively and overlays what is live (the
+//! keyring alert, the catalog failures). What the flow reads of the process is a seam: [`SetupBuilder`],
+//! [`KeychainLive`], [`SetupOverlays`] and [`SetupHost`].
 
 use std::sync::{Arc, Mutex, PoisonError};
 

@@ -1,8 +1,3 @@
-//! The floating panel slot of the application view (`app-view/floating-panel.jsx`): the single overlay that owns the rows
-//! reserved above the prompt. Priority is the order of [`PanelSlots`]: tool approval, picker, context panel, usage panel, slash
-//! palette, provider prompt, settings prompt, side-question panel. The panel is bottom-aligned in the reserved rows and, when
-//! it is taller than they are, clipped from the top, so it never moves the prompt.
-
 use mixdog_js::{js_to_lowercase, js_trim, value_to_string};
 use mixdog_term::frame::Rect;
 use mixdog_term::paint::Painter;

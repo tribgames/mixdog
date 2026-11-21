@@ -145,51 +145,34 @@ async fn a_bridged_phone_on_the_ssh_listener_is_a_relay_connection() {
 }
 
 #[tokio::test]
-async fn the_relay_peer_header_never_raises_rights_or_works_off_the_ssh_listener() {
-    // The loopback listener ignores the header.
+async fn the_loopback_listener_ignores_the_relay_peer_header() {
     let (_hub, mut loopback) = listen(small_limits()).await;
     let claimed = Dial { peers: &["0a1b2c3d-4e5f"], ..Dial::default() };
     let (_client, server) = connected(&mut loopback, claimed).await;
     assert_eq!(server.origin, ConnectionOrigin::Loopback);
+}
 
-    // On the SSH listener a header that is not exactly one routing id is refused, so a bad
-    // value never leaves the phone with the tunnel's wider rights.
+#[tokio::test]
+async fn a_relay_peer_header_on_the_ssh_listener_that_is_not_exactly_one_routing_id_is_refused() {
     let (_hub, ssh) = listen_as(small_limits(), ListenerOrigin::SshTunnel).await;
     for peers in [&["short"][..], &["UPPERCASE-ID"], &["0a1b2c3d-4e5f", "1a2b3c4d-5e6f"], &[""]] {
         let result = dial(ssh.local_addr(), Dial { peers, ..Dial::default() }).await;
         assert_eq!(refused_with(result), StatusCode::BAD_REQUEST, "{peers:?}");
     }
+}
 
-    // Everything a relay connection may call, a local or SSH one may call as well.
+#[tokio::test]
+async fn everything_a_relay_connection_may_call_but_the_phone_only_calls_a_local_or_ssh_one_may_call() {
     use mixdog_app_protocol::{CLIENT_METHODS, Origin};
-    // The exceptions are calls only a paired phone makes, which Node serves per relay client and nowhere else:
-    // the device's one-file grant (`remote-relay-device-methods.ts` `fileGrantsFor`: held per relay credential, so a
-    // local or SSH connection has nothing to mint into), and the phone's live view, whose stream, signals and display
-    // list belong to the relay client that asked (`remote-relay-client-calls.ts` `browserRemoteStream`;
-    // `desktop-service.ts` `browserRemoteWebrtcSignal`, called with the relay client's id; `remote-webrtc.ts`
-    // `REMOTE_WEBRTC_SCREEN_DISPLAYS_METHOD`), and the phone's download stages: Node serves `fileDownloadAuthorize`, `fileDownloadBegin`
-    // and `fileDownloadFinish` only in the relay's method table (`remote-methods.ts:874`, `fileDownloadRemoteMethods`), so the desktop's
-    // own window and an SSH client never call them (`transfer/readRange` and `transfer/endRead` also serve their local reads).
-    let phone_only = [
-        (
-            "transfer/authorizeRead",
-            serde_json::json!({ "sessionId": "s1", "source": { "kind": "sessionFile", "path": "/outside/file.txt" }, "purpose": "save" }),
-        ),
-        ("transfer/redeemGrant", serde_json::json!({ "grantId": "00000000-0000-4000-8000-000000000001" })),
-        ("transfer/finishRead", serde_json::json!({ "transferId": "00000000-0000-4000-8000-000000000002" })),
-        ("transfer/grant/mint", serde_json::json!({ "path": "/outside/file.txt" })),
-        ("browser/stream", serde_json::json!({ "sessionId": "s1", "on": true })),
-        ("browser/webrtcSignal", serde_json::json!({ "signal": {} })),
-        ("browser/screenDisplays", serde_json::json!({})),
-    ];
+    let phone_only = phone_only_calls();
     for spec in CLIENT_METHODS.iter().filter(|spec| spec.allows(Origin::Relay) && phone_only.iter().all(|(method, _)| spec.method != *method)) {
         assert!(spec.allows(Origin::Local) && spec.allows(Origin::Ssh), "{} is relay-only", spec.method);
     }
+}
 
-    // Each exception stated outright, not read back from the table it is an exception to: the real server behind each
-    // listener refuses the call to a local and to an SSH connection (a relay peer header on the loopback listener
-    // changes nothing), and serves it to a relay connection.
-    for (method, params) in &phone_only {
+#[tokio::test]
+async fn the_phone_only_calls_are_refused_to_a_local_and_an_ssh_connection_and_served_to_a_relay_one() {
+    for (method, params) in &phone_only_calls() {
         for (listener, peers, origin) in [
             (ListenerOrigin::Loopback, &[][..], "local"),
             (ListenerOrigin::Loopback, &["0a1b2c3d-4e5f"][..], "local"),
@@ -208,29 +191,38 @@ async fn the_relay_peer_header_never_raises_rights_or_works_off_the_ssh_listener
     }
 }
 
-/// `method` sent over a connection to a listener of `origin` (dialled with the relay `peers` header) on the real server
-/// over the mock core, which echoes what it is served; the answer to it.
-async fn answer_to(origin: ListenerOrigin, peers: &[&str], method: &'static str, params: &serde_json::Value) -> serde_json::Value {
+// The exceptions are calls only a paired phone makes, which Node serves per relay client and nowhere else:
+// the device's one-file grant (`remote-relay-device-methods.ts` `fileGrantsFor`: held per relay credential, so a
+// local or SSH connection has nothing to mint into), and the phone's live view, whose stream, signals and display
+// list belong to the relay client that asked (`remote-relay-client-calls.ts` `browserRemoteStream`;
+// `desktop-service.ts` `browserRemoteWebrtcSignal`, called with the relay client's id; `remote-webrtc.ts`
+// `REMOTE_WEBRTC_SCREEN_DISPLAYS_METHOD`), and the phone's download stages: Node serves `fileDownloadAuthorize`, `fileDownloadBegin`
+// and `fileDownloadFinish` only in the relay's method table (`remote-methods.ts:874`, `fileDownloadRemoteMethods`), so the desktop's
+// own window and an SSH client never call them (`transfer/readRange` and `transfer/endRead` also serve their local reads).
+fn phone_only_calls() -> [(&'static str, serde_json::Value); 7] {
+    [
+        (
+            "transfer/authorizeRead",
+            serde_json::json!({ "sessionId": "s1", "source": { "kind": "sessionFile", "path": "/outside/file.txt" }, "purpose": "save" }),
+        ),
+        ("transfer/redeemGrant", serde_json::json!({ "grantId": "00000000-0000-4000-8000-000000000001" })),
+        ("transfer/finishRead", serde_json::json!({ "transferId": "00000000-0000-4000-8000-000000000002" })),
+        ("transfer/grant/mint", serde_json::json!({ "path": "/outside/file.txt" })),
+        ("browser/stream", serde_json::json!({ "sessionId": "s1", "on": true })),
+        ("browser/webrtcSignal", serde_json::json!({ "signal": {} })),
+        ("browser/screenDisplays", serde_json::json!({})),
+    ]
+}
+
+fn phone_only_server(origins: ConnectionHub) -> mixdog_app_server::AppServer {
     use mixdog_app_protocol::v1::{CapabilityState, ServerCapabilities};
-    use mixdog_app_server::{AppServer, Inbound, Outgoing, ServerConfig, VersionOrder};
+    use mixdog_app_server::{AppServer, Outgoing, ServerConfig, VersionOrder};
     use mixdog_core_api::mock::{MockCore, MockLimits};
 
-    let (hub, mut listener) = listen_as(Limits::default(), origin).await;
-    let origins = hub.clone();
     let available = || CapabilityState::Available;
-    let server = AppServer::new(
-        Arc::new(MockCore::new(
-            &[
-                "transfer/authorizeRead",
-                "transfer/redeemGrant",
-                "transfer/finishRead",
-                "transfer/grant/mint",
-                "browser/stream",
-                "browser/webrtcSignal",
-                "browser/screenDisplays",
-            ],
-            MockLimits::default(),
-        )),
+    let methods: &'static [&'static str] = Box::leak(phone_only_calls().map(|(method, _)| method).to_vec().into_boxed_slice());
+    AppServer::new(
+        Arc::new(MockCore::new(methods, MockLimits::default())),
         Outgoing::new(),
         Arc::new(move |id| origins.origin_of(id)),
         ServerConfig {
@@ -255,7 +247,16 @@ async fn answer_to(origin: ListenerOrigin, peers: &[&str], method: &'static str,
             version_gate: Arc::new(|_| VersionOrder::Equal),
         },
     )
-    .unwrap();
+    .unwrap()
+}
+
+/// `method` sent over a connection to a listener of `origin` (dialled with the relay `peers` header) on the real server
+/// over the mock core, which echoes what it is served; the answer to it.
+async fn answer_to(origin: ListenerOrigin, peers: &[&str], method: &'static str, params: &serde_json::Value) -> serde_json::Value {
+    use mixdog_app_server::Inbound;
+
+    let (hub, mut listener) = listen_as(Limits::default(), origin).await;
+    let server = phone_only_server(hub);
     let (mut client, accepted) = connected(&mut listener, Dial { peers, ..Dial::default() }).await;
     let AcceptedConnection { id, mut inbound, sink, .. } = accepted;
     let handle = server.open(id, Arc::new(sink.clone()));

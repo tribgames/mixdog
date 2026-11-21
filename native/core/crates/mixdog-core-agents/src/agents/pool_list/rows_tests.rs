@@ -1,6 +1,8 @@
 //! What the agent pool lists: the rows a user sees for working, finished and cancelled agents, their usage
 //! counters and the progress of a turn in flight.
 
+use std::sync::Mutex;
+
 use super::*;
 
 const NOW: f64 = 10_000_000.0;
@@ -13,6 +15,8 @@ struct Rig {
     awaiting: HashSet<String>,
     entries: HashMap<String, RuntimeEntry>,
     routes: Mutex<HashMap<String, Arc<Row>>>,
+    /// The settle identities the store fixed: session to `(turns, identity)`, shared by the rigs of one store.
+    settled: Arc<Mutex<HashMap<String, (u64, Value)>>>,
 }
 
 #[async_trait]
@@ -25,6 +29,19 @@ impl PoolStore for Rig {
     }
     async fn headers(&self, ids: &[String]) -> Vec<Option<Row>> {
         ids.iter().map(|id| self.headers.get(id).cloned()).collect()
+    }
+    async fn settle_identities(&self, fixes: &[SettleFix]) -> Vec<Value> {
+        let mut settled = self.settled.lock().unwrap();
+        fixes
+            .iter()
+            .map(|fix| match settled.get(&fix.session_id) {
+                Some((turns, identity)) if *turns == fix.turns => identity.clone(),
+                _ => {
+                    settled.insert(fix.session_id.clone(), (fix.turns, fix.candidate.clone()));
+                    fix.candidate.clone()
+                }
+            })
+            .collect()
     }
 }
 
@@ -245,4 +262,61 @@ async fn a_turn_in_flight_adds_its_progress_and_a_waiting_agent_says_what_it_wai
     assert_eq!(number(&busy["stallWarnMs"]), 90_000.0);
     assert_eq!(rows[1]["awaitingTask"], "background");
     assert!(rows[2].get("progressAt").is_none() && rows[2].get("awaitingTask").is_none());
+}
+
+#[tokio::test]
+async fn a_settled_row_keeps_the_stored_settle_time_however_many_rows_are_listed_and_a_working_one_has_none() {
+    let mut rig = Rig::default();
+    for index in 0..600 {
+        let mut row = worker(&format!("done_{index}"), &format!("t{index}"), "completed");
+        row["finishedAt"] = json!(NOW - 60_000.0 - f64::from(index));
+        row["updatedAt"] = json!(NOW - 1_000.0);
+        rig.workers.push(row);
+    }
+    rig.workers.push(worker("busy", "tb", "running"));
+    rig.running.insert("busy".into());
+    let pool = {
+        let rig = Arc::new(rig);
+        AgentPool::new(rig.clone(), rig)
+    };
+    for _ in 0..2 {
+        let rows = pool.list().await.unwrap();
+        let done = rows.iter().find(|row| row["sessionId"] == "done_599").unwrap();
+        assert_eq!(number(&done["settledAt"]), NOW - 60_000.0 - 599.0);
+        assert_eq!(done["idleSince"], done["settledAt"]);
+        let busy = rows.iter().find(|row| row["sessionId"] == "busy").unwrap();
+        assert_eq!((&busy["settledAt"], &busy["idleSince"]), (&Value::Null, &Value::Null));
+    }
+}
+
+#[tokio::test]
+async fn a_settled_outcome_keeps_the_identity_first_listed_until_new_work_settles_under_a_new_one() {
+    let settled = Arc::new(Mutex::new(HashMap::new()));
+    let listed = |stamps: Value, running: bool| {
+        let mut row = worker("c1", "a1", if running { "running" } else { "completed" });
+        for (key, value) in stamps.as_object().unwrap() {
+            row[key] = value.clone();
+        }
+        let running = if running { HashSet::from(["c1".into()]) } else { HashSet::new() };
+        let rig = Rig { workers: vec![row], running, settled: settled.clone(), ..Rig::default() };
+        async move {
+            let rows = list(rig).await;
+            (rows[0]["settledAt"].clone(), rows[0]["idleSince"].clone())
+        }
+    };
+    // An unstamped outcome is fixed at its updatedAt, the first time it is listed settled.
+    let first = json!(NOW - 5_000.0);
+    let turn_one = json!({ "startedTurns": 1, "turnStartedAt": NOW - 9_000.0, "updatedAt": NOW - 5_000.0 });
+    assert_eq!(listed(turn_one, false).await, (first.clone(), first.clone()));
+    // A scan of the same turn that moves updatedAt and fills finishedAt does not move it.
+    let rescanned = json!({ "startedTurns": 1, "turnStartedAt": NOW - 9_000.0, "updatedAt": NOW - 1_000.0, "finishedAt": NOW - 2_000.0 });
+    assert_eq!(listed(rescanned, false).await, (first.clone(), first.clone()));
+    // New work has none; its outcome settles under a later identity.
+    let running = json!({ "startedTurns": 2, "turnStartedAt": NOW - 500.0, "updatedAt": NOW - 400.0 });
+    assert_eq!(listed(running, true).await, (Value::Null, Value::Null));
+    let next = listed(json!({ "startedTurns": 2, "turnStartedAt": NOW - 500.0, "updatedAt": NOW - 50.0, "finishedAt": NOW - 100.0 }), false).await;
+    assert_eq!(next, (json!(NOW - 100.0), json!(NOW - 100.0)));
+    // A turn whose stamps all predate its start is fixed at the listing's own time.
+    let stale = listed(json!({ "startedTurns": 3, "turnStartedAt": NOW - 20.0, "updatedAt": NOW - 30.0 }), false).await;
+    assert_eq!(stale.0, json!(iso(NOW).unwrap()));
 }

@@ -1049,11 +1049,6 @@ impl RunPort {
         self.call(ProducerMsg::TakeSteers { turn: self.turn.clone(), request, reply }, rx).await
     }
 
-    /// A failed-turn retry's rewind (`prepareAskTurn` shrinking `session.messages`): the model
-    /// context restarts at `replacement`, which holds the context less the stale copy of the
-    /// failed prompt, then the run's input row. It is the store's `compacted` record that drops
-    /// rows from the context, written with nothing taken out of the transcript and no divider, so
-    /// the next turn reads the prompt once. Resolves once it is durable (or failed).
     /// A cancelled turn that produced nothing hands its prompt back: the rewind record at the prompt's row
     /// (`session.messages` loses it in Node), so the row leaves the thread's items and its context.
     pub async fn prompt_rewound(&self, item: ItemId) -> Result<(), RunError> {
@@ -1061,6 +1056,11 @@ impl RunPort {
         self.call(ProducerMsg::PromptRewound { turn: self.turn.clone(), item, ack }, rx).await?
     }
 
+    /// A failed-turn retry's rewind (`prepareAskTurn` shrinking `session.messages`): the model
+    /// context restarts at `replacement`, which holds the context less the stale copy of the
+    /// failed prompt, then the run's input row. It is the store's `compacted` record that drops
+    /// rows from the context, written with nothing taken out of the transcript and no divider, so
+    /// the next turn reads the prompt once. Resolves once it is durable (or failed).
     pub async fn context_rewound(&self, replacement: Vec<(ItemId, Value)>) -> Result<(), RunError> {
         let queued = self.queue_context_rewound(replacement).await?;
         self.saved(queued).await
@@ -1093,6 +1093,10 @@ impl RunPort {
         Ok(Queued { rx, scoped: true })
     }
 }
+fn resolution_sent_before_cancel(rx: &mut oneshot::Receiver<ApprovalResolution>) -> ApprovalResolution {
+    rx.try_recv().unwrap_or(ApprovalResolution::Cancelled { at: 0 })
+}
+
 #[async_trait]
 impl ApprovalGate for RunPort {
     /// Persisted, published, and resolved by the first valid decision, expiry, or the run's
@@ -1116,11 +1120,7 @@ impl ApprovalGate for RunPort {
             .await;
         match asked {
             Ok(resolution) => resolution,
-            // The scope prefers the cancel arm, so a resolution the actor sent before it fired the
-            // token (a close resolves the approval `Interrupted`, then aborts the run: Node's
-            // `closeSession` order) is still waiting in the channel. It is taken here, whenever
-            // this task happens to be polled, so the outcome does not depend on scheduling.
-            Err(RunError::Cancelled) => rx.try_recv().unwrap_or(ApprovalResolution::Cancelled { at: 0 }),
+            Err(RunError::Cancelled) => resolution_sent_before_cancel(&mut rx),
             Err(_) => interrupted(),
         }
     }

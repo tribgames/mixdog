@@ -1,10 +1,6 @@
-//! Waking Mixy for a heartbeat (`mixy-heartbeat.mjs` `wakeMixy`): one unattended routine turn in a
-//! new hidden session of hers on the Lead route. The session is marked a heartbeat session from its
-//! creation until the close lands, and that mark is what limits its tools and refuses its delegation.
-//! A close that does not land keeps the mark and goes to `unreleased` for a later retry.
-//!
-//! The caller awaits this to its end: dropping the future mid-turn would leave the session marked
-//! and open, as an aborted Node promise chain never does.
+//! A close that does not land keeps the heartbeat mark and goes to `unreleased` for a later retry.
+//! The caller awaits the wake to its end: dropping the future mid-turn would leave the session
+//! marked and open.
 
 use std::sync::Arc;
 

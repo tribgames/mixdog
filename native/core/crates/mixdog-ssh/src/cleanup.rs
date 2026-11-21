@@ -1,10 +1,3 @@
-//! Removes what the desktop installed on a server: stops the Mixdog core there (`mixdogd server-ensure` with mode
-//! `cleanup`: only a core proven to run from `~/.mixdog-remote/versions` is stopped, through the control listener's
-//! wind-down, never a signal; a core of the user's own install has another runtime root and is never touched) and
-//! deletes `~/.mixdog-remote`, keeping `user-data` unless asked otherwise. The removal stops, proves nothing else
-//! runs from the install, and deletes inside one hold of the server-wide install lock. The server's runtime does all
-//! of it, so cleaning a server that holds none of this desktop's build uploads it first.
-
 use std::time::Duration;
 
 use serde_json::Value;

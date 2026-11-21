@@ -20,18 +20,18 @@ Format:
   replaces with the composed text: another asset, or `serde_json` output for a
   value (a JSON string or number literal, never raw text).
 
-| File | Owning engine module | Placeholders |
-| --- | --- | --- |
-| `editability.js` | form-action preflight (editability check) | none |
-| `file-drop.js` | upload by drop (drop guards: install, bound install, aim, take, bound take) | none |
-| `ref-rect.js` | ref rect measurement (`BROWSER_REF_RECT`, `browserRefRectExpression`) | `__MIXDOG_STABLE_RECT__`, `__MIXDOG_REF_RECT__`, `__MIXDOG_REF__` |
-| `stable-rect.js` | shared stable-rect measurement (used by ref-rect and ref-point-probe) | none |
-| `scroll-text.js` | scroll text (match pass, apply pass) | `__MIXDOG_DOCUMENT_ROOTS__` (`document-roots.js`), `__MIXDOG_WANTED__`, `__MIXDOG_TOKEN__` |
-| `visual-locator.js` | visual locator | `__MIXDOG_QUERY__` (lower-cased trimmed query as JSON string), `__MIXDOG_MAXIMUM__` (clamped 1..50) |
-| `payment-evidence.js` | payment evidence of the page | `__MIXDOG_HOSTS__` (JSON array of processor frame hosts) |
-| `frame-transform.js` | frame transform refusal (`BROWSER_FRAME_HAS_TRANSFORM`), the value of the ref-point-probe placeholder | none |
-| `document-roots.js` | document roots with open shadow roots (`BROWSER_DOCUMENT_ROOTS`), the value of the scroll-text placeholder | none |
-| `ref-point-probe.js` | ref point probe (hit-tested point of a ref) | `__MIXDOG_STABLE_RECT__`, `__MIXDOG_FRAME_HAS_TRANSFORM__` (the frame-transform function) |
+| File                  | Owning engine module                                                                                       | Placeholders                                                                                        |
+| --------------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `editability.js`      | form-action preflight (editability check)                                                                  | none                                                                                                |
+| `file-drop.js`        | upload by drop (drop guards: install, bound install, aim, take, bound take)                                | none                                                                                                |
+| `ref-rect.js`         | ref rect measurement (`BROWSER_REF_RECT`, `browserRefRectExpression`)                                      | `__MIXDOG_STABLE_RECT__`, `__MIXDOG_REF_RECT__`, `__MIXDOG_REF__`                                   |
+| `stable-rect.js`      | shared stable-rect measurement (used by ref-rect and ref-point-probe)                                      | none                                                                                                |
+| `scroll-text.js`      | scroll text (match pass, apply pass)                                                                       | `__MIXDOG_DOCUMENT_ROOTS__` (`document-roots.js`), `__MIXDOG_WANTED__`, `__MIXDOG_TOKEN__`          |
+| `visual-locator.js`   | visual locator                                                                                             | `__MIXDOG_QUERY__` (lower-cased trimmed query as JSON string), `__MIXDOG_MAXIMUM__` (clamped 1..50) |
+| `payment-evidence.js` | payment evidence of the page                                                                               | `__MIXDOG_HOSTS__` (JSON array of processor frame hosts)                                            |
+| `frame-transform.js`  | frame transform refusal (`BROWSER_FRAME_HAS_TRANSFORM`), the value of the ref-point-probe placeholder      | none                                                                                                |
+| `document-roots.js`   | document roots with open shadow roots (`BROWSER_DOCUMENT_ROOTS`), the value of the scroll-text placeholder | none                                                                                                |
+| `ref-point-probe.js`  | ref point probe (hit-tested point of a ref)                                                                | `__MIXDOG_STABLE_RECT__`, `__MIXDOG_FRAME_HAS_TRANSFORM__` (the frame-transform function)           |
 
 `frame-transform.js` and `document-roots.js` are the sources the two placeholders above take.
 
@@ -39,13 +39,13 @@ The form-action sources below are the page-world functions the engine applies to
 file is one function, byte for byte, with the placeholders named. `apps/desktop/src/main/browser/ref-fill.test.mjs` and
 `ref-selection.test.mjs` run them in JSDOM.
 
-| File | Owning engine module | Placeholders |
-| --- | --- | --- |
-| `fill-ref.js` | `refs/text_entry.rs` (`FILL_REF`) | `__MIXDOG_EDITABILITY__` (`editability.js`) |
-| `focus-ref.js` | `refs/text_entry.rs` (`FOCUS_REF`) | `__MIXDOG_EDITABILITY__` |
-| `select-native.js` | `refs/select.rs` (`SELECT_NATIVE`) | `__MIXDOG_EDITABILITY__` |
-| `custom-control.js` | `refs/select.rs` (`CUSTOM_CONTROL`, the head both custom-dropdown functions share) | `__MIXDOG_EDITABILITY__` |
-| `open-custom.js` | `refs/select.rs` (`OPEN_CUSTOM`) | `__MIXDOG_CUSTOM_CONTROL__` (`custom-control.js`), `__MIXDOG_EDITABILITY__` |
-| `pick-custom.js` | `refs/select.rs` (`PICK_CUSTOM`) | `__MIXDOG_CUSTOM_CONTROL__`, `__MIXDOG_EDITABILITY__` |
-| `read-select-options.js` | `refs/control_state.rs` (`READ_SELECT_OPTIONS`) | none |
-| `read-checked.js` | `refs/control_state.rs` (`READ_CHECKED`) | none |
+| File                     | Owning engine module                                                               | Placeholders                                                                |
+| ------------------------ | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `fill-ref.js`            | `refs/text_entry.rs` (`FILL_REF`)                                                  | `__MIXDOG_EDITABILITY__` (`editability.js`)                                 |
+| `focus-ref.js`           | `refs/text_entry.rs` (`FOCUS_REF`)                                                 | `__MIXDOG_EDITABILITY__`                                                    |
+| `select-native.js`       | `refs/select.rs` (`SELECT_NATIVE`)                                                 | `__MIXDOG_EDITABILITY__`                                                    |
+| `custom-control.js`      | `refs/select.rs` (`CUSTOM_CONTROL`, the head both custom-dropdown functions share) | `__MIXDOG_EDITABILITY__`                                                    |
+| `open-custom.js`         | `refs/select.rs` (`OPEN_CUSTOM`)                                                   | `__MIXDOG_CUSTOM_CONTROL__` (`custom-control.js`), `__MIXDOG_EDITABILITY__` |
+| `pick-custom.js`         | `refs/select.rs` (`PICK_CUSTOM`)                                                   | `__MIXDOG_CUSTOM_CONTROL__`, `__MIXDOG_EDITABILITY__`                       |
+| `read-select-options.js` | `refs/control_state.rs` (`READ_SELECT_OPTIONS`)                                    | none                                                                        |
+| `read-checked.js`        | `refs/control_state.rs` (`READ_CHECKED`)                                           | none                                                                        |

@@ -73,8 +73,7 @@ pub fn open_output_style_picker(host: &mut dyn PickerHost, options: OutputStyleO
     panel.help = picker_help(onboarding, options.return_to.is_some(), "\u{2191}/\u{2193} Select \u{b7} Enter Choose");
     panel.label_width = Some(18);
     panel.items = items;
-    panel.confirm =
-        if onboarding { Some(ConfirmSpec::back_next()) } else { options.confirm_bar.as_ref().map(|confirm| ConfirmSpec { buttons: confirm.buttons.clone() }) };
+    panel.confirm = ConfirmSpec::for_picker(onboarding, options.confirm_bar.as_ref());
     panel.handler = Some(Rc::new(OutputStyleHandler { own: Rc::clone(&own), options, highlighted: RefCell::new(current_id) }));
     own.paint(host, Some(panel));
 }

@@ -1,9 +1,3 @@
-//! The model listing of the OpenAI-compatible family (`openai-compat-models.mjs`
-//! `listCompatModels` and the listings of MiMo, Muse Code, Command Code and the
-//! OpenCode Go console config). What differs per provider is
-//! [`ListingRules`] data on its profile; the steps are Node's, in Node's
-//! order: the roster, the provider's own row filter, the shared enrichment,
-//! the native limits restored over it, the shared sanitizer.
 //!
 //! A listing is one fetch with no retry and no fallback list, except the one
 //! Node itself shows (MiMo's seed roster). The metadata tables are the
@@ -57,6 +51,17 @@ fn catalog_error(message: String) -> ProviderError {
     let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
     error.message = message;
     error
+}
+
+fn roster_record(id: &str, item: &Value) -> ModelRecord {
+    let mut record = ModelRecord::new(id);
+    record.display_name =
+        ["name", "display_name"].iter().filter_map(|key| item.get(key).and_then(Value::as_str)).map(js_trim).find(|name| !name.is_empty()).map(str::to_owned);
+    record.context_window =
+        stated_limit(&[item.get("context_window"), item.get("max_context_window"), item.get("context_length"), Some(&json!(0))]).map(u64::from);
+    record.max_output_tokens = stated_limit(&[item.get("max_output_tokens"), item.get("output_tokens"), Some(&json!(0))]).map(u64::from);
+    record.created = item.get("created").filter(|v| v.is_number()).and_then(Value::as_i64);
+    record
 }
 
 fn effort_options(levels: &[String]) -> Vec<ReasoningOption> {
@@ -262,6 +267,39 @@ impl CompatAdapter {
         Ok((rows, seeded, key))
     }
 
+    /// The model rows of the console config and the package they ride on; a config that lists none takes the
+    /// models.dev catalog of the same provider. `loadModelsDevGoModels` (opencode-go-oauth.mjs:118) is awaited first:
+    /// the resident read is empty on a cold cache.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn console_models(&self, config: &Value, provider_key: &str) -> Result<(Vec<(String, Value)>, String), ProviderError> {
+        let provider = self.codec.profile().id;
+        let entry = config.get("providers").and_then(|p| p.get(provider_key));
+        let configured = entry.and_then(|e| e.get("models")).and_then(Value::as_object).filter(|models| !models.is_empty());
+        if configured.is_none() {
+            self.lookup.load_models_dev().await;
+        }
+        let fallback = match configured {
+            Some(_) => None,
+            None => match self.lookup.models_dev_models(provider_key).filter(|m| !m.is_empty()) {
+                Some(models) => Some(models),
+                None => {
+                    return Err(catalog_error(format!(
+                        "[{provider}] the OpenCode organization config lists no models and the models.dev OpenCode Go catalog is unavailable"
+                    )));
+                }
+            },
+        };
+        let Some(entry) = entry.filter(|e| e.is_object()) else {
+            return Err(catalog_error(format!("[{provider}] the OpenCode organization config has no OpenCode Go provider")));
+        };
+        let package = if fallback.is_some() { MODELS_DEV_PACKAGE } else { entry.get("package").and_then(Value::as_str).unwrap_or("") };
+        let source = match &fallback {
+            Some(models) => models.iter().map(|(id, row)| (id.clone(), config_model_from_models_dev(row))).collect(),
+            None => configured.map(|m| m.iter().map(|(id, model)| (id.clone(), model.clone())).collect()).unwrap_or_default(),
+        };
+        Ok((source, package.to_owned()))
+    }
+
     /// Muse Code: the roster alone, enriched, named and given its default ladder.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn roster_listing(
@@ -279,19 +317,7 @@ impl CompatAdapter {
             if !self.lists(rules, &probe) {
                 continue;
             }
-            let mut record = ModelRecord::new(id);
-            // `name` first, then `display_name`, as the roster states them.
-            record.display_name = ["name", "display_name"]
-                .iter()
-                .filter_map(|key| item.get(key).and_then(Value::as_str))
-                .map(js_trim)
-                .find(|name| !name.is_empty())
-                .map(str::to_owned);
-            record.context_window =
-                stated_limit(&[item.get("context_window"), item.get("max_context_window"), item.get("context_length"), Some(&json!(0))]).map(u64::from);
-            record.max_output_tokens = stated_limit(&[item.get("max_output_tokens"), item.get("output_tokens"), Some(&json!(0))]).map(u64::from);
-            record.created = item.get("created").filter(|v| v.is_number()).and_then(Value::as_i64);
-            native.push(record);
+            native.push(roster_record(id, item));
             kept.push(item.clone());
         }
         self.codec.models().replace(parse_models(&Value::Array(kept)));
@@ -329,38 +355,12 @@ impl CompatAdapter {
     ) -> Result<(Vec<ModelRecord>, mixdog_core_api::domain::provider::RosterIdentity), ProviderError> {
         let provider = self.codec.profile().id;
         let (config, key) = self.get_json(url.to_owned(), true).await?;
-        let entry = config.get("providers").and_then(|p| p.get(provider_key));
-        let configured = entry.and_then(|e| e.get("models")).and_then(Value::as_object).filter(|models| !models.is_empty());
-        // A config that lists no models takes the models.dev catalog of the
-        // same provider, which must be loaded.
-        // Awaited first (`loadModelsDevGoModels`, opencode-go-oauth.mjs:118): the resident read is empty on a cold cache.
-        if configured.is_none() {
-            self.lookup.load_models_dev().await;
-        }
-        let fallback = match configured {
-            Some(_) => None,
-            None => match self.lookup.models_dev_models(provider_key).filter(|m| !m.is_empty()) {
-                Some(models) => Some(models),
-                None => {
-                    return Err(catalog_error(format!(
-                        "[{provider}] the OpenCode organization config lists no models and the models.dev OpenCode Go catalog is unavailable"
-                    )));
-                }
-            },
-        };
-        let Some(entry) = entry.filter(|e| e.is_object()) else {
-            return Err(catalog_error(format!("[{provider}] the OpenCode organization config has no OpenCode Go provider")));
-        };
-        let package = if fallback.is_some() { MODELS_DEV_PACKAGE } else { entry.get("package").and_then(Value::as_str).unwrap_or("") };
-        let source: Vec<(String, Value)> = match &fallback {
-            Some(models) => models.iter().map(|(id, row)| (id.clone(), config_model_from_models_dev(row))).collect(),
-            None => configured.map(|m| m.iter().map(|(id, model)| (id.clone(), model.clone())).collect()).unwrap_or_default(),
-        };
+        let (source, package) = self.console_models(&config, provider_key).await?;
         let mut wires = HashMap::new();
         let mut native = Vec::new();
         for (id, model) in &source {
             let Some(model) = model.as_object().filter(|m| !id.is_empty() && m.get("disabled") != Some(&Value::Bool(true))) else { continue };
-            let (record, wire) = console_record(id, model, package);
+            let (record, wire) = console_record(id, model, &package);
             if let Some(wire) = wire {
                 wires.insert(id.clone(), wire);
             }

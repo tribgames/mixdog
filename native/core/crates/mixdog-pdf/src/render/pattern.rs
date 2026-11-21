@@ -333,27 +333,32 @@ impl<'a> Painter<'a> {
         let dimx2 = TilingPaint::size_and_scale(canvas_width, out_width, scale_x);
         let dimy2 = TilingPaint::size_and_scale(canvas_height, out_height, scale_y);
         let (x_size, y_size) = (dimx2.size, dimy2.size);
+        let ii = if redraw_horizontally { (width / xstep).floor().min((f64::from(tile.width()) / f64::from(x_size)).ceil()) } else { 0.0 };
+        let jj = if redraw_vertically { (height / ystep).floor().min((f64::from(tile.height()) / f64::from(y_size)).ceil()) } else { 0.0 };
+        let second = Self::overlay_tile_copies(&tile, (x_size, y_size), (ii as i64, redraw_vertically.then_some(jj as i64)))?;
+        Ok(TileCanvas { canvas: second, scale_x: dimx2.scale, scale_y: dimy2.scale, offset_x: x0, offset_y: y0 })
+    }
+
+    fn overlay_tile_copies(tile: &Canvas, (x_size, y_size): (u32, u32), (columns, rows): (i64, Option<i64>)) -> Result<Canvas> {
         let mut second = Canvas::new(x_size, y_size).map_err(raster)?;
         let image_width = tile.width();
-        let ii = if redraw_horizontally { (width / xstep).floor().min((f64::from(image_width) / f64::from(x_size)).ceil()) } else { 0.0 };
-        let jj = if redraw_vertically { (height / ystep).floor().min((f64::from(tile.height()) / f64::from(y_size)).ceil()) } else { 0.0 };
-        let image = Bitmap::from_canvas(&tile);
+        let image = Bitmap::from_canvas(tile);
         let mut row_source = image.clone();
-        if redraw_vertically {
+        if let Some(rows) = rows {
             let mut band = Canvas::new(image_width, y_size).map_err(raster)?;
-            let mut j = jj as i64;
+            let mut j = rows;
             while j >= 0 {
                 band.draw_image_region(&image, 0.0, (y_size as i64 * j) as f32, image_width as f32, y_size as f32, 0.0, 0.0, image_width as f32, y_size as f32);
                 j -= 1;
             }
             row_source = Bitmap::from_canvas(&band);
         }
-        let mut i = ii as i64;
+        let mut i = columns;
         while i >= 0 {
             second.draw_image_region(&row_source, (x_size as i64 * i) as f32, 0.0, x_size as f32, y_size as f32, 0.0, 0.0, x_size as f32, y_size as f32);
             i -= 1;
         }
-        Ok(TileCanvas { canvas: second, scale_x: dimx2.scale, scale_y: dimy2.scale, offset_x: x0, offset_y: y0 })
+        Ok(second)
     }
 
     /// `_renderTileCanvas`: the pattern cell executed on a canvas of `dimx.size` by `dimy.size` pixels.

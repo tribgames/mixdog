@@ -1,11 +1,9 @@
-//! The plain REPL of the native `mixdog` binary (`mixdog --plain`), ported from `src/repl.mjs` and `src/repl/*.mjs`: a styled
-//! inline terminal loop over a session of the core.
+//! The plain REPL of the native `mixdog` binary (`mixdog --plain`): a styled inline terminal loop over a session of the core.
 //!
-//! * [`repl`]: the loop (banner, prompt, `/command` or turn), the input pipeline and the terminal output.
-//! * [`line_editor`]: what Node's `readline` gave the REPL (prompt, emacs keys, history of the session, bracketed paste).
-//! * [`stream_sink`]: the live assistant stream (batched writes, the cursor flags, the erase).
-//! * [`turn_output`]: what is printed once a turn has settled (markdown re-render, statusline) and the fold of the session's
-//!   state into a turn's steps.
+//! * [`repl`]: the loop, the input pipeline and the terminal output.
+//! * [`line_editor`]: prompt, emacs keys, history of the session, bracketed paste.
+//! * [`stream_sink`]: the live assistant stream.
+//! * [`turn_output`]: what is printed once a turn has settled, and the fold of the session's state into a turn's steps.
 //! * [`slash`]: the REPL's `/command` table.
 //!
 //! The session is the store of `mixdog-session-view`; [`run`] ensures the core serves (`mixdog_launch::ensure_core`), connects,
@@ -29,11 +27,13 @@ use mixdog_term::console::RawConsole;
 use mixdog_term::guard::CleanupConfig;
 use mixdog_term::guard::Hook;
 use mixdog_term::guard::SignalCleanup;
+use mixdog_term::reader::ReaderHandle;
 use mixdog_term::reader::spawn_reader;
 use mixdog_tui_style::color::Styler;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::broadcast;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::unbounded_channel;
 
 pub mod line_editor;
@@ -143,6 +143,35 @@ fn hook(step: impl Fn(&str) + Send + Sync + 'static) -> Hook {
     Arc::new(step)
 }
 
+fn spawn_input(interactive: bool, tx: UnboundedSender<InputMsg>) -> Option<ReaderHandle> {
+    if interactive {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let reader = spawn_reader(sender);
+        std::thread::spawn(move || {
+            for event in receiver {
+                if tx.send(InputMsg::Term(event)).is_err() {
+                    return;
+                }
+            }
+        });
+        return Some(reader);
+    }
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lock().lines() {
+            match line {
+                Ok(line) => {
+                    if tx.send(InputMsg::Line(line)).is_err() {
+                        return;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        let _ = tx.send(InputMsg::Eof);
+    });
+    None
+}
+
 async fn run_process(options: ReplOptions, footer: Arc<dyn Footer>, handle: tokio::runtime::Handle) -> i32 {
     // The core serves before the session connects, as the terminal UI does.
     if let Err(error) = ensure_core(EnsureOptions::default()).await {
@@ -184,34 +213,7 @@ async fn run_process(options: ReplOptions, footer: Arc<dyn Footer>, handle: toki
         None
     };
     let paste = interactive;
-    let mut reader = if interactive {
-        let (sender, receiver) = std::sync::mpsc::channel();
-        let reader = spawn_reader(sender);
-        std::thread::spawn(move || {
-            for event in receiver {
-                if tx.send(InputMsg::Term(event)).is_err() {
-                    return;
-                }
-            }
-        });
-        Some(reader)
-    } else {
-        std::thread::spawn(move || {
-            for line in std::io::stdin().lock().lines() {
-                match line {
-                    Ok(line) => {
-                        if tx.send(InputMsg::Line(line)).is_err() {
-                            return;
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-            // The end of the input (or a read that failed): nothing more will come.
-            let _ = tx.send(InputMsg::Eof);
-        });
-        None
-    };
+    let mut reader = spawn_input(interactive, tx);
     if paste {
         let _ = Out::write_str(&mut out, PASTE_ON);
     }

@@ -262,19 +262,30 @@ struct UpgradeScreen<'a> {
 impl Callback for UpgradeScreen<'_> {
     fn on_request(self, request: &Request, response: Response) -> Result<Response, ErrorResponse> {
         let pending = self.pending;
-        let result = self.screen(request, response).map_err(|refused| *refused);
-        if let Err(refused) = &result {
-            // `refusal` built the body: `{"reason":"<fixed name>"}`.
-            let reason = refused.body().as_deref().and_then(|body| body.strip_prefix("{\"reason\":\"")).and_then(|body| body.strip_suffix("\"}"));
-            pending.ends_because(format!("refused status={} cause={}", refused.status().as_u16(), reason.unwrap_or("unknown")));
-        }
-        result
+        self.screen(request, response).map_err(|refused| {
+            pending.ends_because(format!("refused status={} cause={}", refused.status.as_u16(), refused.reason));
+            refused.into_response()
+        })
+    }
+}
+
+struct Refusal {
+    status: StatusCode,
+    reason: &'static str,
+}
+
+impl Refusal {
+    fn into_response(self) -> ErrorResponse {
+        let mut response = ErrorResponse::new(Some(format!("{{\"reason\":\"{}\"}}", self.reason)));
+        *response.status_mut() = self.status;
+        response.headers_mut().insert(header::CONTENT_TYPE, header::HeaderValue::from_static("application/json"));
+        response
     }
 }
 
 impl UpgradeScreen<'_> {
     /// The upgrade rules of P §4.1, in order: path, Origin, Bearer token, connection limit, then narrowing.
-    fn screen(self, request: &Request, response: Response) -> Result<Response, Box<ErrorResponse>> {
+    fn screen(self, request: &Request, response: Response) -> Result<Response, Box<Refusal>> {
         let Self { context, pending } = self;
         if request.uri().path() != "/rpc" {
             return Err(Box::new(refusal(StatusCode::NOT_FOUND, "notFound")));
@@ -338,11 +349,8 @@ impl UpgradeScreen<'_> {
     }
 }
 
-fn refusal(status: StatusCode, reason: &str) -> ErrorResponse {
-    let mut response = ErrorResponse::new(Some(format!("{{\"reason\":\"{reason}\"}}")));
-    *response.status_mut() = status;
-    response.headers_mut().insert(header::CONTENT_TYPE, header::HeaderValue::from_static("application/json"));
-    response
+fn refusal(status: StatusCode, reason: &'static str) -> Refusal {
+    Refusal { status, reason }
 }
 
 struct WsRead(SplitStream<WebSocketStream<TcpStream>>);

@@ -21,11 +21,6 @@ impl Warnings {
         self.0.is_empty() && self.1.is_none()
     }
 
-    /// `collectGraphParseWarnings` for the graph a section answers from. An answer that was
-    /// given from an independently verified one-file graph (`one_file`: the dispatcher built
-    /// it with `Graph::build_single`, which refuses an unverifiable read) is exempt, as Node's
-    /// one-file graph records no parse error; every answer from the whole graph is not,
-    /// whatever its mode.
     pub fn collect(&mut self, one_file: bool, root: &Path, graph: &Graph) {
         if one_file {
             return;

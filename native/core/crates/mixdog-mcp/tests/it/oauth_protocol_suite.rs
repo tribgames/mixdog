@@ -38,7 +38,7 @@ fn a_challenge_names_its_metadata_scope_and_error_and_a_missing_header_names_not
 }
 
 #[test]
-fn endpoints_are_the_advertised_ones_or_the_default_paths_of_a_server_that_advertises_nothing() {
+fn advertised_endpoints_are_the_ones_used() {
     let advertised = discovery(Some(json!({
         "authorization_endpoint": "https://auth.example/o/authorize",
         "token_endpoint": "https://auth.example/o/token",
@@ -49,15 +49,19 @@ fn endpoints_are_the_advertised_ones_or_the_default_paths_of_a_server_that_adver
     assert_eq!(advertised.token_endpoint().unwrap().as_str(), "https://auth.example/o/token");
     assert_eq!(advertised.registration_endpoint().unwrap().as_str(), "https://auth.example/o/register");
     assert_eq!(advertised.revocation_endpoint().as_deref(), Some("https://auth.example/o/revoke"));
+}
 
-    // No metadata at all: the legacy paths at the server's root.
+#[test]
+fn a_server_that_advertises_nothing_gets_the_default_paths_at_its_root() {
     let bare = discovery(None);
     assert_eq!(bare.authorization_endpoint().unwrap().as_str(), "https://auth.example/authorize");
     assert_eq!(bare.token_endpoint().unwrap().as_str(), "https://auth.example/token");
     assert_eq!(bare.registration_endpoint().unwrap().as_str(), "https://auth.example/register");
     assert_eq!(bare.revocation_endpoint(), None);
+}
 
-    // Metadata that leaves an endpoint out does not get a guessed one.
+#[test]
+fn metadata_that_leaves_an_endpoint_out_gets_no_guessed_one() {
     let partial = discovery(Some(json!({"token_endpoint": "https://auth.example/t"})));
     assert_eq!((partial.authorization_endpoint(), partial.registration_endpoint()), (None, None));
 }

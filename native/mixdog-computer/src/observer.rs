@@ -1,8 +1,3 @@
-//! Who is using the mouse and keyboard. A platform source records every input
-//! event as this process's own or someone else's; the ledger counts the
-//! foreign ones, and an action refuses to continue once input that could
-//! reach it moves that count.
-
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -24,10 +19,6 @@ pub const HOOKS_UNAVAILABLE: &str = "hooks_unavailable";
 pub const INPUT_GAP: &str = "input_gap";
 pub const MONITOR_UNRESPONSIVE: &str = "monitor_unresponsive";
 
-/// MixInputLedger (InputObservation.cs): counts foreign input, remembers whom
-/// each foreign event could reach, and latches a gap when the system's
-/// last-input clock moved without an accounted event. Ticks are that clock's
-/// values; they are only ever compared for equality.
 #[derive(Default)]
 pub struct InputLedger {
     foreign_sequence: i64,
@@ -81,10 +72,6 @@ impl InputLedger {
         self.reset_quiet();
     }
 
-    /// LastRelevant: the last foreign sequence that could reach an action on
-    /// `process`. Process 0 is an unknown target, which every foreign event
-    /// reaches; an action driving the one shared pointer is reached by any
-    /// pointer event.
     pub fn last_relevant(&self, process: u32, pointer: bool) -> i64 {
         if process == 0 {
             return self.foreign_sequence;
@@ -407,10 +394,6 @@ impl Scope {
         self.begin_expected_for(shared, generation, sequence, 0, false)
     }
 
-    /// BeginRestore: putting the person's window back after `process` took
-    /// the foreground. Pointer input counts from the observation on: a click
-    /// anywhere since may be the person choosing a window. Keys count when
-    /// they reached `process`.
     #[cfg_attr(not(windows), allow(dead_code))]
     pub fn begin_restore(&mut self, shared: &Shared, generation: &str, sequence: i64, process: u32) -> Result<(), String> {
         self.begin_observed(shared, generation, sequence, process, true, true)

@@ -1,8 +1,3 @@
-//! The model-metadata lookup of Node's `model-catalog.mjs`, ported layer by
-//! layer: LiteLLM and models.dev overlays, the providers' live rosters,
-//! verified corrections, offline seeds and the vendor-row guess. Pure over
-//! resident tables; the sources fill the tables when the catalog refreshes.
-
 #[cfg(test)]
 mod layers_tests;
 mod projection;

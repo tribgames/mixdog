@@ -1,8 +1,6 @@
 //! What the spawn and send flows borrow from the rest of the runtime beyond a worker's turn
 //! (see [`super::seams`]): the config and agent definitions, the session surface that creates a
-//! worker, the worker row and the session manager's queues. WP-SESSION implements these. Each
-//! method is one Node collaborator of `createSpawnPreparer`, `createDeferredSpawn` or
-//! `createSendFlow`; the decisions around them are the port.
+//! worker, the worker row and the session manager's queues.
 
 use async_trait::async_trait;
 use futures::future::BoxFuture;

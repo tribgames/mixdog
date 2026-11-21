@@ -194,55 +194,61 @@ pub(super) struct Change {
 fn annotate_changes(files: &mut [File]) -> Vec<Change> {
     let mut changes = Vec::new();
     let mut ordinal = 0;
-    for file in files.iter_mut() {
-        if !file.stageable {
-            continue;
-        }
-        if let Some(kind) = file.kind {
-            let entries = file.hunks.iter().flat_map(|h| h.entries.iter());
-            let (mut additions, mut deletions) = (0, 0);
-            for entry in entries {
-                if entry.line.starts_with('+') {
-                    additions += 1;
-                }
-                if entry.line.starts_with('-') {
-                    deletions += 1;
-                }
+    for file in files.iter_mut().filter(|file| file.stageable) {
+        match file.kind {
+            Some(kind) => {
+                ordinal += 1;
+                changes.push(whole_file_change(file, kind, ordinal));
             }
-            ordinal += 1;
-            changes.push(Change { id: format!("c{ordinal}"), path: file.path.clone(), kind: Some(kind), additions, deletions });
-            continue;
-        }
-        for hunk in &mut file.hunks {
-            let mut group: Option<(Vec<usize>, usize, usize)> = None;
-            let mut finish = |group: &mut Option<(Vec<usize>, usize, usize)>, entries: &mut Vec<Entry>| {
-                if let Some((indexes, additions, deletions)) = group.take() {
-                    ordinal += 1;
-                    let id = format!("c{ordinal}");
-                    for i in indexes {
-                        entries[i].change_id = Some(id.clone());
-                    }
-                    changes.push(Change { id, path: file.path.clone(), kind: None, additions, deletions });
-                }
-            };
-            for i in 0..hunk.entries.len() {
-                let prefix = hunk.entries[i].line.chars().next();
-                if matches!(prefix, Some('+' | '-')) {
-                    let g = group.get_or_insert((Vec::new(), 0, 0));
-                    g.0.push(i);
-                    if prefix == Some('+') {
-                        g.1 += 1;
-                    } else {
-                        g.2 += 1;
-                    }
-                    continue;
-                }
-                finish(&mut group, &mut hunk.entries);
-            }
-            finish(&mut group, &mut hunk.entries);
+            None => number_runs(file, &mut ordinal, &mut changes),
         }
     }
     changes
+}
+
+fn whole_file_change(file: &File, kind: &'static str, ordinal: usize) -> Change {
+    let (mut additions, mut deletions) = (0, 0);
+    for entry in file.hunks.iter().flat_map(|h| h.entries.iter()) {
+        if entry.line.starts_with('+') {
+            additions += 1;
+        }
+        if entry.line.starts_with('-') {
+            deletions += 1;
+        }
+    }
+    Change { id: format!("c{ordinal}"), path: file.path.clone(), kind: Some(kind), additions, deletions }
+}
+
+/// Each run of `+`/`-` lines in a hunk is one change, and its entries carry its id.
+fn number_runs(file: &mut File, ordinal: &mut usize, changes: &mut Vec<Change>) {
+    for hunk in &mut file.hunks {
+        let mut group: Option<(Vec<usize>, usize, usize)> = None;
+        let mut finish = |group: &mut Option<(Vec<usize>, usize, usize)>, entries: &mut Vec<Entry>| {
+            if let Some((indexes, additions, deletions)) = group.take() {
+                *ordinal += 1;
+                let id = format!("c{ordinal}");
+                for i in indexes {
+                    entries[i].change_id = Some(id.clone());
+                }
+                changes.push(Change { id, path: file.path.clone(), kind: None, additions, deletions });
+            }
+        };
+        for i in 0..hunk.entries.len() {
+            let prefix = hunk.entries[i].line.chars().next();
+            if matches!(prefix, Some('+' | '-')) {
+                let g = group.get_or_insert((Vec::new(), 0, 0));
+                g.0.push(i);
+                if prefix == Some('+') {
+                    g.1 += 1;
+                } else {
+                    g.2 += 1;
+                }
+                continue;
+            }
+            finish(&mut group, &mut hunk.entries);
+        }
+        finish(&mut group, &mut hunk.entries);
+    }
 }
 
 fn parse_stageable_diff(raw: &str) -> (Vec<File>, Vec<Change>) {
@@ -304,6 +310,36 @@ pub(super) struct SelectedPatch {
     pub missing: Vec<String>,
 }
 
+/// The hunks of `file` that hold a wanted change, rewritten so an unwanted `-` line stays as
+/// context, an unwanted `+` line is dropped and the new-side starts follow what was kept.
+fn selected_hunks(file: &File, wanted: &HashSet<&str>) -> Vec<String> {
+    let mut hunks: Vec<String> = Vec::new();
+    let mut selected_delta: i64 = 0;
+    for hunk in &file.hunks {
+        let has_selected = hunk.entries.iter().any(|e| e.change_id.as_deref().is_some_and(|id| wanted.contains(id)));
+        if !has_selected {
+            continue;
+        }
+        let mut body: Vec<String> = Vec::new();
+        for entry in &hunk.entries {
+            match entry.change_id.as_deref() {
+                None => body.push(entry.line.clone()),
+                Some(id) if wanted.contains(id) => body.push(entry.line.clone()),
+                Some(_) if entry.line.starts_with('-') => body.push(format!(" {}", &entry.line[1..])),
+                Some(_) => {}
+            }
+        }
+        let old_count = body.iter().filter(|l| l.starts_with(' ') || l.starts_with('-')).count();
+        let new_count = body.iter().filter(|l| l.starts_with(' ') || l.starts_with('+')).count();
+        let old_start = hunk.old_start;
+        let new_start = hunk.old_start + selected_delta + i64::from(old_count == 0) - i64::from(new_count == 0);
+        hunks.push(format!("@@ -{} +{} @@{}", range(old_start, old_count), range(new_start, new_count), hunk.tail));
+        hunks.extend(body);
+        selected_delta += new_count as i64 - old_count as i64;
+    }
+    hunks
+}
+
 pub(super) fn build_selected_stage_patch(raw: &str, requested_ids: &[String]) -> SelectedPatch {
     let (files, changes) = parse_stageable_diff(raw);
     let mut requested: Vec<String> = Vec::new();
@@ -334,30 +370,7 @@ pub(super) fn build_selected_stage_patch(raw: &str, requested_ids: &[String]) ->
             selected.extend(file_selected.iter().map(|c| c.id.clone()));
             continue;
         }
-        let mut hunks: Vec<String> = Vec::new();
-        let mut selected_delta: i64 = 0;
-        for hunk in &file.hunks {
-            let has_selected = hunk.entries.iter().any(|e| e.change_id.as_deref().is_some_and(|id| wanted.contains(id)));
-            if !has_selected {
-                continue;
-            }
-            let mut body: Vec<String> = Vec::new();
-            for entry in &hunk.entries {
-                match entry.change_id.as_deref() {
-                    None => body.push(entry.line.clone()),
-                    Some(id) if wanted.contains(id) => body.push(entry.line.clone()),
-                    Some(_) if entry.line.starts_with('-') => body.push(format!(" {}", &entry.line[1..])),
-                    Some(_) => {}
-                }
-            }
-            let old_count = body.iter().filter(|l| l.starts_with(' ') || l.starts_with('-')).count();
-            let new_count = body.iter().filter(|l| l.starts_with(' ') || l.starts_with('+')).count();
-            let old_start = hunk.old_start;
-            let new_start = hunk.old_start + selected_delta + i64::from(old_count == 0) - i64::from(new_count == 0);
-            hunks.push(format!("@@ -{} +{} @@{}", range(old_start, old_count), range(new_start, new_count), hunk.tail));
-            hunks.extend(body);
-            selected_delta += new_count as i64 - old_count as i64;
-        }
+        let hunks = selected_hunks(file, &wanted);
         if hunks.is_empty() {
             continue;
         }

@@ -246,6 +246,16 @@ impl Rewriter for CustomRewriter {
         if !session.is_empty() {
             own.insert("prompt_cache_key".to_owned(), Value::String(session.clone()));
         }
+        self.layer_body(&mut wire, request, own, reasoning)?;
+        self.layer_headers(&mut wire, model, &session);
+        Ok(wire)
+    }
+}
+
+impl CustomRewriter {
+    fn layer_body(&self, wire: &mut WireRequest, request: &ModelRequest, own: Map<String, Value>, reasoning: Option<Value>) -> Result<(), ProviderError> {
+        let model = request.model.as_str();
+        let reasoned = self.wire == Protocol::OpenaiResponses;
         let model_extras = self.config.model_body.get(model).and_then(Value::as_object);
         if !own.is_empty() || !self.config.request_body.is_empty() || model_extras.is_some() || reasoned {
             let mut body: Value = serde_json::from_slice(&wire.body).map_err(|_| invalid("request body is not JSON".to_owned()))?;
@@ -278,6 +288,10 @@ impl Rewriter for CustomRewriter {
             }
             wire.body = serde_json::to_vec(&body).map_err(|_| invalid("request body is not JSON".to_owned()))?;
         }
+        Ok(())
+    }
+
+    fn layer_headers(&self, wire: &mut WireRequest, model: &str, session: &str) {
         // The Messages request's own `anthropic-beta` is a per-request header, over the provider's default headers and
         // the model's (`requestHeadersFor`, `customRequestHeaders`): a configured one goes out only when it names none.
         let own_betas = self.wire == Protocol::Anthropic && wire.headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"));
@@ -288,8 +302,8 @@ impl Rewriter for CustomRewriter {
         };
         // `customSessionHeaders`: the same identity as headers, under the provider's and the model's own.
         if !session.is_empty() {
-            set("session-id", &session);
-            set("x-client-request-id", &session);
+            set("session-id", session);
+            set("x-client-request-id", session);
         }
         for (name, value) in self.config.headers.iter().filter(|(name, _)| configured(name)) {
             set(name, value);
@@ -301,7 +315,6 @@ impl Rewriter for CustomRewriter {
                 }
             }
         }
-        Ok(wire)
     }
 }
 

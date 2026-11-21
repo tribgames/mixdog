@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use super::calls::{CallRunner, Request, Run, Settled};
 use super::config::room_message_budget;
-use super::exchange::{Answer, CapLimit, DecideInput, Decision, ExchangeHost, ExchangeParams, Outcome, Turn, TurnResult, run_room_exchange};
+use super::exchange::{Answer, CapLimit, DecideInput, Decision, ExchangeHost, ExchangeParams, ExchangeResult, Outcome, Turn, TurnResult, run_room_exchange};
 use super::member_turn::{MemberHost, speak_in_room};
 use super::supervisor::{SupervisorMember, supervisor_rows};
 use super::turn_host::{MemberLabel, RoomRecord, TurnState};
@@ -356,6 +356,10 @@ async fn turns_body(
         return Err(error);
     }
     post_failures(host.as_ref(), state).await?;
+    post_outcome(host.as_ref(), state, &result).await
+}
+
+async fn post_outcome(host: &dyn RoomExchangeHost, state: &Arc<TurnState>, result: &ExchangeResult) -> Result<(), String> {
     match result.outcome {
         Outcome::Limited => {
             // No supervisor step ran after the turn that met the limit, so the member still in

@@ -1,5 +1,4 @@
-//! Owner: s4-engine-reply
-//! What the session downloaded, as the agent reads it (the text part of `downloads.ts`): the `downloads` listing, the lines a page
+//! What the session downloaded, as the agent reads it: the `downloads` listing, the lines a page
 //! report adds for downloads the caller has not heard about, and the wording of the attach and wait refusals. The ledger itself
 //! (naming, size limits, the files) is the host's; the engine reads it through `host/browser/downloads`.
 
@@ -237,16 +236,28 @@ mod tests {
     }
 
     #[test]
-    fn the_listing_is_newest_first_with_the_origin_redacted() {
+    fn an_empty_listing_says_there_were_no_downloads() {
         assert_eq!(list_text(&[]), "No downloads this session.");
+    }
+
+    #[test]
+    fn the_listing_is_newest_first_with_the_origin() {
         let text = list_text(&[download(json!({})), download(json!({"id": "d0", "file": "b.pdf", "mimeType": "application/pdf"}))]);
         assert_eq!(
             text,
             "Downloads this session (newest first):\n- [d1] a.csv — completed, 2 KB, text/csv → C:/tmp/a.csv\n  from https://a.test/f?x=1\n\
              - [d0] b.pdf — completed, 2 KB, application/pdf → C:/tmp/a.csv\n  from https://a.test/f?x=1"
         );
+    }
+
+    #[test]
+    fn the_listing_redacts_secrets_in_the_origin() {
         let secret = list_text(&[download(json!({"url": "https://a.test/f?token=abc123"}))]);
         assert!(!secret.contains("abc123"), "{secret}");
+    }
+
+    #[test]
+    fn the_attach_note_names_the_download_and_its_file() {
         assert_eq!(attached_note(&download(json!({}))), "\n\nAttached download d1 as a.csv.");
     }
 

@@ -1,5 +1,5 @@
-//! The page cursor of the writer and the text-family blocks (`createFlow`, `keepTogether`, `drawLines`, the prose, list,
-//! cover, callout, quote, caption, rule, stats and image blocks and `flowBlocks` of `pdf-writer.mjs`).
+//! The page cursor of the writer and the text-family blocks: prose, list, cover, callout, quote, caption, rule, stats and
+//! image.
 //!
 //! A unit that does not fit moves whole to the next page unless it already sits at the top, where it flows on the
 //! per-line guard instead. A heading travels with the first unit of what it opens; a paragraph that meets the foot of a
@@ -657,6 +657,38 @@ mod tests {
         assert_eq!(space_before(&json!({ "type": "paragraph", "before": 9 }), "paragraph"), 9.0);
         assert_eq!(space_before(&json!({ "type": "paragraph" }), "paragraph"), 0.0);
     }
+
+    fn flow_near_the_foot() -> Flow {
+        use mixdog_pdf::Ref;
+        use mixdog_pdf::embed::{Font, StandardFontName};
+        let face = |key: &str, name, number| Face { font: Font::standard(name), key: key.to_owned(), reference: Ref::new(number, 0) };
+        let (font, bold) = (face("F1", StandardFontName::Helvetica, 1), face("F2", StandardFontName::HelveticaBold, 2));
+        let mut flow = Flow::new(PdfDocument::create(), [595.0, 842.0], 54.0, font, bold, None, None).unwrap();
+        flow.y = flow.margin + 60.0;
+        flow
+    }
+
+    fn flowed(blocks: &[Value]) -> Flow {
+        let mut flow = flow_near_the_foot();
+        flow_blocks(&mut flow, &mixdog_fsio::Unlaned, &SvgFonts::none(), blocks, ".").unwrap();
+        flow
+    }
+
+    #[test]
+    fn a_heading_at_the_foot_moves_to_the_next_page_with_the_table_it_opens() {
+        let table = json!({ "type": "table", "headers": ["A", "B"], "rows": [["1", "2"], ["3", "4"]] });
+        let flow = flowed(&[json!({ "type": "heading", "text": "H" }), table]);
+        assert_eq!(flow.pages.len(), 2);
+        assert!(flow.pages[0].content.is_empty());
+        assert!(flow.pages[1].content.contains("<48> Tj"));
+    }
+
+    #[test]
+    fn a_heading_that_opens_nothing_stays_where_it_is() {
+        let flow = flowed(&[json!({ "type": "heading", "text": "H" })]);
+        assert_eq!(flow.pages.len(), 1);
+        assert!(flow.pages[0].content.contains("<48> Tj"));
+    }
 }
 
 // pictures
@@ -697,10 +729,35 @@ fn draw_image_block<P: ReadProof>(flow: &mut Flow, pictures: &Pictures<'_, P>, i
     flow.y -= unit.height + num_nn(block.get("after"), 12.0);
     Ok(())
 }
+
+/// What a heading keeps beside itself: the form it introduces, or the first unit of the list, table or paragraph it
+/// opens, or the chart or picture with its caption, each of which keeps together itself. Zero when it opens none.
+fn heading_companion_height<P: ReadProof>(flow: &mut Flow, pictures: &Pictures<'_, P>, blocks: &[Value], index: usize) -> WriterResult<f64> {
+    let empty = Value::Object(Map::new());
+    let next = blocks.get(index + 1).unwrap_or(&empty);
+    let after_next = blocks.get(index + 2);
+    let mut companion = fields::field_block_height(next);
+    if !present(companion) {
+        companion = list_lead_height(flow, next)?;
+    }
+    if !present(companion) {
+        companion = tables::table_lead_height(flow, next)?;
+    }
+    if !present(companion) {
+        companion = paragraph_lead_height(flow, next)?;
+    }
+    if !present(companion) {
+        companion = charts::chart_unit_height(flow, next, after_next)?;
+    }
+    if !present(companion) && block_type(next) == "image" {
+        companion = image_unit(flow, pictures, index + 1, next, after_next)?.needed;
+    }
+    Ok(companion)
+}
+
 /// `flowBlocks(flow, blocks, baseDir)`: every block onto the pages in order.
 pub fn flow_blocks<P: ReadProof>(flow: &mut Flow, proof: &P, svg_fonts: &SvgFonts, blocks: &[Value], base_dir: &str) -> WriterResult<()> {
     let pictures = Pictures { proof, fonts: svg_fonts, base_dir };
-    let empty = Value::Object(Map::new());
     for (index, block) in blocks.iter().enumerate() {
         let kind = block_type(block);
         if kind == "pagebreak" {
@@ -711,31 +768,7 @@ pub fn flow_blocks<P: ReadProof>(flow: &mut Flow, proof: &P, svg_fonts: &SvgFont
         if present(before) && !flow.at_top() {
             flow.y -= before;
         }
-        // A heading that introduces a form travels with it: the boxes it names must not start on the next page while the
-        // words stay behind on this one. The reservation is what the heading itself will consume, plus the form, or the
-        // first unit of the list, table or paragraph it opens, or the picture it introduces with that picture's caption,
-        // each of which keeps together itself.
-        let next = blocks.get(index + 1).unwrap_or(&empty);
-        let after_next = blocks.get(index + 2);
-        let mut companion = 0.0;
-        if kind == "heading" {
-            companion = fields::field_block_height(next);
-            if !present(companion) {
-                companion = list_lead_height(flow, next)?;
-            }
-            if !present(companion) {
-                companion = tables::table_lead_height(flow, next)?;
-            }
-            if !present(companion) {
-                companion = paragraph_lead_height(flow, next)?;
-            }
-            if !present(companion) {
-                companion = charts::chart_unit_height(flow, next, after_next)?;
-            }
-            if !present(companion) && block_type(next) == "image" {
-                companion = image_unit(flow, &pictures, index + 1, next, after_next)?.needed;
-            }
-        }
+        let companion = if kind == "heading" { heading_companion_height(flow, &pictures, blocks, index)? } else { 0.0 };
         if present(companion) {
             let size = num_or(block.get("size"), heading_size(block));
             let line_height = num_or(block.get("lineHeight"), size * 1.2);

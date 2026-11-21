@@ -1,6 +1,4 @@
-//! The provider setup picker (`provider-setup-picker.mjs`) and the per-provider action panels (`provider-setup/api-key-actions.mjs`,
-//! `oauth-actions.mjs`): the main list, the API-key actions (add, replace, delete, open the key console, the Vertex AI key
-//! type), the OAuth actions (login, forget) and the sign-in they start, with its progress and result panels.
+//! The provider setup picker and its per-provider action panels: the main list, the API-key actions (add, replace, delete, open the key console, the Vertex AI key type), the OAuth actions (login, forget) and the sign-in they start, with its progress and result panels.
 //!
 //! One [`ProviderSetup`] is one open of the picker: it owns the surface claim shared by the nested panels, so a daemon
 //! acknowledgement landing after Esc can neither paint nor navigate (every paint re-validates the claim).

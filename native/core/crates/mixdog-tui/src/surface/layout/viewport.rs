@@ -1,6 +1,4 @@
-//! `shell-layout/viewport.mjs`: carves the transcript viewport out of what the bottom cluster leaves (guard rows,
-//! in-viewport hint bands, the one-commit panel-close mask, the content height) and mirrors the result into the refs the mouse
-//! and scroll handlers read.
+//! Carves the transcript viewport out of what the bottom cluster leaves (guard rows, in-viewport hint bands, the one-commit panel-close mask, the content height) and mirrors the result into the refs the mouse and scroll handlers read.
 
 use super::budgets::Budgets;
 use super::surfaces::{LiveHints, Surfaces};
@@ -64,18 +62,8 @@ pub(super) fn carve_viewport(
     // unless at least one content row remains beside it.
     let welcome_prompt_hint_rows = usize::from(welcome_prompt_hint_visible && viewport_height - transcript_guard_rows >= 2);
     refs.welcome_prompt_hint_visible = welcome_prompt_hint_rows > 0;
-    // A transient hint or error on the empty transcript: the guard row sits directly above the prompt box, so painting the
-    // hint there hugs the textbox one row below where the live spinner line renders. One in-viewport row above the guard row
-    // is carved instead so the hint's baseline matches the spinner row (the guard row stays blank as the spacer). The reserve
-    // is untouched, so the prompt box and statusline never move. Non-empty transcripts keep the attach-to-last-item and
-    // guard-row placements.
     let overlay_hint_band_rows =
         usize::from(budgets.overlay_hint_requested && input.state.item_count == 0 && viewport_height - transcript_guard_rows - welcome_prompt_hint_rows >= 2);
-    // Instant panel close (slash palette): the reclaimed rows stay blank for exactly one commit. The mask is part of this
-    // frame's row accounting: subtracted from the content height and rendered as a sibling band below the content clip
-    // (where the closed panel's ink was). Rendering it inside the scrolled transcript column made the painted column taller
-    // than the accounted viewport for one frame, so the prompt and statusline dropped a row and snapped back on the
-    // mask-clear commit.
     let panel_close_mask_rows = transition
         .panel_close_ink_mask_rows
         .min((viewport_height - transcript_guard_rows).saturating_sub(welcome_prompt_hint_rows + overlay_hint_band_rows + 1));

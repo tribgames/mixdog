@@ -33,18 +33,7 @@ where
     if columns == 0 || available.is_nan() || available <= 0.0 {
         return None;
     }
-    let mut longest = vec![0.0_f64; columns];
-    let mut widest_word = vec![0.0_f64; columns];
-    for (row_index, row) in rows.iter().enumerate() {
-        for (column, value) in row.as_ref().iter().enumerate() {
-            for line in cell_lines(value.as_ref()) {
-                longest[column] = math::max(longest[column], measure(line, row_index, column));
-                for word in js_words(line) {
-                    widest_word[column] = math::max(widest_word[column], measure(word, row_index, column));
-                }
-            }
-        }
-    }
+    let (longest, widest_word) = column_extents(rows, &mut measure, columns);
     let share = available / columns as f64;
     if longest.iter().all(|width| *width <= share) {
         return Some(vec![share; columns]);
@@ -57,9 +46,37 @@ where
     if words_total >= available {
         return Some(widest_word.iter().map(|width| (width * available) / words_total).collect());
     }
-    let mut widths = widest_word.clone();
+    Some(share_beyond_words(&longest, &widest_word, available - words_total))
+}
+
+/// The longest line and the longest word of each column.
+fn column_extents<R, S>(rows: &[R], measure: &mut impl FnMut(&str, usize, usize) -> f64, columns: usize) -> (Vec<f64>, Vec<f64>)
+where
+    R: AsRef<[S]>,
+    S: AsRef<str>,
+{
+    let mut longest = vec![0.0_f64; columns];
+    let mut widest_word = vec![0.0_f64; columns];
+    for (row_index, row) in rows.iter().enumerate() {
+        for (column, value) in row.as_ref().iter().enumerate() {
+            for line in cell_lines(value.as_ref()) {
+                longest[column] = math::max(longest[column], measure(line, row_index, column));
+                for word in js_words(line) {
+                    widest_word[column] = math::max(widest_word[column], measure(word, row_index, column));
+                }
+            }
+        }
+    }
+    (longest, widest_word)
+}
+
+/// Every column keeps its longest word; `room` is what is left: a column whose whole line costs no more than an even
+/// share of it takes it (cheapest first), and the rest goes where the text is longest.
+fn share_beyond_words(longest: &[f64], widest_word: &[f64], room: f64) -> Vec<f64> {
+    let columns = longest.len();
+    let mut room = room;
+    let mut widths = widest_word.to_vec();
     let mut open: Vec<usize> = (0..columns).collect();
-    let mut room = available - words_total;
     let need = |column: usize| longest[column] - widest_word[column];
     let mut by_need = open.clone();
     js_sort_by(&mut by_need, |a, b| need(*a) - need(*b));
@@ -75,7 +92,7 @@ where
     for column in open.iter().copied() {
         widths[column] += if flexible > 0.0 { (room * need(column)) / flexible } else { room / open.len() as f64 };
     }
-    Some(widths)
+    widths
 }
 
 #[cfg(test)]

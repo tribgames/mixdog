@@ -64,11 +64,7 @@ fn is_blocking(issue: &Value) -> bool {
     matches!(js_to_lowercase(&text_or(field(issue, "severity"), "")).as_str(), "error" | "warning")
 }
 
-/// `scoreOfficeReleaseQuality(input)`: `input` is the options object (`format`, `aesthetics`, `issues`,
-/// `renderedPages`, `expectedPages`, `structuralAvailable`, `planCoverage`; an absent one takes Node's default).
-/// The score weighs the rendered aesthetics at 0.72 and the structural findings at 0.28; the diagnostics are kept for
-/// comparison and never presented as an aesthetic verdict, so a presentation or a paginated document also carries
-/// its acceptance verdict, which needs the independently checked review.
+/// `input`: `format`, `aesthetics`, `issues`, `renderedPages`, `expectedPages`, `structuralAvailable`, `planCoverage`.
 pub fn score_office_release_quality(input: &Value) -> Value {
     let format = js_to_lowercase(&text_or(field(input, "format"), ""));
     let aesthetics = field(input, "aesthetics").filter(|value| is_truthy(Some(*value)));

@@ -563,6 +563,37 @@ pub struct ResolveRequest<'a> {
     pub config: Option<&'a Value>,
 }
 
+/// The binding of the document, else of the file it was made from.
+fn inherited_binding<P: WriteProof>(cx: &Context<'_, P>, input: &ResolveRequest<'_>) -> Result<Option<Value>, String> {
+    let own = read_office_design_binding(cx.lane, cx.env, input.data_dir, input.document_path)?;
+    if own.is_none() && !input.source_path.is_empty() {
+        return read_office_design_binding(cx.lane, cx.env, input.data_dir, input.source_path);
+    }
+    Ok(own)
+}
+
+/// The cached pack a request names with `packId` and `packVersion`; `None` when it names none.
+fn requested_pack<P: WriteProof>(cx: &Context<'_, P>, paths: &LibraryPaths, config: &LibraryConfig, request: &Value) -> Result<Option<Value>, String> {
+    let (request_pack_id, request_pack_version) = (prop(request, "packId"), prop(request, "packVersion"));
+    if !request_pack_id.is_some_and(truthy) && !request_pack_version.is_some_and(truthy) {
+        return Ok(None);
+    }
+    if !request_pack_id.is_some_and(truthy) || !request_pack_version.is_some_and(truthy) {
+        return Err("Office design pack selection requires both packId and packVersion".to_owned());
+    }
+    let wanted = safe_id(request_pack_id, "requested packId")?;
+    let version = Value::String(value_to_string(request_pack_version.unwrap_or(&Value::Null)));
+    let pack = load_cached_pack(cx.lane, paths, config, Some(&Value::String(wanted)), Some(&version))?;
+    if pack.is_none() {
+        return Err(format!(
+            "Requested Office design pack is not cached: {}@{}",
+            request_pack_id.map(value_to_string).unwrap_or_default(),
+            request_pack_version.map(value_to_string).unwrap_or_default()
+        ));
+    }
+    Ok(pack)
+}
+
 /// `resolveOfficeDesignLibrary`: what a design request is composed from. A document that has a binding (and no
 /// upgrade request) keeps the pack and template it was bound to; any other is synced, given the requested or default
 /// template, and answered with the binding to persist.
@@ -577,13 +608,7 @@ pub fn resolve_office_design_library<P: WriteProof>(cx: &Context<'_, P>, input: 
     let request = input.request;
     let flag = |name: &str| prop(request, name) == Some(&Value::Bool(true));
     let explicit_upgrade = flag("upgradeLibrary");
-    let mut current_binding = None;
-    if !input.created && !explicit_upgrade {
-        current_binding = read_office_design_binding(cx.lane, cx.env, input.data_dir, input.document_path)?;
-        if current_binding.is_none() && !input.source_path.is_empty() {
-            current_binding = read_office_design_binding(cx.lane, cx.env, input.data_dir, input.source_path)?;
-        }
-    }
+    let current_binding = if input.created || explicit_upgrade { None } else { inherited_binding(cx, input)? };
     if let Some(binding) = current_binding {
         return Ok(resolve_pinned_library(cx, &paths, &config, binding, &format, recent));
     }
@@ -596,23 +621,7 @@ pub fn resolve_office_design_library<P: WriteProof>(cx: &Context<'_, P>, input: 
         input.created || explicit_upgrade,
         input.created || explicit_upgrade || requested_template.is_some(),
     )?;
-    let mut pack = synced.active_pack.clone();
-    let (request_pack_id, request_pack_version) = (prop(request, "packId"), prop(request, "packVersion"));
-    if request_pack_id.is_some_and(truthy) || request_pack_version.is_some_and(truthy) {
-        if !request_pack_id.is_some_and(truthy) || !request_pack_version.is_some_and(truthy) {
-            return Err("Office design pack selection requires both packId and packVersion".to_owned());
-        }
-        let wanted = safe_id(request_pack_id, "requested packId")?;
-        let version = Value::String(value_to_string(request_pack_version.unwrap_or(&Value::Null)));
-        pack = load_cached_pack(cx.lane, &paths, &config, Some(&Value::String(wanted)), Some(&version))?;
-        if pack.is_none() {
-            return Err(format!(
-                "Requested Office design pack is not cached: {}@{}",
-                request_pack_id.map(value_to_string).unwrap_or_default(),
-                request_pack_version.map(value_to_string).unwrap_or_default()
-            ));
-        }
-    }
+    let pack = requested_pack(cx, &paths, &config, request)?.or_else(|| synced.active_pack.clone());
     let mut all: Vec<Value> = opt_prop(pack.as_ref(), "templates").and_then(Value::as_array).cloned().unwrap_or_default();
     all.extend(prop(&synced.templates, "templates").and_then(Value::as_array).cloned().unwrap_or_default());
     let selector: Option<Value> = match requested_template {

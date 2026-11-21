@@ -1,6 +1,3 @@
-//! The structural design review QA runs over the whole document, with the per-page roles the render review needs; an unreadable
-//! document degrades to one advisory issue instead of failing QA (`core/office-qa/design-review-stage.mjs`).
-
 use mixdog_fsio::WriteProof;
 use mixdog_js::{number_to_string, to_number_of, value_to_string};
 use mixdog_office_base::values::truthy;
@@ -75,17 +72,14 @@ fn page_roles_for(format: &str, plans: &[Value], document: Option<&Value>) -> Va
 }
 
 impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
-    /// `reviewQaDesign(session, args)`.
-    pub(crate) async fn review_qa_design(&self, handle: &SessionHandle, args: &Value) -> DesignStage {
-        let profile =
-            lock(handle).design.as_ref().and_then(|design| design.get("profile")).filter(|profile| truthy(profile)).map(value_to_string).unwrap_or_default();
+    /// The structural review of the whole document, the document it read and the slide plans it was held to; an unreadable
+    /// document gives the advisory review and no snapshot.
+    async fn read_design_review(&self, handle: &SessionHandle, args: &Value, profile: &str) -> (Value, Option<Value>, Vec<Value>) {
         let mut current_snapshot: Option<Value> = None;
         let mut review_slide_plans: Vec<Value> = Vec::new();
         let design_review;
-        // The review reads the whole document: a bounded (model-facing) snapshot shrinks its page limit to fit maxChars, which left
-        // every slide past the first dozen of a long deck without a role or a design review.
         match review_snapshot(self.inspect(), handle, args).await {
-            Err(error) => design_review = unavailable_design_review(&profile, &error),
+            Err(error) => design_review = unavailable_design_review(profile, &error),
             Ok(read) => {
                 let (format, request, library) = {
                     let session = lock(handle);
@@ -108,12 +102,19 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
                 let document = read.get("document").cloned().unwrap_or(Value::Null);
                 design_review = match review_office_design(self.reads, &format, &document, Some(&request), library.as_ref(), &audit_profile) {
                     Ok(review) => review,
-                    Err(error) => unavailable_design_review(&profile, &error),
+                    Err(error) => unavailable_design_review(profile, &error),
                 };
                 current_snapshot = Some(read);
             }
         }
-        let mut design_review = design_review;
+        (design_review, current_snapshot, review_slide_plans)
+    }
+
+    /// `reviewQaDesign(session, args)`.
+    pub(crate) async fn review_qa_design(&self, handle: &SessionHandle, args: &Value) -> DesignStage {
+        let profile =
+            lock(handle).design.as_ref().and_then(|design| design.get("profile")).filter(|profile| truthy(profile)).map(value_to_string).unwrap_or_default();
+        let (mut design_review, current_snapshot, review_slide_plans) = self.read_design_review(handle, args, &profile).await;
         let (format, frame, frame_issues, brief) = {
             let session = lock(handle);
             (session.format.clone(), session.authored.frame, session.authored.frame_design_issues.clone(), session.authored.brief.clone())

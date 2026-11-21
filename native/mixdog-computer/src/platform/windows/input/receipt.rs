@@ -1,9 +1,3 @@
-//! Checked input delivery and the input ownership receipt, free of Win32
-//! (MixNativeInput, InputTransport.cs). The system call that takes events
-//! (SendInput) and the key-state probe (GetAsyncKeyState) come in as
-//! closures, and the receipt's storage and lock as values, so every rule here
-//! runs without input.
-//!
 //! The receipt is memory shared by every process using one input marker: a
 //! header {state, count}, up to 256 release records {type, vk, scan, flags}
 //! for what this host holds, and one byte per virtual key the person holds.
@@ -463,9 +457,8 @@ mod tests {
         assert!(outstanding(&[Event::mouse(0x800)]).is_empty(), "a wheel holds nothing");
     }
 
-    // input-transport.test.mjs: the tracked receipt end to end.
     #[test]
-    fn the_receipt_releases_exactly_what_this_host_holds() {
+    fn a_release_is_refused_for_a_key_the_person_now_holds() {
         let fixture = Fixture::new();
         let receipt = fixture.receipt();
         fixture.press(&[down(13), Event::key(0xA3, 0, EXTENDED), Event::mouse(MOUSEEVENTF_LEFTDOWN.0), down(0x41)]);
@@ -481,8 +474,17 @@ mod tests {
             NOTHING_HELD,
         );
         assert_eq!((sent, conflicting), (Ok(0), 0), "released a key now held by the person");
-        // Everything this host holds reads as down when observation begins,
-        // and the person holds Shift: each held input stays this host's.
+    }
+
+    // Everything this host holds reads as down when observation begins,
+    // and the person holds Shift: each held input stays this host's.
+    #[test]
+    fn a_key_this_host_holds_stays_releasable_while_the_person_holds_shift() {
+        let fixture = Fixture::new();
+        let receipt = fixture.receipt();
+        fixture.press(&[down(13), Event::key(0xA3, 0, EXTENDED), Event::mouse(MOUSEEVENTF_LEFTDOWN.0), down(0x41)]);
+        receipt.note_person(0x10, true);
+        receipt.note_person(0xA3, true);
         receipt.note_person(0x41, true);
         receipt.begin_observation(&|vk| matches!(vk, 13 | 0xA3 | 0x41 | 1 | 0x10));
         let mut released = 0;
@@ -495,6 +497,16 @@ mod tests {
             NOTHING_HELD,
         );
         assert_eq!((sent, released), (Ok(1), 1), "refused the release of a key this host holds");
+    }
+
+    #[test]
+    fn cleanup_releases_exactly_the_owned_inputs_and_latches_a_failed_release() {
+        let fixture = Fixture::new();
+        let receipt = fixture.receipt();
+        fixture.press(&[down(13), Event::key(0xA3, 0, EXTENDED), Event::mouse(MOUSEEVENTF_LEFTDOWN.0)]);
+        receipt.note_person(0x10, true);
+        receipt.note_person(0xA3, true);
+        receipt.begin_observation(&|vk| matches!(vk, 13 | 0xA3 | 1 | 0x10));
         receipt.note_person(0xA3, true);
         receipt.note_person(0xA3, false);
         let (mut attempts, mut enter, mut right_control_extended) = (0, false, false);
@@ -552,8 +564,14 @@ mod tests {
             Ok(())
         );
         assert_eq!(attempts, 3, "the reset receipt replayed a release");
-        // A button this host holds reads as down too; the person's other
-        // button stays theirs.
+    }
+
+    // A button this host holds reads as down too; the person's other
+    // button stays theirs.
+    #[test]
+    fn a_button_the_person_holds_is_never_released_by_the_host() {
+        let fixture = Fixture::new();
+        let receipt = fixture.receipt();
         fixture.press(&[Event::mouse(MOUSEEVENTF_LEFTDOWN.0)]);
         receipt.begin_observation(&|vk| vk == 1 || vk == 2);
         let mut person_button = 0;

@@ -1,8 +1,5 @@
-//! Bounded correction of route attribution and price (`usage-ledger-repair.mjs`).
-//!
-//! A repair may change only a record's route and cost. Everything else about every record is
-//! hashed before and after the writes ([`integrity`]); a difference aborts the transaction.
-//! Pricing is injected: the catalog lives outside the ledger.
+//! A repair may change only a record's route and cost; a difference in anything else, hashed before and after the
+//! writes ([`integrity`]), aborts the transaction.
 
 use std::collections::BTreeMap;
 
@@ -175,10 +172,6 @@ pub fn cost_source(kind: &str, cost: Option<f64>, subscription: bool) -> &'stati
 
 /// The rows a repair examines, with their route signatures.
 pub fn select_candidates(conn: &Connection, options: &RepairOptions) -> Result<Vec<Candidate>> {
-    // Every record: `+e.ts`, since a bound of "now" matches every row, so a scan beats one primary-key search per
-    // usage_events_time entry. Only the unpriced ones: their routes first (`CROSS JOIN`), then their records through
-    // usage_events_route_time, so only those records are read (refresh.rs `unpriced_pending`); in time order, as the scan
-    // gave them.
     let since = if options.since_ts.is_some() { "AND e.ts>?2" } else { "" };
     let sql = if options.only_unpriced {
         format!(
@@ -221,6 +214,71 @@ fn optional_text(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
+fn text_at(signature: &[Value], index: usize) -> String {
+    signature.get(index).and_then(Value::as_str).unwrap_or("").to_string()
+}
+
+/// Prices a moved or unpriced route again and rewrites its cost source and rates in signature; the new cost.
+fn reprice_signature(
+    row: &Candidate,
+    signature: &mut [Value],
+    provider: &str,
+    kind: &str,
+    model: &str,
+    old_rates: Option<&Value>,
+    price: &mut dyn FnMut(&PriceRequest) -> Result<Priced>,
+) -> Result<Option<f64>> {
+    let rate = |key: &str| old_rates.and_then(|r| r.get(key));
+    let unmeasured = rate("inputTokensKnown") == Some(&Value::Bool(false)) || is_unmeasuring_provider(&provider);
+    let priced = if kind == "local" {
+        Priced { cost_usd: Some(0.0), rates: None }
+    } else {
+        let fast_tier = rate("fast").is_some_and(|f| !matches!(f, Value::Null | Value::Bool(false)));
+        price(&PriceRequest {
+            provider: provider.to_owned(),
+            model: model.to_owned(),
+            pricing_model: old_rates.and_then(|r| optional_text(r, "pricingModel")),
+            requested_model: old_rates.and_then(|r| optional_text(r, "requestedModel")),
+            input_tokens_known: unmeasured.then_some(false),
+            uncached_input_tokens: row.input,
+            output_tokens: row.output,
+            cache_read_tokens: row.cache_read,
+            cache_write_tokens: row.cache_write,
+            // A route written before v4 still names it in its rates.
+            cache_write_1h_tokens: row.cache_write_1h.or_else(|| rate("cacheWrite1hTokens").and_then(Value::as_f64)),
+            request_service_tier: old_rates.and_then(|r| optional_text(r, "requestServiceTier")).or_else(|| fast_tier.then(|| "fast".to_string())),
+            service_tier: old_rates.and_then(|r| optional_text(r, "serviceTier")),
+            kind: kind.to_owned(),
+            ts: row.ts,
+            historical: text_at(&signature, 6) != "live",
+        })?
+    };
+    let cost = priced.cost_usd;
+    if cost.is_some_and(|c| !c.is_finite() || c < 0.0) {
+        return Err(LedgerError::RepairPrice);
+    }
+    let subscription = kind == "oauth" || kind == "quota-api";
+    signature[4] = Value::from(cost_source(&kind, cost, subscription));
+    // The count stays the record's own (`usage_event_cache_1h`), never part of the route.
+    // The dispatched speed tier and missing output evidence cannot be rederived by the pricer.
+    let sent_speed = old_rates.and_then(|r| optional_text(r, "sentSpeedTier"));
+    let output_unknown = rate("outputTokensKnown") == Some(&Value::Bool(false));
+    let mut rates = priced.rates;
+    if sent_speed.is_some() || output_unknown {
+        let parsed = rates.as_deref().and_then(|text| serde_json::from_str::<serde_json::Map<String, Value>>(text).ok());
+        if let Some(mut object) = parsed.or_else(|| output_unknown.then(serde_json::Map::new)) {
+            if let Some(tier) = sent_speed {
+                object.insert("sentSpeedTier".to_string(), Value::from(tier));
+            }
+            if output_unknown {
+                object.insert("outputTokensKnown".to_string(), Value::Bool(false));
+            }
+            rates = Some(mixdog_js::json_stringify(&Value::Object(object)));
+        }
+    }
+    signature[5] = rates.map_or(Value::Null, |rates| Value::from(crate::append::split_cache_1h(&rates).0.as_ref()));
+    Ok(cost)
+}
 /// Decides every change without writing. `price` is called only for a record that moves to
 /// another provider or is unpriced.
 pub fn plan_repair(
@@ -232,7 +290,6 @@ pub fn plan_repair(
     let mut changes = Vec::new();
     for row in rows {
         let mut signature: Vec<Value> = serde_json::from_str(&row.signature)?;
-        let text_at = |s: &[Value], i: usize| s.get(i).and_then(Value::as_str).unwrap_or("").to_string();
         let original_provider = text_at(&signature, 0);
         let provider = options.provider_overrides.get(&original_provider).cloned().unwrap_or_else(|| original_provider.clone());
         let moved = provider != original_provider;
@@ -243,59 +300,8 @@ pub fn plan_repair(
             Some(rates) => Some(serde_json::from_str(rates)?),
             None => None,
         };
-        let rate = |key: &str| old_rates.as_ref().and_then(|r| r.get(key));
         if moved || text_at(&signature, 4) == "unpriced" {
-            let unmeasured = rate("inputTokensKnown") == Some(&Value::Bool(false)) || is_unmeasuring_provider(&provider);
-            let priced = if kind == "local" {
-                Priced { cost_usd: Some(0.0), rates: None }
-            } else {
-                let fast_tier = rate("fast").is_some_and(|f| !matches!(f, Value::Null | Value::Bool(false)));
-                price(&PriceRequest {
-                    provider: provider.clone(),
-                    model: model.clone(),
-                    pricing_model: old_rates.as_ref().and_then(|r| optional_text(r, "pricingModel")),
-                    requested_model: old_rates.as_ref().and_then(|r| optional_text(r, "requestedModel")),
-                    input_tokens_known: unmeasured.then_some(false),
-                    uncached_input_tokens: row.input,
-                    output_tokens: row.output,
-                    cache_read_tokens: row.cache_read,
-                    cache_write_tokens: row.cache_write,
-                    // A route written before v4 still names it in its rates.
-                    cache_write_1h_tokens: row.cache_write_1h.or_else(|| rate("cacheWrite1hTokens").and_then(Value::as_f64)),
-                    request_service_tier: old_rates
-                        .as_ref()
-                        .and_then(|r| optional_text(r, "requestServiceTier"))
-                        .or_else(|| fast_tier.then(|| "fast".to_string())),
-                    service_tier: old_rates.as_ref().and_then(|r| optional_text(r, "serviceTier")),
-                    kind: kind.clone(),
-                    ts: row.ts,
-                    historical: text_at(&signature, 6) != "live",
-                })?
-            };
-            cost = priced.cost_usd;
-            if cost.is_some_and(|c| !c.is_finite() || c < 0.0) {
-                return Err(LedgerError::RepairPrice);
-            }
-            let subscription = kind == "oauth" || kind == "quota-api";
-            signature[4] = Value::from(cost_source(&kind, cost, subscription));
-            // The count stays the record's own (`usage_event_cache_1h`), never part of the route.
-            // The dispatched speed tier and missing output evidence cannot be rederived by the pricer.
-            let sent_speed = old_rates.as_ref().and_then(|r| optional_text(r, "sentSpeedTier"));
-            let output_unknown = rate("outputTokensKnown") == Some(&Value::Bool(false));
-            let mut rates = priced.rates;
-            if sent_speed.is_some() || output_unknown {
-                let parsed = rates.as_deref().and_then(|text| serde_json::from_str::<serde_json::Map<String, Value>>(text).ok());
-                if let Some(mut object) = parsed.or_else(|| output_unknown.then(serde_json::Map::new)) {
-                    if let Some(tier) = sent_speed {
-                        object.insert("sentSpeedTier".to_string(), Value::from(tier));
-                    }
-                    if output_unknown {
-                        object.insert("outputTokensKnown".to_string(), Value::Bool(false));
-                    }
-                    rates = Some(mixdog_js::json_stringify(&Value::Object(object)));
-                }
-            }
-            signature[5] = rates.map_or(Value::Null, |rates| Value::from(crate::append::split_cache_1h(&rates).0.as_ref()));
+            cost = reprice_signature(&row, &mut signature, &provider, &kind, &model, old_rates.as_ref(), price)?;
             if row.cost_usd.is_none() && cost.is_some() {
                 report.repriced += 1;
             }

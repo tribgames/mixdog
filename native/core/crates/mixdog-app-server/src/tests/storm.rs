@@ -1,12 +1,3 @@
-//! RL G5 against the mock core: 50 clients on 10 threads drop at once and reconnect with
-//! mixed resume positions while an abort is issued mid-storm.
-//!
-//! What the server owes the storm is checked here: one `open` per resume, one attach and one
-//! response per client, replay and snapshot chosen by the resume position, no snapshot encode
-//! for a client that replays, every subscription live in time, and a prompt abort reply.
-//! The bounds that need the real core (snapshot cache and cold-load single-flight counts,
-//! p95 latencies, poll times, RSS) are measured by WP-BENCH.
-
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -67,14 +58,6 @@ fn window() -> Value {
     json!({ "lastItems": 10 })
 }
 
-/// How a client of `class` resumes, and what the core must answer (`thread/resume` of a thread
-/// whose feed is at `HEAD`):
-///
-/// 0. exactly current: replays nothing;
-/// 1. stale, inside the ring: replays what it missed;
-/// 2. older, still inside the ring: replays more;
-/// 3. a position of another epoch: snapshot;
-/// 4. a position ahead of the feed: snapshot.
 struct Resume {
     from: Value,
     mode: &'static str,
@@ -118,9 +101,7 @@ async fn reconnect(rig: Arc<Rig>, n: u64, thread: usize, class: usize, connected
     client
 }
 
-#[tokio::test(start_paused = true)]
-async fn g5_reconnect_storm_replays_by_position_loads_once_and_keeps_its_bounds() {
-    let rig = Arc::new(Rig::new());
+fn seed_threads(rig: &Rig) -> (Vec<Arc<MockThread>>, Vec<Arc<AtomicUsize>>) {
     let mut threads: Vec<Arc<MockThread>> = Vec::new();
     let mut encodes: Vec<Arc<AtomicUsize>> = Vec::new();
     for n in 0..THREADS {
@@ -144,6 +125,13 @@ async fn g5_reconnect_storm_replays_by_position_loads_once_and_keeps_its_bounds(
         encodes.push(counter);
     }
     threads[0].set_active_turn(Some(TurnId::from("turn1")));
+    (threads, encodes)
+}
+
+#[tokio::test(start_paused = true)]
+async fn g5_reconnect_storm_replays_by_position_loads_once_and_keeps_its_bounds() {
+    let rig = Arc::new(Rig::new());
+    let (threads, encodes) = seed_threads(&rig);
 
     // First connection: 50 clients, five per thread, no position: each gets a snapshot.
     let mut first = Vec::new();

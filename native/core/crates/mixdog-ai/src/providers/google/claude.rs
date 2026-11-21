@@ -1,8 +1,3 @@
-//! Claude on Vertex AI (`_sendClaude`, vertex-ai.mjs:449-552): the Anthropic Messages request of the API-key route for
-//! the provider `vertex-ai` (no beta headers, fast mode or server-side fallback), without its `model`, with Vertex's
-//! `anthropic_version` and the betas Vertex takes in the body, sent to `publishers/anthropic/models/M:streamRawPredict`
-//! with the Vertex bearer; the answer is Anthropic's SSE stream, billed as the requested publisher model.
-
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;

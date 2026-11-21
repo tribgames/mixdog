@@ -1,9 +1,3 @@
-//! DRAFT (harness only): the production `HeldHome` (Node `session-runtime/held-requests.mjs` `unattendedRunOf` / `defaultDeliver` /
-//! `defaultAgentName` / the gate's "no approval UI attached" test, and `held-request-host.mjs` `notifyHeldRequest`).
-//!
-//! The setup tool reads this home before the session directory exists, and the delivery it posts through (`AgentHomeDelivery`) is built over the
-//! directory: a true cycle, so the delivery is a late cell (`bind_delivery`, a `Bound` for `verify_bound`). The run registry is the one the path takes
-//! (run-host-29).
 use std::sync::Arc;
 use std::sync::OnceLock;
 

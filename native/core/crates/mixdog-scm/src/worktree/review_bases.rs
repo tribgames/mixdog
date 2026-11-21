@@ -1,8 +1,3 @@
-//! Where a review starts: the tree of the work tree captured at the start of a turn or session,
-//! kept per thread (and checkpoint). The thread layer records a base when a turn begins (and
-//! re-records the durable ones after a restart); `review/diff/get` and the pushed review read
-//! it back through [`ReviewBases`].
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;

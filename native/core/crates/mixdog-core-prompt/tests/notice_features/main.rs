@@ -106,6 +106,39 @@ fn a_response_language_change_names_the_new_language_or_says_it_is_gone() {
 }
 
 #[test]
+fn workflow_core_memory_and_orchestration_changes_are_each_told_in_their_own_section() {
+    let was = OwnedSections {
+        workflow: "w1".into(),
+        workflow_name: Some("pack".into()),
+        core_memory: "remember x".into(),
+        orchestration: "plan first".into(),
+        orchestration_mode: "focused".into(),
+        ..base()
+    };
+    let told = |now: &OwnedSections| {
+        let mut session = session_presenting(&was);
+        let changed = stage(&mut session, now);
+        (changed, snapshot_pending(&session).unwrap().1)
+    };
+
+    let (changed, content) = told(&OwnedSections { workflow: "w2".into(), ..was.clone() });
+    assert_eq!(changed, ["workflow"]);
+    assert_eq!(content, notice_of("# Workflow\nThe \"pack\" workflow pack changed; it applies from the next prompt rebuild."));
+
+    let (changed, content) = told(&OwnedSections { core_memory: String::new(), ..was.clone() });
+    assert_eq!(changed, ["coreMemory"]);
+    assert_eq!(content, notice_of("# Core Memory\nNo core memory is currently supplied."));
+
+    let (changed, content) = told(&OwnedSections { core_memory: "remember y".into(), ..was.clone() });
+    assert_eq!(changed, ["coreMemory"]);
+    assert!(content.starts_with(&format!("{OPEN}\n\n# Core Memory\nCore memory was updated:\n")), "{content}");
+
+    let (changed, content) = told(&OwnedSections { orchestration: "plan twice".into(), ..was.clone() });
+    assert_eq!(changed, ["orchestration"]);
+    assert!(content.contains("# Orchestration Mode\nThe Focused orchestration mode instructions were edited:\n"), "{content}");
+}
+
+#[test]
 fn a_new_output_style_is_named_and_a_removed_one_is_withdrawn() {
     let styled = OwnedSections { meta: "# Output Style: terse\nShort answers only.".into(), ..base() };
     let mut session = session_presenting(&base());

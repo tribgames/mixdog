@@ -206,7 +206,11 @@ impl<C: IceClock> RemoteIceServers<C> {
             return self.degraded(&state);
         }
         let Ok(Some(envelope)) = answer else { return self.degraded(&state) };
-        if let Some((servers, life_ms)) = read_issue(&envelope) {
+        self.adopt(&mut state, &envelope, requested_at)
+    }
+
+    fn adopt(&self, state: &mut State, envelope: &Value, requested_at: Mark) -> Vec<IceServer> {
+        if let Some((servers, life_ms)) = read_issue(envelope) {
             let refresh_after_ms = life_ms - refresh_margin(life_ms);
             if let Some(stun) = servers.iter().find(|s| s.urls.iter().all(|u| u.starts_with("stun:"))) {
                 state.stun_only = vec![IceServer { urls: stun.urls.clone(), username: None, credential: None }];
@@ -214,7 +218,7 @@ impl<C: IceClock> RemoteIceServers<C> {
             let issued = Cached { servers: servers.clone(), issued_at: requested_at, life_ms, refresh_after_ms };
             // A request can sit longer than its life: hand out only what is still servable now.
             if self.elapsed_since(issued.issued_at) >= issued.refresh_after_ms {
-                return self.degraded(&state);
+                return self.degraded(state);
             }
             state.cache = Some(issued);
             state.retry = None;
@@ -228,7 +232,7 @@ impl<C: IceClock> RemoteIceServers<C> {
         {
             state.retry = Some((self.mark(), wait as u64));
         }
-        self.degraded(&state)
+        self.degraded(state)
     }
 
     /// The machine slept or woke: no age counted before this point can be trusted.

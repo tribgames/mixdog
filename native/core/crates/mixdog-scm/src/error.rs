@@ -154,8 +154,6 @@ pub enum ScmFailure {
     /// kind and never from text.
     #[error("{capability} is not available")]
     Unavailable { capability: String },
-    /// A read-only git child was cut off at its run limit: its answer is unknown.
-    /// `command` is the program and its arguments as Node's runner worded them (`git status -z`).
     /// The operating system refused to start the program for a reason other than its absence; Node threw `spawn <CODE>` with that
     /// libuv code (`UNKNOWN` for a file the loader cannot run).
     #[error("spawn {code}")]

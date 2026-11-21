@@ -493,6 +493,26 @@ fn daybreak_blue_supported(row: &Value) -> bool {
     row.get("accessPrograms").and_then(Value::as_array).is_some_and(|a| a.iter().any(|p| p == "daybreak_blue"))
 }
 
+/// The row's `modelParameterOptions` with the options this provider adds, an added option replacing a listed one of the same id.
+fn with_added_parameter_options(row: &Value, provider: &str, fast_capable: bool, facts: &dyn HydrationFacts) -> Option<Value> {
+    let mut added = Vec::new();
+    if provider == "openai-oauth" && daybreak_blue_supported(row) {
+        added.push(daybreak_option());
+    }
+    if fast_capable && facts.ultrafast_capable(provider, row) {
+        added.push(ultrafast_speed_option());
+    }
+    if provider == "openrouter" {
+        added.push(openrouter_sort_option());
+    }
+    if added.is_empty() {
+        return row.get("modelParameterOptions").cloned();
+    }
+    let existing = row.get("modelParameterOptions").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut all: Vec<Value> = existing.into_iter().filter(|o| !added.iter().any(|a| a.get("id") == o.get("id") && o.get("id").is_some())).collect();
+    all.extend(added);
+    Some(Value::Array(all))
+}
 /// `hydrateProviderModelRow(cfg, row)`.
 pub fn hydrate_provider_model_row(cfg: &Obj, row: &Value, facts: &dyn HydrationFacts) -> Value {
     let provider = text(row.get("provider"));
@@ -504,24 +524,7 @@ pub fn hydrate_provider_model_row(cfg: &Obj, row: &Value, facts: &dyn HydrationF
         _ => String::new(),
     };
     let fast_capable = facts.fast_capable(&provider_raw, row);
-    let existing: Vec<Value> = row.get("modelParameterOptions").and_then(Value::as_array).cloned().unwrap_or_default();
-    let mut added = Vec::new();
-    if provider_raw == "openai-oauth" && daybreak_blue_supported(row) {
-        added.push(daybreak_option());
-    }
-    if fast_capable && facts.ultrafast_capable(&provider_raw, row) {
-        added.push(ultrafast_speed_option());
-    }
-    if provider_raw == "openrouter" {
-        added.push(openrouter_sort_option());
-    }
-    let parameter_options: Option<Value> = if added.is_empty() {
-        row.get("modelParameterOptions").cloned()
-    } else {
-        let mut all: Vec<Value> = existing.into_iter().filter(|o| !added.iter().any(|a| a.get("id") == o.get("id") && o.get("id").is_some())).collect();
-        all.extend(added);
-        Some(Value::Array(all))
-    };
+    let parameter_options = with_added_parameter_options(row, &provider_raw, fast_capable, facts);
     let is_custom = provider_raw.starts_with("custom-");
     let provider_config = cfg.get("providers").and_then(|p| p.get(&provider_raw));
     let custom_name = if is_custom {

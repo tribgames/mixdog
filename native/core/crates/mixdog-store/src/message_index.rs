@@ -278,30 +278,38 @@ pub(crate) fn rewind(tx: &Transaction<'_>, session: &str, to: i64, at: i64, budg
         if !live {
             continue;
         }
-        let epoch = epoch_of(tx, session, ordinal, at)?;
-        let previous: Option<(i64, bool)> = tx
-            .prepare_cached(
-                "SELECT ver, real FROM message_rows WHERE session = ?1 AND ordinal = ?2 AND idx = ?3
-                 AND superseded_rev IS NULL ORDER BY ver DESC LIMIT 1",
-            )?
-            .query_row(params![session, ordinal, idx], |r| Ok((r.get(0)?, r.get(1)?)))
-            .optional()?;
-        if let Some((previous_ver, previous_real)) = previous {
-            used += tx.prepare_cached("UPDATE message_rows SET live = 1 WHERE session = ?1 AND ordinal = ?2 AND idx = ?3 AND ver = ?4")?.execute(params![
-                session,
-                ordinal,
-                idx,
-                previous_ver
-            ])?;
-            if let Some((start, false)) = epoch {
-                add_to_epoch(tx, session, start, 0, i64::from(previous_real) - i64::from(real))?;
-                used += 1;
-            }
-        } else if let Some((start, false)) = epoch {
-            add_to_epoch(tx, session, start, -i64::from(counted), -i64::from(real))?;
+        used += hand_back(tx, session, at, (ordinal, idx), counted, real)?;
+    }
+}
+
+/// The live version at `(ordinal, idx)` was superseded by the rewind at `at`: the previous version, if any, becomes the
+/// live one and the epoch's aggregates move by the difference. Returns the writes made.
+fn hand_back(tx: &Transaction<'_>, session: &str, at: i64, (ordinal, idx): (i64, i64), counted: bool, real: bool) -> rusqlite::Result<usize> {
+    let mut used = 0;
+    let epoch = epoch_of(tx, session, ordinal, at)?;
+    let previous: Option<(i64, bool)> = tx
+        .prepare_cached(
+            "SELECT ver, real FROM message_rows WHERE session = ?1 AND ordinal = ?2 AND idx = ?3
+             AND superseded_rev IS NULL ORDER BY ver DESC LIMIT 1",
+        )?
+        .query_row(params![session, ordinal, idx], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()?;
+    if let Some((previous_ver, previous_real)) = previous {
+        used += tx.prepare_cached("UPDATE message_rows SET live = 1 WHERE session = ?1 AND ordinal = ?2 AND idx = ?3 AND ver = ?4")?.execute(params![
+            session,
+            ordinal,
+            idx,
+            previous_ver
+        ])?;
+        if let Some((start, false)) = epoch {
+            add_to_epoch(tx, session, start, 0, i64::from(previous_real) - i64::from(real))?;
             used += 1;
         }
+    } else if let Some((start, false)) = epoch {
+        add_to_epoch(tx, session, start, -i64::from(counted), -i64::from(real))?;
+        used += 1;
     }
+    Ok(used)
 }
 
 /// The view a fork (re)starts with: its base as of `position`, taken now when the base's
@@ -338,154 +346,179 @@ pub(crate) enum Step {
     Done(String),
 }
 
-type Job = (String, i64, String, i64, i64, bool, i64, i64, i64, i64, String, String, String, String);
+/// A pending view's progress, as stored in `message_views`: the hop it is at, the keyset position of its scan of that
+/// hop, and the totals gathered so far.
+struct ViewJob {
+    session: String,
+    valid_from: i64,
+    hop: String,
+    hop_time: i64,
+    hop_cut: i64,
+    scanning: bool,
+    cur_o: i64,
+    cur_i: i64,
+    count: i64,
+    real: i64,
+    preview: String,
+    line: String,
+    routine: String,
+    tail: std::collections::VecDeque<u64>,
+}
 
 /// Advances one runnable pending view by `rows` units: hops down the bases' views, or
 /// `rows` rows of the final hop paged by keyset. A view is runnable once its base has
 /// projected up to the fork position and has no view of its own pending.
 pub(crate) fn view_step(tx: &Transaction<'_>, rows: usize) -> rusqlite::Result<Step> {
-    let job: Option<Job> = tx
-        .prepare_cached(
-            "SELECT v.session, v.valid_from, v.hop_session, v.hop_time, v.hop_cut, v.scanning, v.cur_ordinal,
-               v.cur_idx, v.count, v.real, v.preview, v.line, v.routine, v.incoming
-             FROM message_views v JOIN sessions b ON b.id = v.base
-             WHERE v.state = 'pending' AND b.projected_ordinal >= v.position
-               AND NOT EXISTS (SELECT 1 FROM message_views w WHERE w.session = v.base AND w.state = 'pending')
-             ORDER BY v.session, v.valid_from LIMIT 1",
-        )?
-        .query_row([], |r| {
-            Ok((
-                r.get(0)?,
-                r.get(1)?,
-                r.get(2)?,
-                r.get(3)?,
-                r.get(4)?,
-                r.get(5)?,
-                r.get(6)?,
-                r.get(7)?,
-                r.get(8)?,
-                r.get(9)?,
-                r.get(10)?,
-                r.get(11)?,
-                r.get(12)?,
-                r.get(13)?,
-            ))
-        })
-        .optional()?;
-    let Some((session, valid_from, mut hop, time, cut, mut scanning, mut cur_o, mut cur_i, mut count, mut real, mut preview, mut line, mut routine, incoming)) =
-        job
-    else {
+    let Some(mut job) = runnable_view(tx)? else {
         return Ok(Step::Idle);
     };
-    let mut hop_time = time;
-    let hop_cut = cut;
-    let mut tail: std::collections::VecDeque<u64> = incoming_of(incoming)?.into();
-    let mut done = false;
-    if !scanning {
-        for _ in 0..rows.max(1) {
-            // Inside a compaction epoch live at the hop's time the bases' views do not matter.
-            let epoch: Option<i64> = tx
-                .prepare_cached(
-                    "SELECT max(start) FROM message_epochs WHERE session = ?1 AND start > 0 AND start < ?2
-                     AND (superseded_rev IS NULL OR superseded_rev >= ?3)",
-                )?
-                .query_row(params![hop, hop_cut, hop_time], |r| r.get(0))?;
-            if let Some(start) = epoch {
-                (scanning, cur_o, cur_i) = (true, start, -1);
-                break;
-            }
-            type Inherited = (String, i64, i64, String, i64, i64, String, String, String, String);
-            let inherited: Option<Inherited> = tx
-                .prepare_cached(
-                    "SELECT base, position, cut, state, count, real, preview, line, routine, incoming FROM message_views
-                     WHERE session = ?1 AND valid_from < ?2 ORDER BY valid_from DESC LIMIT 1",
-                )?
-                .query_row(params![hop, hop_time], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?))
-                })
-                .optional()?;
-            match inherited {
-                None => {
-                    (scanning, cur_o, cur_i) = (true, 0, -1);
-                    break;
-                }
-                Some((_, _, view_cut, state, c, r, p, l, rt, inc)) if hop_cut >= view_cut => {
-                    // The inherited snapshot covers everything below the cut: take it.
-                    debug_assert_eq!(state, "ready", "a runnable view's bases are ready");
-                    (count, real, preview, line, routine) = (c, r, p, l, rt);
-                    tail = incoming_of(inc)?.into();
-                    (scanning, cur_o, cur_i) = (true, 0, -1);
-                    break;
-                }
-                Some((b, p, ..)) => {
-                    // The cut is below the base's own inheritance: that base's frames, as
-                    // they were at the base's fork, are what remains.
-                    (hop, hop_time) = (b, p);
-                }
-            }
+    let done = if job.scanning { scan_hop(tx, &mut job, rows)? } else { hop_down(tx, &mut job, rows)? };
+    save_view(tx, &job, done)?;
+    Ok(if done { Step::Done(job.session) } else { Step::Progress })
+}
+
+fn runnable_view(tx: &Transaction<'_>) -> rusqlite::Result<Option<ViewJob>> {
+    tx.prepare_cached(
+        "SELECT v.session, v.valid_from, v.hop_session, v.hop_time, v.hop_cut, v.scanning, v.cur_ordinal,
+           v.cur_idx, v.count, v.real, v.preview, v.line, v.routine, v.incoming
+         FROM message_views v JOIN sessions b ON b.id = v.base
+         WHERE v.state = 'pending' AND b.projected_ordinal >= v.position
+           AND NOT EXISTS (SELECT 1 FROM message_views w WHERE w.session = v.base AND w.state = 'pending')
+         ORDER BY v.session, v.valid_from LIMIT 1",
+    )?
+    .query_row([], |r| {
+        Ok(ViewJob {
+            session: r.get(0)?,
+            valid_from: r.get(1)?,
+            hop: r.get(2)?,
+            hop_time: r.get(3)?,
+            hop_cut: r.get(4)?,
+            scanning: r.get(5)?,
+            cur_o: r.get(6)?,
+            cur_i: r.get(7)?,
+            count: r.get(8)?,
+            real: r.get(9)?,
+            preview: r.get(10)?,
+            line: r.get(11)?,
+            routine: r.get(12)?,
+            tail: incoming_of(r.get(13)?)?.into(),
+        })
+    })
+    .optional()
+}
+
+/// Up to `rows` hops down the bases' views, until one gives the state to start scanning from; never finishes the view.
+fn hop_down(tx: &Transaction<'_>, job: &mut ViewJob, rows: usize) -> rusqlite::Result<bool> {
+    for _ in 0..rows.max(1) {
+        // Inside a compaction epoch live at the hop's time the bases' views do not matter.
+        let epoch: Option<i64> = tx
+            .prepare_cached(
+                "SELECT max(start) FROM message_epochs WHERE session = ?1 AND start > 0 AND start < ?2
+                 AND (superseded_rev IS NULL OR superseded_rev >= ?3)",
+            )?
+            .query_row(params![job.hop, job.hop_cut, job.hop_time], |r| r.get(0))?;
+        if let Some(start) = epoch {
+            (job.scanning, job.cur_o, job.cur_i) = (true, start, -1);
+            break;
         }
-    } else {
-        for _ in 0..rows.max(1) {
-            let key: Option<(i64, i64)> = tx
-                .prepare_cached(
-                    "SELECT ordinal, idx FROM message_rows WHERE session = ?1 AND (ordinal, idx) > (?2, ?3)
-                     AND ordinal < ?4 ORDER BY ordinal, idx LIMIT 1",
-                )?
-                .query_row(params![hop, cur_o, cur_i, hop_cut], |r| Ok((r.get(0)?, r.get(1)?)))
-                .optional()?;
-            let Some((o, i)) = key else {
-                done = true;
+        type Inherited = (String, i64, i64, String, i64, i64, String, String, String, String);
+        let inherited: Option<Inherited> = tx
+            .prepare_cached(
+                "SELECT base, position, cut, state, count, real, preview, line, routine, incoming FROM message_views
+                 WHERE session = ?1 AND valid_from < ?2 ORDER BY valid_from DESC LIMIT 1",
+            )?
+            .query_row(params![job.hop, job.hop_time], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?))
+            })
+            .optional()?;
+        match inherited {
+            None => {
+                (job.scanning, job.cur_o, job.cur_i) = (true, 0, -1);
                 break;
-            };
-            (cur_o, cur_i) = (o, i);
-            // The newest version that was live at the hop's time, below the cut.
-            let version: Option<(bool, bool, bool, String, String, String)> = tx
-                .prepare_cached(
-                    "SELECT counted, real, incoming, preview, line, routine FROM message_rows
-                     WHERE session = ?1 AND ordinal = ?2 AND idx = ?3 AND ver < ?4
-                       AND (superseded_rev IS NULL OR superseded_rev >= ?5) ORDER BY ver DESC LIMIT 1",
-                )?
-                .query_row(params![hop, o, i, hop_cut, hop_time], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
-                .optional()?;
-            let Some((counted, is_real, is_incoming, p, l, rt)) = version else { continue };
-            count += i64::from(counted);
-            real += i64::from(is_real);
-            if preview.is_empty() && !p.is_empty() {
-                preview = p;
             }
-            if !l.is_empty() {
-                line = l;
-                routine = rt;
+            Some((_, _, view_cut, state, c, r, p, l, rt, inc)) if job.hop_cut >= view_cut => {
+                // The inherited snapshot covers everything below the cut: take it.
+                debug_assert_eq!(state, "ready", "a runnable view's bases are ready");
+                (job.count, job.real, job.preview, job.line, job.routine) = (c, r, p, l, rt);
+                job.tail = incoming_of(inc)?.into();
+                (job.scanning, job.cur_o, job.cur_i) = (true, 0, -1);
+                break;
             }
-            if is_incoming {
-                tail.push_back(count as u64);
-                if tail.len() > INCOMING_TAIL_MAX {
-                    tail.pop_front();
-                }
+            Some((b, p, ..)) => {
+                // The cut is below the base's own inheritance: that base's frames, as
+                // they were at the base's fork, are what remains.
+                (job.hop, job.hop_time) = (b, p);
             }
         }
     }
+    Ok(false)
+}
+
+/// Up to `rows` rows of the final hop folded into the totals; `true` when the hop has no row left.
+fn scan_hop(tx: &Transaction<'_>, job: &mut ViewJob, rows: usize) -> rusqlite::Result<bool> {
+    for _ in 0..rows.max(1) {
+        let key: Option<(i64, i64)> = tx
+            .prepare_cached(
+                "SELECT ordinal, idx FROM message_rows WHERE session = ?1 AND (ordinal, idx) > (?2, ?3)
+                 AND ordinal < ?4 ORDER BY ordinal, idx LIMIT 1",
+            )?
+            .query_row(params![job.hop, job.cur_o, job.cur_i, job.hop_cut], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?;
+        let Some((o, i)) = key else {
+            return Ok(true);
+        };
+        (job.cur_o, job.cur_i) = (o, i);
+        // The newest version that was live at the hop's time, below the cut.
+        let version: Option<(bool, bool, bool, String, String, String)> = tx
+            .prepare_cached(
+                "SELECT counted, real, incoming, preview, line, routine FROM message_rows
+                 WHERE session = ?1 AND ordinal = ?2 AND idx = ?3 AND ver < ?4
+                   AND (superseded_rev IS NULL OR superseded_rev >= ?5) ORDER BY ver DESC LIMIT 1",
+            )?
+            .query_row(params![job.hop, o, i, job.hop_cut, job.hop_time], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
+            .optional()?;
+        let Some((counted, is_real, is_incoming, p, l, rt)) = version else { continue };
+        job.count += i64::from(counted);
+        job.real += i64::from(is_real);
+        if job.preview.is_empty() && !p.is_empty() {
+            job.preview = p;
+        }
+        if !l.is_empty() {
+            job.line = l;
+            job.routine = rt;
+        }
+        if is_incoming {
+            job.tail.push_back(job.count as u64);
+            if job.tail.len() > INCOMING_TAIL_MAX {
+                job.tail.pop_front();
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn save_view(tx: &Transaction<'_>, job: &ViewJob, done: bool) -> rusqlite::Result<()> {
     tx.prepare_cached(
         "UPDATE message_views SET state = ?3, count = ?4, real = ?5, preview = ?6, line = ?7, routine = ?8,
          incoming = ?9, hop_session = ?10, hop_time = ?11, hop_cut = ?12, scanning = ?13, cur_ordinal = ?14,
          cur_idx = ?15 WHERE session = ?1 AND valid_from = ?2",
     )?
     .execute(params![
-        session,
-        valid_from,
+        job.session,
+        job.valid_from,
         if done { "ready" } else { "pending" },
-        count,
-        real,
-        preview,
-        line,
-        routine,
-        serde_json::to_string(&tail.iter().collect::<Vec<_>>()).expect("places encode"),
-        hop,
-        hop_time,
-        hop_cut,
-        scanning,
-        cur_o,
-        cur_i
+        job.count,
+        job.real,
+        job.preview,
+        job.line,
+        job.routine,
+        serde_json::to_string(&job.tail.iter().collect::<Vec<_>>()).expect("places encode"),
+        job.hop,
+        job.hop_time,
+        job.hop_cut,
+        job.scanning,
+        job.cur_o,
+        job.cur_i
     ])?;
-    Ok(if done { Step::Done(session) } else { Step::Progress })
+    Ok(())
 }

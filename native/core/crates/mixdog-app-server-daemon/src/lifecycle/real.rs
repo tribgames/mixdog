@@ -1,11 +1,3 @@
-//! The real lifecycle ports (LR §5.3): the core's feed, connections, extension host and data
-//! handles; the discovery file; the process exit. WP-INTEGRATE composes them.
-//!
-//! The release steps run on `mixdog-release-<step>` threads (one per step, under the release
-//! supervisor), never on a runtime worker, so
-//! `RuntimeCore::close_ext_host` can block on the extension host's async close through a runtime
-//! handle without stalling the runtime.
-
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;

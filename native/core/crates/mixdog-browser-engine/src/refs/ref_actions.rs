@@ -1,11 +1,10 @@
-//! Owner: s4-engine-actions-forms
-//! Every gesture that addresses one element by ref (`ref-actions.ts`): filling and typing (`text_entry`), both kinds of
+//! Every gesture that addresses one element by ref: filling and typing (`text_entry`), both kinds of
 //! dropdown (`select`), checkbox state and the options a select offers (`control_state`). Each runs the same two-step contract:
 //! reach the element through `host/browser/ref/call`, then report what the element actually holds afterwards. The host keeps
 //! the tab graph; this keeps the gestures.
 //!
 //! [`RefActions`] is what one command holds to act on its page: it owns its handles, so a mutation closure can carry it. The
-//! upload gestures of `ref-upload.ts` belong to the upload module.
+//! upload gestures belong to the upload module.
 
 use std::sync::Arc;
 use std::time::Duration;

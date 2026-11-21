@@ -1,8 +1,8 @@
-//! `handleUpgrade` of `server.mjs`: `/desktop` and `/hookleg` (Basic `deviceId:secret`, authenticated by [`Upgrades::authenticate_leg`]),
-//! `/ws` (the phone decision of [`crate::legs::phone`]) and any other path, whose raw socket is destroyed.
+//! `/desktop` and `/hookleg` (Basic `deviceId:secret`, authenticated by [`Upgrades::authenticate_leg`]), `/ws` (the phone decision
+//! of [`crate::legs::phone`]) and any other path, whose raw socket is destroyed.
 //!
-//! A refusal before the handshake is the raw `HTTP/1.1 <status> <reason>\r\nConnection: close\r\n\r\n` and a closed connection. A throw
-//! anywhere in an upgrade is `[relay] websocket upgrade failed: <message>` and a destroyed socket ([`super::start`] guards the task).
+//! A refusal before the handshake is the raw `HTTP/1.1 <status> <reason>\r\nConnection: close\r\n\r\n` and a closed connection. A
+//! failure in an upgrade is `[relay] websocket upgrade failed: <message>` and a destroyed socket.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 

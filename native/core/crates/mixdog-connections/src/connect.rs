@@ -134,6 +134,29 @@ fn refusal(kind: SshFailureKind, code: &str) -> Decision {
     Decision::Refused(SshConnectResult::failed(SshFailure { kind, notice: None, code: Some(code.to_owned()) }))
 }
 
+/// The entered settings ride the record: the context puts the key file on this attempt's ssh argv, and the save keeps them.
+fn with_entered_settings(saved: &SshHostRecord, entered: &SshHostSettings) -> SshHostRecord {
+    let mut record = saved.clone();
+    if !entered.is_empty() {
+        let mut settings = record.settings.clone().unwrap_or_default();
+        if entered.remote_cwd.is_some() {
+            settings.remote_cwd.clone_from(&entered.remote_cwd);
+        }
+        if entered.identity_file.is_some() {
+            settings.identity_file.clone_from(&entered.identity_file);
+        }
+        record.settings = Some(settings);
+    }
+    record
+}
+
+/// A live connection is reused without logging in again, so a new key or folder would be saved untested.
+fn changes_saved_settings(entered: &SshHostSettings, saved: &SshHostRecord) -> bool {
+    let saved = saved.settings.clone().unwrap_or_default();
+    (entered.remote_cwd.is_some() && entered.remote_cwd != saved.remote_cwd)
+        || (entered.identity_file.is_some() && entered.identity_file != saved.identity_file)
+}
+
 fn cancelled() -> SshConnectResult {
     SshConnectResult::failed(SshFailure { kind: SshFailureKind::Cancelled, notice: None, code: None })
 }
@@ -360,25 +383,9 @@ impl Connect {
         self.attempts.still_registered(attempt)?;
         let target = attempt.target();
         let reservation = self.hosts.reserve_for_target(&target.display).map_err(|error| AttemptError::new(error.to_string()))?;
-        // The entered settings ride the record: the context puts the key file on this attempt's ssh argv, and the save keeps them.
-        let mut record = reservation.record.clone();
-        if !entered.is_empty() {
-            let mut settings = record.settings.clone().unwrap_or_default();
-            if entered.remote_cwd.is_some() {
-                settings.remote_cwd.clone_from(&entered.remote_cwd);
-            }
-            if entered.identity_file.is_some() {
-                settings.identity_file.clone_from(&entered.identity_file);
-            }
-            record.settings = Some(settings);
-        }
+        let record = with_entered_settings(&reservation.record, entered);
         let was_open = self.attempts.links().is_open(&record.id);
-        // A live connection is reused without logging in again, so a new key or folder would be saved untested.
-        let saved = reservation.record.settings.clone().unwrap_or_default();
-        if was_open
-            && ((entered.remote_cwd.is_some() && entered.remote_cwd != saved.remote_cwd)
-                || (entered.identity_file.is_some() && entered.identity_file != saved.identity_file))
-        {
+        if was_open && changes_saved_settings(entered, &reservation.record) {
             return Ok(SshConnectResult::failed(SshFailure { kind: SshFailureKind::AlreadyConnected, notice: None, code: None }));
         }
         let saved_key = match action {

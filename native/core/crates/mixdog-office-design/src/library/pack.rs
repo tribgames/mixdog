@@ -180,63 +180,63 @@ pub fn normalize_layouts(value: Option<&Value>, template_path: &str) -> Result<V
         Some(Value::Array(items)) if items.len() <= 1_000 => items,
         Some(_) => return Err("Office design layouts must be an array of at most 1000 entries".to_owned()),
     };
-    let mut layouts = Vec::new();
-    for layout in items {
-        if !plain_object(layout) {
-            return Err("Office design layout entries must be objects".to_owned());
-        }
-        let id = safe_id(prop(layout, "id"), "layout id")?;
-        let format = match prop(layout, "format") {
-            Some(given) if truthy(given) => js_to_lowercase(&value_to_string(given)),
-            _ => "pptx".to_owned(),
-        };
-        if !is_format(&format) {
-            return Err(format!("Office design layout {id} has unsupported format {format}"));
-        }
-        let kind = lower_trimmed(prop(layout, "kind"));
-        if kind.is_empty() {
-            return Err(format!("Office design layout {id} requires kind"));
-        }
-        let defaults = known_layout_defaults(prop(layout, "defaults"), &format!("Office design layout {id}"))?;
-        let source_slide = number_or_zero(prop(layout, "sourceSlide"));
-        if truthy_number(source_slide) && (!is_integer(source_slide) || source_slide < 1.0) {
-            return Err(format!("Office design layout {id} has invalid sourceSlide"));
-        }
-        let source_layout = number_or_zero(prop(layout, "sourceLayout"));
-        if truthy_number(source_layout) && (!is_integer(source_layout) || source_layout < 1.0) {
-            return Err(format!("Office design layout {id} has invalid sourceLayout"));
-        }
-        let profile = match prop(layout, "profile") {
-            Some(given) if truthy(given) => safe_id(Some(given), "layout profile")?,
-            _ => String::new(),
-        };
-        let template_id = match prop(layout, "templateId") {
-            Some(given) if truthy(given) => safe_id(Some(given), "layout templateId")?,
-            _ => String::new(),
-        };
-        let carried_path = if template_path.is_empty() { text(prop(layout, "templatePath")) } else { template_path.to_owned() };
-        let mut out = Map::new();
-        out.insert("id".to_owned(), Value::String(id));
-        out.insert("format".to_owned(), Value::String(format));
-        out.insert("kind".to_owned(), Value::String(kind));
-        out.insert("profile".to_owned(), Value::String(profile));
-        out.insert("density".to_owned(), Value::String(js_to_lowercase(&text(prop(layout, "density")))));
-        out.insert("variant".to_owned(), Value::String(lower_trimmed(prop(layout, "variant"))));
-        out.insert("purposes".to_owned(), normalize_design_tags(prop(layout, "purposes"), 16));
-        out.insert("expressionModes".to_owned(), normalize_design_tags(prop(layout, "expressionModes"), 16));
-        out.insert("templateId".to_owned(), Value::String(template_id));
-        out.insert("templatePath".to_owned(), Value::String(carried_path));
-        out.insert("sourceSlide".to_owned(), json_number(source_slide));
-        out.insert("sourceLayout".to_owned(), json_number(source_layout));
-        out.insert("slots".to_owned(), normalize_layout_slots(prop(layout, "slots"))?);
-        out.insert("capacity".to_owned(), normalize_layout_capacity(prop(layout, "capacity")));
-        out.insert("capabilities".to_owned(), normalize_design_tags(prop(layout, "capabilities"), 32));
-        out.insert("priority".to_owned(), json_number(clamp_of(prop(layout, "priority"), -100.0, 100.0)));
-        out.insert("strict".to_owned(), Value::Bool(prop(layout, "strict") == Some(&Value::Bool(true))));
-        out.insert("defaults".to_owned(), defaults);
-        layouts.push(Value::Object(out));
+    items.iter().map(|layout| normalize_layout(layout, template_path)).collect::<Result<Vec<_>, _>>().map(Value::Array)
+}
+
+fn normalize_layout(layout: &Value, template_path: &str) -> Result<Value, String> {
+    if !plain_object(layout) {
+        return Err("Office design layout entries must be objects".to_owned());
     }
-    Ok(Value::Array(layouts))
+    let id = safe_id(prop(layout, "id"), "layout id")?;
+    let format = match prop(layout, "format") {
+        Some(given) if truthy(given) => js_to_lowercase(&value_to_string(given)),
+        _ => "pptx".to_owned(),
+    };
+    if !is_format(&format) {
+        return Err(format!("Office design layout {id} has unsupported format {format}"));
+    }
+    let kind = lower_trimmed(prop(layout, "kind"));
+    if kind.is_empty() {
+        return Err(format!("Office design layout {id} requires kind"));
+    }
+    let defaults = known_layout_defaults(prop(layout, "defaults"), &format!("Office design layout {id}"))?;
+    let source_slide = number_or_zero(prop(layout, "sourceSlide"));
+    if truthy_number(source_slide) && (!is_integer(source_slide) || source_slide < 1.0) {
+        return Err(format!("Office design layout {id} has invalid sourceSlide"));
+    }
+    let source_layout = number_or_zero(prop(layout, "sourceLayout"));
+    if truthy_number(source_layout) && (!is_integer(source_layout) || source_layout < 1.0) {
+        return Err(format!("Office design layout {id} has invalid sourceLayout"));
+    }
+    let profile = match prop(layout, "profile") {
+        Some(given) if truthy(given) => safe_id(Some(given), "layout profile")?,
+        _ => String::new(),
+    };
+    let template_id = match prop(layout, "templateId") {
+        Some(given) if truthy(given) => safe_id(Some(given), "layout templateId")?,
+        _ => String::new(),
+    };
+    let carried_path = if template_path.is_empty() { text(prop(layout, "templatePath")) } else { template_path.to_owned() };
+    let mut out = Map::new();
+    out.insert("id".to_owned(), Value::String(id));
+    out.insert("format".to_owned(), Value::String(format));
+    out.insert("kind".to_owned(), Value::String(kind));
+    out.insert("profile".to_owned(), Value::String(profile));
+    out.insert("density".to_owned(), Value::String(js_to_lowercase(&text(prop(layout, "density")))));
+    out.insert("variant".to_owned(), Value::String(lower_trimmed(prop(layout, "variant"))));
+    out.insert("purposes".to_owned(), normalize_design_tags(prop(layout, "purposes"), 16));
+    out.insert("expressionModes".to_owned(), normalize_design_tags(prop(layout, "expressionModes"), 16));
+    out.insert("templateId".to_owned(), Value::String(template_id));
+    out.insert("templatePath".to_owned(), Value::String(carried_path));
+    out.insert("sourceSlide".to_owned(), json_number(source_slide));
+    out.insert("sourceLayout".to_owned(), json_number(source_layout));
+    out.insert("slots".to_owned(), normalize_layout_slots(prop(layout, "slots"))?);
+    out.insert("capacity".to_owned(), normalize_layout_capacity(prop(layout, "capacity")));
+    out.insert("capabilities".to_owned(), normalize_design_tags(prop(layout, "capabilities"), 32));
+    out.insert("priority".to_owned(), json_number(clamp_of(prop(layout, "priority"), -100.0, 100.0)));
+    out.insert("strict".to_owned(), Value::Bool(prop(layout, "strict") == Some(&Value::Bool(true))));
+    out.insert("defaults".to_owned(), defaults);
+    Ok(Value::Object(out))
 }
 
 /// `normalizeLocalSamples(value)`: the samples of a template's sidecar file.
@@ -313,54 +313,58 @@ fn normalize_remote_templates(value: Option<&Value>) -> Result<Value, String> {
     let mut ids: Vec<String> = Vec::new();
     let mut templates = Vec::new();
     for template in items {
-        if !plain_object(template) {
-            return Err("Office design template entries must be objects".to_owned());
-        }
-        let id = safe_id(prop(template, "id"), "template id")?;
-        if ids.contains(&id) {
-            return Err(format!("Office design pack contains duplicate template id {id}"));
-        }
-        ids.push(id.clone());
-        let format = js_to_lowercase(&text(prop(template, "format")));
-        if !["docx", "xlsx", "pptx"].contains(&format.as_str()) {
-            return Err(format!("Office design template {id} has unsupported format {format}"));
-        }
-        let url = parse_url(&text(prop(template, "url")))?;
-        if url.scheme() != "https" {
-            return Err(format!("Office design template {id} requires an HTTPS URL"));
-        }
-        let digest = js_to_lowercase(&text(prop(template, "sha256")));
-        if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) {
-            return Err(format!("Office design template {id} requires sha256"));
-        }
-        let bytes = to_number_of(prop(template, "bytes"));
-        if !is_integer(bytes) || bytes < 1.0 || bytes > MAX_TEMPLATE_BYTES as f64 {
-            return Err(format!("Office design template {id} has an invalid byte size"));
-        }
-        let extension = extension_of(url.path());
-        if template_format(&extension) != Some(format.as_str()) {
-            return Err(format!("Office design template {id} URL extension does not match {format}"));
-        }
-        let label = match prop(template, "label") {
-            Some(given) if truthy(given) => value_to_string(given),
-            _ => id.clone(),
-        };
-        let mut out = Map::new();
-        out.insert("id".to_owned(), Value::String(id));
-        out.insert("label".to_owned(), Value::String(label));
-        out.insert("format".to_owned(), Value::String(format));
-        out.insert("url".to_owned(), Value::String(url.as_str().to_owned()));
-        out.insert("sha256".to_owned(), Value::String(digest));
-        out.insert("bytes".to_owned(), json_number(bytes));
-        out.insert("extension".to_owned(), Value::String(extension));
-        let layouts = match prop(template, "layouts") {
-            Some(given) if truthy(given) => Some(given),
-            _ => None,
-        };
-        out.insert("layouts".to_owned(), normalize_layouts(layouts, "")?);
-        templates.push(Value::Object(out));
+        templates.push(normalize_remote_template(template, &mut ids)?);
     }
     Ok(Value::Array(templates))
+}
+
+fn normalize_remote_template(template: &Value, ids: &mut Vec<String>) -> Result<Value, String> {
+    if !plain_object(template) {
+        return Err("Office design template entries must be objects".to_owned());
+    }
+    let id = safe_id(prop(template, "id"), "template id")?;
+    if ids.contains(&id) {
+        return Err(format!("Office design pack contains duplicate template id {id}"));
+    }
+    ids.push(id.clone());
+    let format = js_to_lowercase(&text(prop(template, "format")));
+    if !["docx", "xlsx", "pptx"].contains(&format.as_str()) {
+        return Err(format!("Office design template {id} has unsupported format {format}"));
+    }
+    let url = parse_url(&text(prop(template, "url")))?;
+    if url.scheme() != "https" {
+        return Err(format!("Office design template {id} requires an HTTPS URL"));
+    }
+    let digest = js_to_lowercase(&text(prop(template, "sha256")));
+    if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) {
+        return Err(format!("Office design template {id} requires sha256"));
+    }
+    let bytes = to_number_of(prop(template, "bytes"));
+    if !is_integer(bytes) || bytes < 1.0 || bytes > MAX_TEMPLATE_BYTES as f64 {
+        return Err(format!("Office design template {id} has an invalid byte size"));
+    }
+    let extension = extension_of(url.path());
+    if template_format(&extension) != Some(format.as_str()) {
+        return Err(format!("Office design template {id} URL extension does not match {format}"));
+    }
+    let label = match prop(template, "label") {
+        Some(given) if truthy(given) => value_to_string(given),
+        _ => id.clone(),
+    };
+    let mut out = Map::new();
+    out.insert("id".to_owned(), Value::String(id));
+    out.insert("label".to_owned(), Value::String(label));
+    out.insert("format".to_owned(), Value::String(format));
+    out.insert("url".to_owned(), Value::String(url.as_str().to_owned()));
+    out.insert("sha256".to_owned(), Value::String(digest));
+    out.insert("bytes".to_owned(), json_number(bytes));
+    out.insert("extension".to_owned(), Value::String(extension));
+    let layouts = match prop(template, "layouts") {
+        Some(given) if truthy(given) => Some(given),
+        _ => None,
+    };
+    out.insert("layouts".to_owned(), normalize_layouts(layouts, "")?);
+    Ok(Value::Object(out))
 }
 
 fn normalize_pack(value: &Value) -> Result<Value, String> {
@@ -605,6 +609,38 @@ fn stage_pack<P: WriteProof>(lane: &P, verified: &Verified, staging: &Path, targ
     }
 }
 
+fn load_cached_template<P: WriteProof>(lane: &P, root: &Path, template: &Value, version: &Value) -> Result<Value, String> {
+    let template_id = text(prop(template, "id"));
+    let path = root.join("templates").join(format!("{template_id}{}", text(prop(template, "extension"))));
+    let intact = mixdog_fsio::metadata(lane, &path).is_ok_and(|details| {
+        details.is_file()
+            && details.len() as f64 == to_number_of(prop(template, "bytes"))
+            && sha256_file(lane, &path).is_ok_and(|digest| digest == text(prop(template, "sha256")))
+    });
+    if !intact {
+        return Err(format!("Cached Office design template {template_id} failed integrity validation"));
+    }
+    let path_text = path.to_string_lossy().into_owned();
+    let mut entry = template.as_object().cloned().unwrap_or_default();
+    entry.insert("path".to_owned(), Value::String(path_text.clone()));
+    entry.insert("source".to_owned(), Value::String("remote-pack".to_owned()));
+    entry.insert("version".to_owned(), version.clone());
+    let layouts: Vec<Value> = prop(template, "layouts")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|layout| {
+            let mut layout = layout.as_object().cloned().unwrap_or_default();
+            let carried = layout.get("templateId").filter(|carried| truthy(carried)).cloned();
+            layout.insert("templateId".to_owned(), carried.unwrap_or_else(|| Value::String(template_id.clone())));
+            layout.insert("templatePath".to_owned(), Value::String(path_text.clone()));
+            Value::Object(layout)
+        })
+        .collect();
+    entry.insert("layouts".to_owned(), Value::Array(layouts));
+    Ok(Value::Object(entry))
+}
+
 /// `loadCachedPack(paths, config, id, version)`: the pack cached under `packs/<id>/<version>`, its signature checked
 /// again against the trusted keys and every template file checked for size and sha256. `Ok(None)` when nothing is cached.
 pub fn load_cached_pack<P: WriteProof>(
@@ -621,37 +657,10 @@ pub fn load_cached_pack<P: WriteProof>(
         return Ok(None);
     }
     let verified = verify_office_design_pack_envelope(&envelope, &config.trusted_keys)?;
+    let version = verified.pack.get("version").cloned().unwrap_or(Value::Null);
     let mut templates = Vec::new();
     for template in verified.pack.get("templates").and_then(Value::as_array).into_iter().flatten() {
-        let template_id = text(prop(template, "id"));
-        let path = root.join("templates").join(format!("{template_id}{}", text(prop(template, "extension"))));
-        let intact = mixdog_fsio::metadata(lane, &path).is_ok_and(|details| {
-            details.is_file()
-                && details.len() as f64 == to_number_of(prop(template, "bytes"))
-                && sha256_file(lane, &path).is_ok_and(|digest| digest == text(prop(template, "sha256")))
-        });
-        if !intact {
-            return Err(format!("Cached Office design template {template_id} failed integrity validation"));
-        }
-        let path_text = path.to_string_lossy().into_owned();
-        let mut entry = template.as_object().cloned().unwrap_or_default();
-        entry.insert("path".to_owned(), Value::String(path_text.clone()));
-        entry.insert("source".to_owned(), Value::String("remote-pack".to_owned()));
-        entry.insert("version".to_owned(), verified.pack.get("version").cloned().unwrap_or(Value::Null));
-        let layouts: Vec<Value> = prop(template, "layouts")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .map(|layout| {
-                let mut layout = layout.as_object().cloned().unwrap_or_default();
-                let carried = layout.get("templateId").filter(|carried| truthy(carried)).cloned();
-                layout.insert("templateId".to_owned(), carried.unwrap_or_else(|| Value::String(template_id.clone())));
-                layout.insert("templatePath".to_owned(), Value::String(path_text.clone()));
-                Value::Object(layout)
-            })
-            .collect();
-        entry.insert("layouts".to_owned(), Value::Array(layouts));
-        templates.push(Value::Object(entry));
+        templates.push(load_cached_template(lane, &root, template, &version)?);
     }
     let mut pack = verified.pack.as_object().cloned().unwrap_or_default();
     pack.insert("keyId".to_owned(), Value::String(verified.key_id));

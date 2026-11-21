@@ -322,6 +322,15 @@ pub(super) struct SaveDone {
 }
 
 /// `saveLocked`'s file half: the checks, then `AGENT.md` and `agent.json`.
+fn requested_kind(payload: &Map<String, Value>, existed: bool) -> Result<Option<String>, String> {
+    match payload.get("kind") {
+        None => Ok(None),
+        Some(_) if existed => Err("an agent's kind is set when it is created and cannot change".into()),
+        Some(Value::String(kind)) if kind == "bot" || kind == "agent" => Ok(Some(kind.clone())),
+        Some(_) => Err("agent kind must be \"bot\", \"agent\" or absent".into()),
+    }
+}
+
 pub(super) fn save_files(
     folders: &Folders,
     lane: &InLane<DurabilityIo>,
@@ -348,12 +357,7 @@ pub(super) fn save_files(
     }
     let existed = plan.current.is_some();
     let reclaimed = !existed && is_archived(&plan.user_dir);
-    let kind = match payload.get("kind") {
-        None => None,
-        Some(_) if existed => return Err("an agent's kind is set when it is created and cannot change".into()),
-        Some(Value::String(kind)) if kind == "bot" || kind == "agent" => Some(kind.clone()),
-        Some(_) => return Err("agent kind must be \"bot\", \"agent\" or absent".into()),
-    };
+    let kind = requested_kind(payload, existed)?;
     let name = if plan.name.is_empty() { id.clone() } else { plan.name.clone() };
     let shipped = folders.shipped_dir(id);
     let mut manifest = hidden_manifest(if plan.user_has_file { read_manifest_for_update(lane, &plan.user_dir)? } else { manifest_of(&shipped) });

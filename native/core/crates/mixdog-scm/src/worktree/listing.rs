@@ -27,6 +27,7 @@ use crate::worktree::maintenance::within;
 use crate::worktree::manager::Worktrees;
 use crate::worktree::manager::entry_json;
 use crate::worktree::manager::is_snapshot;
+use crate::worktree::registry::WorktreeRecord;
 
 fn text(row: &Value, key: &str) -> Option<String> {
     row.get(key).and_then(Value::as_str).map(str::to_owned)
@@ -91,36 +92,47 @@ impl Worktrees {
             row["ownerLive"] = json!(owner_live);
             row["removable"] = json!(removable);
             if inspect && !is_snapshot(&record) && record.state == "ready" {
-                let counts: Result<(usize, usize, u64), ScmFailure> = async {
-                    let (changed, ignored, _) = self.automatic_keep_paths(&record, cancel).await?;
-                    Ok((changed.len() + ignored.len(), ignored.len(), self.checkout_unmerged_count(&record, cancel).await?))
-                }
-                .await;
-                match counts {
-                    Ok((dirty, ignored, unmerged)) => {
-                        row["dirty"] = json!(dirty);
-                        row["ignored"] = json!(ignored);
-                        row["unmerged"] = json!(unmerged);
-                    }
-                    Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
-                    Err(_) => {
-                        row["dirty"] = Value::Null;
-                        row["ignored"] = Value::Null;
-                        row["unmerged"] = Value::Null;
-                    }
-                }
+                self.add_checkout_counts(&record, &mut row, cancel).await?;
             }
             if size {
-                let path = PathBuf::from(&record.path);
-                let probe = path.clone();
-                let present = on_lane(self.scm().lane, cancel, move || probe.exists()).await?;
-                let measured = if present { Some(self.cached_folder_bytes(&path, cancel).await?) } else { None };
-                row["sizeBytes"] = json!(measured.map(|m| m.bytes));
-                row["sizeComplete"] = json!(measured.is_none_or(|m| m.complete));
+                self.add_folder_size(&record, &mut row, cancel).await?;
             }
             rows.push(row);
         }
         Ok(rows)
+    }
+
+    /// `dirty`, `ignored` and `unmerged` of a ready checkout; `null` when git cannot read them.
+    async fn add_checkout_counts(&self, record: &WorktreeRecord, row: &mut Value, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        let counts: Result<(usize, usize, u64), ScmFailure> = async {
+            let (changed, ignored, _) = self.automatic_keep_paths(record, cancel).await?;
+            Ok((changed.len() + ignored.len(), ignored.len(), self.checkout_unmerged_count(record, cancel).await?))
+        }
+        .await;
+        match counts {
+            Ok((dirty, ignored, unmerged)) => {
+                row["dirty"] = json!(dirty);
+                row["ignored"] = json!(ignored);
+                row["unmerged"] = json!(unmerged);
+            }
+            Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
+            Err(_) => {
+                row["dirty"] = Value::Null;
+                row["ignored"] = Value::Null;
+                row["unmerged"] = Value::Null;
+            }
+        }
+        Ok(())
+    }
+
+    async fn add_folder_size(&self, record: &WorktreeRecord, row: &mut Value, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        let path = PathBuf::from(&record.path);
+        let probe = path.clone();
+        let present = on_lane(self.scm().lane, cancel, move || probe.exists()).await?;
+        let measured = if present { Some(self.cached_folder_bytes(&path, cancel).await?) } else { None };
+        row["sizeBytes"] = json!(measured.map(|m| m.bytes));
+        row["sizeComplete"] = json!(measured.is_none_or(|m| m.complete));
+        Ok(())
     }
 
     /// The count/age limits' choice over already listed rows (uncapped), as the list shows it. `None`: the favorites the

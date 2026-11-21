@@ -111,42 +111,46 @@ impl ProjectConnectors {
         let Value::Bool(enabled) = *enabled else { return Err("enabled must be a boolean".to_owned()) };
         let root = self.registered(project_path).await?;
         let (file, key_root) = (self.file.clone(), root.clone());
-        let written = on_lane(self.io.durability, cancel, move |lane| -> Result<(), String> {
-            mixdog_statefile::with_lock(lane, &file, &mixdog_statefile::LockOpts::default(), || {
-                let mut by_root: Vec<(String, Vec<String>)> = match read_projects(lane, &file) {
-                    // A file that cannot be read is never overwritten: it may hold switches.
-                    Projects::DenyAll => return Err(format!("{PROJECT_CONNECTORS_FILE} cannot be read; fix or remove it first")),
-                    Projects::Absent => Vec::new(),
-                    Projects::Roots(list) => list.into_iter().map(|entry| (entry.root, entry.off.into_iter().collect())).collect(),
-                };
-                let at = by_root.iter().position(|(entry, _)| same_path(entry, &key_root));
-                let at = at.unwrap_or_else(|| {
-                    by_root.push((key_root.clone(), Vec::new()));
-                    by_root.len() - 1
-                });
-                let current = &mut by_root[at].1;
-                if no_widen && enabled && current.contains(&id) {
-                    return Err(NO_WIDEN_MESSAGE.to_owned());
-                }
-                current.retain(|entry| *entry != id);
-                if !enabled {
-                    current.push(id.clone());
-                }
-                let mut projects = Map::new();
-                for (root, off) in by_root {
-                    if !off.is_empty() {
-                        projects.insert(root, json!({ "off": utf16_sorted(off) }));
-                    }
-                }
-                mixdog_statefile::write_json(lane, &file, &json!({ "projects": projects }), &mixdog_statefile::Opts::default())
-                    .map(drop)
-                    .map_err(|error| error.to_string())
-            })
-            .map_err(|error| error.to_string())?
-        })
-        .await
-        .map_err(|error| error.to_string())?;
+        let written = on_lane(self.io.durability, cancel, move |lane| write_switch(lane, &file, &key_root, &id, enabled, no_widen))
+            .await
+            .map_err(|error| error.to_string())?;
         written?;
         self.switches(&self.read(cancel).await?, &root).await
     }
+}
+
+/// Rewrites the policy file under its lock with connector `id` switched on or off for `root`. With `no_widen`, switching on a
+/// connector that is off is refused, judged on the file as it is under the lock.
+fn write_switch(lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>, file: &Path, root: &str, id: &str, enabled: bool, no_widen: bool) -> Result<(), String> {
+    mixdog_statefile::with_lock(lane, file, &mixdog_statefile::LockOpts::default(), || {
+        let mut by_root: Vec<(String, Vec<String>)> = match read_projects(lane, file) {
+            // A file that cannot be read is never overwritten: it may hold switches.
+            Projects::DenyAll => return Err(format!("{PROJECT_CONNECTORS_FILE} cannot be read; fix or remove it first")),
+            Projects::Absent => Vec::new(),
+            Projects::Roots(list) => list.into_iter().map(|entry| (entry.root, entry.off.into_iter().collect())).collect(),
+        };
+        let at = by_root.iter().position(|(entry, _)| same_path(entry, root));
+        let at = at.unwrap_or_else(|| {
+            by_root.push((root.to_owned(), Vec::new()));
+            by_root.len() - 1
+        });
+        let current = &mut by_root[at].1;
+        if no_widen && enabled && current.iter().any(|entry| entry == id) {
+            return Err(NO_WIDEN_MESSAGE.to_owned());
+        }
+        current.retain(|entry| entry != id);
+        if !enabled {
+            current.push(id.to_owned());
+        }
+        let mut projects = Map::new();
+        for (root, off) in by_root {
+            if !off.is_empty() {
+                projects.insert(root, json!({ "off": utf16_sorted(off) }));
+            }
+        }
+        mixdog_statefile::write_json(lane, file, &json!({ "projects": projects }), &mixdog_statefile::Opts::default())
+            .map(drop)
+            .map_err(|error| error.to_string())
+    })
+    .map_err(|error| error.to_string())?
 }

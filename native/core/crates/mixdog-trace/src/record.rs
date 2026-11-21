@@ -17,7 +17,7 @@ pub fn truthy(value: &Value) -> bool {
 }
 
 /// `value || null`.
-fn or_null(value: Option<&Value>) -> Value {
+pub(crate) fn or_null(value: Option<&Value>) -> Value {
     match value {
         Some(v) if truthy(v) => v.clone(),
         _ => Value::Null,
@@ -25,7 +25,7 @@ fn or_null(value: Option<&Value>) -> Value {
 }
 
 /// `value ?? null`.
-fn nullish(value: Option<&Value>) -> Value {
+pub(crate) fn nullish(value: Option<&Value>) -> Value {
     value.cloned().unwrap_or(Value::Null)
 }
 

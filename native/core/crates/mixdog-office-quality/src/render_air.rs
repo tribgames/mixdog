@@ -1,9 +1,3 @@
-//! `render-air.mjs`: air on the rendered page, read the way AeSlides reads whitespace: a local-variance map over a
-//! downsampled greyscale, thresholded, with the outer border dropped (peripheral margin is meant to be empty). A region
-//! with no local pixel variation is air whether the surface is paper, a dark field or the flat sky inside a picture,
-//! which is exactly what the shape footprint cannot see. The downsample stands in for the smoothing pass: a texture
-//! finer than one cell averages out. Numbers, never a verdict.
-
 use mixdog_js::math::{max, round};
 use mixdog_js::{json_number, to_number_of};
 use mixdog_raster::Image;
@@ -82,12 +76,23 @@ pub fn rendered_air(base64: &str, options: &AirOptions) -> Option<Air> {
     let w = max(32.0, round(options.width)) as usize;
     let h = max(18.0, round((source_height / source_width) * w as f64)) as usize;
     let pixels = paint_on_white(Some(&loaded), w as u32, h as u32, true).ok()?;
-    let pixels = pixels.data();
+    let (gray, colour) = grey_and_colourfulness(pixels.data(), w, h);
+    let stride = w + 1;
+    let (sum, sq) = integral_images(&gray, w, h);
+    let r = max(1.0, round(w as f64 * options.window)) as usize;
+    let (variance, peak) = local_variance(&sum, &sq, w, h, r);
+    Some(Air {
+        air: air_share(&variance, peak, w, h, options),
+        balance: weight_balance(&gray, &sum, stride, w, h, r),
+        colour: rounded(colour, 1),
+        largest: largest_object(&gray, w, h),
+    })
+}
+
+/// The greyscale of the page and its colourfulness (Hasler & Susstrunk 2003): with rg = R - G and yb = (R + G) / 2 - B,
+/// sqrt(sigma_rg^2 + sigma_yb^2) + 0.3 * sqrt(mu_rg^2 + mu_yb^2).
+fn grey_and_colourfulness(pixels: &[u8], w: usize, h: usize) -> (Vec<f64>, f64) {
     let mut gray = vec![0.0f64; w * h];
-    // Colourfulness (Hasler & Susstrunk 2003) of the whole page, the scale the reference reads use: rg = R - G,
-    // yb = (R + G) / 2 - B; sqrt(sigma_rg^2 + sigma_yb^2) + 0.3 * sqrt(mu_rg^2 + mu_yb^2). Paper with black type
-    // reads under 10, a page with one accent chart 15-30, a saturated field or a picture 40-90. Across a deck its
-    // spread is the colour pacing: the frontier decks run 16-36, a one-template IR deck 5-8.
     let (mut rg, mut yb, mut rg2, mut yb2) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
     for (i, value) in gray.iter_mut().enumerate() {
         let o = i * 4;
@@ -103,7 +108,11 @@ pub fn rendered_air(base64: &str, options: &AirOptions) -> Option<Air> {
     let n = (w * h) as f64;
     let colour =
         (max(0.0, rg2 / n - (rg / n) * (rg / n)) + max(0.0, yb2 / n - (yb / n) * (yb / n))).sqrt() + 0.3 * ((rg / n) * (rg / n) + (yb / n) * (yb / n)).sqrt();
-    // Integral images of x and x^2 give the local mean and variance in constant time per cell.
+    (gray, colour)
+}
+
+/// Integral images of x and x^2, `(w + 1) * (h + 1)` each: the local mean and variance in constant time per cell.
+fn integral_images(gray: &[f64], w: usize, h: usize) -> (Vec<f64>, Vec<f64>) {
     let stride = w + 1;
     let mut sum = vec![0.0f64; stride * (h + 1)];
     let mut sq = vec![0.0f64; stride * (h + 1)];
@@ -117,7 +126,11 @@ pub fn rendered_air(base64: &str, options: &AirOptions) -> Option<Air> {
             sq[y * stride + x] = sq[(y - 1) * stride + x] + row_sq;
         }
     }
-    let r = max(1.0, round(w as f64 * options.window)) as usize;
+    (sum, sq)
+}
+
+fn local_variance(sum: &[f64], sq: &[f64], w: usize, h: usize, r: usize) -> (Vec<f64>, f64) {
+    let stride = w + 1;
     let mut variance = vec![0.0f64; w * h];
     let mut peak = 0.0f64;
     for y in 0..h {
@@ -134,6 +147,10 @@ pub fn rendered_air(base64: &str, options: &AirOptions) -> Option<Air> {
             }
         }
     }
+    (variance, peak)
+}
+
+fn air_share(variance: &[f64], peak: f64, w: usize, h: usize, options: &AirOptions) -> Option<f64> {
     let bx = round(w as f64 * options.border) as usize;
     let by = round(h as f64 * options.border) as usize;
     let (mut cells, mut air) = (0.0f64, 0.0f64);
@@ -145,18 +162,9 @@ pub fn rendered_air(base64: &str, options: &AirOptions) -> Option<Air> {
             }
         }
     }
-    Some(Air {
-        air: if cells != 0.0 { Some(rounded(air / cells, 2)) } else { None },
-        balance: weight_balance(&gray, &sum, stride, w, h, r),
-        colour: rounded(colour, 1),
-        largest: largest_object(&gray, w, h),
-    })
+    if cells != 0.0 { Some(rounded(air / cells, 2)) } else { None }
 }
 
-/// The largest object on the page: the share of the canvas the biggest connected region of non-background pixels
-/// covers (a chart's frame with its bars, a picture, a dark field, a table), the way the reference reads measured it
-/// (thirteen decks: 0.21-0.71, median 0.4). The background is the tone the borders show; a pixel more than
-/// [`INK_TOLERANCE`] away from it is ink, and ink is joined four ways.
 fn largest_object(gray: &[f64], w: usize, h: usize) -> f64 {
     let mut border = Vec::with_capacity(2 * (w + h));
     for x in 0..w {
@@ -289,17 +297,22 @@ mod tests {
         rendered_air(data, &AirOptions::default()).expect("a readable page")
     }
 
-    #[test]
-    fn rendered_air_reads_flat_regions_as_air_on_paper_and_on_a_dark_field_alike() {
-        let light_sparse = page(|c| {
+    fn light_sparse() -> String {
+        page(|c| {
             rect(c, "#ffffff", 0.0, 0.0, 640.0, 360.0);
             rect(c, "#111111", 40.0, 40.0, 200.0, 30.0);
-        });
-        let dark_sparse = page(|c| {
+        })
+    }
+
+    fn dark_sparse() -> String {
+        page(|c| {
             rect(c, "#0f1b26", 0.0, 0.0, 640.0, 360.0);
             rect(c, "#f8fafc", 40.0, 40.0, 200.0, 30.0);
-        });
-        let dense = page(|c| {
+        })
+    }
+
+    fn dense() -> String {
+        page(|c| {
             rect(c, "#ffffff", 0.0, 0.0, 640.0, 360.0);
             let mut y = 30;
             while y < 330 {
@@ -311,34 +324,48 @@ mod tests {
                 }
                 y += 24;
             }
-        });
-        let light = air(&light_sparse).air.expect("air");
-        let dark = air(&dark_sparse).air.expect("air");
-        let busy_read = air(&dense);
-        let busy = busy_read.air.expect("air");
-        assert!(light > 0.8, "a mostly empty light page: {light}");
-        assert!((light - dark).abs() < 0.05, "the surface colour does not change the reading: {light} vs {dark}");
-        assert!(busy < 0.3, "a page full of text rows: {busy}");
-        // Balance: the evenly filled page is balanced; a page whose only mark sits in the top-left corner is not.
-        let even = busy_read.balance.expect("balance");
-        assert!(even.score > 0.85 && even.top_bottom > 0.9, "even rows balance top and bottom: {even:?}");
-        let corner = air(&light_sparse).balance.expect("balance");
-        assert!(corner.top_bottom < 0.5 && corner.left_right < 0.7 && corner.centered < 0.8, "one block in the top-left corner: {corner:?}");
-        // Colourfulness: paper with black type reads near zero; the same page with a teal chart field reads as colour.
-        let accent = page(|c| {
+        })
+    }
+
+    fn accent() -> String {
+        page(|c| {
             rect(c, "#ffffff", 0.0, 0.0, 640.0, 360.0);
             rect(c, "#111111", 40.0, 40.0, 200.0, 30.0);
             rect(c, "#0e7c86", 40.0, 120.0, 400.0, 200.0);
-        });
-        let quiet = air(&light_sparse).colour;
-        let coloured = air(&accent).colour;
+        })
+    }
+
+    #[test]
+    fn rendered_air_reads_flat_regions_as_air_on_paper_and_on_a_dark_field_alike() {
+        let light = air(&light_sparse()).air.expect("air");
+        let dark = air(&dark_sparse()).air.expect("air");
+        let busy = air(&dense()).air.expect("air");
+        assert!(light > 0.8, "a mostly empty light page: {light}");
+        assert!((light - dark).abs() < 0.05, "the surface colour does not change the reading: {light} vs {dark}");
+        assert!(busy < 0.3, "a page full of text rows: {busy}");
+    }
+
+    #[test]
+    fn balance_is_even_for_filled_rows_and_lopsided_for_a_corner_block() {
+        let even = air(&dense()).balance.expect("balance");
+        assert!(even.score > 0.85 && even.top_bottom > 0.9, "even rows balance top and bottom: {even:?}");
+        let corner = air(&light_sparse()).balance.expect("balance");
+        assert!(corner.top_bottom < 0.5 && corner.left_right < 0.7 && corner.centered < 0.8, "one block in the top-left corner: {corner:?}");
+    }
+
+    #[test]
+    fn colourfulness_is_near_zero_on_black_type_and_high_with_a_teal_field() {
+        let quiet = air(&light_sparse()).colour;
+        let coloured = air(&accent()).colour;
         assert!(quiet < 5.0, "black on white: {quiet}");
         assert!(coloured > 15.0 && coloured > quiet * 3.0, "a teal field over a third of the page: {coloured}");
-        // The largest object: the teal field (400 x 200 of 640 x 360 = 0.35) on the accent page; the one title block
-        // (200 x 30 = 0.026) on the sparse page; the dense rows are many small objects, none large.
-        let big = air(&accent).largest;
-        let small = air(&light_sparse).largest;
-        let rows = air(&dense).largest;
+    }
+
+    #[test]
+    fn the_largest_object_is_the_biggest_connected_region_of_ink() {
+        let big = air(&accent()).largest;
+        let small = air(&light_sparse()).largest;
+        let rows = air(&dense()).largest;
         assert!(big > 0.3 && big < 0.4, "the teal field: {big}");
         assert!(small < 0.05, "one title block: {small}");
         assert!(rows < 0.02, "rows of separate blocks: {rows}");

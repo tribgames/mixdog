@@ -221,10 +221,6 @@ impl ModelListing for Gated {
     }
 }
 
-/// `route-resolution.mjs:28-30` (`route-resolution.test.mjs` "a model chosen while the catalog is
-/// read is taken, not refused"): the model lands while the catalog read is held open, so the live
-/// route read again afterwards has one and the refusal never happens. The gate is the listing
-/// itself: the model is chosen only once the read is under way, and the read finishes only after.
 #[tokio::test]
 async fn a_model_chosen_while_the_catalog_is_read_is_taken_not_refused() {
     let thread = ThreadId::from("t");

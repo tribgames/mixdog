@@ -443,25 +443,44 @@ async fn a_share_post_reopens_the_shell_and_every_other_write_is_refused() {
 }
 // ---- the update page ----
 
-#[tokio::test]
-async fn only_unmatched_pcs_see_recovery_and_the_worker_can_still_update() {
-    let dir = tempfile::tempdir().unwrap();
-    let releases = dir.path().join("releases");
-    let renderer_dir = renderer(dir.path());
-    let entry = |id: &str, version: &str, hash: &str, legacy: bool| serde_json::json!({ "id": id, "desktopVersion": version, "shellVersion": hash, "addedAt": 10, "legacy": legacy });
-    let hash = "a".repeat(64);
-    let index = serde_json::json!({ "schemaVersion": 1, "releases": [entry("legacy", "", &hash, true), entry("r110", "1.1.0", "", false)] });
-    write(&releases.join("index.json"), index.to_string());
-    write(&releases.join("legacy").join("index.html"), "<!doctype html><title>Legacy</title>");
-    write(&releases.join("legacy").join("boot.js"), "boot");
-    write(&releases.join("r110").join("index.html"), "<!doctype html><title>Current</title>");
-    for file in ["sw.js", "sw-shell.js", "sw-media.js", "ui-language.js", "boot.js"] {
-        write(&renderer_dir.join(file), format!("// {file}"));
+struct RecoveryFixture {
+    _dir: tempfile::TempDir,
+    renderer_dir: std::path::PathBuf,
+    releases: std::path::PathBuf,
+    hash: String,
+    route: String,
+}
+
+impl RecoveryFixture {
+    fn new() -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let releases = dir.path().join("releases");
+        let renderer_dir = renderer(dir.path());
+        let entry = |id: &str, version: &str, hash: &str, legacy: bool| serde_json::json!({ "id": id, "desktopVersion": version, "shellVersion": hash, "addedAt": 10, "legacy": legacy });
+        let hash = "a".repeat(64);
+        let index = serde_json::json!({ "schemaVersion": 1, "releases": [entry("legacy", "", &hash, true), entry("r110", "1.1.0", "", false)] });
+        write(&releases.join("index.json"), index.to_string());
+        write(&releases.join("legacy").join("index.html"), "<!doctype html><title>Legacy</title>");
+        write(&releases.join("legacy").join("boot.js"), "boot");
+        write(&releases.join("r110").join("index.html"), "<!doctype html><title>Current</title>");
+        for file in ["sw.js", "sw-shell.js", "sw-media.js", "ui-language.js", "boot.js"] {
+            write(&renderer_dir.join(file), format!("// {file}"));
+        }
+        Self { _dir: dir, renderer_dir, releases, hash, route: format!("/d/{DEVICE}/") }
     }
-    let mut store = paired_store();
-    store.versions.insert(DEVICE.to_owned(), DeviceReport { app_version: "0.9.0".to_owned(), renderer_release: String::new() });
-    let gate = gate_for(&renderer_dir, &releases, store, open_limiter());
-    let route = format!("/d/{DEVICE}/");
+
+    fn gate_reporting(&self, app_version: &str, renderer_release: &str) -> Arc<GateHandler> {
+        let mut store = paired_store();
+        store.versions.insert(DEVICE.to_owned(), DeviceReport { app_version: app_version.to_owned(), renderer_release: renderer_release.to_owned() });
+        gate_for(&self.renderer_dir, &self.releases, store, open_limiter())
+    }
+}
+
+#[tokio::test]
+async fn an_unmatched_pc_gets_native_update_advice_and_browsers_get_the_unavailable_page() {
+    let fixture = RecoveryFixture::new();
+    let route = &fixture.route;
+    let gate = fixture.gate_reporting("0.9.0", "");
 
     let page = exchange(&gate, "GET", &route, &[("User-Agent", NATIVE_APP)]).await;
     assert_eq!(page.status, 200);
@@ -476,20 +495,27 @@ async fn only_unmatched_pcs_see_recovery_and_the_worker_can_still_update() {
     assert_eq!(exchange(&gate, "GET", &format!("{route}boot.js"), &[("User-Agent", NATIVE_APP)]).await.status, 404);
     assert!(exchange(&gate, "GET", &route, &[("User-Agent", NATIVE_APP), ("Sec-Fetch-Dest", "iframe")]).await.text().contains("Web client unavailable"));
     assert!(exchange(&gate, "GET", &route, &[("User-Agent", NATIVE_APP), ("Sec-Fetch-Dest", "document")]).await.text().contains("data-min"));
-    // A PC that reports a current version is served its own release.
-    let mut current = paired_store();
-    current.versions.insert(DEVICE.to_owned(), DeviceReport { app_version: "1.1.0".to_owned(), renderer_release: String::new() });
-    let gate = gate_for(&renderer_dir, &releases, current, open_limiter());
-    assert!(exchange(&gate, "GET", &route, &[("User-Agent", NATIVE_APP)]).await.text().contains("Current"));
+}
 
-    let mut adopted = paired_store();
-    adopted.versions.insert(DEVICE.to_owned(), DeviceReport { app_version: "0.9.0".to_owned(), renderer_release: hash });
-    let gate = gate_for(&renderer_dir, &releases, adopted, open_limiter());
-    assert!(exchange(&gate, "GET", &route, &[("User-Agent", NATIVE_APP)]).await.text().contains("Legacy"));
+#[tokio::test]
+async fn a_pc_that_reports_a_current_version_is_served_its_own_release() {
+    let fixture = RecoveryFixture::new();
+    let gate = fixture.gate_reporting("1.1.0", "");
+    assert!(exchange(&gate, "GET", &fixture.route, &[("User-Agent", NATIVE_APP)]).await.text().contains("Current"));
+}
 
-    let mut upgraded = paired_store();
-    upgraded.versions.insert(DEVICE.to_owned(), DeviceReport { app_version: "1.2.0".to_owned(), renderer_release: String::new() });
-    let gate = gate_for(&renderer_dir, &releases, upgraded, open_limiter());
+#[tokio::test]
+async fn a_pc_that_reports_an_adopted_shell_is_served_the_legacy_release() {
+    let fixture = RecoveryFixture::new();
+    let gate = fixture.gate_reporting("0.9.0", &fixture.hash);
+    assert!(exchange(&gate, "GET", &fixture.route, &[("User-Agent", NATIVE_APP)]).await.text().contains("Legacy"));
+}
+
+#[tokio::test]
+async fn a_pc_newer_than_every_release_is_told_to_reload_and_the_worker_can_still_update() {
+    let fixture = RecoveryFixture::new();
+    let route = &fixture.route;
+    let gate = fixture.gate_reporting("1.2.0", "");
     for agent in [NATIVE_APP, "Mozilla/5.0"] {
         let unavailable = exchange(&gate, "GET", &route, &[("User-Agent", agent)]).await;
         assert_eq!(unavailable.status, 200, "the shipped worker ignores non-OK refreshes");

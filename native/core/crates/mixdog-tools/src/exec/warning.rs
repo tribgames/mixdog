@@ -71,13 +71,10 @@ fn classify_remove_item(args: &[String]) -> Option<&'static str> {
     removal_warning(r, f)
 }
 
-fn classify_git(args: &[String]) -> Option<&'static str> {
+fn git_subcommand_index(args: &[String]) -> usize {
     static OWN_VALUE: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^--(?:git-dir|work-tree|namespace)(?:=|$)"));
     static PATHSPECS: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^--(?:literal|glob|noglob|icase)-pathspecs$"));
     static EXEC_PATH: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^(?:--exec-path=|--list-cmds=)"));
-    static PLUS_REF: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^\+[\w/.-]+"));
-    static HAS_N: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^-[a-zA-Z]*n[a-zA-Z]*$"));
-    static HAS_F: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^-[a-zA-Z]*f[a-zA-Z]*$"));
     let mut i = 0;
     while i < args.len() {
         let t = args[i].as_str();
@@ -91,6 +88,14 @@ fn classify_git(args: &[String]) -> Option<&'static str> {
             break;
         }
     }
+    i
+}
+
+fn classify_git(args: &[String]) -> Option<&'static str> {
+    static PLUS_REF: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^\+[\w/.-]+"));
+    static HAS_N: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^-[a-zA-Z]*n[a-zA-Z]*$"));
+    static HAS_F: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^-[a-zA-Z]*f[a-zA-Z]*$"));
+    let i = git_subcommand_index(args);
     let sub = args.get(i)?.as_str();
     let rest = &args[i + 1..];
     let has = |flag: &str| rest.iter().any(|t| t == flag);

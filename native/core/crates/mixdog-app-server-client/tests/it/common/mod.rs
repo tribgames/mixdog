@@ -1,6 +1,3 @@
-//! Scenario runner shared by the transport-specific conformance tests: it interprets every
-//! `packages/protocol-client/conformance/*.json` scenario (the TS runner interprets the same files) against a `Net`, the
-//! scripted server side of one transport.
 // Test code reads the scenario files directly.
 #![allow(dead_code, clippy::disallowed_methods)]
 

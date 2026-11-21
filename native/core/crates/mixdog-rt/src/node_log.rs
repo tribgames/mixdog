@@ -1,14 +1,11 @@
-//! The lines the Node core writes to its stderr, and where they go.
+//! The lines the Node core wrote to its stderr, and where they go. They are not developer diagnostics: the daemon's sink turns
+//! each into a `<data>/daemon.log` row (`[<ISO>] <text>`, or `[<ISO>] [console.warn] <text>`), and the memory worker's stderr is
+//! mirrored into `<data>/memory-runtime-proxy.log` as `[<ISO>] <text>`. A Rust line that stands for one of them goes through
+//! [`emit`] (the macros [`node_stderr!`], [`node_console_warn!`], [`node_console_error!`] and [`memory_stderr!`]), never
+//! `tracing`: `tracing` stays the developer channel, filtered by `RUST_LOG`.
 //!
-//! Node prints its `[module] …` diagnostics with `process.stderr.write`, `console.warn` or `console.error`, with no level
-//! gate. They are not developer diagnostics: the daemon's `installRedirect` (`daemon-log.mjs`) turns each into a
-//! `<data>/daemon.log` row (`[<ISO>] <text>`, or `[<ISO>] [console.warn] <text>`), and the memory worker's stderr is
-//! mirrored into `<data>/memory-runtime-proxy.log` as `[<ISO>] <text>`. A Rust line that stands for one of them goes
-//! through [`emit`] (the macros [`node_stderr!`], [`node_console_warn!`], [`node_console_error!`] and [`memory_stderr!`]),
-//! never `tracing`: `tracing` stays the developer channel, filtered by `RUST_LOG`.
-//!
-//! The process installs one [`Sink`] ([`install`]); the daemon's writes the rows above. Until one is installed (the CLI, a
-//! test process) a line is written bare to the process's stderr, newline-terminated, as Node prints it before any redirect.
+//! The process installs one [`Sink`] ([`install`]). Until one is installed (the CLI, a test process) a line is written bare to
+//! the process's stderr, newline-terminated.
 
 /// A line the daemon writes with `process.stderr.write`.
 #[macro_export]

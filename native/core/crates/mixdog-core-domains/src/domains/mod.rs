@@ -1,10 +1,8 @@
-//! Registration of every [`DomainService`] (SPEC §3.2 `mixdog-core::domains`).
-//!
-//! The core routes by exact method name (`CoreHandle::domain_for(method)`). A service claims
-//! the methods it lists in [`DomainService::methods`]; [`DomainsBuilder::register`] builds the
-//! one method-to-service table and refuses a method that is not in the protocol's method table
-//! or that a service already claimed, so a bad claim is a boot error. A method nobody claims
-//! has no entry: the router answers it `capabilityUnavailable`.
+//! Registration of every [`DomainService`]. A service claims the methods it lists in
+//! [`DomainService::methods`]; [`DomainsBuilder::register`] builds the one method-to-service table and
+//! refuses a method that is not in the protocol's method table or that a service already claimed, so a
+//! bad claim is a boot error. A method nobody claims has no entry: the router answers it
+//! `capabilityUnavailable`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -33,9 +31,7 @@ pub mod update;
 pub mod visualize_export;
 
 /// Namespaces the server and the thread layer serve themselves: they never reach a
-/// [`DomainService`]. `initialize`/`app`/`feed`/`op` are connection-level; `thread`, `turn` and
-/// `approval` address the thread directory and `RunControl`. (`initialized` is the handshake
-/// notification, which the table lists as a method.)
+/// [`DomainService`].
 pub const CORE_NAMESPACES: &[&str] = &["app", "approval", "feed", "initialize", "initialized", "op", "thread", "turn"];
 
 /// Every request and client notification of the method table, in table order.

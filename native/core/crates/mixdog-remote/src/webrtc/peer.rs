@@ -309,6 +309,7 @@ pub(crate) async fn open(config: &PeerConfig, media: Option<MediaSetup>) -> Resu
     let pc = build(config, media, mdns, tx).await.map_err(|e| PeerFault::new(PeerFailure::PeerHostUnavailable, e.to_string()))?;
     Ok(Opened { events: PeerEvents { rx, pc: Arc::clone(&pc) }, pc })
 }
+
 /// Whether this machine lets a connection resolve a peer's mDNS `.local` candidates.
 ///
 /// With mDNS on, the crate's driver opens and joins one multicast socket

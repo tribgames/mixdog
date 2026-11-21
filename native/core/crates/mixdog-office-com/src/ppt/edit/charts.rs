@@ -235,9 +235,46 @@ pub(crate) fn set_chart_data(context: &mut EditContext<'_>, presentation: &Com, 
             reverse_category_axis(&chart);
         }
     }
-    // The order a horizontal bar chart lists its categories in: topDown runs the category axis the other way with the value axis
-    // crossing at its far end, under the bars; bottomUp is PowerPoint's default, which a template's bar chart usually carries.
     let horizontal_bars = [57, 58, 59, 60, 61, 62].contains(&int_value(&chart.member("ChartType")?)?);
+    let category_order = apply_category_order(&chart, op, horizontal_bars)?;
+    if present(&prop(op, "showValues"))
+        || truthy(&prop(op, "valueNumberFormat"))
+        || truthy(&prop(op, "dataLabelPosition"))
+        || truthy(&prop(op, "dataLabelColor"))
+    {
+        set_data_labels(&chart, op)?;
+    }
+    restyle_value_axis(&chart, op);
+    let show_legend = prop(op, "showLegend");
+    if present(&show_legend) {
+        attempt(|| chart.set_member("HasLegend", boolean(truthy(&show_legend))));
+    }
+    retitle(&chart, op)?;
+    close_chart_data(&context.env, &chart, false, &excel_before);
+    move_last_point_accents(&chart, &accents, &series);
+    set_point_colors(&chart, &series, label_ink_wanted(op));
+    let mut pairs = vec![
+        ("op", Value::string("set_chart_data")),
+        ("changed", Value::Bool(true)),
+        ("shape", Value::Int(int(&prop(op, "shape"))?)),
+        ("categories", Value::Int(category_count)),
+        ("series", Value::Int(series_count)),
+    ];
+    // Bars left reading from the bottom up are named with the field that turns them over, as the portable writer names them.
+    if horizontal_bars && category_order.is_empty() {
+        let reversed = chart.call_member("Axes", &[i4(1)]).and_then(|axis| axis.member("ReversePlotOrder")).map(|flag| truth(&flag)).unwrap_or(true);
+        if !reversed {
+            pairs.push(("readingOrder", Value::string("bottomUp")));
+            pairs.push(("note", Value::string(BOTTOM_UP_NOTE)));
+        }
+    }
+    Ok(record(pairs))
+}
+
+/// The order a horizontal bar chart lists its categories in: topDown runs the category axis the other way with the value axis
+/// crossing at its far end, under the bars; bottomUp is PowerPoint's default, which a template's bar chart usually carries.
+/// Answers the order named, lowered and squeezed, empty when none was.
+fn apply_category_order(chart: &Com, op: &Value, horizontal_bars: bool) -> Result<String> {
     let order_given = prop(op, "categoryOrder");
     let mut category_order = String::new();
     if present(&order_given) && !text_of(&order_given).is_empty() {
@@ -258,13 +295,11 @@ pub(crate) fn set_chart_data(context: &mut EditContext<'_>, presentation: &Com, 
             category_axis.set_member("Crosses", i4(-4105))?;
         }
     }
-    if present(&prop(op, "showValues"))
-        || truthy(&prop(op, "valueNumberFormat"))
-        || truthy(&prop(op, "dataLabelPosition"))
-        || truthy(&prop(op, "dataLabelColor"))
-    {
-        set_data_labels(&chart, op)?;
-    }
+    Ok(category_order)
+}
+
+/// `zeroBaseline` and `valueNumberFormat` on the value axis, each only when given.
+fn restyle_value_axis(chart: &Com, op: &Value) {
     let zero_baseline = prop(op, "zeroBaseline");
     if present(&zero_baseline) || truthy(&prop(op, "valueNumberFormat")) {
         attempt(|| {
@@ -283,10 +318,10 @@ pub(crate) fn set_chart_data(context: &mut EditContext<'_>, presentation: &Com, 
             Ok(())
         });
     }
-    let show_legend = prop(op, "showLegend");
-    if present(&show_legend) {
-        attempt(|| chart.set_member("HasLegend", boolean(truthy(&show_legend))));
-    }
+}
+
+/// `title`: a given title is set, an empty one removes the title.
+fn retitle(chart: &Com, op: &Value) -> Result<()> {
     // title:'' removes the title, as the portable writer does: a template chart's own words otherwise stay.
     let title = prop(op, "title");
     if present(&title) {
@@ -297,25 +332,7 @@ pub(crate) fn set_chart_data(context: &mut EditContext<'_>, presentation: &Com, 
             chart.set_member("HasTitle", boolean(false))?;
         }
     }
-    close_chart_data(&context.env, &chart, false, &excel_before);
-    move_last_point_accents(&chart, &accents, &series);
-    set_point_colors(&chart, &series, label_ink_wanted(op));
-    let mut pairs = vec![
-        ("op", Value::string("set_chart_data")),
-        ("changed", Value::Bool(true)),
-        ("shape", Value::Int(int(&prop(op, "shape"))?)),
-        ("categories", Value::Int(category_count)),
-        ("series", Value::Int(series_count)),
-    ];
-    // Bars left reading from the bottom up are named with the field that turns them over, as the portable writer names them.
-    if horizontal_bars && category_order.is_empty() {
-        let reversed = chart.call_member("Axes", &[i4(1)]).and_then(|axis| axis.member("ReversePlotOrder")).map(|flag| truth(&flag)).unwrap_or(true);
-        if !reversed {
-            pairs.push(("readingOrder", Value::string("bottomUp")));
-            pairs.push(("note", Value::string(BOTTOM_UP_NOTE)));
-        }
-    }
-    Ok(record(pairs))
+    Ok(())
 }
 
 /// `[object[]]@($values)`: the values of a series as the block a COM property takes.

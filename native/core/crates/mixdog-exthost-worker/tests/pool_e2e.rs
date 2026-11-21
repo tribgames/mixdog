@@ -25,7 +25,7 @@ type Stream = Box<dyn EventSource<ExtFrame>>;
 
 fn config(workers: usize) -> ExtHostConfig {
     ExtHostConfig {
-        program: PathBuf::from(env!("CARGO_BIN_EXE_ext_worker_dev")),
+        program: PathBuf::from(mixdog_testkit::bin_exe!("ext_worker_dev")),
         args: Vec::new(),
         workers,
         pending_cap: 64,

@@ -1,8 +1,3 @@
-//! The transport harness: the server behind its real WebSocket listener on a loopback port, reached by real client
-//! connections. Each connection is driven as the daemon drives it (`mixdog-app-server-daemon` server.rs `drive`): its
-//! frames go to the server in arrival order and a close the server asks for closes the socket. A client keeps every text
-//! frame it receives, in order, and waits for frames with a deadline that names what it waited for.
-
 use std::time::Duration;
 
 use futures::SinkExt;

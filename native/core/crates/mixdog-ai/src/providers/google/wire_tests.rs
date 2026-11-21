@@ -1,11 +1,3 @@
-//! The Gemini API's whole request sequence against Node's recording (`fixtures/wire-anthropic-gemini/gemini.json`,
-//! recorded by `benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs` from `GeminiProvider.send` with the
-//! network replaced by a recorder and time by a virtual queue, at `b6f10295a`): per model family a first turn, a
-//! tool-result turn, long, resumed and compacted threads, expired and forked caches, a prefix below the cache floor,
-//! and the dated model redirect. Each send's requests (the cache create, the generate call, the delete a superseded
-//! cache schedules) are compared with what `GoogleAdapter::attempt` puts on the wire when the recorded answers come
-//! back, with the session state the send leaves behind.
-
 /// How long a step of the test may take in real time before it is a failure (nothing here waits on the network).
 const STEP: std::time::Duration = std::time::Duration::from_secs(30);
 

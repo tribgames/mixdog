@@ -118,44 +118,16 @@ impl Host {
         })
     }
 
-    /// The window's own rendering where the platform keeps one; elsewhere the
-    /// composited capture already renders exact windows. Without a named
-    /// backend PrintWindow is tried first and Windows Graphics Capture takes
-    /// over from a recoverable failure or an unusable frame
-    /// (capture-source-plan.ts, capture-native-surface.ts:110-177).
     pub(super) fn window_capture(&self, req: &Req) -> Res<Obj> {
         let info = self.resolve_window(req)?;
         let output = Output::of(req)?;
         let (mut capture, mut delivery) = self.capture_surface(req, &info, &output)?;
         let mut served = info.clone();
         let mut through_owner = false;
-        // A child window whose surface could not be read is retried once
-        // through its owner, whose composited surface includes the child
-        // (captureThroughOwner, capture-pixels.ts); the owner's attempts are
-        // appended to the child's, tagged scope owner.
-        if capture.surface.is_err() && !capture.terminal && info.owner != 0 && info.owner != info.handle {
-            // The owner is a capture of its own: a grant that names the child alone does not reach it.
-            let owner = self.desktop.info(info.owner).filter(|owner| owner.handle != 0 && self.authorize(req, owner.handle).is_ok());
-            if let Some(owner) = owner {
-                let (owner_capture, owner_delivery) = self.capture_surface(req, &owner, &output)?;
-                let mut attempts = std::mem::take(&mut capture.attempts);
-                attempts.extend(owner_capture.attempts.into_iter().map(|mut row| {
-                    if let Value::Object(fields) = &mut row {
-                        fields.insert("scope".into(), json!("owner"));
-                    }
-                    row
-                }));
-                let cleanup = worse(capture.cleanup, owner_capture.cleanup);
-                if owner_capture.surface.is_ok() {
-                    through_owner = true;
-                    served = owner;
-                    delivery = owner_delivery;
-                    capture = Capture { surface: owner_capture.surface, attempts, cleanup, terminal: false };
-                } else {
-                    capture.attempts = attempts;
-                    capture.cleanup = cleanup;
-                }
-            }
+        if let Some((owner, owner_delivery)) = self.capture_through_owner(req, &info, &output, &mut capture)? {
+            through_owner = true;
+            served = owner;
+            delivery = owner_delivery;
         }
         let mut reply = capture_reply(&served, capture);
         if let (Ok(result), Some(delivery)) = (reply.result.as_mut(), delivery) {
@@ -173,6 +145,31 @@ impl Host {
             self.retire_after_reply.set(true);
         }
         reply.result
+    }
+
+    fn capture_through_owner(&self, req: &Req, info: &WindowInfo, output: &Output, capture: &mut Capture) -> Res<Option<(WindowInfo, Option<Delivery>)>> {
+        if capture.surface.is_ok() || capture.terminal || info.owner == 0 || info.owner == info.handle {
+            return Ok(None);
+        }
+        let owner = self.desktop.info(info.owner).filter(|owner| owner.handle != 0 && self.authorize(req, owner.handle).is_ok());
+        let Some(owner) = owner else { return Ok(None) };
+        let (owner_capture, owner_delivery) = self.capture_surface(req, &owner, output)?;
+        let mut attempts = std::mem::take(&mut capture.attempts);
+        attempts.extend(owner_capture.attempts.into_iter().map(|mut row| {
+            if let Value::Object(fields) = &mut row {
+                fields.insert("scope".into(), json!("owner"));
+            }
+            row
+        }));
+        let cleanup = worse(capture.cleanup, owner_capture.cleanup);
+        if owner_capture.surface.is_ok() {
+            *capture = Capture { surface: owner_capture.surface, attempts, cleanup, terminal: false };
+            Ok(Some((owner, owner_delivery)))
+        } else {
+            capture.attempts = attempts;
+            capture.cleanup = cleanup;
+            Ok(None)
+        }
     }
 
     /// One window's capture through the plan its request names, the frame
@@ -460,10 +457,6 @@ struct Capture {
     terminal: bool,
 }
 
-/// The code a refusal text opens with (`code|message` or `code: message`),
-/// `capture_source_unavailable` when it has none (computerErrorCode,
-/// computer-bridge/error-code.mjs; capture-source-attempt.ts): a row never
-/// carries an error message.
 fn code_of(text: &str) -> &str {
     let text = text.trim();
     let end = text.find(['|', ':']).unwrap_or(0);
@@ -472,10 +465,6 @@ fn code_of(text: &str) -> &str {
     if coded { code } else { "capture_source_unavailable" }
 }
 
-/// Whether the next backend may still succeed after a refusal
-/// (RECOVERABLE_CAPTURE_CODES, capture-source-attempt.ts): a capture code other
-/// than a minimized or cloaked window, or an unusable frame. Resources that
-/// are not confirmed released end the plan.
 fn falls_through(failure: &CaptureFailure) -> bool {
     let code = code_of(&failure.text);
     let capture_code = code.starts_with("capture_") && !matches!(code, "capture_minimized" | "capture_cloaked");
@@ -560,10 +549,6 @@ fn captured_by(capture: &Capture) -> Option<&str> {
     capture.attempts.last()?["backend"].as_str()
 }
 
-/// What a capture answers: the request's result, what a failure still reports
-/// under `result`, and whether the host must exit once the reply is out
-/// (runtime.ps1:255-264: a host whose resource release is unconfirmed is
-/// never reused).
 struct CaptureReply {
     result: Res<Obj>,
     error_result: Option<Obj>,

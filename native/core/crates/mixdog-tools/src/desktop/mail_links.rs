@@ -156,9 +156,20 @@ mod tests {
         record(session, &mail("a@news.example.com", passed("news.example.com"), json!([]), &["https://news.example.com/confirm?t=1"]), NOW);
         let link = link_for(session, "https://news.example.com/confirm?t=1", NOW).expect("the written target is offered");
         assert_eq!(link, MailLink { url: "https://news.example.com/confirm?t=1".into(), from_domain: "news.example.com".into(), read_at: NOW });
-        assert_eq!(link.to_json(), json!({ "url": "https://news.example.com/confirm?t=1", "from_domain": "news.example.com", "read_at": NOW }));
         assert!(link_for(session, "https://news.example.com/confirm?t=2", NOW).is_none(), "another target of the same host");
-        assert!(link_for("another-session", "https://news.example.com/confirm?t=1", NOW).is_none(), "another session");
+    }
+
+    #[test]
+    fn a_mails_links_are_offered_only_to_the_session_that_read_it() {
+        record("links-owner", &mail("a@news.example.com", passed("news.example.com"), json!([]), &["https://news.example.com/confirm?t=1"]), NOW);
+        assert!(link_for("another-session", "https://news.example.com/confirm?t=1", NOW).is_none());
+    }
+
+    #[test]
+    fn an_offered_link_serializes_its_url_sender_domain_and_read_time() {
+        record("links-json", &mail("a@news.example.com", passed("news.example.com"), json!([]), &["https://news.example.com/confirm?t=1"]), NOW);
+        let link = link_for("links-json", "https://news.example.com/confirm?t=1", NOW).expect("offered");
+        assert_eq!(link.to_json(), json!({ "url": "https://news.example.com/confirm?t=1", "from_domain": "news.example.com", "read_at": NOW }));
     }
 
     #[test]

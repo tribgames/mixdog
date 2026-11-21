@@ -1,9 +1,6 @@
-//! The live-session refcount of the staged update (`registerLiveSession` of 1.4.5's `staged-update.mjs`).
-//!
-//! The update of an npm install is staged by the core (`npm install` into `<data>/staging/<version>`) and swapped in by the package's
-//! launcher (`bin/staged-swap.mjs`) at the next clean start. The swap never replaces the package under a program that runs, and it
-//! learns that from the pid files this module writes: `<data>/live-sessions/<pid>.pid`, `<pid> <ms>\n`, removed when the last session
-//! of this process is dropped. A pid file of a process that is gone is reaped by the swap.
+//! The package's launcher (`bin/staged-swap.mjs`) never replaces the package under a program that runs, and learns that from
+//! the pid files this module writes: `<data>/live-sessions/<pid>.pid`, `<pid> <ms>\n`, removed when the last session of this
+//! process is dropped. The swap reaps the pid file of a process that is gone.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;

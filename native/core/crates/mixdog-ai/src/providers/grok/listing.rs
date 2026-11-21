@@ -1,14 +1,3 @@
-//! `grok-oauth` model listing: the union of the api.x.ai catalog and the Grok
-//! CLI proxy catalog, merged per id, each row normalized the way the picker
-//! reads it, the newest dated chat model marked `latest`.
-//!
-//! api.x.ai is the primary catalog: its failure is the listing's failure. The
-//! proxy catalog adds the served names, context windows, effort levels and
-//! proxy-only variants; a proxy that cannot answer leaves the api.x.ai rows
-//! as they are. The rows end with the metadata enrichment, the Grok-specific
-//! settling of the enriched rows and the shared picker sanitizer, in Node's
-//! order (`_fetchAndCacheCatalog`).
-
 use crate::transport::Exchange;
 use crate::transport::deadlines::GROK_LISTING;
 use crate::transport::deadlines::GROK_PROXY_LISTING;

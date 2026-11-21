@@ -1,12 +1,3 @@
-//! The maintenance actions of the `memory` tool besides `core`, `status` and `ingest_session`
-//! (`memory-action-handlers.mjs` and `memory-action-handlers/*`): `search`, `dump_session_roots`,
-//! `prune`, `purge`, `cycle1`, `flush`, `rebuild`, `backfill` and `manage`. The destructive ones keep
-//! the confirm phrase they always asked for; nothing here asks more than before.
-//!
-//! The actions that read or delete rows need only the database; the ones that run cycle1, embed or
-//! ingest transcripts need the pieces [`Maintenance`] holds, which the stack attaches when it builds
-//! the memory runtime.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -177,7 +168,15 @@ pub async fn dump_session_roots(db: &Db, args: &Value) -> Result<ToolReply> {
     }
     let asked = to_number(args.get("limit").unwrap_or(&Value::Null));
     let limit = (if asked.is_nan() || asked == 0.0 { 1000.0 } else { asked }).clamp(1.0, 1000.0).floor() as i64;
-    let include_raw = args.get("includeRaw") != Some(&Value::Bool(false));
+    let mut chunks = root_chunks(db, &session_id, limit).await?;
+    if args.get("includeRaw") != Some(&Value::Bool(false)) {
+        chunks.extend(unchunked_raw_chunks(db, &session_id, limit).await?);
+    }
+    sort_chunks(&mut chunks);
+    Ok(ToolReply::ok(render_chunks(&chunks)))
+}
+
+async fn root_chunks(db: &Db, session_id: &str, limit: i64) -> Result<Vec<Chunk>> {
     let roots = db
         .query(
             "SELECT id, ts, content, source_turn, element, category, summary
@@ -224,34 +223,35 @@ pub async fn dump_session_roots(db: &Db, args: &Value) -> Result<ToolReply> {
             text,
         });
     }
-    if include_raw {
-        let raws = db
-            .query(
-                "SELECT id, ts, role, content, source_turn, chunk_root
-                 FROM entries
-                 WHERE session_id = $1
-                   AND is_root = 0
-                   AND (chunk_root IS NULL OR chunk_root = id)
-                 ORDER BY COALESCE(source_turn, 2147483647) ASC, ts ASC, id ASC
-                 LIMIT $2",
-                &[&session_id, &limit],
-            )
-            .await?;
-        for raw in &raws {
-            chunks.push(Chunk {
-                id: raw.get("id"),
-                root: false,
-                chunk_root: raw.get("chunk_root"),
-                ts: raw.get("ts"),
-                source_turn: raw.get("source_turn"),
-                category: None,
-                summary: String::new(),
-                text: role_line(&raw.get::<_, String>("role"), &raw.get::<_, String>("content")),
-            });
-        }
-    }
-    sort_chunks(&mut chunks);
-    Ok(ToolReply::ok(render_chunks(&chunks)))
+    Ok(chunks)
+}
+
+async fn unchunked_raw_chunks(db: &Db, session_id: &str, limit: i64) -> Result<Vec<Chunk>> {
+    let raws = db
+        .query(
+            "SELECT id, ts, role, content, source_turn, chunk_root
+             FROM entries
+             WHERE session_id = $1
+               AND is_root = 0
+               AND (chunk_root IS NULL OR chunk_root = id)
+             ORDER BY COALESCE(source_turn, 2147483647) ASC, ts ASC, id ASC
+             LIMIT $2",
+            &[&session_id, &limit],
+        )
+        .await?;
+    Ok(raws
+        .iter()
+        .map(|raw| Chunk {
+            id: raw.get("id"),
+            root: false,
+            chunk_root: raw.get("chunk_root"),
+            ts: raw.get("ts"),
+            source_turn: raw.get("source_turn"),
+            category: None,
+            summary: String::new(),
+            text: role_line(&raw.get::<_, String>("role"), &raw.get::<_, String>("content")),
+        })
+        .collect())
 }
 
 /// JavaScript truthiness of a JSON value.
@@ -710,6 +710,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
     async fn prune_and_purge_need_their_phrase_and_purge_keeps_the_curated_core() {
         let (_pg, db) = store().await;
         let day = 86_400_000_i64;
@@ -732,6 +733,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
     async fn the_session_dump_lists_roots_with_their_members_and_the_raw_leaves() {
         let (_pg, db) = store().await;
         db.execute(
@@ -802,6 +804,7 @@ mod tests {
         )
     }
     #[tokio::test]
+    #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
     async fn manage_adds_edits_and_deletes_a_root_and_the_chunk_it_owns() {
         let (_pg, db) = store().await;
         let m = maintenance(&db);
@@ -827,6 +830,7 @@ mod tests {
         );
     }
     #[tokio::test]
+    #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
     async fn a_cancelled_caller_ends_a_backfill_at_its_first_step_and_frees_the_mutex() {
         let (_pg, db) = store().await;
         let m = maintenance(&db);
@@ -841,6 +845,7 @@ mod tests {
         assert_eq!(waiting.unwrap_err().message(), "aborted");
     }
     #[tokio::test]
+    #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
     async fn the_rebuild_reset_clears_every_classification_and_demotes_the_roots() {
         let (_pg, db) = store().await;
         db.execute("INSERT INTO entries(ts, role, content, source_ref) VALUES (1, 'user', 'a', 'a'), (2, 'user', 'b', 'b')", &[]).await.unwrap();

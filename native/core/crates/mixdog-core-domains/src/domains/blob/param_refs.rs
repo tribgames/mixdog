@@ -247,9 +247,9 @@ mod tests {
         let (fixture, digests) = fixture(&[b"abc"]).await;
         let reference = json!({ "$blobRef": digests[0], "as": "text" });
         // A place of a listed method that is not listed.
-        let mut params = json!({ "input": { "prompt": "x", "options": { "displayText": reference.clone() } } });
+        let mut params = json!({ "input": { "prompt": "x", "options": { "unlisted": reference.clone() } } });
         let error = expand(&fixture, "turn/start", &mut params).await.unwrap_err();
-        assert!(matches!(&error, CoreError::InvalidParams { path, expected } if &**path == "/input/options/displayText" && &**expected == "a string"));
+        assert!(matches!(&error, CoreError::InvalidParams { path, expected } if &**path == "/input/options/unlisted" && &**expected == "a string"));
         // A method that lists nothing.
         let mut params = json!({ "anything": reference.clone() });
         let error = expand(&fixture, "thread/list", &mut params).await.unwrap_err();

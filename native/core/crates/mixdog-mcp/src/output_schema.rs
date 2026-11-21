@@ -101,6 +101,25 @@ impl Slot {
             build(&for_engine(&self.schema)?, &self.registered).map_err(|error| compile_error_text(&self.schema, &error))
         })
     }
+
+    /// Where Ajv's validation recurses without end, or past V8's stack, Node's call fails; the walk is bounded. Without a
+    /// reference nothing recurses.
+    fn overflows(&self, structured: &Value, stop: &Arc<AtomicBool>) -> bool {
+        crate::ajv_stack::references(&self.schema)
+            && std::thread::scope(|scope| {
+                std::thread::Builder::new()
+                    .name("mcp-ajv-walk".to_owned())
+                    .stack_size(crate::ajv_stack::WALK_STACK)
+                    .spawn_scoped(scope, || {
+                        let keywords = KeywordChecks { registered: &self.registered, built: RefCell::default(), patterns: RefCell::default() };
+                        let docs = crate::ajv_stack::Documents::new(&self.schema, &self.registered);
+                        fancy_regex::interrupt::checking(Arc::clone(stop), || crate::ajv_stack::validation_overflows(&docs, structured, &keywords))
+                    })
+                    .expect("a thread for the validation walk")
+                    .join()
+                    .expect("the validation walk ends")
+            })
+    }
 }
 
 /// The validation walk's answers for single keywords ([`crate::ajv_stack::Keywords`]): each keyword alone, built as the
@@ -325,23 +344,7 @@ impl OutputValidators {
             return if is_error { Ok(()) } else { Err(refused(-32600, format!("Tool {tool} has an output schema but did not return structured content"))) };
         };
         let validator = slot.compile().as_ref().map_err(|error| refused(-32602, format!("Failed to validate structured content: {error}")))?;
-        // Where Ajv's validation recurses without end, or past V8's stack, Node's call fails; the walk is bounded. Without a
-        // reference nothing recurses.
-        let overflows = crate::ajv_stack::references(&slot.schema)
-            && std::thread::scope(|scope| {
-                std::thread::Builder::new()
-                    .name("mcp-ajv-walk".to_owned())
-                    .stack_size(crate::ajv_stack::WALK_STACK)
-                    .spawn_scoped(scope, || {
-                        let keywords = KeywordChecks { registered: &slot.registered, built: RefCell::default(), patterns: RefCell::default() };
-                        let docs = crate::ajv_stack::Documents::new(&slot.schema, &slot.registered);
-                        fancy_regex::interrupt::checking(Arc::clone(stop), || crate::ajv_stack::validation_overflows(&docs, structured, &keywords))
-                    })
-                    .expect("a thread for the validation walk")
-                    .join()
-                    .expect("the validation walk ends")
-            });
-        if overflows {
+        if slot.overflows(structured, stop) {
             return Err(refused(-32602, format!("Failed to validate structured content: {}", crate::ajv_stack::STACK_OVERFLOW)));
         }
         let errors: Vec<ValidationError<'_>> = validator.iter_errors(structured).collect();

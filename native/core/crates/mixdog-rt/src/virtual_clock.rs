@@ -42,52 +42,6 @@
 //! `advance` that would take wall-ms + V past it, ends the process, as do a wrong token, a non-loopback address and no settle
 //! within settle-ms: exit [`EXIT_CODE`], the cause on stderr.
 //!
-//! # The settle point: invariant
-//!
-//! Counted work shows on one of five indicators: each runtime's inject queue (`global_queue_depth`), each runtime's busy flag
-//! (set in its `on_thread_unpark` hook, cleared in its `on_thread_park` hook), and the lane jobs in flight. `settle` reads the
-//! epoch, then both queues, then both busy flags and the in-flight count, then the epoch again, and calls the core idle only when
-//! all five read zero between two equal epoch reads. Every transition keeps three rules:
-//!
-//! 1. Hand-over: work that creates work makes the new work show on an indicator before its own indicator can read zero.
-//! 2. Bump before release: an indicator that drops to zero first bumps the epoch (`bump`, then the store). `released` bumps
-//!    once more after the store, so a settle that read the first bump and the indicator before the drop wakes and looks again.
-//! 3. Queue before flag: a runtime takes a task off its inject queue only with its busy flag already set.
-//!
-//! Why an idle read is true: take any counted work alive at the first epoch read and follow it through its hand-overs. Every
-//! hand-over (rule 1) is followed by a release that bumps first (rule 2), so with equal epochs no hand-over finished in between,
-//! and some piece of that work stayed on one indicator for the whole read: on a busy flag or the in-flight count, which is read
-//! after the queues and cannot drop unbumped, or on a queue, which it leaves only for its runtime's flag, read later (rule 3).
-//! Work that was not alive at the first read was made by work that was, or by an uncounted source.
-//!
-//! # Transitions
-//!
-//! | # | Transition | Indicator change | Upheld by |
-//! |---|---|---|---|
-//! | 1 | task spawned or woken from another thread (the other runtime, a lane, this clock, any thread) | its runtime's queue +1 inside the wake, before the waker returns | tokio `current_thread` `Schedule::schedule`: `inject.push`, then `driver.unpark` |
-//! | 2 | task spawned or woken on its own runtime's thread (channel, `JoinHandle`, `spawn` from a task) | local queue while the busy flag is set | tokio `block_on` loop: `park` only after `next_task` found nothing and `has_pending_work` is false |
-//! | 3 | deferred wake (`yield_now`, coop budget) | defer list while the busy flag is set | same loop: `park_yield`, which runs no hook, while `defer` is not empty |
-//! | 4 | task woken by this clock's timer | row 1 from this clock's thread | `advance`: `fire_next`, then `settle`, on one thread |
-//! | 5 | ticker callback | a task spawned on RT-C from this clock's thread (row 1) | `run` |
-//! | 6 | tokio timer (`tokio::time` armed directly: this crate's tests) | fired by its runtime's driver in `park_yield` while the move task runs (row 2) | `move_to` spawns the move on each runtime (row 1) |
-//! | 7 | task woken by the I/O driver in a real park | local queue while the busy flag is clear: unseen until row 8 | not upheld: real I/O, which the replay waits for (`wait`) |
-//! | 8 | runtime unparked | busy flag set before any task is taken (rule 3) | `build`: the `on_thread_unpark` hook runs in tokio's `park` before the loop's `next_task` |
-//! | 9 | runtime parks | bump, busy flag cleared, bump | `build`: the `on_thread_park` hook |
-//! | 10 | lane job queued | in-flight +1 before the job enters a lane queue | `counted`, called by `Executors::submit` before `LaneExec::submit` |
-//! | 11 | lane job started | none: in flight since row 10 | `counted` |
-//! | 12 | lane job finished | result sent (its waiter: row 1), bump, in-flight -1, bump | `InFlight`'s drop |
-//! | 13 | lane job dropped unrun (cancelled at dequeue, refused, lane gone) | result sender dropped (row 1), bump, in-flight -1, bump | `InFlight`'s drop |
-//! | 14 | task spawned by a lane job | row 1 before row 12 | the job's body runs inside `InFlight` |
-//! | 15 | PTY job, a thread token's or a crate's own thread, `Handle::block_on` off the runtimes (mixdogd's `serve`) | not counted | real I/O; whatever they wake on a runtime is row 1 from its push on |
-//! | 16 | immediate queued | none: its task waits on it as on a timer | `check_phase`, run under `turn` by `advance` (each turn, and before it answers), by `wait` before it answers, and by `drive_checks` between commands |
-//! | 17 | immediate fired | row 4: row 1 from this clock's thread, then `settle` | `check_phase` |
-//!
-//! `tests/virtual_clock.rs` holds each counted transition half done at a pause point ([`pause`]: `lane-queued`, `lane-start`,
-//! `lane-sent`, `lane-bumped`, `lane-released`, `spawned <task>`, `polled <task>`, `parking <RT>`, `parked <RT>`,
-//! `unparking <RT>`, `unparked <RT>`, `settle-read-queues`) while an `advance` settles, and checks that it answers only after the
-//! transition completed and its work ran; `the_reviewers_interleaving` is a lane completion between settle's queue and flag
-//! reads.
-//!
 //! # Same-instant order: Node's
 //!
 //! Node v22.20.0, `lib/internal/timers.js` (read from the binary: `process.binding('natives')`), which `Timers` copies:
@@ -136,21 +90,11 @@
 //! # Time readers
 //!
 //! Under this clock, on RT-C and RT-W, `tokio::time::Instant::now()` reads V: each runtime's tokio clock is paused and moved to V
-//! at every stop (`move_to`), its origin within half a millisecond of the other's. Wall-clock readers in the crates with
-//! this feature (mixdog-rt, mixdog-core-session, mixdog-app-server-daemon, mixdog-cli) go through [`system_now`]
-//! (`mixdog_rt::wall_clock!`, `mixdog_rt::utc_now!`), and every crate's timers through `mixdog_rt::time`. These read real
-//! time on purpose, none of them compared by a replay:
-//! - measures of the machine: poll, queue-wait and service durations and the lane leases (mixdog-rt `lib.rs` `Instrumented`,
-//!   `exec/pool.rs`, `lanes.rs`), the daemon's stall monitor and its `atMs` lines (`lifecycle/stall.rs`), its boot timing
-//!   (`lib.rs` `booted_at`), and this clock's settle deadline;
-//! - a std `Instant` turned into a deadline (`ticker::register`, `Scope::deadline`; the daemon's ticker deadlines in `exec.rs`,
-//!   `pair_code.rs`, `catalog.rs`, `event_pipeline.rs`, `session_sweep.rs`): read only for its distance from now;
-//! - the daemon's prior-owner and claim records (`barrier/mod.rs` `now_ms`, `verdict/mod.rs` release entries,
-//!   `server_ensure/os.rs`): compared with other processes' records and OS process start times, which are real;
-//! - setup-command progress and step durations (core-session `worktree_setup_run.rs`): they time a child process, real I/O;
-//! - uuid v7 ids (core-session `mod.rs` `new_id`, `handle.rs`, `new_route.rs`, `route_session.rs`, `route_setup.rs`; daemon
-//!   `late_session.rs`): their time bits sit beside random bits, so no replay compares them;
-//! - `tokio::time::Instant::now()` off the runtimes (lane and dedicated threads) reads the real clock.
+//! at every stop (`move_to`). Wall-clock readers in the crates with this feature go through [`system_now`]
+//! (`mixdog_rt::wall_clock!`, `mixdog_rt::utc_now!`), and every crate's timers through `mixdog_rt::time`. Machine measures (poll,
+//! queue-wait and service durations, lane leases, stall monitor, boot timing), a std `Instant` turned into a deadline, records
+//! compared with other processes or the OS, child-process durations and uuid v7 ids read real time, none compared by a replay;
+//! `tokio::time::Instant::now()` off the runtimes reads the real clock.
 //!
 //! A frozen core's I/O timeouts fire only when an advance passes them.
 

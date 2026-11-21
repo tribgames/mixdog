@@ -1,7 +1,4 @@
-//! Owner: s4-engine-lane
-//! What the host pushes, routed where it is kept: events and facts into the [`Mirror`]'s ledgers, the person's input into the
-//! [`UserHold`] that aborts agent commands, and the end of the host's claim into both. Synchronous and ordered, as [`EngineSink`]
-//! requires: every method records and returns.
+//! Synchronous and ordered, as [`EngineSink`] requires: every method records and returns.
 
 use std::sync::Arc;
 

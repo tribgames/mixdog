@@ -316,62 +316,71 @@ fn fold_rollup_day(state: &mut State, key: &str, day: &Value, conversation_only:
             if conversation_only && amount(route.get("turns")) <= 0.0 {
                 continue;
             }
-            let slash = route_key.find('/').filter(|at| *at > 0);
-            let provider_id = Some(trimmed(raw.get("provider")))
-                .filter(|p| !p.is_empty())
-                .unwrap_or_else(|| slash.map_or_else(String::new, |at| route_key[..at].to_string()));
-            let model_id = Some(trimmed(raw.get("model")))
-                .filter(|m| !m.is_empty())
-                .unwrap_or_else(|| slash.map_or_else(String::new, |at| route_key[at + 1..].to_string()));
-            if provider_id.is_empty() || model_id.is_empty() {
+            let Some((provider_id, model_id)) = route_ids(route_key, raw) else {
                 continue;
-            }
-            let cost_usd = amount(route.get("costUsd"));
-            let cost_billed = amount(route.get("costBilled"));
-            let tally = Tally {
-                turns: amount(route.get("turns")),
-                input: amount(route.get("input")),
-                output: amount(route.get("output")),
-                cache_read: amount(route.get("cacheRead")),
-                cache_write: amount(route.get("cacheWrite")),
-                cost_usd,
-                cost_known_turns: known_cost_turns(route),
-                cost_billed,
-                cost_estimated: match route.get("costEstimated") {
-                    Some(v) if !v.is_null() => amount(Some(v)),
-                    _ => (cost_usd - cost_billed).max(0.0),
-                },
-                unmeasured_turns: amount(route.get("unmeasuredTurns")),
-                // Speed is the model's, whoever sent the request: read off the full route.
-                speed_output: amount(raw.get("speedOutput")),
-                speed_ms: amount(raw.get("speedMs")),
             };
-            let usage = Usage { tally, sessions: route.get("sessions").and_then(Value::as_object), sessions_complete: route.get("sessionsComplete") };
+            let usage = Usage {
+                tally: route_tally(route, raw),
+                sessions: route.get("sessions").and_then(Value::as_object),
+                sessions_complete: route.get("sessionsComplete"),
+            };
             fold_route(state, &provider_id, &model_id, &trimmed(raw.get("kind")), &usage, SpeedTier::from_row(raw));
             add_daily(state, key, &usage, &provider_id);
         }
     }
+    fold_day_sessions(state, day, conversation_only);
+}
 
-    // Session ids are recorded for conversation turns only, so both views read the same map,
-    // except a day whose ids were collected while background cycles still counted.
-    let partial = conversation_only && is_true(day.get("conversationPartial")) && !is_true(day.get("sessionsPurged"));
-    if !partial {
-        if let Some(sessions) = day.get("sessions").and_then(Value::as_object) {
-            for (id, tokens) in sessions {
-                // One session can span midnight; its totals are summed across days.
-                let held = state.sessions.entry(id, || 0.0);
-                *held += amount(Some(tokens));
-            }
-        }
-        if let Some(tokens) = day.get("sessionTokens").and_then(Value::as_array) {
-            state.anonymous.extend(tokens.iter().map(|t| amount(Some(t))));
-            if !tokens.is_empty() {
-                state.sessions_complete = false;
-            }
-        }
+/// The route's provider and model: its own fields, else the two halves of its `provider/model` key.
+fn route_ids(route_key: &str, raw: &Value) -> Option<(String, String)> {
+    let slash = route_key.find('/').filter(|at| *at > 0);
+    let provider_id =
+        Some(trimmed(raw.get("provider"))).filter(|p| !p.is_empty()).unwrap_or_else(|| slash.map_or_else(String::new, |at| route_key[..at].to_string()));
+    let model_id =
+        Some(trimmed(raw.get("model"))).filter(|m| !m.is_empty()).unwrap_or_else(|| slash.map_or_else(String::new, |at| route_key[at + 1..].to_string()));
+    (!provider_id.is_empty() && !model_id.is_empty()).then_some((provider_id, model_id))
+}
+
+/// The route's counts from the view being folded; speed always comes off `full_route`, the model's whoever sent the request.
+fn route_tally(route: &Value, full_route: &Value) -> Tally {
+    let cost_usd = amount(route.get("costUsd"));
+    let cost_billed = amount(route.get("costBilled"));
+    Tally {
+        turns: amount(route.get("turns")),
+        input: amount(route.get("input")),
+        output: amount(route.get("output")),
+        cache_read: amount(route.get("cacheRead")),
+        cache_write: amount(route.get("cacheWrite")),
+        cost_usd,
+        cost_known_turns: known_cost_turns(route),
+        cost_billed,
+        cost_estimated: match route.get("costEstimated") {
+            Some(v) if !v.is_null() => amount(Some(v)),
+            _ => (cost_usd - cost_billed).max(0.0),
+        },
+        unmeasured_turns: amount(route.get("unmeasuredTurns")),
+        speed_output: amount(full_route.get("speedOutput")),
+        speed_ms: amount(full_route.get("speedMs")),
     }
 }
 
+fn fold_day_sessions(state: &mut State, day: &Value, conversation_only: bool) {
+    let partial = conversation_only && is_true(day.get("conversationPartial")) && !is_true(day.get("sessionsPurged"));
+    if partial {
+        return;
+    }
+    if let Some(sessions) = day.get("sessions").and_then(Value::as_object) {
+        for (id, tokens) in sessions {
+            *state.sessions.entry(id, || 0.0) += amount(Some(tokens));
+        }
+    }
+    if let Some(tokens) = day.get("sessionTokens").and_then(Value::as_array) {
+        state.anonymous.extend(tokens.iter().map(|t| amount(Some(t))));
+        if !tokens.is_empty() {
+            state.sessions_complete = false;
+        }
+    }
+}
 fn collect(rollup_days: &Map<String, Value>, window: Window, conversation_only: bool) -> State {
     let from_key = if window.from_ms > 0 { day_key(window.from_ms) } else { String::new() };
     let to_key = day_key(window.to_ms);
@@ -637,62 +646,10 @@ pub fn rollup_query_for(period: Option<&Value>) -> RollupQuery {
     query
 }
 
-/// The snapshot for a rollup document (`{days}`) and the rollup's hourly records.
-pub fn usage_stats_snapshot(rollup: &Value, hourly_records: Option<&Hourly>, options: &UsageStatsOptions, period: Option<&Value>, now: i64) -> Value {
-    let conversation_only = options.source.as_deref() == Some("conversation");
-    let days = normalize_days(&options.days);
-    let model_limit = normalize_model_limit(&options.model_limit);
-    let window = match period {
-        Some(p) => Window {
-            days: p.get("days").and_then(Value::as_i64),
-            from_ms: p.get("fromMs").and_then(Value::as_i64).unwrap_or(0),
-            to_ms: p.get("toMs").and_then(Value::as_i64).unwrap_or(0),
-        },
-        None => resolve_window(days, now),
-    };
-    let empty = Map::new();
-    let rollup_days = rollup.get("days").and_then(Value::as_object).unwrap_or(&empty);
-    let state = collect(rollup_days, window, conversation_only);
-
-    let cache_tokens = state.tally.cache_read + state.tally.cache_write;
-    let total_tokens = state.tally.input + state.tally.output + cache_tokens;
-    let mut session_totals: Vec<f64> = state.sessions.values().copied().collect();
-    session_totals.extend(&state.anonymous);
-    let first_day = state.day_keys.iter().next().cloned().unwrap_or_default();
-    let last_day = state.day_keys.iter().next_back().cloned().unwrap_or_default();
-    let end_day = day_key(window.to_ms);
-    let span_days = if first_day.is_empty() { 0 } else { calendar_days(&first_day, &end_day).len() };
-    let effective_days = match window.days {
-        None => span_days as f64,
-        Some(d) => (d.max(1)) as f64,
-    };
-    let period_end = period.and_then(|p| p.get("endDay")).and_then(Value::as_str);
-    let providers = export_providers(&state, total_tokens, model_limit);
-    let daily = export_daily(&state, window, period.is_some(), period_end, &first_day, &end_day);
-    let prior = if period.is_some() { None } else { previous_window(window).map(|w| collect(rollup_days, w, conversation_only)) };
-
+fn export_totals(state: &State, effective_days: f64, session_totals: &[f64]) -> Value {
     let t = &state.tally;
-    let mut out = Map::new();
-    out.insert("generatedAt".into(), now.into());
-    if let Some(p) = period {
-        out.insert("period".into(), p.clone());
-        if p.get("view").and_then(Value::as_str) == Some("hour") {
-            out.insert(
-                "hourly".into(),
-                hourly_series(hourly_records, window.from_ms, window.to_ms, p.get("endMs").and_then(Value::as_i64).unwrap_or(window.to_ms), conversation_only),
-            );
-        }
-    }
-    out.insert("source".into(), if conversation_only { "conversation" } else { "all" }.into());
-    let mut range = Map::new();
-    range.insert("days".into(), window.days.map_or(Value::Null, Value::from));
-    range.insert("fromMs".into(), window.from_ms.into());
-    range.insert("toMs".into(), window.to_ms.into());
-    range.insert("firstDay".into(), first_day.into());
-    range.insert("lastDay".into(), last_day.into());
-    range.insert("activeDays".into(), state.day_keys.len().into());
-    out.insert("range".into(), Value::Object(range));
-
+    let cache_tokens = t.cache_read + t.cache_write;
+    let total_tokens = t.input + t.output + cache_tokens;
     let mut totals = Map::new();
     let mut put = |key: &str, value: Value| {
         totals.insert(key.to_string(), value);
@@ -717,24 +674,21 @@ pub fn usage_stats_snapshot(rollup: &Value, hourly_records: Option<&Hourly>, opt
     put("costEstimated", js_number(round_to(t.cost_estimated, 6)));
     put("costPerDay", js_number(if effective_days > 0.0 { round_to(t.cost_usd / effective_days, 6) } else { 0.0 }));
     put("tokensPerSession", js_number(if session_totals.is_empty() { 0.0 } else { round(total_tokens / session_totals.len() as f64) }));
-    put("medianTokensPerSession", js_number(round(median(&session_totals))));
+    put("medianTokensPerSession", js_number(round(median(session_totals))));
     put("avgDurationMs", js_number(if state.duration_turns > 0.0 { round(state.duration_ms / state.duration_turns) } else { 0.0 }));
     put("costCoverage", js_number(if t.turns > 0.0 { round_to(t.cost_known_turns / t.turns, 4) } else { 0.0 }));
-    out.insert("totals".into(), Value::Object(totals));
+    Value::Object(totals)
+}
 
-    out.insert(
-        "previous".into(),
-        prior.map_or(Value::Null, |p| {
-            let mut previous = Map::new();
-            previous.insert("turns".into(), js_number(p.tally.turns));
-            previous.insert("tokens".into(), js_number(p.tally.tokens()));
-            previous.insert("costUsd".into(), js_number(round_to(p.tally.cost_usd, 6)));
-            Value::Object(previous)
-        }),
-    );
-    out.insert("daily".into(), Value::Array(daily));
-    out.insert("providers".into(), Value::Array(providers));
-    out.insert("unpricedModels".into(), Value::Array(export_unpriced(&state)));
+fn export_previous(prior: &State) -> Value {
+    let mut previous = Map::new();
+    previous.insert("turns".into(), js_number(prior.tally.turns));
+    previous.insert("tokens".into(), js_number(prior.tally.tokens()));
+    previous.insert("costUsd".into(), js_number(round_to(prior.tally.cost_usd, 6)));
+    Value::Object(previous)
+}
+
+fn export_coverage(state: &State) -> Value {
     let mut coverage = Map::new();
     coverage.insert("rollupDays".into(), state.rollup_days.into());
     coverage.insert("eventDays".into(), 0.into());
@@ -744,7 +698,69 @@ pub fn usage_stats_snapshot(rollup: &Value, hourly_records: Option<&Hourly>, opt
     coverage.insert("unclassifiedDays".into(), state.unclassified_days.into());
     coverage.insert("unclassifiedTurns".into(), js_number(state.unclassified_turns));
     coverage.insert("partialDays".into(), state.partial_days.into());
-    out.insert("coverage".into(), Value::Object(coverage));
+    Value::Object(coverage)
+}
+/// The snapshot for a rollup document (`{days}`) and the rollup's hourly records.
+pub fn usage_stats_snapshot(rollup: &Value, hourly_records: Option<&Hourly>, options: &UsageStatsOptions, period: Option<&Value>, now: i64) -> Value {
+    let conversation_only = options.source.as_deref() == Some("conversation");
+    let days = normalize_days(&options.days);
+    let model_limit = normalize_model_limit(&options.model_limit);
+    let window = match period {
+        Some(p) => Window {
+            days: p.get("days").and_then(Value::as_i64),
+            from_ms: p.get("fromMs").and_then(Value::as_i64).unwrap_or(0),
+            to_ms: p.get("toMs").and_then(Value::as_i64).unwrap_or(0),
+        },
+        None => resolve_window(days, now),
+    };
+    let empty = Map::new();
+    let rollup_days = rollup.get("days").and_then(Value::as_object).unwrap_or(&empty);
+    let state = collect(rollup_days, window, conversation_only);
+
+    let total_tokens = state.tally.input + state.tally.output + state.tally.cache_read + state.tally.cache_write;
+    let mut session_totals: Vec<f64> = state.sessions.values().copied().collect();
+    session_totals.extend(&state.anonymous);
+    let first_day = state.day_keys.iter().next().cloned().unwrap_or_default();
+    let last_day = state.day_keys.iter().next_back().cloned().unwrap_or_default();
+    let end_day = day_key(window.to_ms);
+    let span_days = if first_day.is_empty() { 0 } else { calendar_days(&first_day, &end_day).len() };
+    let effective_days = match window.days {
+        None => span_days as f64,
+        Some(d) => (d.max(1)) as f64,
+    };
+    let period_end = period.and_then(|p| p.get("endDay")).and_then(Value::as_str);
+    let providers = export_providers(&state, total_tokens, model_limit);
+    let daily = export_daily(&state, window, period.is_some(), period_end, &first_day, &end_day);
+    let prior = if period.is_some() { None } else { previous_window(window).map(|w| collect(rollup_days, w, conversation_only)) };
+
+    let mut out = Map::new();
+    out.insert("generatedAt".into(), now.into());
+    if let Some(p) = period {
+        out.insert("period".into(), p.clone());
+        if p.get("view").and_then(Value::as_str) == Some("hour") {
+            out.insert(
+                "hourly".into(),
+                hourly_series(hourly_records, window.from_ms, window.to_ms, p.get("endMs").and_then(Value::as_i64).unwrap_or(window.to_ms), conversation_only),
+            );
+        }
+    }
+    out.insert("source".into(), if conversation_only { "conversation" } else { "all" }.into());
+    let mut range = Map::new();
+    range.insert("days".into(), window.days.map_or(Value::Null, Value::from));
+    range.insert("fromMs".into(), window.from_ms.into());
+    range.insert("toMs".into(), window.to_ms.into());
+    range.insert("firstDay".into(), first_day.into());
+    range.insert("lastDay".into(), last_day.into());
+    range.insert("activeDays".into(), state.day_keys.len().into());
+    out.insert("range".into(), Value::Object(range));
+
+    out.insert("totals".into(), export_totals(&state, effective_days, &session_totals));
+
+    out.insert("previous".into(), prior.map_or(Value::Null, |p| export_previous(&p)));
+    out.insert("daily".into(), Value::Array(daily));
+    out.insert("providers".into(), Value::Array(providers));
+    out.insert("unpricedModels".into(), Value::Array(export_unpriced(&state)));
+    out.insert("coverage".into(), export_coverage(&state));
     Value::Object(out)
 }
 

@@ -1,5 +1,4 @@
-//! Owner: s4-engine-queue
-//! Local user input on a page outranks the agent (`command-queue-local-input.ts`, the agent half): a takeover aborts the
+//! Local user input on a page outranks the agent: a takeover aborts the
 //! agent commands queued or running on that page and keeps new ones out until the person has been quiet for a moment.
 //! Serializing the person's own input stays in the host.
 

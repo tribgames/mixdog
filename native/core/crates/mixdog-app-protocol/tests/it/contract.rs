@@ -4,6 +4,7 @@
 #![allow(clippy::disallowed_methods, reason = "test setup: reads goldens and writes its own sample files on the test thread")]
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -305,10 +306,6 @@ fn unpaired_surrogate_escapes_are_read_as_replacement_characters() {
     let InboundText::Message(JsonRpcMessage::Request(request)) = decode_inbound_text(frame, 1 << 20) else { panic!("not a request") };
     assert_eq!(request.method, "x\u{fffd}");
     assert_eq!(request.params, Some(json!({"a": "\u{fffd} \u{fffd} \u{fffd}\u{fffd} \u{1f600}", "\u{fffd}": {"n": ["\u{fffd}"]}})));
-    // Where it happened, for the server's refusal of every place that is no free-text field: the strings that held one,
-    // not the ones that hold a real U+FFFD; a place outside the params (the method name) behind `#`.
-    // A string is named once, then each lone unit it held with its UTF-16 index ([`LoneAt::Unit`]); the order is the parsed
-    // map's.
     let places = |lone: &[LoneAt]| lone.iter().filter(|at| !matches!(at, LoneAt::Unit { .. })).cloned().collect::<Vec<_>>();
     let mut named = places(&request.lone_surrogates);
     named.sort();
@@ -355,6 +352,78 @@ fn every_inbound_kind_names_its_lone_surrogates() {
     assert_eq!(twice.params, Some(json!({"a": 2})));
 }
 
+fn untyped(schema: &Value) -> bool {
+    schema == &Value::Bool(true)
+        || schema.as_object().is_some_and(|object| {
+            !["type", "$ref", "anyOf", "oneOf", "allOf", "properties", "items", "enum", "const", "additionalProperties"]
+                .iter()
+                .any(|key| object.contains_key(*key))
+        })
+}
+fn walk(schema: &Value, defs: &Value, path: &str, out: &mut BTreeSet<String>, seen: &[String]) {
+    if schema.is_null() || schema == &Value::Bool(false) {
+        return;
+    }
+    if untyped(schema) {
+        out.insert(format!("{path}/**"));
+        return;
+    }
+    if let Some(name) = schema["$ref"].as_str().and_then(|r| r.rsplit('/').next()) {
+        if seen.iter().any(|s| s == name) {
+            out.insert(format!("{path}/**"));
+            return;
+        }
+        let seen = [seen, &[name.to_owned()]].concat();
+        walk(&defs[name], defs, path, out, &seen);
+    }
+    for key in ["anyOf", "oneOf", "allOf"] {
+        for branch in schema[key].as_array().into_iter().flatten() {
+            walk(branch, defs, path, out, seen);
+        }
+    }
+    let types: Vec<&str> = match &schema["type"] {
+        Value::String(t) => vec![t.as_str()],
+        Value::Array(ts) => ts.iter().filter_map(Value::as_str).collect(),
+        _ => Vec::new(),
+    };
+    if types.contains(&"string") || schema["enum"].as_array().is_some_and(|values| values.iter().any(Value::is_string)) || schema["const"].is_string() {
+        out.insert(path.to_owned());
+    }
+    for (key, property) in schema["properties"].as_object().into_iter().flatten() {
+        walk(property, defs, &format!("{path}/{}", key.replace('~', "~0").replace('/', "~1")), out, seen);
+    }
+    if let Some(more) = schema.get("additionalProperties").filter(|more| *more != &Value::Bool(false)) {
+        // A map: its keys are strings of their own class.
+        out.insert(format!("{path}/{{}}"));
+        walk(more, defs, &format!("{path}/*"), out, seen);
+    }
+    match &schema["items"] {
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                walk(item, defs, &format!("{path}/{index}"), out, seen);
+            }
+        }
+        Value::Null => {}
+        item => walk(item, defs, &format!("{path}/*"), out, seen),
+    }
+}
+
+fn listed_free_text() -> BTreeSet<String> {
+    use mixdog_app_protocol::free_text::FREE_TEXT;
+    use mixdog_app_protocol::free_text::Kind;
+    FREE_TEXT
+        .iter()
+        .flat_map(|(kind, method, patterns)| {
+            let kind = match kind {
+                Kind::Request => "request",
+                Kind::Notification => "notification",
+                Kind::Answer => "answer",
+            };
+            patterns.iter().map(move |pattern| format!("{kind} {method} {pattern}"))
+        })
+        .collect()
+}
+
 /// Every string field of every client request, client notification and answer to a server request (read from the
 /// schema goldens, and inside the values the schema leaves untyped from the inventory's `payloads`), a map's keys
 /// included, is in exactly one class of `free_text_fields.json` with its reason, and the `free` class is exactly
@@ -362,64 +431,6 @@ fn every_inbound_kind_names_its_lone_surrogates() {
 /// (`**`) is only one the inventory declares `open` (no fixed fields by nature), in the class it declares.
 #[test]
 fn every_string_field_is_classed_once_and_free_text_is_listed_free() {
-    use mixdog_app_protocol::free_text::FREE_TEXT;
-    use mixdog_app_protocol::free_text::Kind;
-    use std::collections::BTreeSet;
-    fn untyped(schema: &Value) -> bool {
-        schema == &Value::Bool(true)
-            || schema.as_object().is_some_and(|object| {
-                !["type", "$ref", "anyOf", "oneOf", "allOf", "properties", "items", "enum", "const", "additionalProperties"]
-                    .iter()
-                    .any(|key| object.contains_key(*key))
-            })
-    }
-    fn walk(schema: &Value, defs: &Value, path: &str, out: &mut BTreeSet<String>, seen: &[String]) {
-        if schema.is_null() || schema == &Value::Bool(false) {
-            return;
-        }
-        if untyped(schema) {
-            out.insert(format!("{path}/**"));
-            return;
-        }
-        if let Some(name) = schema["$ref"].as_str().and_then(|r| r.rsplit('/').next()) {
-            if seen.iter().any(|s| s == name) {
-                out.insert(format!("{path}/**"));
-                return;
-            }
-            let seen = [seen, &[name.to_owned()]].concat();
-            walk(&defs[name], defs, path, out, &seen);
-        }
-        for key in ["anyOf", "oneOf", "allOf"] {
-            for branch in schema[key].as_array().into_iter().flatten() {
-                walk(branch, defs, path, out, seen);
-            }
-        }
-        let types: Vec<&str> = match &schema["type"] {
-            Value::String(t) => vec![t.as_str()],
-            Value::Array(ts) => ts.iter().filter_map(Value::as_str).collect(),
-            _ => Vec::new(),
-        };
-        if types.contains(&"string") || schema["enum"].as_array().is_some_and(|values| values.iter().any(Value::is_string)) || schema["const"].is_string() {
-            out.insert(path.to_owned());
-        }
-        for (key, property) in schema["properties"].as_object().into_iter().flatten() {
-            walk(property, defs, &format!("{path}/{}", key.replace('~', "~0").replace('/', "~1")), out, seen);
-        }
-        if let Some(more) = schema.get("additionalProperties").filter(|more| *more != &Value::Bool(false)) {
-            // A map: its keys are strings of their own class.
-            out.insert(format!("{path}/{{}}"));
-            walk(more, defs, &format!("{path}/*"), out, seen);
-        }
-        match &schema["items"] {
-            Value::Array(items) => {
-                for (index, item) in items.iter().enumerate() {
-                    walk(item, defs, &format!("{path}/{index}"), out, seen);
-                }
-            }
-            Value::Null => {}
-            item => walk(item, defs, &format!("{path}/*"), out, seen),
-        }
-    }
     let schema = |name: &str| -> Value { serde_json::from_slice(&std::fs::read(crate_dir().join("schema").join(name)).unwrap()).unwrap() };
     let named: Value = serde_json::from_slice(&std::fs::read(crate_dir().join("tests/it/free_text_fields.json")).unwrap()).unwrap();
     let mut problems = Vec::new();
@@ -508,17 +519,7 @@ fn every_string_field_is_classed_once_and_free_text_is_listed_free() {
         }
     }
     // FREE_TEXT equals the inventory's free class, either way.
-    let listed: BTreeSet<String> = FREE_TEXT
-        .iter()
-        .flat_map(|(kind, method, patterns)| {
-            let kind = match kind {
-                Kind::Request => "request",
-                Kind::Notification => "notification",
-                Kind::Answer => "answer",
-            };
-            patterns.iter().map(move |pattern| format!("{kind} {method} {pattern}"))
-        })
-        .collect();
+    let listed = listed_free_text();
     let free: BTreeSet<String> = class_of.iter().filter(|(_, class)| *class == "free").map(|(field, _)| field.clone()).collect();
     for field in listed.difference(&free) {
         problems.push(format!("{field}: in FREE_TEXT, not classed free in the inventory"));
@@ -636,10 +637,9 @@ fn domain_error_carries_code_message_and_detail_together() {
     assert_eq!(serde_json::to_value(&data).unwrap(), plain);
 }
 
-/// `core/drain`, `ui/openRequested` per kind and `ui/newTab/created`, as they travel.
+/// `core/drain`, as it travels.
 #[test]
-fn drain_open_requested_and_new_tab_on_the_wire() {
-    use mixdog_app_protocol::ClientNotification;
+fn drain_on_the_wire() {
     use mixdog_app_protocol::ServerNotification;
     let decode = |value: Value| serde_json::from_value::<ServerNotification>(value).unwrap();
     let drain = json!({"method": "core/drain", "params": {
@@ -647,6 +647,13 @@ fn drain_open_requested_and_new_tab_on_the_wire() {
         "running": [{"threadId": "t", "turnId": "u", "kind": "turn", "title": "Fix"},
                     {"threadId": null, "turnId": null, "kind": "backgroundShell", "title": "npm test"}]}});
     assert_eq!(serde_json::to_value(decode(drain.clone())).unwrap(), drain);
+}
+
+/// `ui/openRequested` per kind, as it travels.
+#[test]
+fn open_requested_on_the_wire_per_kind() {
+    use mixdog_app_protocol::ServerNotification;
+    let decode = |value: Value| serde_json::from_value::<ServerNotification>(value).unwrap();
     for params in [
         json!({"kind": "browser", "sessionId": "s", "handoff": true, "tabId": "p1"}),
         json!({"kind": "terminal", "sessionId": "s", "terminalId": "x",
@@ -656,6 +663,12 @@ fn drain_open_requested_and_new_tab_on_the_wire() {
         let wire = json!({"method": "ui/openRequested", "params": params});
         assert_eq!(serde_json::to_value(decode(wire.clone())).unwrap(), wire);
     }
+}
+
+/// `ui/newTab/created` and `ui/terminalRun/claimed`, as they travel.
+#[test]
+fn new_tab_created_and_terminal_run_claimed_are_client_notifications() {
+    use mixdog_app_protocol::ClientNotification;
     let created = ClientNotification::from_jsonrpc(
         serde_json::from_value(json!({"jsonrpc": "2.0", "method": "ui/newTab/created",
             "params": {"sessionId": "s", "openRequestId": "o", "pageId": "p3"}}))

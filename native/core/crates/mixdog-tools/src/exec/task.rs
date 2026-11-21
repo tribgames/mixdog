@@ -1,7 +1,4 @@
-//! The `task` tool: list, read, wait for and cancel the background tasks of the calling thread.
-//! Texts follow `task-tool.mjs` and `background-tasks.mjs` byte for byte. `wait` ends when the
-//! task settles, at its ceiling, when the turn is cancelled, or the moment the session reports
-//! new user input or a notification through the `WakeHub`.
+//! Texts follow `task-tool.mjs` and `background-tasks.mjs` byte for byte.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -200,32 +197,70 @@ fn wait_ceiling_ms(timeout: Option<f64>, default: u64) -> u64 {
     }
 }
 
-#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
-async fn read_or_wait(runtime: &ExecRuntime, ctx: &ToolContext, job: Arc<Job>, waiting: bool, timeout: Option<f64>, tail: bool) -> ToolOutcome {
-    let mut interrupted = false;
-    let mut notified: Option<Option<String>> = None;
-    if waiting {
-        let default = if ctx.surface == SurfaceKind::Agent { WAIT_DEFAULT_AGENT_MS } else { WAIT_DEFAULT_MS };
-        let ceiling = wait_ceiling_ms(timeout, default);
-        let wait = runtime.config.wake.begin(&ctx.thread_id);
-        tokio::select! {
-            () = job.settled() => {}
-            () = mixdog_rt::time::sleep(Duration::from_millis(ceiling)) => {}
-            () = wait.released() => {}
-            () = ctx.cancel.cancelled() => {
-                return refused(ToolErrorCode::Cancelled, "Error: wait cancelled".into());
-            }
+#[derive(Default)]
+struct WaitEnd {
+    interrupted: bool,
+    notified: Option<Option<String>>,
+}
+
+impl WaitEnd {
+    fn note(self, id: &str) -> Option<String> {
+        if self.interrupted {
+            Some("\n\nWait ended by new user input; task still running in the background. Handle the new message first.".to_owned())
+        } else {
+            self.notified.map(|detail| {
+                let from = detail.filter(|d| d != id).map_or(String::new(), |d| format!(" (task_id: {d})"));
+                format!("\n\nWait ended because a notification arrived{from}; it is delivered to you now. This task ({id}) is still running in the background.")
+            })
         }
-        if let Some(wake) = wait.wake() {
-            match wake.reason {
-                WakeReason::UserMessage => interrupted = true,
-                WakeReason::Notification => {
-                    runtime.config.wake.cut_by_notification(&ctx.thread_id);
-                    notified = Some(wake.detail);
-                }
+    }
+}
+
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+async fn hold_wait(runtime: &ExecRuntime, ctx: &ToolContext, settled: impl std::future::Future, timeout: Option<f64>) -> Result<WaitEnd, ToolOutcome> {
+    let default = if ctx.surface == SurfaceKind::Agent { WAIT_DEFAULT_AGENT_MS } else { WAIT_DEFAULT_MS };
+    let ceiling = wait_ceiling_ms(timeout, default);
+    let wait = runtime.config.wake.begin(&ctx.thread_id);
+    tokio::select! {
+        _ = settled => {}
+        () = mixdog_rt::time::sleep(Duration::from_millis(ceiling)) => {}
+        () = wait.released() => {}
+        () = ctx.cancel.cancelled() => {
+            return Err(refused(ToolErrorCode::Cancelled, "Error: wait cancelled".into()));
+        }
+    }
+    let mut end = WaitEnd::default();
+    if let Some(wake) = wait.wake() {
+        match wake.reason {
+            WakeReason::UserMessage => end.interrupted = true,
+            WakeReason::Notification => {
+                runtime.config.wake.cut_by_notification(&ctx.thread_id);
+                end.notified = Some(wake.detail);
             }
         }
     }
+    Ok(end)
+}
+
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+fn task_completion(text: String, id: &str, status: &str) -> ToolOutcome {
+    Ok(ToolOutput {
+        parts: vec![ToolPart::Text(text)],
+        meta: Some(serde_json::json!({ "code": "task-completion", "executionId": id, "status": status })),
+        ..ToolOutput::default()
+    })
+}
+
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+async fn read_or_wait(runtime: &ExecRuntime, ctx: &ToolContext, job: Arc<Job>, waiting: bool, timeout: Option<f64>, tail: bool) -> ToolOutcome {
+    let end = if waiting {
+        match hold_wait(runtime, ctx, job.settled(), timeout).await {
+            Ok(end) => end,
+            Err(outcome) => return outcome,
+        }
+    } else {
+        WaitEnd::default()
+    };
     let status = job.status();
     let running = status == JobStatus::Running;
     let pending = if !running && !tail { job.pending_completion_output() } else { None };
@@ -240,14 +275,8 @@ async fn read_or_wait(runtime: &ExecRuntime, ctx: &ToolContext, job: Arc<Job>, w
     let silence = if running { job.silence_note(runtime.now_ms()) } else { None };
     let mut rendered = job.render_with(false, Some(&body), silence.as_deref());
     if waiting && running {
-        if interrupted {
-            rendered.push_str("\n\nWait ended by new user input; task still running in the background. Handle the new message first.");
-        } else if let Some(detail) = notified {
-            let from = detail.filter(|d| d != &job.id).map_or(String::new(), |d| format!(" (task_id: {d})"));
-            rendered.push_str(&format!(
-                "\n\nWait ended because a notification arrived{from}; it is delivered to you now. This task ({}) is still running in the background.",
-                job.id
-            ));
+        if let Some(note) = end.note(&job.id) {
+            rendered.push_str(&note);
         } else {
             let hits = job.wait_hits.fetch_add(1, Ordering::Relaxed) + 1;
             rendered.push_str(&if hits > 1 {
@@ -259,15 +288,7 @@ async fn read_or_wait(runtime: &ExecRuntime, ctx: &ToolContext, job: Arc<Job>, w
     }
     if !running {
         job.acknowledge();
-        return Ok(ToolOutput {
-            parts: vec![ToolPart::Text(rendered)],
-            meta: Some(serde_json::json!({
-                "code": "task-completion",
-                "executionId": job.id,
-                "status": status.as_str(),
-            })),
-            ..ToolOutput::default()
-        });
+        return task_completion(rendered, &job.id, status.as_str());
     }
     ok(rendered)
 }
@@ -292,51 +313,23 @@ async fn agent_task(
         };
     }
     let waiting = action == "wait";
-    let (mut interrupted, mut notified) = (false, None);
-    if waiting && view.status == "running" {
-        let default = if ctx.surface == SurfaceKind::Agent { WAIT_DEFAULT_AGENT_MS } else { WAIT_DEFAULT_MS };
-        let ceiling = wait_ceiling_ms(timeout, default);
-        let wait = runtime.config.wake.begin(&ctx.thread_id);
-        tokio::select! {
-            () = tasks.settled(id) => {}
-            () = mixdog_rt::time::sleep(Duration::from_millis(ceiling)) => {}
-            () = wait.released() => {}
-            () = ctx.cancel.cancelled() => {
-                return refused(ToolErrorCode::Cancelled, "Error: wait cancelled".into());
-            }
+    let end = if waiting && view.status == "running" {
+        match hold_wait(runtime, ctx, tasks.settled(id), timeout).await {
+            Ok(end) => end,
+            Err(outcome) => return outcome,
         }
-        if let Some(wake) = wait.wake() {
-            match wake.reason {
-                WakeReason::UserMessage => interrupted = true,
-                WakeReason::Notification => {
-                    runtime.config.wake.cut_by_notification(&ctx.thread_id);
-                    notified = Some(wake.detail);
-                }
-            }
-        }
-    }
+    } else {
+        WaitEnd::default()
+    };
     let Some(latest) = tasks.view(&ctx.thread_id, id) else { return not_found(id) };
     let running = latest.status == "running";
     let mut rendered = latest.text;
     if waiting && running {
-        if interrupted {
-            rendered.push_str("\n\nWait ended by new user input; task still running in the background. Handle the new message first.");
-        } else if let Some(detail) = notified {
-            let from = detail.filter(|d| d != id).map_or(String::new(), |d| format!(" (task_id: {d})"));
-            rendered.push_str(&format!(
-                "\n\nWait ended because a notification arrived{from}; it is delivered to you now. This task ({id}) is still running in the background."
-            ));
-        } else {
-            rendered.push_str("\n\nWait ceiling reached; task still running and its result is delivered automatically. If periodic reports were requested, write the user-facing report now; otherwise continue independent work or end the turn.");
-        }
+        rendered.push_str(&end.note(id).unwrap_or_else(|| "\n\nWait ceiling reached; task still running and its result is delivered automatically. If periodic reports were requested, write the user-facing report now; otherwise continue independent work or end the turn.".to_owned()));
     }
     if !running {
         tasks.acknowledge(id);
-        return Ok(ToolOutput {
-            parts: vec![ToolPart::Text(rendered)],
-            meta: Some(serde_json::json!({ "code": "task-completion", "executionId": id, "status": latest.status })),
-            ..ToolOutput::default()
-        });
+        return task_completion(rendered, id, &latest.status);
     }
     ok(rendered)
 }
@@ -355,10 +348,6 @@ pub(super) enum CancelOutcome {
     NotFound,
 }
 
-/// The one cancel path of a task: the `task` tool's `cancel` and the surfaces' stop go through it.
-/// A cancel that cannot confirm the processes gone leaves the task's row held
-/// (`terminationUnconfirmed`, [`ExecRuntime::hold_unconfirmed`]); it ends when the task ends or
-/// the user releases it.
 pub(super) async fn cancel_job(runtime: &ExecRuntime, processes: &dyn ProcessManager, job: &Job) -> CancelOutcome {
     let outcome = cancel_outcome(runtime, processes, job).await;
     if matches!(outcome, CancelOutcome::Unconfirmed | CancelOutcome::Pending) {
@@ -375,10 +364,6 @@ pub(super) fn send_kill(runtime: &ExecRuntime, processes: &dyn ProcessManager, j
 
 async fn cancel_outcome(runtime: &ExecRuntime, processes: &dyn ProcessManager, job: &Job) -> CancelOutcome {
     if job.survivors {
-        // What a finished command left running (`trackSurvivingDescendants`): the cancel is latched and the registry state turns
-        // terminal before anything is signalled; the kill then terminates the set and reports whether a re-observation found every
-        // process gone. A task that was already cancelled with its processes still alive is terminated again (the observer's
-        // `sweep`); one that ended on its own, or whose cancel was confirmed, is no task to cancel.
         if !runtime.cancel_survivors_intent(job) && !job.termination_pending() {
             return CancelOutcome::NotFound;
         }

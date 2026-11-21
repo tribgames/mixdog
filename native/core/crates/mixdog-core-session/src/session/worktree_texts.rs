@@ -1,6 +1,5 @@
-//! The `message` Node's typed worktree errors carry when thrown to a surface that shows the
-//! runtime's own text (TUI, remote): the contract's per-code default
-//! (`runtime/shared/worktrees/contract.mjs` `DEFAULT_ERROR_MESSAGES`). `mixdog-scm`'s
+//! The `message` of a typed worktree error thrown to a surface that shows the runtime's own text
+//! (TUI, remote): the contract's per-code default (`DEFAULT_ERROR_MESSAGES`). `mixdog-scm`'s
 //! `failure_text` is the desktop's translation of the same failures and words several of them
 //! differently, so the two are not interchangeable.
 

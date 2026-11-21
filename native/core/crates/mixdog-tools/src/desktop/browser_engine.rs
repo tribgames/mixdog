@@ -1,13 +1,6 @@
-//! The `browser` and `browser_devtools` tools' host commands, run by the core's browser engine when the connected desktop serves
-//! the engine's host lane (`host/browser/*`), and forwarded as `host/browser/command` otherwise.
-//!
-//! The turn a command belongs to is the engine's own count (it is told when the session's turn ends: `TurnEvents`), so the input
-//! carries none.
-//!
-//! The choice is made per command from what the connected side says it serves ([`HostChannel::serves`] for
-//! [`HostCapability::BrowserEngine`]); there is no switch. A command that is not an action of the Browser Use contract (the
-//! runtime-only bridge actions of the secret input and the saved logins, and every action the pane itself answers) always goes the
-//! way it went before, and so does every `visualize` command.
+//! The `browser` and `browser_devtools` host commands: run by the core's browser engine when the connected desktop serves the
+//! engine's host lane (`host/browser/*`), forwarded as `host/browser/command` otherwise. A command that is not an action of the
+//! Browser Use contract, and every `visualize` command, is always forwarded.
 
 use std::sync::Arc;
 

@@ -209,12 +209,13 @@ pub fn linux_permissions(readiness: &Readiness) -> Value {
 }
 
 /// `diagnoseReport` (what the model reads from `diagnose`; the timings Node's canonical text drops are not here).
+pub fn diagnosis_target<'a>(windows: Option<&'a [WindowRow]>, requested: &str) -> Option<&'a WindowRow> {
+    let windows = windows?;
+    if requested.is_empty() { windows.iter().find(|window| window.focused) } else { windows.iter().find(|window| window.id == requested) }
+}
+
 pub fn diagnose_text(diagnosis: &Diagnosis) -> String {
-    let target = match (&diagnosis.windows, diagnosis.requested_window_id) {
-        (Some(windows), "") => windows.iter().find(|window| window.focused),
-        (Some(windows), id) => windows.iter().find(|window| window.id == id),
-        (None, _) => None,
-    };
+    let target = diagnosis_target(diagnosis.windows.as_deref(), diagnosis.requested_window_id);
     let accessibility = accessibility_report(target, diagnosis.accessibility.as_ref());
     let ocr = ocr_report(&diagnosis.ocr);
     let input = input_report(&diagnosis.input);

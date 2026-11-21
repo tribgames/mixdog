@@ -1,8 +1,3 @@
-//! The Anthropic rows of the one `RetryPolicy` (PW §4.2): request budget of the
-//! Messages POST, the bounded mid-stream budget, and the Anthropic overload
-//! rule. Session-level rows (transport, connection, recovery) are the shared
-//! defaults.
-
 use std::time::Duration;
 
 use mixdog_core_api::domain::retry::AdviceRule;

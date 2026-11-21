@@ -1232,26 +1232,7 @@ impl ScreenSources {
         let sink = parts.sink.for_session(id).unwrap_or_else(|| parts.sink.clone());
         let video = ScreenVideoSource::<HelperPicture>::new(screen.clone(), screen_id, Arc::new(SinkAdapter(sink)), parts.timers.clone(), on_error);
         let viewer = Arc::new(ScreenViewer { id, video, screen: screen.clone() });
-        {
-            // Weak: the session's own listener must not keep it alive.
-            let (weak, stopped, lease, key) = (Arc::downgrade(parts), Arc::downgrade(&screen), lease.clone(), key.to_string());
-            drop(screen.on_stop(Arc::new(move |_: &String| {
-                let Some(parts) = weak.upgrade() else { return };
-                forget(&parts, &key, id);
-                // `released()` is the running stop once this listener has returned.
-                let (stopped, lease, weak) = (stopped.clone(), lease.clone(), Arc::downgrade(&parts));
-                parts.timers.spawn(Box::pin(async move {
-                    next_turn().await;
-                    if let Some(screen) = stopped.upgrade() {
-                        screen.released().await;
-                    }
-                    if let Some(parts) = weak.upgrade() {
-                        lock(&parts.registry).unreleased.retain(|(held, _)| *held != id);
-                    }
-                    lease.dispose();
-                }));
-            })));
-        }
+        release_when_stopped(parts, &screen, &lease, key, id);
         Some((viewer, screen, lease, id))
     }
 
@@ -1293,6 +1274,27 @@ fn forget(parts: &Parts, key: &str, id: u64) {
     if registry.sessions.get(key).is_some_and(|live| live.id == id) {
         registry.sessions.remove(key);
     }
+}
+
+/// Weak: the session's own listener must not keep it alive.
+fn release_when_stopped(parts: &Arc<Parts>, screen: &Arc<ScreenSession>, lease: &Arc<SecureDesktopLease<HelperFrame>>, key: &str, id: u64) {
+    let (weak, stopped, lease, key) = (Arc::downgrade(parts), Arc::downgrade(screen), lease.clone(), key.to_string());
+    drop(screen.on_stop(Arc::new(move |_: &String| {
+        let Some(parts) = weak.upgrade() else { return };
+        forget(&parts, &key, id);
+        // `released()` is the running stop once this listener has returned.
+        let (stopped, lease, weak) = (stopped.clone(), lease.clone(), Arc::downgrade(&parts));
+        parts.timers.spawn(Box::pin(async move {
+            next_turn().await;
+            if let Some(screen) = stopped.upgrade() {
+                screen.released().await;
+            }
+            if let Some(parts) = weak.upgrade() {
+                lock(&parts.registry).unreleased.retain(|(held, _)| *held != id);
+            }
+            lease.dispose();
+        }));
+    })));
 }
 
 #[cfg(test)]

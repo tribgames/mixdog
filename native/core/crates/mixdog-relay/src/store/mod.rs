@@ -1,14 +1,13 @@
-//! The device store (`lib/device-store.mjs` and its three helpers): the credentials of every desktop and every paired browser,
-//! kept in `<DATA_DIR>/devices.json` in the form Node writes it.
+//! The device store: the credentials of every desktop and every paired browser, kept in `<DATA_DIR>/devices.json` in the form Node
+//! writes it.
 //!
-//! Node ran every read-modify-write without an await in between, so a reader never saw a state that was later rolled back.
-//! Here a mutation is applied to a copy, the copy is written by a `DurabilityIo` lane job, and only then is the same mutation
-//! applied to the shared state, one mutation at a time through a single-writer queue. Readers take the committed state under
-//! a std mutex held only in synchronous sections. A mutation runs to its end in a task of its own, so a caller that goes away
-//! (a socket that closed) cannot leave the disk and the shared state apart.
+//! A mutation is applied to a copy, the copy is written by a `DurabilityIo` lane job, and only then is the same mutation applied to
+//! the shared state, one mutation at a time through a single-writer queue, so a reader never sees a state that is later rolled
+//! back. Readers take the committed state under a std mutex held only in synchronous sections. A mutation runs to its end in a
+//! task of its own, so a caller that goes away cannot leave the disk and the shared state apart.
 //!
-//! Client activity (`touch_client`, version reports) is not a credential: it is applied to the shared state at once and
-//! written on a 250 ms beat, so a fleet redial is not one whole-file rewrite per desktop.
+//! Client activity (`touch_client`, version reports) is not a credential: it is applied to the shared state at once and written on
+//! a 250 ms beat, so a fleet redial is not one whole-file rewrite per desktop.
 
 mod auth;
 mod devices;

@@ -24,8 +24,8 @@ Owner: WP-INTEGRATE. Release version: the root `package.json` `version` (checked
   2. Fallback / hermetic builds: vendor the archive (with its checksum) in the release-assets
      store and point the crate's build at that copy; do not fetch in the build step.
   3. A version bump of the pin invalidates the cache key and must re-prime it.
-  The archive holds only the library and its bindings; libvpx's licence and patent grant are in
-  `LICENSES/libvpx-BSD-3-Clause.txt` (see `NOTICE.md`).
+     The archive holds only the library and its bindings; libvpx's licence and patent grant are in
+     `LICENSES/libvpx-BSD-3-Clause.txt` (see `NOTICE.md`).
 - **JS runtime (desktop and remote alike).** The core finds its interpreter and package through
   `js-runtime.json` next to `mixdogd` (`js_runtime::resolve_current`); only the manifest differs.
   - Desktop: `resources/core/js-runtime.json` points at the app executable in node mode

@@ -11,7 +11,7 @@ use mixdog_services::bots::delivery::env::{
     DeliveryConfig, HomeAgent, HomeDirectory, HomeThreads, LiveSlot, Presence, RetryTimer, RoomRelay, ThreadSnapshot, WakeFollow,
 };
 use mixdog_services::bots::delivery::home::{AgentHomeDelivery, TaskReport};
-use mixdog_services::bots::delivery::queue::{Handoffs, QUEUE_CAPS, RoutineResultQueue};
+use mixdog_services::bots::delivery::queue::{AddOptions, Handoffs, QUEUE_CAPS, RoutineResultQueue};
 use mixdog_services::bots::delivery::rows::message_id_of;
 use mixdog_services::bots::live::{LiveSurface, WakeOptions, WakeTurn};
 use mixdog_services::bots::state_json::StateJson;
@@ -480,4 +480,45 @@ async fn rows_that_wake_nobody_are_posted_before_the_next_turn_takes_its_prompt(
     assert_eq!(r.queued(CRITIC).await, 1);
     r.delivery.post_before_agent_turn("sess_other_session").await;
     assert_eq!(r.posted("sess_other_session").len(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_task_report_of_a_run_still_queued_folds_its_sends_and_new_files_into_that_row() {
+    let r = rig();
+    let first = json!({"kind": "agent-task", "runId": "t1", "sendId": "s1", "files": [{"path": "a", "id": "f1"}]});
+    let second = json!({"kind": "agent-task", "runId": "t1", "sendId": "s2", "files": [{"path": "a"}, {"path": "b", "id": "f2"}]});
+    r.queue.add("home", first, AddOptions::default()).await.unwrap();
+    r.queue.add("home", second.clone(), AddOptions::default()).await.unwrap();
+    let rows = r.queue.items("home").await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["sendIds"], json!(["s1", "s2"]));
+    assert_eq!(rows[0]["files"], json!([{"path": "a", "id": "f1"}, {"path": "b"}]));
+    r.queue.add("home", second, AddOptions::default()).await.unwrap();
+    assert_eq!(r.queue.items("home").await.unwrap(), rows, "a replayed send adds nothing");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_round_trip_end_counts_per_target_and_a_send_outside_a_bot_turn_counts_none() {
+    let r = rig();
+    for (run_id, hop) in [("t1", 2), ("t2", 2), ("t3", 0)] {
+        let item = json!({"kind": "agent-task", "runId": run_id, "roundTrip": true, "taskSessionId": "sess_a", "hop": hop});
+        r.queue.add("home", item, AddOptions::default()).await.unwrap();
+    }
+    let rounds: Vec<f64> = r.queue.items("home").await.unwrap().iter().map(|row| row["round"].as_f64().unwrap()).collect();
+    assert_eq!(rounds, [1.0, 2.0, 0.0]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_add_notes_the_progressed_turn_and_drops_the_named_watches_in_one_write() {
+    let r = rig();
+    for run_id in ["w1", "w2"] {
+        let watch = json!({"runId": run_id, "agentId": "critic", "homeSessionId": "home", "taskSessionId": "sess_a", "title": "Task"});
+        r.queue.watch(watch, Vec::new()).await.unwrap();
+    }
+    let item = json!({"kind": "agent-message", "runId": "x", "text": "hi"});
+    let options = AddOptions { progressed: Some(("w1".to_owned(), "turn1".to_owned())), unwatch: vec!["w2".to_owned()], ..AddOptions::default() };
+    r.queue.add("home", item, options).await.unwrap();
+    let watches = r.queue.watches().await.unwrap();
+    assert_eq!(watches.len(), 1);
+    assert_eq!((watches[0]["runId"].as_str(), watches[0]["progressed"].as_str()), (Some("w1"), Some("turn1")));
 }

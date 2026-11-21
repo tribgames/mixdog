@@ -1,19 +1,3 @@
-//! The session seams the composition hands out before the session directory exists, each a cell
-//! bound once right after `TurnPath::new`, as in `late_session.rs`. What holds them is part of what
-//! the directory is built from, so none of them can be built after it:
-//!
-//! - [`LateThreadGates`]: the thread op scope of `OpScopeSource` (stage one of the domains) and of
-//!   `CoreOpIndex`. Both take the same cell, bound to the directory's one
-//!   `SessionDirectory::thread_ops()`: its gates are what order one thread's ops.
-//! - [`LateAgentEvidence`]: `AgentSeams.evidence` (the agent definitions the pool is built from),
-//!   bound to `SessionAgentEvidence::new(directory, routines)`.
-//! - [`LateSessionFacts`]: `SetupSeams.facts` (the setup tool's callers), bound to
-//!   `SessionSetupFacts::new(directory, switches, data_dir)`.
-//!
-//! Nothing reads them before the bind: an op, an agent read and a setup call all come from a client
-//! or a turn, and the composition verifies every cell before the listener accepts. Unbound, they
-//! answer as for a thread that does not exist.
-
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;

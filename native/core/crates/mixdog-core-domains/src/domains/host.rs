@@ -2,9 +2,7 @@
 //! taken by the server, which owns the connection registry; the rest lands here.
 //!
 //! * `host/state/set{key, value}` — desktop-owned state published into section `hostState`
-//!   (key `browserTabs`, `browserImport`, `browserDialogApprovalSessions`, `visualize`, `displayPreferences` or `windowFocus`), replacing the
-//!   desktop's `browserRemoteTabs`, `browserRemoteImportProgress`, `visualizeRemote*` and
-//!   display-preference publications.
+//!   (key `browserTabs`, `browserImport`, `browserDialogApprovalSessions`, `visualize`, `displayPreferences` or `windowFocus`).
 //! * `host/remoteTarget/set{endpoint?, token?}` — the tunnel to an SSH server core that phone
 //!   connections are bridged to; absent endpoint = the local core.
 //! * `host/power{event}`, `host/update/report{state}` and `host/notification/clicked{threadId}`
@@ -45,18 +43,15 @@ use mixdog_core_base::support::decode;
 use mixdog_core_base::support::invalid;
 use mixdog_core_base::support::wrong_method;
 
-/// `hostState` key `remoteViewing`: the sessions a paired device views as a visualize panel,
-/// which Node answered per call as `visualizeRemoteViewing` (`viewsSessionLane`, rule in
-/// [`DeviceRegistry::visualize_viewed_sessions`]). The core owns the fact, so it publishes it
-/// and the desktop reads membership instead of asking.
+/// `hostState` key `remoteViewing`: the sessions a paired device views as a visualize panel
+/// ([`DeviceRegistry::visualize_viewed_sessions`]).
 pub fn remote_viewing_value(registry: &DeviceRegistry) -> Value {
     json!({ "sessionIds": registry.visualize_viewed_sessions() })
 }
 
 /// `hostState` key `remoteSession`: the session the channel bridge is pinned to, which the host stamps on every
-/// snapshot as `remoteEnabled`/`remoteSessionId`. `applyRemoteSessionState` (`session-host-publication.ts`) keeps the id
-/// only for an enabled state whose id is at most 256 characters and a session id (`/^[A-Za-z0-9_-]+$/`). `enabled` and
-/// `cwd` are the rest of the state Node's `session.list` hands a client as `remoteSession` (`remote-state.mjs`).
+/// snapshot as `remoteEnabled`/`remoteSessionId`. The id is kept only for an enabled state whose id is at most 256
+/// characters and a session id (`/^[A-Za-z0-9_-]+$/`).
 pub fn remote_session_value(enabled: bool, session_id: Option<&str>, cwd: Option<&str>) -> Value {
     let kept = session_id
         .filter(|id| enabled && id.chars().count() <= 256 && !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'));
@@ -190,53 +185,34 @@ impl HostService {
     }
 
     fn state_set(&self, req: &CoreRequest) -> Result<Value, CoreError> {
-        let (key, mut value) = match decode::<HostStateSetParams>(req)? {
+        let (key, value) = match decode::<HostStateSetParams>(req)? {
             HostStateSetParams::BrowserDialogApprovalSessions(ids) => return self.set_browser_dialog_marks(req, ids),
             state => state.into_parts(),
         };
         if key == "visualize" {
-            // A value that travelled as a blob is JSON text of a snapshot or an event: typed as either, then folded as the
-            // value it was, so the mirror and the section never see the string.
-            if let Value::String(text) = &value {
-                // The frame check saw one blob reference, not this text: a lone surrogate escape in it is judged here by the
-                // classes of the inline value (a label reads as U+FFFD, an id or path refuses), then read as U+FFFD.
-                if let Some(at) =
-                    mixdog_app_protocol::free_text::refused_in_text(mixdog_app_protocol::free_text::Kind::Request, "host/state/set", "/value", text)
-                {
-                    return Err(invalid("value", &format!("text without unpaired surrogates (a lone \\ud800-\\udfff escape) in {at}")));
-                }
-                let parsed = serde_json::from_str::<mixdog_app_protocol::v2::host::VisualizeHostValue>(&mixdog_js::json_well_formed_str(text))
-                    .ok()
-                    .filter(|parsed| !matches!(parsed, mixdog_app_protocol::v2::host::VisualizeHostValue::Text(_)))
-                    .ok_or_else(|| invalid("value", "a visualize snapshot or event"))?;
-                value = serde_json::to_value(parsed).map_err(|_| invalid("value", "a visualize snapshot or event"))?;
-            }
-            // Only the current claimant of the visualize role publishes it, and that is asked now, as the publication is
-            // applied (a blob it names may have been expanding while the claim changed hands). Any other caller (a displaced
-            // claimant, a connection that has not claimed yet, an internal producer) is dropped without an error: its state
-            // is covered by the snapshot the claimant sends when it claims. One connection's publications reach here in the
-            // order they arrived (the server keeps that order while blobs are expanded), so none is late.
-            if !req.ctx.visualize_claim.is_current() {
-                return Ok(json!({}));
-            }
-            self.visualize.fold(&value);
-        }
-        // The section is readable by a paired phone: the visualize value reaches it path-free, whatever route it came by.
-        if key == "visualize" {
-            // The section always holds the current state, path-free, and every publication updates it: a latest-value store is exactly
-            // right for state, and it is what a phone that missed events (a dropped sequence, a wake, a reconnect) and a page that
-            // predates the event notifications read. (Over `INLINE_MAX` it is a stub, which such a reader answers by reading again.)
-            let current = Value::Array(self.visualize.remote_states());
-            self.publisher.publish(SectionName::HostState, Some(key.to_owned()), change_of(&current));
-            // An event also goes, with its own effects, to the phones that registered the visualize lane, as ordered notifications: a
-            // section key keeps the latest value and a slow subscriber's lane lags and recovers with merged state, so successive events
-            // cannot travel on it.
-            if !matches!(value, Value::Array(_)) {
-                self.visualize.push_event(&value);
-            }
-            return Ok(json!({}));
+            return self.set_visualize(req, value);
         }
         self.publisher.publish(SectionName::HostState, Some(key.to_owned()), change_of(&value));
+        Ok(json!({}))
+    }
+
+    /// Only the current claimant of the visualize role publishes it; any other caller is dropped without an error, its
+    /// state being covered by the snapshot the claimant sends when it claims. The section holds the current path-free
+    /// state, which a paired phone reads; an event also goes to the phones that registered the visualize lane.
+    fn set_visualize(&self, req: &CoreRequest, value: Value) -> Result<Value, CoreError> {
+        let value = match &value {
+            Value::String(text) => visualize_value_of_text(text)?,
+            _ => value,
+        };
+        if !req.ctx.visualize_claim.is_current() {
+            return Ok(json!({}));
+        }
+        self.visualize.fold(&value);
+        let current = Value::Array(self.visualize.remote_states());
+        self.publisher.publish(SectionName::HostState, Some("visualize".to_owned()), change_of(&current));
+        if !matches!(value, Value::Array(_)) {
+            self.visualize.push_event(&value);
+        }
         Ok(json!({}))
     }
 
@@ -254,6 +230,19 @@ impl HostService {
         self.bridge.set_target(target);
         Ok(json!({}))
     }
+}
+
+/// A visualize value that travelled as a blob is JSON text of a snapshot or an event. The frame check saw one blob
+/// reference, not this text: a lone surrogate escape in it is refused here by the classes of the inline value.
+fn visualize_value_of_text(text: &str) -> Result<Value, CoreError> {
+    if let Some(at) = mixdog_app_protocol::free_text::refused_in_text(mixdog_app_protocol::free_text::Kind::Request, "host/state/set", "/value", text) {
+        return Err(invalid("value", &format!("text without unpaired surrogates (a lone \\ud800-\\udfff escape) in {at}")));
+    }
+    let parsed = serde_json::from_str::<mixdog_app_protocol::v2::host::VisualizeHostValue>(&mixdog_js::json_well_formed_str(text))
+        .ok()
+        .filter(|parsed| !matches!(parsed, mixdog_app_protocol::v2::host::VisualizeHostValue::Text(_)))
+        .ok_or_else(|| invalid("value", "a visualize snapshot or event"))?;
+    serde_json::to_value(parsed).map_err(|_| invalid("value", "a visualize snapshot or event"))
 }
 
 /// A `ws://` URL on the loopback interface with a port: the SSH port forward.

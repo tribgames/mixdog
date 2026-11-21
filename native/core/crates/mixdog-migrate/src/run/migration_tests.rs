@@ -11,6 +11,8 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use mixdog_store::schema::migration::ItemKind;
+use mixdog_store::schema::migration::Root;
 use mixdog_store::schema::record::Record;
 use mixdog_store::schema::sql::INDEX_DDL;
 use mixdog_store::schema::sql::session_id_key;
@@ -101,11 +103,6 @@ pub(crate) fn log_records(dir: &Path) -> Vec<(u64, Record)> {
     out
 }
 
-/// A data dir with every data kind: 1.4.5 json with archive, pending job, recoverable
-/// checkpoint, a lone surrogate, a model switch and a blob-sized body; a dev pair; spool, worker row,
-/// set-aside, tmp, orphan checkpoint, preserved stores, settings with legacy compaction
-/// keys and one-account connector servers an agent and the accounts in use name, a pending
-/// connector merge, the genuine 1.4.5 ledger and an imported legacy usage file.
 pub(crate) fn fixture(root: &Path) -> MigrationRoots {
     let data = root.join("data");
     let home = root.join("home");
@@ -217,38 +214,38 @@ pub(crate) fn journal_records(roots: &MigrationRoots) -> Vec<JournalRecord> {
     frames.iter().map(|f| serde_json::from_slice(&bytes[f.payload.clone()]).unwrap()).collect()
 }
 
+const REJECTED_SOURCE: &str = "legacy/reason.json";
+
+struct RejectTarget(&'static str);
+impl ItemDriver for RejectTarget {
+    fn plan(&self, _roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
+        let source = sink.source(Root::Data, self.0, false)?;
+        sink.add_item(crate::plan::item("probe", KindGroup::Data, ItemKind::Index, Contract::Convert, vec![source], None)?)
+    }
+    fn owns(&self, item: &ManifestItem) -> bool {
+        item.key.as_str() == "probe"
+    }
+    fn wave(&self, _item: &ManifestItem) -> Wave {
+        Wave::Stores
+    }
+    fn stage(&self, _cx: &ItemContext<'_>, _item: &ManifestItem) -> Result<Staged> {
+        Ok(Staged::Output { output_sha256: durable::sha256_hex(b"candidate"), replaced_surrogates: 0 })
+    }
+    fn publish(&self, cx: &ItemContext<'_>, _item: &ManifestItem, _staged: &StagedEntry) -> Result<()> {
+        durable::publish_file(&cx.roots.data.join("candidate"), b"candidate")
+    }
+    fn verify(&self, cx: &ItemContext<'_>, _item: &ManifestItem) -> Result<Verdict> {
+        durable::read(&cx.roots.data.join("candidate"))?;
+        Ok(Verdict::Quarantine { code: QuarantineCode::DigestMismatch, detail: "test rejected the candidate".into() })
+    }
+    fn withdraw(&self, cx: &ItemContext<'_>, _item: &ManifestItem) -> Result<()> {
+        durable::remove_file(&cx.roots.data.join("candidate")).map(drop)
+    }
+}
+
 #[test]
 fn quarantine_resumes_after_withdrawal_without_verifying_the_deleted_target() {
-    use mixdog_store::schema::migration::{ItemKind, Root};
-
-    let source = "legacy/reason.json";
-    struct RejectTarget(&'static str);
-    impl ItemDriver for RejectTarget {
-        fn plan(&self, _roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
-            let source = sink.source(Root::Data, self.0, false)?;
-            sink.add_item(crate::plan::item("probe", KindGroup::Data, ItemKind::Index, Contract::Convert, vec![source], None)?)
-        }
-        fn owns(&self, item: &ManifestItem) -> bool {
-            item.key.as_str() == "probe"
-        }
-        fn wave(&self, _item: &ManifestItem) -> Wave {
-            Wave::Stores
-        }
-        fn stage(&self, _cx: &ItemContext<'_>, _item: &ManifestItem) -> Result<Staged> {
-            Ok(Staged::Output { output_sha256: durable::sha256_hex(b"candidate"), replaced_surrogates: 0 })
-        }
-        fn publish(&self, cx: &ItemContext<'_>, _item: &ManifestItem, _staged: &StagedEntry) -> Result<()> {
-            durable::publish_file(&cx.roots.data.join("candidate"), b"candidate")
-        }
-        fn verify(&self, cx: &ItemContext<'_>, _item: &ManifestItem) -> Result<Verdict> {
-            durable::read(&cx.roots.data.join("candidate"))?;
-            Ok(Verdict::Quarantine { code: QuarantineCode::DigestMismatch, detail: "test rejected the candidate".into() })
-        }
-        fn withdraw(&self, cx: &ItemContext<'_>, _item: &ManifestItem) -> Result<()> {
-            durable::remove_file(&cx.roots.data.join("candidate")).map(drop)
-        }
-    }
-
+    let source = REJECTED_SOURCE;
     let temp = tempfile::tempdir().unwrap();
     let data = temp.path().to_path_buf();
     let roots = MigrationRoots { data: data.clone(), home: data.clone(), profile: None };
@@ -270,9 +267,11 @@ fn quarantine_resumes_after_withdrawal_without_verifying_the_deleted_target() {
     assert_eq!(reason.sources[0].path, source);
     assert_eq!(std::fs::read(dir.join("source-0")).unwrap(), b"legacy");
     assert!(!data.join(source).exists());
+}
 
-    // Repeat in serving mode with a writer publishing between selecting the
-    // archive source and opening it. Neither archive nor disposal owns it.
+#[test]
+fn a_writer_publishing_during_a_serving_quarantine_keeps_its_file() {
+    let source = REJECTED_SOURCE;
     let serving = tempfile::tempdir().unwrap();
     let data = serving.path().to_path_buf();
     let roots = MigrationRoots { data: data.clone(), home: data.clone(), profile: None };
@@ -288,7 +287,11 @@ fn quarantine_resumes_after_withdrawal_without_verifying_the_deleted_target() {
     Migrator::new(roots, vec![Arc::new(RejectTarget(source))], options).run().unwrap();
     assert_eq!(std::fs::read(data.join(source)).unwrap(), b"new writer");
     assert!(!data.join("quarantine/digest_mismatch/probe/source-0").exists());
+}
 
+#[test]
+fn a_cut_quarantine_copy_resumes_with_the_live_name_gone_or_replaced() {
+    let source = REJECTED_SOURCE;
     for replacement in [None, Some(b"new writer".as_slice())] {
         let temp = tempfile::tempdir().unwrap();
         let data = temp.path().to_path_buf();
@@ -330,20 +333,32 @@ fn classification_reads_a_log_only_home_and_rejects_changed_evidence() {
     assert!(matches!(back.home_evidence(|_, _| ()), Err(Blocked::SourceChanged { .. })));
 }
 
-#[test]
-fn fixture_migrates_every_kind() {
+fn migrated_fixture() -> (tempfile::TempDir, MigrationRoots, mixdog_store::schema::migration::Complete) {
     let dir = tempfile::tempdir().unwrap();
     let roots = fixture(dir.path());
     let complete = migrator(&roots, None).run().unwrap();
-    let c = complete.kinds.data;
+    (dir, roots, complete)
+}
+
+fn read_migrated_session(roots: &MigrationRoots, complete: &mixdog_store::schema::migration::Complete, id: &str) -> crate::session::target::Folded {
+    let states = BTreeMap::new();
+    let blobs = BlobStatuses::default();
+    let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
+    let cx = ItemContext { roots, manifest: &manifest, manifest_sha256: &complete.manifest_sha256, fault: None, blobs: &blobs, states: &states };
+    crate::session::target::read_session(&cx, &roots.data.join("sessions").join(id)).unwrap()
+}
+
+#[test]
+fn the_fixture_migrates_every_kind_and_disposes_its_sources() {
+    let (_dir, roots, complete) = migrated_fixture();
+    let c = &complete.kinds.data;
     assert_eq!(c.quarantined_unexpected, 0, "{:?}", unexpected_reasons(&roots));
     // The set-aside json, and the legacy usage file the genuine 1.4.5 ledger (no
     // `importedThrough`) has not imported yet.
     assert_eq!(c.retained, 2, "{complete:?}");
     // One dangling attachment, one goal of a session that does not exist.
     assert_eq!(c.dangling, 2, "{complete:?}");
-    let records = journal_records(&roots);
-    let replaced: u64 = records
+    let replaced: u64 = journal_records(&roots)
         .iter()
         .filter_map(|r| match r {
             JournalRecord::Staged(s) if s.key.as_str() == "session/sess_a" => Some(s.replaced_surrogates),
@@ -351,7 +366,6 @@ fn fixture_migrates_every_kind() {
         })
         .sum();
     assert_eq!(replaced, 1);
-    // Sources disposed, targets present, preserved stores in place.
     for gone in [
         "sessions/sess_a.json",
         "sessions/sess_b.log.jsonl",
@@ -368,8 +382,18 @@ fn fixture_migrates_every_kind() {
         assert!(roots.data.join(present).exists(), "{present}");
     }
     assert!(roots.data.join("quarantine/carried_set_aside/retain%2Fdata%2Fsessions%2Fsess_c.json.corrupt-123/sess_c.json.corrupt-123").exists());
-    // The late config rewrites land: the compaction keys fold and the connector merges (its accounts with their ids, which
-    // the agents and the accounts in use then name). The 1.4.5 quota switch stays where 1.4.5 keeps it.
+}
+
+#[test]
+fn a_second_run_of_a_migrated_fixture_finds_the_completion_marker() {
+    let (_dir, roots, complete) = migrated_fixture();
+    assert_eq!(migrator(&roots, None).run().unwrap(), complete);
+}
+
+/// The 1.4.5 quota switch stays where 1.4.5 keeps it.
+#[test]
+fn the_late_config_rewrites_fold_compaction_keys_and_merge_connectors() {
+    let (_dir, roots, _complete) = migrated_fixture();
     let config: Value = serde_json::from_slice(&std::fs::read(roots.data.join("mixdog-config.json")).unwrap()).unwrap();
     let accounts = config["agent"]["mcpServers"]["notion"]["accounts"].as_array().unwrap().clone();
     let id = |n: usize| accounts[n]["id"].as_str().unwrap().to_owned();
@@ -386,12 +410,12 @@ fn fixture_migrates_every_kind() {
     assert_eq!(read("bots/b/agent.json"), json!({"connectors":{"off":["linear"]}}));
     assert_eq!(read("connector-accounts-in-use.json"), json!({"notion":{"name":"notion-2","id":id(1)},"#ids":true}));
     assert!(!roots.data.join("connector-merge-pending.json").exists());
-    // The dev pair folds the log, with the worker row as a meta.
-    let states = BTreeMap::new();
-    let blobs = BlobStatuses::default();
-    let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
-    let cx = ItemContext { roots: &roots, manifest: &manifest, manifest_sha256: &complete.manifest_sha256, fault: None, blobs: &blobs, states: &states };
-    let b = crate::session::target::read_session(&cx, &roots.data.join("sessions/sess_b")).unwrap();
+}
+
+#[test]
+fn a_dev_pair_folds_its_log_with_the_worker_row_as_a_meta() {
+    let (_dir, roots, complete) = migrated_fixture();
+    let b = read_migrated_session(&roots, &complete, "sess_b");
     assert_eq!(b.header["title"], "new");
     // Its tombstone and sess_a's release marker join the `worker` map; sess_gone's do not
     // migrate.
@@ -404,7 +428,12 @@ fn fixture_migrates_every_kind() {
     assert_eq!(b.header["parentSessionId"], "sess_a");
     assert_eq!(b.header["ownerSessionId"], "sess_a");
     assert_eq!(b.rows.len(), 2);
-    let a = crate::session::target::read_session(&cx, &roots.data.join("sessions/sess_a")).unwrap();
+}
+
+#[test]
+fn a_json_session_keeps_its_queue_and_recovers_its_checkpoint_rows() {
+    let (_dir, roots, complete) = migrated_fixture();
+    let a = read_migrated_session(&roots, &complete, "sess_a");
     assert_eq!(a.header["worker"], json!({"releasedAt":"2026-01-02T00:00:00.000Z"}));
     let queue: Vec<&str> = a.queue.iter().map(|q| q.0.as_str()).collect();
     assert_eq!(queue, ["q1", "q2"]);
@@ -420,7 +449,12 @@ fn fixture_migrates_every_kind() {
             "meta":{"turnEnd":{"status":"cancelled","elapsedMs":0,"cause":"restart"}}})
     );
     assert!(a.rows[3].body["content"] == "hi \u{fffd} there");
-    // The assistant's model switch is a record anchored on its row, out of the stored body.
+}
+
+#[test]
+fn an_assistant_model_switch_is_a_record_anchored_on_its_row_out_of_the_stored_body() {
+    let (_dir, roots, complete) = migrated_fixture();
+    let a = read_migrated_session(&roots, &complete, "sess_a");
     let switches: Vec<_> = log_records(&roots.data.join("sessions/sess_a"))
         .into_iter()
         .filter_map(|(ordinal, r)| match r {
@@ -438,8 +472,6 @@ fn fixture_migrates_every_kind() {
     assert_eq!(*ordinal, a.rows[4].ordinal + 1);
     assert_eq!(serde_json::to_value(&switch.entry).unwrap(), json!({"inline":{"provider":"openai","modelId":"gpt-5","at":11}}));
     assert_eq!(a.rows[4].body["meta"], json!({"modelSwitches":[{"provider":"openai","modelId":"gpt-5","at":11}]}));
-    // A second run finds the completion marker.
-    assert_eq!(migrator(&roots, None).run().unwrap(), complete);
 }
 
 /// A row-only child is a reaped one only when a parent that migrates carries its completion notification; a parent
@@ -542,10 +574,6 @@ fn markers_of_sessions_that_do_not_migrate_are_retired() {
     }
 }
 
-/// A tombstone without a `sessionId` goes to the one session whose tag and host pid it names
-/// (with that session's owner); one with no such
-/// session, or two, is dropped. Of two tombstones of one session the newer stays, and the
-/// row's `released` goes (readers derive it from `releasedAt`).
 #[test]
 fn tombstones_reach_their_one_session() {
     let dir = tempfile::tempdir().unwrap();
@@ -570,14 +598,7 @@ fn tombstones_reach_their_one_session() {
     );
     let complete = migrator(&roots, None).run().unwrap();
     assert_eq!(complete.kinds.data.quarantined_unexpected, 0, "{:?}", unexpected_reasons(&roots));
-    let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
-    let states = BTreeMap::new();
-    let blobs = BlobStatuses::default();
-    let cx = ItemContext { roots: &roots, manifest: &manifest, manifest_sha256: &complete.manifest_sha256, fault: None, blobs: &blobs, states: &states };
-    let worker = |id: &str| {
-        let folded = crate::session::target::read_session(&cx, &roots.data.join("sessions").join(id)).unwrap();
-        folded.header.get("worker").cloned()
-    };
+    let worker = |id: &str| read_migrated_session(&roots, &complete, id).header.get("worker").cloned();
     assert_eq!(
         worker("sess_d"),
         Some(json!({"tombstone":{"tag":"w","clientHostPid":"42","reapedAt":"1970-01-01T00:00:05.000Z",
@@ -607,11 +628,7 @@ fn a_copy_without_a_link_gets_the_reference_set_its_transcript_names() {
     write(&roots.data, "sessions/sess_fork.json", fork.as_bytes());
     let complete = migrator(&roots, None).run().unwrap();
     assert_eq!(complete.kinds.data.quarantined_unexpected, 0, "{:?}", unexpected_reasons(&roots));
-    let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
-    let states = BTreeMap::new();
-    let blobs = BlobStatuses::default();
-    let cx = ItemContext { roots: &roots, manifest: &manifest, manifest_sha256: &complete.manifest_sha256, fault: None, blobs: &blobs, states: &states };
-    let sources = |id: &str| crate::session::target::read_session(&cx, &roots.data.join("sessions").join(id)).unwrap().header.get("offloadSources").cloned();
+    let sources = |id: &str| read_migrated_session(&roots, &complete, id).header.get("offloadSources").cloned();
     assert_eq!(sources("sess_fork"), Some(json!(["sess_other", "sess_src"])));
     assert_eq!(sources("sess_b"), Some(json!([])), "a session naming no other session's sidecars holds an empty set, not none");
 }

@@ -1,7 +1,5 @@
-//! The MCP server methods of the runtime API (Node `session-runtime/resource-mcp-api.mjs` with
-//! `resource-mcp-store.mjs`, `resource-mcp-connector-accounts.mjs` and
-//! `resource-mcp-oauth-api.mjs`), served as one [`DomainService`]: add, edit, remove and toggle
-//! the user's servers, the accounts of catalog connectors, and sign in and out.
+//! The MCP server methods of the runtime API, served as one [`DomainService`]: add, edit, remove
+//! and toggle the user's servers, the accounts of catalog connectors, and sign in and out.
 //!
 //! The user's `mcpServers` hold one server per catalog connector with its accounts inside
 //! (`connector_model`); servers stored in the older one-account form are converted by the
@@ -230,11 +228,11 @@ impl McpService {
         Self { config, host, runtime, secrets, home, adds: mixdog_rt::KeyedGate::new(), toasts }
     }
 
-    /// One session-addressed call that announces its result (`pushNotice(text, 'info')` after the runtime action), in Node's
-    /// order: the service must be open (`assertAvailable()`, `session-action.mjs:56`) before anything runs; the addressed runtime
-    /// is taken at the call's start; the action runs; its notice is posted to that runtime, a failure of the post rejecting the
-    /// call (the action's effect stands); then the service and the runtime are checked again (`:111`). A failed action rejects
-    /// before the notice and the check. A call with no session, or one no runtime hosts, posts nothing and is never disposed.
+    /// One session-addressed call that announces its result: the service must be open before anything runs; the addressed
+    /// runtime is taken at the call's start; the action runs; its notice is posted to that runtime, a failure of the post
+    /// rejecting the call (the action's effect stands); then the service and the runtime are checked again. A failed action
+    /// rejects before the notice and the check. A call with no session, or one no runtime hosts, posts nothing and is never
+    /// disposed.
     async fn announced(
         &self,
         params: &Value,
@@ -541,6 +539,38 @@ impl McpService {
         }
     }
 
+    /// Stores the secrets `input` carries and saves `servers`; a failure anywhere leaves the keychain as it was.
+    async fn save_with_secrets(&self, input: &Value, next: &Value, previous: &Value, servers: Map<String, Value>) -> Result<(), Failure> {
+        let snapshot = self.secrets.snapshot(input, next, previous).await?;
+        let attempt: Result<(), Failure> = async {
+            self.secrets.store_oauth_client_secret(input, next, previous).await?;
+            self.secrets.store_gmail_app_password(input, next, false).await?;
+            self.save_servers(servers).await
+        }
+        .await;
+        if let Err(error) = attempt {
+            if let Err(restore) = self.secrets.restore(snapshot).await {
+                tracing::warn!(error = %restore, "the secrets of a server that failed to save were not restored");
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Forgets what an edit from `previous` to `next` left unused: the old Gmail app password, and the Google sign-in when
+    /// the account moved to an app password.
+    async fn release_replaced_credentials(&self, previous: &Value, next: &Value) -> Result<(), Failure> {
+        let previous_account = gmail_app_password_account(previous);
+        let account = gmail_app_password_account(next);
+        if previous_account != account {
+            self.secrets.forget_unused_gmail_app_password(&previous_account).await?;
+        }
+        if !account.is_empty() && previous_account.is_empty() {
+            self.secrets.release_oauth(previous).await?;
+        }
+        Ok(())
+    }
+
     async fn save_mcp_server(&self, input: &Value) -> Result<Value, Failure> {
         let mut servers = self.user_servers().await;
         // A name of a multi-account connector's account edits that account.
@@ -585,32 +615,9 @@ impl McpService {
         }
         let merged = merge_mcp_server_config(&existing, &normalized_config);
         servers.insert(name.clone(), merged.clone());
-        // A failure anywhere before the config is saved leaves the keychain as it was: the saved
-        // client id never pairs with a secret of another save (Node left the new secret behind).
-        let snapshot = self.secrets.snapshot(input, &merged, &existing).await?;
-        let attempt: Result<(), Failure> = async {
-            self.secrets.store_oauth_client_secret(input, &merged, &existing).await?;
-            self.secrets.store_gmail_app_password(input, &merged, false).await?;
-            self.save_servers(servers).await
-        }
-        .await;
-        if let Err(error) = attempt {
-            // A restore that fails is only logged: the failure the caller gets is the save's own.
-            if let Err(restore) = self.secrets.restore(snapshot).await {
-                tracing::warn!(error = %restore, "the secrets of a server that failed to save were not restored");
-            }
-            return Err(error);
-        }
+        self.save_with_secrets(input, &merged, &existing, servers).await?;
         let enabled = enabled_flag(&merged);
-        let previous_account = gmail_app_password_account(&existing);
-        let account = gmail_app_password_account(&merged);
-        if previous_account != account {
-            self.secrets.forget_unused_gmail_app_password(&previous_account).await?;
-        }
-        // Gmail switched from the Google sign-in to an app password keeps no sign-in.
-        if !account.is_empty() && previous_account.is_empty() {
-            self.secrets.release_oauth(&existing).await?;
-        }
+        self.release_replaced_credentials(&existing, &merged).await?;
         let drop: Vec<String> = if !original.is_empty() && original != name { vec![original.clone()] } else { Vec::new() };
         let status = self.host.reconnect_mcp_and_announce(Some(&name), enabled, &drop).await;
         Ok(json!({"name": name, "source": "config", "status": status}))
@@ -657,31 +664,9 @@ impl McpService {
             .collect();
         server.insert("accounts".to_owned(), Value::Array(accounts));
         servers.insert(server_name.clone(), Value::Object(server));
-        // As in `save_mcp_server`: a failed save leaves the keychain as it was.
-        let snapshot = self.secrets.snapshot(input, &next, &account_cfg).await?;
-        let attempt: Result<(), Failure> = async {
-            self.secrets.store_oauth_client_secret(input, &next, &account_cfg).await?;
-            self.secrets.store_gmail_app_password(input, &next, false).await?;
-            self.save_servers(servers).await
-        }
-        .await;
-        if let Err(error) = attempt {
-            // A restore that fails is only logged: the failure the caller gets is the save's own.
-            if let Err(restore) = self.secrets.restore(snapshot).await {
-                tracing::warn!(error = %restore, "the secrets of a server that failed to save were not restored");
-            }
-            return Err(error);
-        }
+        self.save_with_secrets(input, &next, &account_cfg, servers).await?;
         self.runtime.forget_account_health(&account_name);
-        let previous_address = gmail_app_password_account(&account_cfg);
-        let address = gmail_app_password_account(&next);
-        if previous_address != address {
-            self.secrets.forget_unused_gmail_app_password(&previous_address).await?;
-        }
-        // An account switched from the Google sign-in to an app password keeps no sign-in.
-        if !address.is_empty() && previous_address.is_empty() {
-            self.secrets.release_oauth(&account_cfg).await?;
-        }
+        self.release_replaced_credentials(&account_cfg, &next).await?;
         let status = self.host.reconnect_mcp_and_announce(Some(&server_name), enabled_flag(&cfg), &[]).await;
         Ok(json!({"name": server_name, "account": account_name, "source": "config", "status": status}))
     }
@@ -694,25 +679,8 @@ impl McpService {
             return Err("MCP server name is required".to_owned());
         }
         let mut servers = self.user_servers().await;
-        // A name of a multi-account connector's account removes that account; the server goes
-        // with its last one.
         if let Some(target) = account_target(&servers, &server_name) {
-            let rest: Vec<Value> = accounts_of(&target.cfg).into_iter().filter(|e| text(field(e, "name")) != server_name).collect();
-            if rest.is_empty() {
-                servers.shift_remove(&target.server_name);
-            } else {
-                let mut next = target.cfg.as_object().cloned().unwrap_or_default();
-                next.insert("accounts".to_owned(), Value::Array(rest.clone()));
-                servers.insert(target.server_name.clone(), Value::Object(next));
-            }
-            self.save_servers(servers).await?;
-            let status = if rest.is_empty() {
-                self.host.reconnect_mcp_and_announce(None, true, std::slice::from_ref(&target.server_name)).await
-            } else {
-                self.host.reconnect_mcp_and_announce(Some(&target.server_name), enabled_flag(&target.cfg), &[]).await
-            };
-            let released = self.secrets.release_account(&target.account_cfg).await?;
-            return Ok(with_release(status, released.into_iter().collect()));
+            return self.remove_connector_account(servers, target, &server_name).await;
         }
         if !servers.contains_key(&server_name) {
             self.refuse_plugin_server(&server_name).await?;
@@ -721,12 +689,36 @@ impl McpService {
         let removed = servers.shift_remove(&server_name).unwrap_or(Value::Null);
         self.save_servers(servers).await?;
         let status = self.host.reconnect_mcp_and_announce(None, true, std::slice::from_ref(&server_name)).await;
-        // The server of a multi-account connector takes every account's sign-in with it.
-        let account_cfgs = account_servers(&removed);
+        self.release_removed_server(&removed, status).await
+    }
+
+    /// Removes the account `account_name` of a multi-account connector; the server goes with its last one.
+    async fn remove_connector_account(&self, mut servers: Map<String, Value>, target: AccountTarget, account_name: &str) -> Result<Value, Failure> {
+        let rest: Vec<Value> = accounts_of(&target.cfg).into_iter().filter(|e| text(field(e, "name")) != account_name).collect();
+        if rest.is_empty() {
+            servers.shift_remove(&target.server_name);
+        } else {
+            let mut next = target.cfg.as_object().cloned().unwrap_or_default();
+            next.insert("accounts".to_owned(), Value::Array(rest.clone()));
+            servers.insert(target.server_name.clone(), Value::Object(next));
+        }
+        self.save_servers(servers).await?;
+        let status = if rest.is_empty() {
+            self.host.reconnect_mcp_and_announce(None, true, std::slice::from_ref(&target.server_name)).await
+        } else {
+            self.host.reconnect_mcp_and_announce(Some(&target.server_name), enabled_flag(&target.cfg), &[]).await
+        };
+        let released = self.secrets.release_account(&target.account_cfg).await?;
+        Ok(with_release(status, released.into_iter().collect()))
+    }
+
+    /// Releases the sign-ins a removed server held that no other server shares: every account's, or the app password's,
+    /// or its own.
+    async fn release_removed_server(&self, removed: &Value, status: Value) -> Result<Value, Failure> {
+        let account_cfgs = account_servers(removed);
         if !account_cfgs.is_empty() {
-            // `Promise.all`: every release starts at once; the first to fail is the failure
-            // returned at once, while the others keep running in their tasks (dropping a join
-            // handle detaches its task, it does not cancel it).
+            // Every release starts at once; the first to fail is returned at once while the others keep running
+            // (dropping a join handle detaches its task).
             let mut pending: futures::stream::FuturesUnordered<_> = account_cfgs
                 .iter()
                 .map(|cfg| {
@@ -746,9 +738,7 @@ impl McpService {
             out.insert("revoked".to_owned(), json!(released.iter().all(|r| r.revoked)));
             return Ok(Value::Object(out));
         }
-        // A removed server keeps no sign-in another server does not share: an app password leaves
-        // the keychain (it is revoked at Google only).
-        let account = gmail_app_password_account(&removed);
+        let account = gmail_app_password_account(removed);
         if !account.is_empty() {
             let forgotten = self.secrets.forget_unused_gmail_app_password(&account).await?;
             let mut out = status.as_object().cloned().unwrap_or_default();
@@ -756,11 +746,32 @@ impl McpService {
             out.insert("revoked".to_owned(), json!(false));
             return Ok(Value::Object(out));
         }
-        let released = self.secrets.release_oauth(&removed).await?;
+        let released = self.secrets.release_oauth(removed).await?;
         Ok(with_release(status, released.into_iter().collect()))
     }
 
     // ── Toggling ──────────────────────────────────────────────────────────────────────────
+
+    /// Stores the user's choice for a plugin's server. It is server intent only: the effective state still requires the
+    /// plugin, and only a choice that differs from the declared default is stored.
+    async fn toggle_plugin_server(&self, owned: &PluginServer, server_name: String, want: bool) -> Result<Value, Failure> {
+        let stored = want == owned.declared_enabled.unwrap_or(true);
+        let next = with_plugin_server_intent(&self.adopted_config().await, &owned.owner_id, &owned.owner_key, |mut intent| {
+            if stored {
+                intent.shift_remove("enabled");
+            } else {
+                intent.insert("enabled".to_owned(), json!(want));
+            }
+            intent
+        });
+        let before = self.agent();
+        self.save_config(&before, next).await?;
+        self.host.flush_skills_save().await;
+        let effective = want && owned.plugin_enabled;
+        let status = self.host.schedule_mcp_toggle(&server_name, effective).await;
+        self.host.publish_mcp_changes(&[(server_name, effective)]).await;
+        Ok(status)
+    }
 
     async fn set_mcp_server_enabled(&self, name: &str, enabled: &Value) -> Result<Value, Failure> {
         // A name a multi-account connector holds as an account switches that account (and, on, its
@@ -775,24 +786,7 @@ impl McpService {
         let want = enabled != &Value::Bool(false);
         let catalog = self.runtime.catalog().await;
         if let Some(owned) = plugin_server(&catalog, &server_name) {
-            // Server intent only: the effective state still requires the plugin. Only a choice
-            // that differs from the declared default is stored.
-            let stored = want == owned.declared_enabled.unwrap_or(true);
-            let next = with_plugin_server_intent(&self.adopted_config().await, &owned.owner_id, &owned.owner_key, |mut intent| {
-                if stored {
-                    intent.shift_remove("enabled");
-                } else {
-                    intent.insert("enabled".to_owned(), json!(want));
-                }
-                intent
-            });
-            let before = self.agent();
-            self.save_config(&before, next).await?;
-            self.host.flush_skills_save().await;
-            let effective = want && owned.plugin_enabled;
-            let status = self.host.schedule_mcp_toggle(&server_name, effective).await;
-            self.host.publish_mcp_changes(&[(server_name, effective)]).await;
-            return Ok(status);
+            return self.toggle_plugin_server(&owned, server_name, want).await;
         }
         let known = self
             .runtime

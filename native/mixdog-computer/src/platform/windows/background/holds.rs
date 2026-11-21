@@ -127,8 +127,7 @@ fn inactive_root(handle: Wid) -> Wid {
     }
 }
 
-/// Background input must not raise its target over the window the person is
-/// in: a no-activate top level declines activation while the click, key or
+/// A no-activate top level declines activation while the click, key or
 /// accessibility call still lands. Returns the root to release, or 0 when
 /// there is nothing to release (already foreground or non-activatable, or the
 /// window refused the style or the ledger could not record it).
@@ -220,10 +219,6 @@ fn run_recovery(
     Ok(attempts)
 }
 
-/// Whether recovery has nothing to give back: the person was already in the
-/// target itself (a sibling of the same process is theirs, so a steal from it
-/// is restored) or the observer was not watching (InactiveRestoreSkipped,
-/// :190-193; the not-ready return, :221).
 fn recovery_skipped(root: Wid, before: Wid, ready: bool) -> bool {
     root == 0 || !ready || !native::is_window(before) || before == root || native::root_of(before) == root || native::is_owned_by(before, root)
 }
@@ -231,8 +226,7 @@ fn recovery_skipped(root: Wid, before: Wid, ready: bool) -> bool {
 impl WinBackground {
     /// Runs one delivery with the target held inactive. Inside an open scope
     /// the delivery only holds; otherwise it is a scope of its own, so the
-    /// settle and the foreground recovery run once after it (WhileInactive,
-    /// :260-274).
+    /// settle and the foreground recovery run once after it.
     pub fn while_inactive<T>(&self, top: Wid, deliver: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
         if is_scoped(&scopes(), inactive_root(top)) {
             let held = hold_inactive(&self.port, top);
@@ -312,8 +306,8 @@ impl WinBackground {
         recovered
     }
 
-    /// Holds `window` inactive past one call, for a pointer button left down
-    /// (input-pointer.ps1:93-114 HoldInactive): the root to release, 0 when
+    /// Holds `window` inactive past one call, for a pointer button left down:
+    /// the root to release, 0 when
     /// there is nothing to release. The hold counts beside the press call's own
     /// scope, so the call's end never clears the bit.
     pub(super) fn hold_past_call(&self, window: Wid) -> Result<Wid, String> {

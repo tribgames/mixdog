@@ -1,8 +1,4 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup; the child process is the point")]
-//! DS-WS-3: the kill-point matrix. A child process runs a three-file `writeTextBatch` with a
-//! recovery journal and is aborted (no cleanup, no destructors) at each journal step. A fresh
-//! store then lists, inspects and restores what it finds: the pre-image comes back wherever a
-//! batch was interrupted, a finished batch is never "restored", and nothing is ever torn.
 
 use std::path::Path;
 use std::path::PathBuf;

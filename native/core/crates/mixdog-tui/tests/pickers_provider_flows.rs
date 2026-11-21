@@ -578,7 +578,10 @@ fn the_device_code_warning_fits_eighty_columns_and_a_plain_url_has_none() {
     let FooterInput::Object { text, .. } = &lines[0] else { panic!("an object line") };
     assert!(text.contains("Continue only if you started this") && text.contains("Never enter a code someone sent you"));
     assert!(text.chars().count() + 7 <= 80);
+}
 
+#[test]
+fn a_plain_url_login_has_no_device_code_warning() {
     let mut plain = host_with(base_setup());
     plain.script_spec("beginOAuthProviderLogin", &json!({"ok": {"url": "https://example.test/poll"}}));
     plain.begin(SetupOptions::default());

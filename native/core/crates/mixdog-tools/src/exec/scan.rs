@@ -1,9 +1,7 @@
 //! Shell command scanning shared by the destructive-command warning and the exec policy: quote and
 //! heredoc stripping, a shell-aware tokenizer, wrapper peeling and extraction of the payloads a
 //! command embeds (`sh -c`, `xargs`, `find -exec`, `powershell -Command`, heredocs).
-//!
-//! Ported from the Node product's `destructive-warning.mjs`, `shell-powershell.mjs` and
-//! `shell-policy.mjs`; the patterns are ASCII-only like JavaScript's non-unicode regexes.
+//! The patterns are ASCII-only.
 
 use std::sync::LazyLock;
 
@@ -381,83 +379,91 @@ static AWK_SYSTEM_DQ: LazyLock<JsRegex> = LazyLock::new(|| cs(r#"system\s*\(\s*"
 fn collect_leaf_embedded_payloads(peeled: &[String], out: &mut Vec<String>) {
     let leaf = peeled[0].as_str();
     match leaf {
-        "xargs" | "parallel" => {
-            let mut j = 1;
-            while j < peeled.len() && is_flag(&peeled[j]) {
-                if LONG_OPT.is_match(&peeled[j]) && j + 1 < peeled.len() && !is_flag(&peeled[j + 1]) {
-                    j += 2;
-                    continue;
-                }
-                j += 1;
-            }
-            if j < peeled.len() {
-                out.push(peeled[j..].iter().map(|t| strip_quotes(t)).collect::<Vec<_>>().join(" "));
-            }
-        }
-        "find" => {
-            let mut j = 1;
-            while j < peeled.len() {
-                if peeled[j] == "-exec" || peeled[j] == "-execdir" {
-                    let mut cmd = Vec::new();
-                    let mut k = j + 1;
-                    while k < peeled.len() && !matches!(peeled[k].as_str(), ";" | "\\;" | "+") {
-                        cmd.push(strip_quotes(&peeled[k]));
-                        k += 1;
-                    }
-                    if !cmd.is_empty() {
-                        out.push(cmd.join(" "));
-                    }
-                    j = k;
-                }
-                j += 1;
-            }
-        }
-        "awk" => {
-            let mut j = 1;
-            while j < peeled.len() {
-                let t = peeled[j].as_str();
-                if matches!(t, "-f" | "-v" | "-F") {
-                    j += 2;
-                    continue;
-                }
-                if t.starts_with('-') {
-                    j += 1;
-                    continue;
-                }
-                let body = strip_quotes(t);
-                let sq = AWK_SYSTEM_SQ.captures(body);
-                let dq = AWK_SYSTEM_DQ.captures(body);
-                let pick = match (sq, dq) {
-                    (Some(a), Some(b)) => Some(if a.range().start <= b.range().start { a } else { b }),
-                    (a, b) => a.or(b),
-                };
-                if let Some(m) = pick {
-                    out.push(m.get(1).unwrap_or_default().to_owned());
-                }
-                break;
-            }
-        }
-        "perl" | "node" | "python" | "python3" => {
-            let flag = if leaf == "python" || leaf == "python3" { "-c" } else { "-e" };
-            let mut j = 1;
-            while j < peeled.len() {
-                let t = peeled[j].as_str();
-                if t == flag || (leaf == "perl" && t == "-E") {
-                    if let Some(arg) = peeled.get(j + 1)
-                        && !arg.is_empty()
-                    {
-                        out.push(strip_quotes(arg).to_owned());
-                    }
-                    break;
-                }
-                if t.starts_with('-') {
-                    j += 1;
-                    continue;
-                }
-                break;
-            }
-        }
+        "xargs" | "parallel" => xargs_payload(peeled, out),
+        "find" => find_exec_payloads(peeled, out),
+        "awk" => awk_system_payload(peeled, out),
+        "perl" | "node" | "python" | "python3" => interpreter_inline_payload(leaf, peeled, out),
         _ => {}
+    }
+}
+
+fn xargs_payload(peeled: &[String], out: &mut Vec<String>) {
+    let mut j = 1;
+    while j < peeled.len() && is_flag(&peeled[j]) {
+        if LONG_OPT.is_match(&peeled[j]) && j + 1 < peeled.len() && !is_flag(&peeled[j + 1]) {
+            j += 2;
+            continue;
+        }
+        j += 1;
+    }
+    if j < peeled.len() {
+        out.push(peeled[j..].iter().map(|t| strip_quotes(t)).collect::<Vec<_>>().join(" "));
+    }
+}
+
+fn find_exec_payloads(peeled: &[String], out: &mut Vec<String>) {
+    let mut j = 1;
+    while j < peeled.len() {
+        if peeled[j] == "-exec" || peeled[j] == "-execdir" {
+            let mut cmd = Vec::new();
+            let mut k = j + 1;
+            while k < peeled.len() && !matches!(peeled[k].as_str(), ";" | "\\;" | "+") {
+                cmd.push(strip_quotes(&peeled[k]));
+                k += 1;
+            }
+            if !cmd.is_empty() {
+                out.push(cmd.join(" "));
+            }
+            j = k;
+        }
+        j += 1;
+    }
+}
+
+fn awk_system_payload(peeled: &[String], out: &mut Vec<String>) {
+    let mut j = 1;
+    while j < peeled.len() {
+        let t = peeled[j].as_str();
+        if matches!(t, "-f" | "-v" | "-F") {
+            j += 2;
+            continue;
+        }
+        if t.starts_with('-') {
+            j += 1;
+            continue;
+        }
+        let body = strip_quotes(t);
+        let sq = AWK_SYSTEM_SQ.captures(body);
+        let dq = AWK_SYSTEM_DQ.captures(body);
+        let pick = match (sq, dq) {
+            (Some(a), Some(b)) => Some(if a.range().start <= b.range().start { a } else { b }),
+            (a, b) => a.or(b),
+        };
+        if let Some(m) = pick {
+            out.push(m.get(1).unwrap_or_default().to_owned());
+        }
+        break;
+    }
+}
+
+fn interpreter_inline_payload(leaf: &str, peeled: &[String], out: &mut Vec<String>) {
+    let flag = if leaf == "python" || leaf == "python3" { "-c" } else { "-e" };
+    let mut j = 1;
+    while j < peeled.len() {
+        let t = peeled[j].as_str();
+        if t == flag || (leaf == "perl" && t == "-E") {
+            if let Some(arg) = peeled.get(j + 1)
+                && !arg.is_empty()
+            {
+                out.push(strip_quotes(arg).to_owned());
+            }
+            break;
+        }
+        if t.starts_with('-') {
+            j += 1;
+            continue;
+        }
+        break;
     }
 }
 

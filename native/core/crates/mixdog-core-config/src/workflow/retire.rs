@@ -1,11 +1,3 @@
-//! The boot-time retirement of a user's untouched copies of shipped definitions
-//! (`session-runtime/services/seeds.mjs` `ensureStandaloneEnvironment`, `retireSeededSkillCopies`,
-//! `retireSeededPackCopies`, with `runtime/shared/shipped-definitions.mjs` and `defaults/shipped-history.json`).
-//!
-//! The data dir should hold only copies the user changed. A copy equal to the current shipped version, or (once per
-//! history stamp) to any past one, is moved, never deleted, into `<data>/backups/defaults-separation-<time>/`, so the
-//! shipped version applies again. The pass logs nothing and swallows every failure of a move; the stamp marker is
-//! written only when nothing failed.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "lane job bodies: the service runs these functions on io lanes")]
 
 use std::path::Path;
@@ -220,10 +212,6 @@ fn retire_skill_copies(lane: &InLane<MaintenanceIo>, paths: &WorkflowPaths, back
 const PACK_KINDS: [(&str, &str, &[&str]); 2] = [("workflows", "WORKFLOW.md", &["WORKFLOW.md"]), ("agents", "AGENT.md", &["AGENT.md", "agent.json"])];
 
 /// `retireSeededPackCopies`: workflows, agents, output styles and orchestration modes. Returns what was retired as `<folder>/<name>`.
-///
-/// "Unchanged" for a pack means every loader-visible field matches (name, description, body, all other front matter and
-/// manifest fields); only normalisation is ignored. A copy holding any file beyond the editor's own (added references, a
-/// `.deleted` tombstone) is the user's and is never touched.
 fn retire_pack_copies(paths: &WorkflowPaths, backup: &mut Backup<'_>, history: &History) -> Result<Vec<String>, String> {
     let mut retired = Vec::new();
     for (dir, entry, files) in PACK_KINDS {

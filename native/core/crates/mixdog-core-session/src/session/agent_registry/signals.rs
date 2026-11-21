@@ -16,4 +16,9 @@ pub trait StatusSignals: Send + Sync {
     /// A Lead pool row was written (1.4.5's separate `lead-workers.json`, which no agent status read listened to): only the
     /// Agents pool lists it.
     fn lead_rows(&self, _session: &str) {}
+    /// [`AgentSignals::hold`](crate::session::agent_activity::AgentSignals::hold) for the registry's own writes: the
+    /// same hold, so a batch that takes one over the same sessions announces them once.
+    fn hold(&self, _sessions: &[String]) -> Box<dyn Send> {
+        Box::new(())
+    }
 }

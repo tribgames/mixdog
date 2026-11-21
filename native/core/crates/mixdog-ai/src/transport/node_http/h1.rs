@@ -444,25 +444,29 @@ async fn read_message(mut incoming: Incoming, conn: Conn, reuse: Option<Reuse>, 
         shared.arrived.notify_one();
     }
     match reuse {
-        Some(Reuse { pool, key, ttl }) if whole => {
-            loop {
-                let gone = shared.gone.notified();
-                tokio::pin!(gone);
-                gone.as_mut().enable();
-                let waiting = {
-                    let received = shared.lock();
-                    received.held && !received.dropped
-                };
-                if !waiting {
-                    break;
-                }
-                gone.await;
-            }
-            mixdog_rt::time::immediate().await;
-            pool.put_h1(key, conn, ttl);
-        }
+        Some(reuse) if whole => give_back(conn, reuse, &shared).await,
         _ => drop(conn),
     }
+}
+
+/// Returns a connection whose message was read whole to the pool, once the caller no longer holds it
+/// ([`BodyStream::hold_connection`]) and a check phase has passed.
+async fn give_back(conn: Conn, Reuse { pool, key, ttl }: Reuse, shared: &Shared) {
+    loop {
+        let gone = shared.gone.notified();
+        tokio::pin!(gone);
+        gone.as_mut().enable();
+        let waiting = {
+            let received = shared.lock();
+            received.held && !received.dropped
+        };
+        if !waiting {
+            break;
+        }
+        gone.await;
+    }
+    mixdog_rt::time::immediate().await;
+    pool.put_h1(key, conn, ttl);
 }
 
 /// The network's end of a message (its last byte read off the socket, or the fault that ended it), whether or not the

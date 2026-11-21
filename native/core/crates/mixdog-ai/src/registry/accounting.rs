@@ -262,9 +262,34 @@ fn pos(value: f64) -> f64 {
     if value.is_finite() && value > 0.0 { value } else { 0.0 }
 }
 
-/// `{ requestedModel, pricingModel }` of the priced rates, as Node reads them.
-fn rate_field(rates: &serde_json::Map<String, Value>, key: &str) -> Option<Value> {
-    rates.get(key).cloned()
+/// The snapshot of a row whose cost the provider reported or that ran locally: the priced rates' model and tier fields
+/// under the row's own pricing provider and source.
+fn own_rates(priced: &serde_json::Map<String, Value>, provider: &str, kind: &str) -> serde_json::Map<String, Value> {
+    let mut own = serde_json::Map::new();
+    own.insert("requestedModel".into(), priced.get("requestedModel").cloned().unwrap_or(Value::Null));
+    own.insert("pricingModel".into(), priced.get("pricingModel").cloned().unwrap_or(Value::Null));
+    for key in ["requestServiceTier", "serviceTier"] {
+        if let Some(tier) = priced.get(key).filter(|t| crate::service::admin_route::truthy(Some(t))) {
+            own.insert(key.into(), tier.clone());
+        }
+    }
+    own.insert("pricingProvider".into(), json!(provider));
+    own.insert("pricingSource".into(), json!(if kind == "local" { "local" } else { "provider" }));
+    own
+}
+
+fn cost_source_of(kind: &str, priced: bool, reported: bool) -> &'static str {
+    if kind == "local" {
+        "local"
+    } else if !priced {
+        "unpriced"
+    } else if kind == "oauth" {
+        "subscription"
+    } else if reported {
+        "provider"
+    } else {
+        "catalog"
+    }
 }
 
 fn day_key(ts: i64) -> String {
@@ -380,21 +405,7 @@ pub fn make_usage_record_with(args: &RecordArgs, speed_tier: &str, pricing: &dyn
         cost_usd = Some(0.0);
     }
     let no_usage = failed_empty && !cost_usd.is_some_and(|cost| cost != 0.0 && !cost.is_nan());
-    let mut rates_obj = if reported || kind == "local" {
-        let mut own = serde_json::Map::new();
-        own.insert("requestedModel".into(), rate_field(&priced.rates, "requestedModel").unwrap_or(Value::Null));
-        own.insert("pricingModel".into(), rate_field(&priced.rates, "pricingModel").unwrap_or(Value::Null));
-        for key in ["requestServiceTier", "serviceTier"] {
-            if let Some(tier) = rate_field(&priced.rates, key).filter(|t| crate::service::admin_route::truthy(Some(t))) {
-                own.insert(key.into(), tier);
-            }
-        }
-        own.insert("pricingProvider".into(), json!(provider));
-        own.insert("pricingSource".into(), json!(if kind == "local" { "local" } else { "provider" }));
-        own
-    } else {
-        priced.rates.clone()
-    };
+    let mut rates_obj = if reported || kind == "local" { own_rates(&priced.rates, &provider, kind) } else { priced.rates.clone() };
     // The request projection needs evidence, not a different numeric accounting value.
     if !facts.output_tokens_known && !no_usage {
         rates_obj.insert("outputTokensKnown".into(), Value::Bool(false));
@@ -402,19 +413,7 @@ pub fn make_usage_record_with(args: &RecordArgs, speed_tier: &str, pricing: &dyn
     if !speed_tier.is_empty() {
         rates_obj.insert("sentSpeedTier".into(), json!(speed_tier));
     }
-    let cost_source = if no_usage {
-        NO_USAGE_COST_SOURCE
-    } else if kind == "local" {
-        "local"
-    } else if cost_usd.is_none() {
-        "unpriced"
-    } else if subscription {
-        "subscription"
-    } else if reported {
-        "provider"
-    } else {
-        "catalog"
-    };
+    let cost_source = if no_usage { NO_USAGE_COST_SOURCE } else { cost_source_of(kind, cost_usd.is_some(), reported) };
     let session_id = match args.session_id.as_deref() {
         Some("no-session" | "(none)") | None => String::new(),
         Some(id) => text(id),
@@ -628,6 +627,16 @@ impl SendAccounting {
         self.abandoned.push(Abandoned { facts: Facts::from(usage), model, speed_tier: self.speed_tier.clone(), account: self.pinned_account.clone() });
     }
 
+    /// `currentProviderAccountId` throws inside the row's construction: an error writes nothing.
+    async fn row_account(&self, pinned: Option<&str>) -> Result<String, String> {
+        match (pinned, &self.account) {
+            (Some(account), _) => Ok(account.to_owned()),
+            (_, Some(roster)) if ACCOUNT_PROVIDERS.contains(&self.identity.provider.as_str()) => roster.of(&self.identity.provider).await,
+            (_, Some(_)) => Ok(String::new()),
+            (_, None) => self.identity.account.clone(),
+        }
+    }
+
     async fn save(&self, row: Row<'_>, speed_tier: &str, pinned: Option<&str>, recorded: &mut Recorded) {
         let Some(sink) = &self.sink else { return };
         let identity = &self.identity;
@@ -654,14 +663,7 @@ impl SendAccounting {
             recorded.request_ms = Some(duration_ms.max(0.0) as u64);
         }
         let stream_ms = completed.map_or(0.0, |c| (c.stream_ended_at - identity.started_at) as f64);
-        // `currentProviderAccountId` throws inside the row's construction: nothing is written.
-        let read = match (pinned, &self.account) {
-            (Some(account), _) => Ok(account.to_owned()),
-            (_, Some(roster)) if ACCOUNT_PROVIDERS.contains(&identity.provider.as_str()) => roster.of(&identity.provider).await,
-            (_, Some(_)) => Ok(String::new()),
-            (_, None) => identity.account.clone(),
-        };
-        let account = match read {
+        let account = match self.row_account(pinned).await {
             Ok(account) => account,
             Err(error) => {
                 mixdog_rt::node_stderr!("[usage-ledger] RECORD NOT SAVED: {error}");

@@ -1,8 +1,3 @@
-//! The auto-effort step judge of a run (`session/loop/step-auto-effort.mjs`, `stepResult`): the
-//! shared model plus the ladder of the turn. A custom (`custom-*`) route snaps the judged effort
-//! onto its model row's own levels (`CustomLadder`, `resolveCustomReasoning`); every other route
-//! moves along the ladder `effortOptionsFor` gives it (`AutoLadder`, `resolveAutoEffort`).
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -28,10 +23,6 @@ pub struct StepLadderFacts {
     pub custom: Option<CustomRoute>,
 }
 
-/// What the ladder reads off the route (`step-auto-effort.mjs:164-167`). The owners: the
-/// provider's cached model row (`providerImpl.getCachedModelInfo`), the endpoint's rejected
-/// levels (`rejectedEffortLevelsSync`), a custom provider's config (`providerClient.customConfig`)
-/// and the Anthropic effort gates (`anthropicEffortLevelsFor`).
 #[async_trait]
 pub trait LadderSources: Send + Sync {
     fn cached_row(&self, provider: &str, model: &str) -> Option<Map<String, Value>>;

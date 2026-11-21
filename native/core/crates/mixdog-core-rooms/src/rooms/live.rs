@@ -633,10 +633,6 @@ fn id_of(row: &Value) -> &str {
     row.get("id").and_then(Value::as_str).unwrap_or("")
 }
 
-/// `inLogOrder(read, posted)`: one list in log order from the log's tail window (`read`, the
-/// authority) and the rows this host posted (`posted`, a subsequence of the log). A posted row the
-/// read lacks sits before the window when a later posted row is in it, and after it otherwise; with
-/// no posted row in the window, time decides which side the posted rows go.
 fn in_log_order(read: Vec<Value>, posted: &[Value]) -> Vec<Value> {
     let at: HashMap<String, usize> = read.iter().enumerate().map(|(index, row)| (id_of(row).to_owned(), index)).collect();
     let mut older: Vec<Value> = Vec::new();
@@ -716,10 +712,6 @@ impl RoomTurnHost for View {
         new_room_id(self.now())
     }
 
-    /// `deps.republish(roomSessionId)` through `decorate`: the log with what the running exchange
-    /// shows (`scheduler.state(roomId)`, the tracked state; nothing when none runs) and its
-    /// members' handed-off questions. Queued on the room's one publication at once (its turn is taken in call order);
-    /// the view is made when the turn comes, so it is the exchange's state then, never an older one.
     fn republish(&self) {
         let (view, live) = (View { shared: self.shared.clone(), live: self.live.clone(), room_id: self.room_id.clone() }, self.live.clone());
         live.publishing.fetch_add(1, Ordering::SeqCst);

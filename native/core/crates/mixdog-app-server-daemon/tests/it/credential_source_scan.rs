@@ -243,7 +243,6 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-ai/src/providers/compat/login/command_code.rs", "std::env::var_os(\"USERPROFILE\")", "the home directory"),
     ("mixdog-ai/src/providers/compat/login/command_code.rs", "std::env::var_os(\"HOME\")", "the home directory"),
     ("mixdog-ai/src/providers/compat/xai_cache.rs", "self.environment.and_then(|env| env.var(name))", "cache-lane tuning variables (scope, shards, auto)"),
-    ("mixdog-ai/src/providers/google/conformance.rs", "MIXDOG_FIXTURES_DIR", "the fixtures directory of the conformance runner"),
     ("mixdog-secrets/src/lib.rs", "MIXDOG_KEYCHAIN_TIMEOUT_MS", "a timeout"),
     ("mixdog-secrets/src/linux.rs", "std::env::var(name).ok()", "the session bus address variables"),
     ("mixdog-secrets/src/linux.rs", "XDG_RUNTIME_DIR", "the session bus directory"),

@@ -1,11 +1,4 @@
-//! The PowerPoint reader against real Microsoft PowerPoint. The test is `#[ignore]`d: it starts PowerPoint, so it runs only on
-//! request (`cargo test -p mixdog-office-com --test ppt_read_live -- --ignored`) on a Windows machine with Microsoft PowerPoint
-//! and `MIXDOG_TEST_LIVE_OFFICE=1`. Without that variable a test that was asked for ends at once and says it did nothing.
-//!
-//! A deck with text, a table, notes, a comment and a second slide is made through the dispatch layer, saved and closed. The
-//! reader then reads and inspects the same file in this process: the snapshot is JSON and holds what was written. The recorded
-//! scenarios of `tests/scenarios/ppt-read.json` (decks of every shape kind, charts of every kind, backgrounds, selections) run
-//! through the transport in `tests/switch_powerpoint_live.rs` and are replayed by `tests/ppt_read.rs`.
+//! Ignored: starts PowerPoint; run with `-- --ignored` on Windows with it and `MIXDOG_TEST_LIVE_OFFICE=1`, else a requested test ends at once.
 #![cfg(windows)]
 
 use std::path::Path;

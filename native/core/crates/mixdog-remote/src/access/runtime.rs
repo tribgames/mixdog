@@ -56,6 +56,43 @@ const PUSH_NOT_ALLOWED: &str = "This device has not allowed notifications from t
 /// (desktop-turn-notifier.ts `TURN_FAILED_TEXT`).
 const TURN_FAILED_TEXT: &str = "The turn stopped with an error.";
 
+/// What the paths of one delivery came to. `targets` counts the device's registrations on every path (Node's `outcome.targets`):
+/// it separates "never allowed" from "could not send".
+#[derive(Default)]
+struct PushTally {
+    sent: usize,
+    targets: usize,
+    failures: Vec<String>,
+}
+
+impl PushTally {
+    fn record_send(&mut self, handed_over: bool) {
+        if handed_over {
+            self.sent += 1;
+        } else {
+            self.failures.push(RELAY_UNAVAILABLE.into());
+        }
+    }
+}
+
+fn push_payload(push: &PushDelivery, host_id: &str) -> String {
+    let reason = push.reason.name();
+    let mut data = serde_json::Map::new();
+    data.insert("sessionId".into(), json!(push.session_id));
+    data.insert("reason".into(), json!(reason));
+    let mut payload = serde_json::Map::new();
+    if !host_id.is_empty() {
+        payload.insert("hostId".into(), json!(host_id));
+        data.insert("hostId".into(), json!(host_id));
+    }
+    payload.insert("sessionId".into(), json!(push.session_id));
+    payload.insert("title".into(), json!(push.title));
+    payload.insert("body".into(), json!(push.body));
+    payload.insert("reason".into(), json!(reason));
+    payload.insert("data".into(), Value::Object(data));
+    mixdog_js::json_stringify(&Value::Object(payload))
+}
+
 /// One decided notification for one paired device.
 #[derive(Clone, Debug)]
 pub struct PushDelivery {
@@ -563,10 +600,6 @@ impl PhoneSink for RuntimeSink {
     async fn deliver(&self, message: ToPhone) {
         match message {
             ToPhone::Frame { peer_id, generation, frame } => {
-                // A frame of a replaced open is not the replacement's: the generation is checked where the session or the channel
-                // that seals is chosen (`transport`, `seal`), in one step with the choice.
-                // The live view's writes are asked about again where they enter the phone's stream: the core queued them before a
-                // revocation that may have come since.
                 let bytes = match &frame {
                     Frame::Text(text) => text.as_bytes(),
                     Frame::Binary(bytes) => bytes.as_slice(),
@@ -1539,26 +1572,9 @@ impl RemoteRuntime {
     /// subscription (only for a browser that holds no relay association). `Err` is the sentence
     /// shown to the user when nothing was handed over.
     pub async fn deliver_push(&self, push: &PushDelivery) -> Result<(), String> {
-        let (host_id, reason) = (mixdog_js::slice_utf16(&push.host_id, 64), push.reason);
-        let mut data = serde_json::Map::new();
-        data.insert("sessionId".into(), json!(push.session_id));
-        data.insert("reason".into(), json!(reason.name()));
-        let mut payload = serde_json::Map::new();
-        if !host_id.is_empty() {
-            payload.insert("hostId".into(), json!(host_id));
-            data.insert("hostId".into(), json!(host_id));
-        }
-        payload.insert("sessionId".into(), json!(push.session_id));
-        payload.insert("title".into(), json!(push.title));
-        payload.insert("body".into(), json!(push.body));
-        payload.insert("reason".into(), json!(reason.name()));
-        payload.insert("data".into(), Value::Object(data));
-        let payload = mixdog_js::json_stringify(&Value::Object(payload));
-
-        let mut sent = 0usize;
-        // Registrations of this device on every path (Node's `outcome.targets`): what separates "never allowed" from "could not send".
-        let mut targets = 0usize;
-        let mut failures: Vec<String> = Vec::new();
+        let host_id = mixdog_js::slice_utf16(&push.host_id, 64);
+        let payload = push_payload(push, &host_id);
+        let mut tally = PushTally::default();
         let (relay_targets, all_targets, native_rows, connected) = {
             let state = self.inner.state();
             let web = state.web.as_ref().filter(|_| state.caps.web_push());
@@ -1567,21 +1583,35 @@ impl RemoteRuntime {
             let native = state.native.as_ref().map(|s| lock(s).list().to_vec()).unwrap_or_default();
             (mine, all, native, state.connected)
         };
-        targets += relay_targets.len();
-        for target in &relay_targets {
+        self.push_relay_web(&relay_targets, &payload, &mut tally);
+        self.push_native(push, &host_id, &native_rows, connected, &mut tally);
+        self.push_legacy(push, &payload, &all_targets, &mut tally).await;
+        if tally.sent > 0 {
+            return Ok(());
+        }
+        // Nothing was handed over. A native push whose encryption failed adds no failure of its own (Node's `deliverNative` lets it
+        // reject unseen), so it reads as the relay not taking it.
+        match tally.failures.into_iter().next() {
+            Some(first) => Err(first),
+            None if tally.targets == 0 => Err(PUSH_NOT_ALLOWED.into()),
+            None => Err(RELAY_UNAVAILABLE.into()),
+        }
+    }
+
+    fn push_relay_web(&self, targets: &[WebPushTarget], payload: &str, tally: &mut PushTally) {
+        tally.targets += targets.len();
+        for target in targets {
             match encrypt_for_target(target, payload.as_bytes()) {
-                Err(_) => failures.push("The browser’s subscription keys are invalid.".into()),
-                Ok(body) => {
-                    if self.inner.cfg.link.send(&RelayWebPush::send_envelope(target, &body)) {
-                        sent += 1;
-                    } else {
-                        failures.push(RELAY_UNAVAILABLE.into());
-                    }
-                }
+                Err(_) => tally.failures.push("The browser’s subscription keys are invalid.".into()),
+                Ok(body) => tally.record_send(self.inner.cfg.link.send(&RelayWebPush::send_envelope(target, &body))),
             }
         }
-        for row in native_rows.iter().filter(|row| row.client_id == push.device_id) {
-            targets += 1;
+    }
+
+    fn push_native(&self, push: &PushDelivery, host_id: &str, rows: &[NativePushSubscription], connected: bool, tally: &mut PushTally) {
+        let reason = push.reason;
+        for row in rows.iter().filter(|row| row.client_id == push.device_id) {
+            tally.targets += 1;
             let body = if reason == Reason::TurnFailed && push.body.is_empty() { TURN_FAILED_TEXT } else { push.body.as_str() };
             let (title, body) = NativePushContent::clip(&push.title, body);
             let content = NativePushContent {
@@ -1591,7 +1621,7 @@ impl RemoteRuntime {
                 reason,
                 approval_id: push.approval.as_ref().map(|(id, _)| id.clone()),
                 allow_once: push.approval.as_ref().filter(|(_, allow)| *allow).map(|_| true),
-                host_id: (!host_id.is_empty()).then(|| host_id.clone()),
+                host_id: (!host_id.is_empty()).then(|| host_id.to_owned()),
             };
             let Ok(mx) = encrypt_native_push_fresh(&row.public_key, &content) else { continue };
             let message = json!({
@@ -1602,14 +1632,12 @@ impl RemoteRuntime {
                 let state = self.inner.state();
                 crate::push::native::send_envelope(&row.platform, &message, &state.caps, connected)
             };
-            if envelope.is_some_and(|envelope| self.inner.cfg.link.send(&envelope)) {
-                sent += 1;
-            } else {
-                failures.push(RELAY_UNAVAILABLE.into());
-            }
+            tally.record_send(envelope.is_some_and(|envelope| self.inner.cfg.link.send(&envelope)));
         }
-        // The legacy subscription is dropped from the direct path once that same browser holds a
-        // relay association, or its endpoint is one.
+    }
+
+    /// The legacy subscription is dropped from the direct path once that same browser holds a relay association, or its endpoint is one.
+    async fn push_legacy(&self, push: &PushDelivery, payload: &str, all_targets: &[WebPushTarget], tally: &mut PushTally) {
         if self.legacy_push().is_ok() {
             let listed = self.inner.durable({
                 let store = crate::push::legacy::LegacyPushStore::new(&self.inner.cfg.dir);
@@ -1618,7 +1646,7 @@ impl RemoteRuntime {
             let listed = listed.await;
             // A list that never ran is a failure to deliver, not a PC with no legacy browsers.
             if let Err(error) = &listed {
-                failures.push(error.to_string());
+                tally.failures.push(error.to_string());
             }
             if let Ok(Ok((rows, keys))) = listed {
                 let browsers: std::collections::HashSet<&str> = all_targets.iter().map(|t| t.client_id.as_str()).collect();
@@ -1628,30 +1656,20 @@ impl RemoteRuntime {
                     if endpoints.contains(row.endpoint.as_str()) || (!row.client_id.is_empty() && browsers.contains(row.client_id.as_str())) {
                         continue;
                     }
-                    targets += 1;
-                    let result = crate::push::legacy::send_web_push(&poster, row, &payload, &keys, now_ms()).await;
+                    tally.targets += 1;
+                    let result = crate::push::legacy::send_web_push(&poster, row, payload, &keys, now_ms()).await;
                     if result.expired {
-                        failures.push("The push service no longer accepts this browser’s subscription.".into());
+                        tally.failures.push("The push service no longer accepts this browser’s subscription.".into());
                         let (store, endpoint) = (crate::push::legacy::LegacyPushStore::new(&self.inner.cfg.dir), row.endpoint.clone());
                         let _ = self.inner.durable(move |lane| store.remove(lane, &endpoint)).await;
                     } else if result.status_code >= 400 || result.error.is_some() {
                         let why = result.error.unwrap_or_else(|| result.status_code.to_string());
-                        failures.push(format!("The push service refused it ({why})."));
+                        tally.failures.push(format!("The push service refused it ({why})."));
                     } else {
-                        sent += 1;
+                        tally.sent += 1;
                     }
                 }
             }
-        }
-        if sent > 0 {
-            return Ok(());
-        }
-        // Nothing was handed over. A native push whose encryption failed adds no failure of its own (Node's `deliverNative` lets it
-        // reject unseen), so it reads as the relay not taking it.
-        match failures.into_iter().next() {
-            Some(first) => Err(first),
-            None if targets == 0 => Err(PUSH_NOT_ALLOWED.into()),
-            None => Err(RELAY_UNAVAILABLE.into()),
         }
     }
 
@@ -1821,29 +1839,7 @@ impl RemoteRuntime {
                 }
             }
             Inbound::Frame { client_id, payload } => self.on_frame(live, &client_id, payload).await,
-            Inbound::FrameTooLarge(envelope) => {
-                let (bytes, limit) = (positive_size(envelope.get("bytes")), positive_size(envelope.get("limit")));
-                if let Some(limit) = limit {
-                    self.inner.state().caps.learn_refused_limit(limit);
-                }
-                // Named: only the phone whose reply was refused is told, as an event of its own channel (it fails what waits for that
-                // reply). Unattributed: no phone is told (a sibling would see another client's refusal); it is logged and the windows
-                // show it (`remote-relay-inbound.ts`).
-                if let Some(peer_id) = envelope.get("clientId").and_then(Value::as_str).filter(|id| !id.is_empty()) {
-                    let frame = Frame::Text(relay_payload_rejected_frame(bytes, limit).to_string());
-                    let generation = self.inner.state().table.generation_of(peer_id);
-                    if let Some(generation) = generation {
-                        RuntimeSink { inner: self.inner.clone() }.deliver(ToPhone::Frame { peer_id: peer_id.to_owned(), generation, frame }).await;
-                    }
-                } else {
-                    tracing::error!(
-                        "[mixdog-remote] relay refused an oversize frame bytes={} limit={} (no client attributed)",
-                        bytes.map_or_else(|| "unknown".to_owned(), |b| b.to_string()),
-                        limit.map_or_else(|| "unknown".to_owned(), |l| l.to_string()),
-                    );
-                    self.inner.cfg.events.relay_payload_refused(bytes, limit);
-                }
-            }
+            Inbound::FrameTooLarge(envelope) => self.on_frame_too_large(&envelope).await,
             Inbound::NativePushResult(result) => {
                 if let Some(token) = invalid_token_of(&result).map(str::to_owned) {
                     let store = lock(&self.inner.state).native.clone();
@@ -1871,16 +1867,35 @@ impl RemoteRuntime {
         }
     }
 
+    async fn on_frame_too_large(&self, envelope: &Value) {
+        let (bytes, limit) = (positive_size(envelope.get("bytes")), positive_size(envelope.get("limit")));
+        if let Some(limit) = limit {
+            self.inner.state().caps.learn_refused_limit(limit);
+        }
+        // Named: only the phone whose reply was refused is told, as an event of its own channel (it fails what waits for that
+        // reply). Unattributed: no phone is told (a sibling would see another client's refusal); it is logged and the windows
+        // show it (`remote-relay-inbound.ts`).
+        if let Some(peer_id) = envelope.get("clientId").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+            let frame = Frame::Text(relay_payload_rejected_frame(bytes, limit).to_string());
+            let generation = self.inner.state().table.generation_of(peer_id);
+            if let Some(generation) = generation {
+                RuntimeSink { inner: self.inner.clone() }.deliver(ToPhone::Frame { peer_id: peer_id.to_owned(), generation, frame }).await;
+            }
+        } else {
+            tracing::error!(
+                "[mixdog-remote] relay refused an oversize frame bytes={} limit={} (no client attributed)",
+                bytes.map_or_else(|| "unknown".to_owned(), |b| b.to_string()),
+                limit.map_or_else(|| "unknown".to_owned(), |l| l.to_string()),
+            );
+            self.inner.cfg.events.relay_payload_refused(bytes, limit);
+        }
+    }
+
     /// A `media-*` envelope of the relay's HTTP media lane.
     fn on_media(&self, envelope: &Value) {
         use crate::media::{MediaCommand, MediaSession};
         match crate::media::route_media_envelope(envelope) {
             MediaCommand::Serve(request) => {
-                // The session is named by its handshake challenge; only an authenticated client
-                // has a media key to find.
-                // The key, the device and the revocation capability are taken together, here, before the serving task is spawned: a
-                // credential already unpaired has no grant (the request is refused as unauthenticated), and one unpaired after this
-                // holds the capability that the unpair sets, which every delivery of the task is committed under.
                 let grant = self.inner.state().table.media_grant(&request.sid);
                 let session = match grant {
                     Some(grant) => MediaSession { media_key: grant.key, device: grant.device, revocation: grant.revocation },
@@ -1973,28 +1988,12 @@ impl RemoteRuntime {
                 for sealed in frames {
                     self.inner.write_sealed(client_id, sealed, false).await;
                 }
-                if self.attach_peer(client_id, generation).await {
-                    self.inner.bridge.client_open_as(client_id, generation);
-                }
+                self.attach_and_open(client_id, generation).await;
             }
             Received::Transport { session, message } => session.receive_relay(&message),
             Received::TransportReady { channel, ready } => {
-                let (session_id, device, revocation) = {
-                    let state = self.inner.state();
-                    let device = state.table.media_device_of(client_id).unwrap_or_default();
-                    (state.table.challenge_of(client_id).unwrap_or_default(), device, state.table.revocation_of(client_id).unwrap_or_default())
-                };
-                let env: Arc<dyn crate::transport::session::SessionEnv> = Arc::new(SessionEnvironment { inner: Arc::downgrade(&self.inner), generation });
-                let session = crate::transport::session::TransportSession::open_under(env, client_id, device, &session_id, channel, revocation);
-                self.inner.state().table.attach_transport(client_id, generation, session.clone());
-                self.inner.cfg.registry.set_peer_transport_in(generation, client_id);
-                // Opened before anything is sent, so `e2ee-ready` is its record 1.
-                if let Ok(text) = String::from_utf8(ready) {
-                    let _ = session.send(&text, false).await;
-                }
-                if self.attach_peer(client_id, generation).await {
-                    self.inner.bridge.client_open_as(client_id, generation);
-                }
+                self.open_transport(client_id, generation, channel, ready).await;
+                self.attach_and_open(client_id, generation).await;
             }
             Received::Plain { bytes, binary } => {
                 let frame = if binary {
@@ -2013,11 +2012,30 @@ impl RemoteRuntime {
         }
     }
 
-    /// Names the paired device behind an established channel for the approvals' device stamp:
-    /// `deviceNameFor` (remote-relay-device-methods.ts:47) — the local alias, else the name the
-    /// relay lists for the credential (trimmed, 80 units); empty falls to `connectionDevice`'s
-    /// 'Web app' (remote-session-methods.ts:42).
-    /// False when the open `generation` is no longer the id's (closed, or replaced) by the time its device is known: nothing is attached
+    async fn attach_and_open(&self, client_id: &str, generation: u64) {
+        if self.attach_peer(client_id, generation).await {
+            self.inner.bridge.client_open_as(client_id, generation);
+        }
+    }
+
+    async fn open_transport(&self, client_id: &str, generation: u64, channel: crate::e2ee::Channel, ready: Vec<u8>) {
+        let (session_id, device, revocation) = {
+            let state = self.inner.state();
+            let device = state.table.media_device_of(client_id).unwrap_or_default();
+            (state.table.challenge_of(client_id).unwrap_or_default(), device, state.table.revocation_of(client_id).unwrap_or_default())
+        };
+        let env: Arc<dyn crate::transport::session::SessionEnv> = Arc::new(SessionEnvironment { inner: Arc::downgrade(&self.inner), generation });
+        let session = crate::transport::session::TransportSession::open_under(env, client_id, device, &session_id, channel, revocation);
+        self.inner.state().table.attach_transport(client_id, generation, session.clone());
+        self.inner.cfg.registry.set_peer_transport_in(generation, client_id);
+        // Opened before anything is sent, so `e2ee-ready` is its record 1.
+        if let Ok(text) = String::from_utf8(ready) {
+            let _ = session.send(&text, false).await;
+        }
+    }
+
+    /// Attaches the peer under its device name: the local alias, else the name the relay lists for the credential (trimmed, 80 units),
+    /// else the default. False when the open `generation` is no longer the id's (closed, or replaced) by the time its device is known: nothing is attached
     /// for it.
     async fn attach_peer(&self, client_id: &str, generation: u64) -> bool {
         let credential = self.inner.state().table.credential_of(client_id).map(str::to_owned).unwrap_or_default();

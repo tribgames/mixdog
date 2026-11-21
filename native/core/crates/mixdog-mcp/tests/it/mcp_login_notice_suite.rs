@@ -76,7 +76,11 @@ async fn a_sign_in_waiting_for_the_browser_posts_a_started_notice_after_the_runt
     let (reply, events) = call("mcp/beginMcpOAuthLogin", json!({"name": "linear"}), pending.clone()).await;
     assert_eq!(reply.unwrap(), pending["result"]);
     assert_eq!(events, [json!({"runtime": "beginMcpOAuthLogin"}), started("linear"), json!("return")]);
-    // The name is shown as it was given, spaces and all.
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_started_notice_shows_the_name_as_it_was_given() {
+    let pending = json!({"result": {"flowId": "f1", "state": "pending", "url": "https://auth.example/authorize"}});
     let (_, events) = call("mcp/beginMcpOAuthLogin", json!({"name": " linear "}), pending).await;
     assert_eq!(events[1], started(" linear "));
 }

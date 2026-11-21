@@ -1,11 +1,9 @@
-//! The geometry chain of one frame (`use-transcript-window/geometry.mjs`): row index, render scroll offset, window, and the
-//! geometry published for the synchronous scroll handlers.
+//! The geometry chain of one frame: row index, render scroll offset, window, and the geometry published for the synchronous scroll
+//! handlers.
 //!
-//! The render scroll offset is resolved between the row index and the window by the reading-anchor lock
-//! (`transcript-anchor-lock.mjs`, the scroll state's), so [`WindowState::frame`] takes it as a function of the row index.
-//! Node memoised the index and the window on a structure signature; the index here is rebuilt only for a new structure
-//! revision, width, expansion or streaming-tail height (see [`IncrementalRowIndex`]) and the window is a few binary
-//! searches, so a frame computes them directly.
+//! The render scroll offset is resolved between the row index and the window by the scroll state's reading-anchor lock, so
+//! [`WindowState::frame`] takes it as a function of the row index. The index is rebuilt only for a new structure revision, width,
+//! expansion or streaming-tail height (see [`IncrementalRowIndex`]) and the window is a few binary searches, so a frame computes them directly.
 
 use super::heights::{HeightParams, is_streaming_tail};
 use super::instance_state::WindowState;

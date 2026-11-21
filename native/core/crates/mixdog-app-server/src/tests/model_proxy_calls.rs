@@ -1,7 +1,3 @@
-//! The model proxy from the wire: `modelProxy/run` frames through the server's admission to the real `ModelProxyService` (over
-//! the real `ProxyRunner` and broker), its events and answers coming back as frames. A burst of sends is admitted whole and every
-//! one runs; a call that would take the data held past its bound is refused with a busy status. Only the provider is scripted (it
-//! answers, or holds its first call in flight).
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;

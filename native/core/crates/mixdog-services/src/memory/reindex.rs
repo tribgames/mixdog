@@ -1,9 +1,3 @@
-//! The background embedding reindex a memory start launches (`runtime/memory/index.mjs`
-//! `_startEmbeddingReindex`, `lib/embedding-reindex.mjs`): first every root without a vector is
-//! embedded (passes of one flush, a second apart while a pass timed out with progress), then the
-//! paced sweep replaces the vectors made under the older root text, one small step every four
-//! seconds, so a large backfill stays in the background of a working session.
-
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

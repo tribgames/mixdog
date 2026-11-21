@@ -1,5 +1,4 @@
-//! Which rendered pages open with a deliberate forced page break, ported from
-//! `src/runtime/office/quality/forced-break-pages.mjs`. A page that ends short before such a break ends where the
+//! Which rendered pages open with a deliberate forced page break. A page that ends short before such a break ends where the
 //! author ended it (`page_bottom_empty` reads this through [`crate::rendered::RenderedOptions::forced_break_pages`]).
 //! The openings come from the authored source: the kept HTML (`break-before: page` / `page-break-before: always|page`,
 //! inline or from a stylesheet rule) or the DOCX body (`w:pageBreakBefore`, or a page-break run before the paragraph).

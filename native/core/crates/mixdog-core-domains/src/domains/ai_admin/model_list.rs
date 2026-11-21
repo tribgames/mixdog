@@ -1,18 +1,8 @@
-//! `model/list`: Node's `listProviderModels` (`collectProviderModels`, session-runtime/
-//! provider-models.mjs) over the resident [`CatalogService`].
-//!
-//! Node keeps two caches under it: the process-wide provider catalog with its partial-answer
-//! backoff (`provider-catalog-cache.mjs`) and the flattened rows (`providerModelsCache`). The
-//! catalog snapshot already holds the first, with each provider's last-listing status
-//! (`CatalogSnapshot::status`), so nothing is cached here: every read flattens the snapshot
-//! again, which is what Node does with its cached rows (availability, saved settings and the
-//! sort are applied at read time anyway).
-//!
-//! The rows are Node's: the listing object of every model (`listing_value`) goes through
-//! `providerModelCacheRow`, hidden ones leave the picker, and the rest are hydrated with the
-//! user's saved settings and sorted route-provider-first. A partial answer says so on every row
-//! (`catalogPartial`, `catalogMissing`, `catalogRetryAt`); a quick read of a complete catalog is
-//! marked `catalogComplete`. A forced read asks every provider again first.
+//! `model/list` over the resident [`CatalogService`]: the catalog snapshot's rows, flattened at every read (nothing
+//! is cached here; the snapshot holds each provider's last-listing status). Hidden models leave the picker, the rest
+//! are hydrated with the user's saved settings and sorted route-provider-first. A partial answer says so on every
+//! row (`catalogPartial`, `catalogMissing`, `catalogRetryAt`); a quick read of a complete catalog is marked
+//! `catalogComplete`. A forced read asks every provider again first.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -222,11 +212,9 @@ impl ListHost {
         cache.seq
     }
 
-    /// What a load takes after its preparation, under one hold of the cache lock: whether it still owns its sequence
-    /// (`ownsLoad`), the revision synced (the preparation registered the providers it lists, which moved it), whether
-    /// the cache is loaded then, and the sequence to adopt under. An invalidation cannot land between these steps:
-    /// one that came first is seen by `owns` and the load keeps `started` (refused by `adopt`); one that comes after
-    /// moves the sequence past the one taken here.
+    /// What a load takes after its preparation, under one hold of the cache lock: whether the cache is loaded, and
+    /// the sequence to adopt under (the current one while the load still owns its sequence, else `started`, which
+    /// `adopt` refuses).
     pub(super) fn claim(&self, started: u64) -> (bool, u64) {
         let mut cache = self.cache();
         let owns = cache.seq == started;
@@ -278,10 +266,9 @@ impl ListHost {
         self.cache().flight.is_some()
     }
 
-    /// `startSharedLoad`: the load in flight, or a new one that every warm and reader joins. `load_secrets` is
-    /// Node's `loadSecrets`: the load prepares the secrets first, and only such a load is adopted as the cache.
-    /// `swallow` is `onFailed`: a failed warm load is logged and has no authoritative rows. The load's
-    /// sequence is taken here, as `++providerModelsLoadSeq` is, before anything it prepares.
+    /// The load in flight, or a new one that every warm and reader joins. With `load_secrets` the load prepares the
+    /// secrets first, and only such a load is adopted as the cache. With `swallow` a failed warm load is logged and
+    /// has no authoritative rows. The load's sequence is taken here, before anything it prepares.
     fn shared_load(&self, catalog: &Arc<CatalogService>, load_secrets: bool, swallow: bool) -> Load {
         let mut cache = self.cache();
         if let Some(flight) = &cache.flight {
@@ -319,10 +306,8 @@ impl ListHost {
         load
     }
 
-    /// One load (`loadProviderModelsFresh`): the providers prepared, then the listings that are due, adopted when the
-    /// load carries secrets. `started` is the sequence the load began under. A preparation moves the registry's
-    /// revision (it registers the providers it lists), so a load still current after it carries the sequence forward
-    /// (`ownsLoad`); one an invalidation superseded during the preparation keeps `started`, and `adopt` refuses it.
+    /// One load: the providers prepared, then the listings that are due, adopted when the load carries secrets.
+    /// `started` is the sequence the load began under; one an invalidation superseded keeps it and `adopt` refuses it.
     async fn run_load(&self, catalog: &CatalogService, load_secrets: bool, started: u64) -> Result<LoadOutcome, String> {
         if !self.prepare(load_secrets, true).await? {
             return Ok(LoadOutcome::NoListings);
@@ -355,13 +340,10 @@ impl ListHost {
         Ok(loaded)
     }
 
-    /// `prepare` of the catalog load. A load with secrets reads the full config first (`awaitKeychainPrewarm();
-    /// ensureFullConfig()`); one without prepares the providers of the runtime's config as it is at this moment
-    /// (`config().providers`, which the config sync keeps current: the readiness holds it) and reads no secret.
-    /// `false`: no provider is enabled, a fresh install has nothing to load (the registry refuses an all-disabled init
-    /// by design).
-    /// A non-forced load (`join`) then waits for the startup catalog refresh of the current epoch and its completion
-    /// (`await reg().refreshProviderCatalogsOnStartup()`), so it never snapshots a catalog that refresh then drops.
+    /// A load with secrets reads the full config first; one without prepares the providers of the runtime's config as
+    /// it is now and reads no secret. `false`: no provider is enabled, so a fresh install has nothing to load. A
+    /// non-forced load (`join`) then waits for the startup catalog refresh of the current epoch, so it never snapshots
+    /// a catalog that refresh then drops.
     async fn prepare(&self, load_secrets: bool, join: bool) -> Result<bool, String> {
         let providers = if load_secrets { Some(self.loaded().await?.providers) } else { None };
         // A forced load in the client mode reads the PC's providers afresh first (`loadModelProxyProviderConfig({ force: true })`).
@@ -485,10 +467,9 @@ impl ModelListService {
         }
     }
 
-    /// The authoritative load ran (`providerModelsCache.models` is an array). A refresh with no source
-    /// publishes a new generation too, so the snapshot cannot say whether the providers were ever asked.
-    /// A load where every listed provider failed stays uncached and retryable (`adoptProviderModelCache`
-    /// adopts only a complete or partial answer).
+    /// The authoritative load ran. A refresh with no source publishes a new generation too, so the snapshot cannot
+    /// say whether the providers were ever asked. A load where every listed provider failed stays uncached and
+    /// retryable: only a complete or partial answer is adopted.
     fn adopt(&self, seq: Option<u64>) {
         if !answered(&self.catalog.snapshot()) {
             return;
@@ -577,6 +558,10 @@ impl ModelListService {
                 true
             }
         };
+        Ok(self.read_rows(authoritative_read, quick, force))
+    }
+
+    fn read_rows(&self, authoritative_read: bool, quick: bool, force: bool) -> CatalogRead {
         let snapshot = self.catalog.snapshot();
         let mut rows = self.from_cache_rows(&snapshot, &self.cache_rows(&snapshot));
         let complete_providers = if authoritative_read {
@@ -603,8 +588,9 @@ impl ModelListService {
                 }
             }
         }
-        Ok(CatalogRead { models: rows, complete_providers })
+        CatalogRead { models: rows, complete_providers }
     }
+
     /// `warmProviderModelCache({ loadSecrets })`: the load in the background. Nothing starts when the cache is loaded
     /// or a load is in flight (Node's `models` / `promise` guard); a load without secrets runs but is never adopted.
     pub fn warm_cache(&self, load_secrets: bool) {

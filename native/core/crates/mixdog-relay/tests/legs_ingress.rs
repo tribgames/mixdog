@@ -15,6 +15,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+mod support;
+use support::eventually;
+
 const KEY: &str = "dGhlIHNhbXBsZSBub25jZQ==";
 const MASK: [u8; 4] = [0x0a, 0x0b, 0x0c, 0x0d];
 const CLIENT_ID: &str = "12345678-abcd-4321-abcd-1234567890ab";
@@ -256,14 +259,6 @@ impl Peer {
 
     fn delivered_flags(&self) -> Vec<(usize, bool, bool)> {
         locked(&self.delivered).iter().map(|item| (item.data.len(), item.announced, item.fits)).collect()
-    }
-}
-
-async fn eventually(what: &str, mut condition: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while !condition() {
-        assert!(Instant::now() < deadline, "timed out waiting for: {what}");
-        sleep(Duration::from_millis(10)).await;
     }
 }
 

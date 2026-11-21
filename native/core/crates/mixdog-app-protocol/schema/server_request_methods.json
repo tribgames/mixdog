@@ -4086,6 +4086,49 @@
       ],
       "type": "object"
     },
+    "HostComputerProcessFateParams": {
+      "description": "Params of `host/computer/processFate` (core -> host): the OS's answer about one process on the desktop's machine, read by the desktop's own computer host, so the core can bind a saved-login owner to its process when the desktop runs the commands. `created` is the process's creation time (a FILETIME as decimal text; empty: whichever process has `pid` now).",
+      "properties": {
+        "created": {
+          "type": "string"
+        },
+        "pid": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "created",
+        "pid"
+      ],
+      "type": "object"
+    },
+    "HostComputerProcessFateResult": {
+      "description": "Result of `host/computer/processFate`: the process's state and its creation time when it could be read (empty otherwise).",
+      "properties": {
+        "created": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/HostComputerProcessState"
+        }
+      },
+      "required": [
+        "created",
+        "state"
+      ],
+      "type": "object"
+    },
+    "HostComputerProcessState": {
+      "description": "What the OS says of the process: `unknown` is never read as ended.",
+      "enum": [
+        "running",
+        "ended",
+        "unknown"
+      ],
+      "type": "string"
+    },
     "HostComputerRevokeScopesParams": {
       "description": "Params of `host/computer/revokeScopes` (core -> host): automation scopes Computer Use switched off has revoked. Every other `host/computer/*` request of a session names its scope as `automationScope` (a whole number); the desktop keeps a revocable context per scope and connection, commits its effects under it, and answers this once its contexts of `scopes` refuse every effect. A revoked scope never holds again; one first named here is born revoked.",
       "properties": {
@@ -7907,6 +7950,14 @@
       },
       "result": {
         "type": "null"
+      }
+    },
+    "host/computer/processFate": {
+      "params": {
+        "$ref": "#/definitions/HostComputerProcessFateParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostComputerProcessFateResult"
       }
     },
     "host/computer/revokeScopes": {

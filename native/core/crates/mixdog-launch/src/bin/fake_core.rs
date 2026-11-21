@@ -1,7 +1,3 @@
-//! A stand-in for `mixdogd serve` for the launcher's integration tests: it claims the data folder the way the core does (one
-//! winner; a contender that loses the claim exits cleanly with nothing to say), publishes discovery (`booting`, then `serving`),
-//! and ends the way `FAKE_CORE_MODE` says. Never shipped: it is built only with the `fake-core` feature.
-//!
 //! Environment: `MIXDOG_RUNTIME_ROOT` is where discovery and the claim live; `FAKE_CORE_MODE` is `serve` (the default; runs until
 //! `fake-core.stop` appears beside discovery), `crash-before-serving` (publishes `booting`, then panics) or `crash-after-serving`
 //! (serves, then exits with status 7); `FAKE_CORE_BOOT_MS` is how long it stays `booting` (default 150).

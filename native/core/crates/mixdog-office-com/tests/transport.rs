@@ -30,7 +30,7 @@ fn scratch() -> PathBuf {
 fn office(grace_ms: u64) -> (OfficeCom, PathBuf) {
     let dir = scratch();
     let mut config = OfficeComConfig::new(dir.clone(), mixdog_rt::testing::tokens())
-        .with_host_command(PathBuf::from(env!("CARGO_BIN_EXE_fake-office-host")), Vec::<OsString>::new());
+        .with_host_command(PathBuf::from(mixdog_testkit::bin_exe!("fake-office-host")), Vec::<OsString>::new());
     config.drain_grace = Duration::from_millis(grace_ms);
     (OfficeCom::new(config), dir)
 }

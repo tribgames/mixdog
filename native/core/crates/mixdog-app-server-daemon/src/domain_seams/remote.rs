@@ -1,11 +1,3 @@
-//! `remote` and `local_target`: the one `RemoteRuntime` of the core and the dialer that serves
-//! phones from this core (compose-seams.md §F).
-//!
-//! The runtime needs the section publisher and the dialer before the server exists, and both
-//! come from things built after it (`compose_domains`' `StateRuntime`, the server's connection
-//! hub). [`LatePublisher`] and [`LateDialer`] are bound once those exist; the runtime is
-//! `prepare`d after both are bound.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -131,11 +123,6 @@ impl mixdog_exthost::VisualizePush for VisualizeNotifications {
     }
 }
 
-/// What the runtime tells the desktop beyond the `remote` section. An accepted controller key
-/// and an owed revocation are already in the section the runtime publishes right after the event
-/// (`controllerKeys`, `owedKeys`), which the desktop reads; PC access, once bound, also acts on them
-/// (the delegated enroll of a delivered key, the revoke of an owed one); only the relay failure has no
-/// section field, so it is announced on the app feed (the windows' toast) and logged.
 pub struct SectionEvents {
     cleanup: OnceLock<Arc<dyn DeviceCleanup>>,
     pc_access: OnceLock<Arc<dyn PcAccessEvents>>,
@@ -273,24 +260,21 @@ pub struct BuiltRemote {
     pub events: Arc<SectionEvents>,
 }
 
-/// `CoreHandle::connection_opened` for the paired-device registry: a client that connected from
-/// this machine (`Local`, or an SSH tunnel's `Ssh`) is recorded under the identity its
-/// `initialize` stated, so approvals stamp its device (compose-seams §F step 7). A relay
-/// connection is recorded by the dialer that opened it, with the peer id the registry follows to
-/// the paired device; a local client that claims to be a phone or a remote desktop is not
-/// recorded, because only a paired relay peer is one.
-pub fn register_local(registry: &DeviceRegistry, connection: ConnectionId, origin: Origin, device: &str, kind: ConnectionKind) {
-    if origin == Origin::Relay {
-        return;
-    }
-    let kind = match kind {
-        ConnectionKind::Desktop => LocalKind::Desktop,
-        ConnectionKind::Tui => LocalKind::Tui,
-        ConnectionKind::Cli => LocalKind::Cli,
-        ConnectionKind::ChannelBridge => LocalKind::ChannelBridge,
-        ConnectionKind::Phone | ConnectionKind::RemoteDesktop => return,
+/// Records a local client under what it stated. Returns the device name `connection`'s actions are stamped with: a paired relay
+/// peer's is the name it was paired under, whatever its client stated.
+pub fn register_local(registry: &DeviceRegistry, connection: ConnectionId, origin: Origin, device: &str, kind: ConnectionKind) -> String {
+    let local = match kind {
+        _ if origin == Origin::Relay => None,
+        ConnectionKind::Desktop => Some(LocalKind::Desktop),
+        ConnectionKind::Tui => Some(LocalKind::Tui),
+        ConnectionKind::Cli => Some(LocalKind::Cli),
+        ConnectionKind::ChannelBridge => Some(LocalKind::ChannelBridge),
+        ConnectionKind::Phone | ConnectionKind::RemoteDesktop => None,
     };
-    registry.connect_local(connection.0, device, kind);
+    if let Some(kind) = local {
+        registry.connect_local(connection.0, device, kind);
+    }
+    registry.describe(connection.0).map_or_else(|| device.to_owned(), |described| described.device)
 }
 
 /// The paired credential a connection acts as, for the phone file grants (SPEC.md R44, DS 4.7): that of a relay peer attached after
@@ -310,11 +294,6 @@ pub fn peer_attached(registry: Arc<DeviceRegistry>) -> Arc<dyn Fn(ConnectionId) 
     Arc::new(move |connection| registry.peer_attached(connection.0))
 }
 
-/// Opens the core's relay once it serves (DS §7.2 "relay starts at core boot"; compose-seams §F
-/// step 3, Node's `remoteAccessStart`): the dialer is bound to the server's connection hub by
-/// then. Starts publishing `hostState.remoteViewing`, loads the roster and connects if remote
-/// access was activated and is enabled. A failure is logged, not fatal: `start` has already
-/// published relay status `failed` and retries with backoff.
 pub async fn start_remote(remote: &BuiltRemote, publisher: Arc<dyn StatePublisher>) {
     mixdog_rt::spawn("remote-viewing", TaskClass::Work, publish_remote_viewing(Arc::downgrade(&remote.registry), publisher));
     if let Err(error) = remote.runtime.prepare().await {

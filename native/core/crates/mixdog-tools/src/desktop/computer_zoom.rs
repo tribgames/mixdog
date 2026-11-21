@@ -219,6 +219,23 @@ pub(super) async fn zoom(backend: &ProcessComputerBackend, command: Map<String, 
     Ok(parts)
 }
 
+/// `recognizeZoomText`: the crop the desktop delivered is what the recognizer reads, so its boxes are the zoom frame's pixels.
+async fn display_recognition(
+    ocr: Option<&dyn DisplayOcr>,
+    command: &Map<String, Value>,
+    crop: &[u8],
+    cancel: &CancellationToken,
+) -> Result<String, ComputerError> {
+    if !wants_ocr(command) {
+        return Ok(String::new());
+    }
+    if ocr.is_none() {
+        return Ok("\nOCR unavailable: the display's pixels carry no text recognition".to_owned());
+    }
+    let language = command.get("ocr_language").and_then(Value::as_str);
+    Ok(recognized_text(&recognize(ocr, crop, language, DEFAULT_OCR_MAX_WORDS, cancel).await?))
+}
+
 /// `captureZoom` over a display frame: the region of the display the frame was cut from, asked of the desktop at full resolution
 /// (`host/computer/pixels` with the region in physical pixels) and cut out there; the crop is the store's new frame, of the same display.
 /// A display whose layout changed since the frame was issued is a stale frame (`assertDisplayUnchanged`). `include_ocr` recognizes the
@@ -251,15 +268,7 @@ pub(super) async fn zoom_display(
     // The crop is the session's only frame from here (`framesBySession.clear()`, `rememberFrame`).
     let zoom_id = format!("frame-{}", uuid::Uuid::new_v4().simple());
     let [x0, y0, x1, y1] = region;
-    // `recognizeZoomText`: the crop the desktop delivered is what the recognizer reads, so its boxes are the zoom frame's pixels.
-    let recognized = if !wants_ocr(&command) {
-        String::new()
-    } else if ocr.is_none() {
-        "\nOCR unavailable: the display's pixels carry no text recognition".to_owned()
-    } else {
-        let language = command.get("ocr_language").and_then(Value::as_str);
-        recognized_text(&recognize(ocr, &pixels.bytes, language, DEFAULT_OCR_MAX_WORDS, cancel).await?)
-    };
+    let recognized = display_recognition(ocr, &command, &pixels.bytes, cancel).await?;
     let encoding = if pixels.mime == "image/jpeg" { format!("JPEG quality {quality}") } else { "PNG".to_string() };
     let description = format!(
         "Zoom of {} region ({x0},{y0})-({x1},{y1}) ({}x{}, {} bytes, {encoding}); frame_id={zoom_id}; coordinates are pixels in this frame{recognized}",

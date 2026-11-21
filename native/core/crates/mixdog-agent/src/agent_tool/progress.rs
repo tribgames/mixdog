@@ -1,5 +1,4 @@
-//! What an agent's status card says about its progress (Node `session-runtime/services/
-//! agent-task-status.mjs`): the stage, what it last did, how long it has been silent, the
+//! What an agent's status card says about its progress: the stage, what it last did, how long it has been silent, the
 //! watchdog's budgets and a one-line diagnosis. The stale verdict is a sentence on the card
 //! (`stale: task stale (…)`). Nothing in this module aborts, kills or fails a task, and no timer
 //! drives it; it is a function of the runtime facts the host hands in and the clock at the read.
@@ -187,7 +186,7 @@ fn silent_for(now: i64, snapshot: Option<&Snapshot>, runtime: Option<&RuntimeFac
     positive_seconds(now, last)
 }
 
-/// `evaluateAgentWatchdogAbort`: the sentence the policy stops the agent with, or `None`.
+/// The sentence the policy stops the agent with, or `None`.
 /// Reading it stops nothing; the sweep that aborts an unattended run uses it as the abort reason.
 ///
 /// Each wait has its own clock, and only the run's own silence is judged here. A running tool owns its deadline (a shell's

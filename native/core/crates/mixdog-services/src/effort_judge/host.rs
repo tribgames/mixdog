@@ -1,13 +1,10 @@
-//! The effort judge's model runs in a host process of its own (`mixdogd effort-judge-host`), so a
-//! native fault in ONNX Runtime ends that process and not the core: the judge's thread talks to it
-//! over its stdin and stdout, one request and one reply at a time, and the host's death shows as the
-//! end of its stdout the moment it happens (no exit notification is waited for). Killing the host is
-//! also what ends a stuck inference, and dropping the client unloads the model: the 146 MB live in
-//! the host only.
+//! The model runs in a host process of its own (`mixdogd effort-judge-host`), so a native fault in
+//! ONNX Runtime ends that process and not the core. The judge's thread talks to it over its stdin and
+//! stdout, one request and one reply at a time; the host's death shows as the end of its stdout.
+//! Killing the host ends a stuck inference, and dropping the client unloads the model.
 //!
 //! Every reply line carries [`TAG`] and the reply follows it; other output on stdout (a native
-//! library printing, a test harness's banner, which may stand in front of the tag on its line) is
-//! not the protocol and is skipped.
+//! library printing, a test harness's banner, which may stand in front of the tag) is skipped.
 
 use std::ffi::OsString;
 use std::io::{BufRead, Write};
@@ -108,9 +105,8 @@ pub(crate) fn serve_resident(load: impl FnOnce() -> Result<Arc<dyn Resident>, Ju
 #[cfg(target_os = "macos")]
 const PARENT_ENV: &str = "MIXDOG_EFFORT_JUDGE_PARENT";
 
-/// How long a host may take to say it is ready (the model's load included), on the judge's clock.
-/// Node's load has no bound; a host that hangs here would hold the judge's gate and its thread for
-/// ever, so it is killed and the next judgment starts a new one.
+/// How long a host may take to say it is ready (the model's load included), on the judge's clock;
+/// past it the host is killed and the next judgment starts a new one.
 pub(crate) const START_LIMIT: Duration = Duration::from_secs(60);
 
 /// The host's end of "the host ends when the core ends". Windows and Linux enforce it from the
@@ -181,10 +177,9 @@ pub(crate) struct HostClient {
 }
 
 impl HostClient {
-    /// Starts the host and waits for its model to load. Runs on the judge's thread, which is no
-    /// async context: `runtime` carries the host's pipes.
-    ///
-    /// The host is killed when it is not ready [`START_LIMIT`] after this starts, on `alarm`.
+    /// Starts the host and waits for its model to load, killing it when it is not ready [`START_LIMIT`]
+    /// after this starts, on `alarm`. Runs on the judge's thread, no async context: `runtime`
+    /// carries the host's pipes.
     pub(crate) fn start(launch: &HostLaunch, runtime: &tokio::runtime::Handle, alarm: &dyn Alarm) -> Result<Self, JudgeError> {
         let pipes = Pipes::start(launch, TAG, runtime).map_err(|error| JudgeError::Load(format!("effort judge host: {error}")))?;
         let kill = pipes.kill.clone();

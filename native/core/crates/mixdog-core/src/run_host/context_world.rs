@@ -173,6 +173,27 @@ pub(super) fn snapshot_tools(
     }
     out
 }
+fn tool_annotations(docs: &[Value]) -> HashMap<String, ToolAnnotations> {
+    docs.iter()
+        .filter_map(|doc| {
+            let name = doc.get("name").and_then(Value::as_str)?;
+            let annotations = doc.get("annotations");
+            Some((
+                name.to_owned(),
+                ToolAnnotations {
+                    mixdog_kind: annotations.and_then(|a| a.get("mixdogKind")).and_then(Value::as_str).map(str::to_owned),
+                    agent_hidden: annotations.and_then(|a| a.get("agentHidden")).is_some_and(|v| match v {
+                        Value::Null | Value::Bool(false) => false,
+                        Value::String(s) => !s.is_empty(),
+                        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0),
+                        _ => true,
+                    }),
+                },
+            ))
+        })
+        .collect()
+}
+
 #[async_trait]
 impl ContextWorld for LiveContextWorld {
     async fn snapshot(&self, thread: Option<&ThreadId>) -> Result<Option<ContextSnapshot>, CoreError> {
@@ -197,6 +218,31 @@ impl ContextWorld for LiveContextWorld {
 }
 
 impl LiveContextWorld {
+    /// Until a model route has created the session, the status is the live route and the folder, nothing of the record.
+    fn sessionless_snapshot(&self, thread: &ThreadId, route: &serde_json::Map<String, Value>, header: &serde_json::Map<String, Value>) -> ContextSnapshot {
+        let provider = text(route, "provider");
+        let (media, images) = (self.lowering)(thread, &provider);
+        ContextSnapshot {
+            header: Default::default(),
+            model: text(route, "model"),
+            context_window: route.get("contextWindow").cloned().unwrap_or(Value::Null),
+            cwd: Value::String(text(header, "cwd")),
+            mode: Value::String(self.host.mode(Some(header))),
+            messages: Vec::new(),
+            active: false,
+            request_native: Vec::new(),
+            request_defined: Vec::new(),
+            session_defined: Vec::new(),
+            agent_mode: false,
+            annotations: HashMap::new(),
+            media,
+            images,
+            rows: Arc::new(StoredBodies),
+            replay_owner: ProviderId::from(provider.as_str()),
+            provider,
+        }
+    }
+
     /// The snapshot of `thread` under `header`. `header_only`: the snapshot a session's open reads for its measurement and display
     /// figures ([`ContextWorld::header_snapshot`]), which equal the full snapshot's: the transcript is read only up to its newest
     /// row that makes a conversation (the whole of it when none does), its counts and media are not taken, and a case in
@@ -219,29 +265,7 @@ impl LiveContextWorld {
             self.messages.messages(thread).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))?
         };
         if !has_session(&header, &rows) {
-            // No session yet: Node's `contextStatus` is `emptyContextStatus(null, getRoute(), env)` - the live route and the
-            // folder, nothing of the record - until a model route has created the session.
-            let provider = text(&route, "provider");
-            let (media, images) = (self.lowering)(thread, &provider);
-            return Ok(Some(ContextSnapshot {
-                header: Default::default(),
-                model: text(&route, "model"),
-                context_window: route.get("contextWindow").cloned().unwrap_or(Value::Null),
-                cwd: Value::String(text(&header, "cwd")),
-                mode: Value::String(self.host.mode(Some(&header))),
-                messages: Vec::new(),
-                active: false,
-                request_native: Vec::new(),
-                request_defined: Vec::new(),
-                session_defined: Vec::new(),
-                agent_mode: false,
-                annotations: HashMap::new(),
-                media,
-                images,
-                rows: Arc::new(StoredBodies),
-                replay_owner: ProviderId::from(provider.as_str()),
-                provider,
-            }));
+            return Ok(Some(self.sessionless_snapshot(thread, &route, &header)));
         }
         let active = self.session.has_user_conversation(&rows) || rows.iter().any(is_summary_anchor);
         // Header-only: the rows read are a tail, which the counts below must not take for the conversation.
@@ -253,25 +277,7 @@ impl LiveContextWorld {
         let model = Some(text(&header, "model")).filter(|m| !m.is_empty()).unwrap_or_else(|| text(&route, "model"));
         let docs: Vec<Value> = header.get("tools").and_then(Value::as_array).cloned().unwrap_or_default();
         let request_defined = request_definitions(&header, &docs, &rows, &provider);
-        let annotations: HashMap<String, ToolAnnotations> = docs
-            .iter()
-            .filter_map(|doc| {
-                let name = doc.get("name").and_then(Value::as_str)?;
-                let annotations = doc.get("annotations");
-                Some((
-                    name.to_owned(),
-                    ToolAnnotations {
-                        mixdog_kind: annotations.and_then(|a| a.get("mixdogKind")).and_then(Value::as_str).map(str::to_owned),
-                        agent_hidden: annotations.and_then(|a| a.get("agentHidden")).is_some_and(|v| match v {
-                            Value::Null | Value::Bool(false) => false,
-                            Value::String(s) => !s.is_empty(),
-                            Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0),
-                            _ => true,
-                        }),
-                    },
-                ))
-            })
-            .collect();
+        let annotations = tool_annotations(&docs);
         let (media, images) = (self.lowering)(thread, &provider);
         // The meter is synchronous: the facts of the stored media and the counts of every inline PDF (the page counts a read's
         // document block carries) are read into it first, as the compaction does (`Compactor::prepare`). A read that fails

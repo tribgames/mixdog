@@ -1,10 +1,3 @@
-//! What the runtime refreshes after credentials change: `createAuthRefresh`
-//! (`session-runtime/provider-auth/refresh.mjs`) over the effects it is handed, and the
-//! account switch's own sequence (`provider-auth/accounts.mjs`).
-//!
-//! [`AuthRefreshFlow`] is the Node function: which effect runs, in which order, for each entry
-//! point. [`ProviderEffects`] binds the effects to the live services.
-
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
@@ -124,10 +117,6 @@ impl ProviderEffects {
 }
 
 impl RefreshEffects for ProviderEffects {
-    /// The same step the config watcher takes: `Config::reload`. Re-initializing providers is
-    /// not done here: in Node it is the config-change effect of a `providers` change
-    /// (`config-change-effects.mjs:157-163`), run by `applyConfigChange` for the watcher and for
-    /// this refresh alike, so it belongs to the one consumer of the reload, not to this flow.
     fn apply_config_change(&self) {
         self.reload_config();
     }

@@ -25,6 +25,7 @@ use super::shadow::Root;
 use super::shadow::ShadowRepos;
 use super::shadow::TreeReview;
 use super::shadow::canonical_path;
+use super::shadow::nul_list;
 use super::shadow::pending_content;
 use super::shadow::safe_relative_path;
 use super::shadow::shadow_key;
@@ -36,6 +37,29 @@ type R<T> = Result<T, String>;
 struct Pending {
     content: Option<Vec<u8>>,
     omitted: Option<u64>,
+}
+
+/// The pending paths whose first state the baseline tree lacks: a path whose exact baseline is
+/// already in the tree keeps it, one that is not and whose bytes were never captured is recorded
+/// as omitted.
+fn missing_baselines(pending: &[(String, Pending)], present: &HashSet<String>, tracked: &HashSet<String>, ignored: &HashSet<String>) -> Vec<BaselineEntry> {
+    pending
+        .iter()
+        .filter(|(path, p)| {
+            !present.contains(&shadow_key(path))
+                && (p.content.is_none()
+                    || p.omitted.is_some()
+                    || (!tracked.contains(&shadow_key(path))
+                        && (ignored.contains(&shadow_key(path)) || p.content.as_ref().is_some_and(|c| c.len() > MAX_UNTRACKED_FILE_BYTES))))
+        })
+        .map(|(path, p)| BaselineEntry {
+            path: path.clone(),
+            content: p.content.clone(),
+            oid: None,
+            omitted: p.omitted.is_some(),
+            size: p.omitted.unwrap_or(0),
+        })
+        .collect()
 }
 
 struct Snap {
@@ -240,6 +264,15 @@ impl ShadowSnapshot {
         }
     }
 
+    async fn ignored_among(&self, paths: &[&str]) -> R<HashSet<String>> {
+        let input = format!("{}\0", paths.join("\0")).into_bytes();
+        let out = self.root.plain_run(&["check-ignore", "--no-index", "-z", "--stdin"], input, true).await?;
+        if out.code > 1 {
+            return Err(format!("git check-ignore failed ({}): {}", out.code, clean(&String::from_utf8_lossy(&out.stderr))));
+        }
+        Ok(nul_list(&out.stdout).iter().map(|p| shadow_key(p)).collect())
+    }
+
     /// `materializeToolBaselines`: the pending first states fill what the baseline tree lacks.
     async fn materialize(&self) -> R<()> {
         let (tree, pending): (String, Vec<(String, Pending)>) = {
@@ -253,8 +286,6 @@ impl ShadowSnapshot {
         let mut args = vec!["ls-tree", "-r", "-z", "--name-only", tree.as_str(), "--"];
         args.extend(&paths);
         let listed = self.root.shadow_run(&args, Vec::new()).await?;
-        let nul_list =
-            |bytes: &[u8]| -> Vec<String> { String::from_utf8_lossy(bytes).split('\0').map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()).collect() };
         let present: HashSet<String> = nul_list(&listed.stdout).iter().map(|p| shadow_key(p)).collect();
         // A leading ':' is pathspec magic to ls-tree and check-ignore.
         let literal = paths.iter().all(|p| !p.starts_with(':'));
@@ -264,35 +295,8 @@ impl ShadowSnapshot {
                 && !present.contains(&shadow_key(path))
                 && !tracked.contains(&shadow_key(path))
         };
-        let mut ignored: HashSet<String> = HashSet::new();
-        if !literal || pending.iter().any(asks_ignored) {
-            let input = format!("{}\0", paths.join("\0")).into_bytes();
-            let out = self.root.plain_run(&["check-ignore", "--no-index", "-z", "--stdin"], input, true).await?;
-            if out.code > 1 {
-                return Err(format!("git check-ignore failed ({}): {}", out.code, clean(&String::from_utf8_lossy(&out.stderr))));
-            }
-            ignored = nul_list(&out.stdout).iter().map(|p| shadow_key(p)).collect();
-        }
-        let missing: Vec<BaselineEntry> = pending
-            .iter()
-            .filter(|(path, p)| {
-                !present.contains(&shadow_key(path))
-                    && (p.content.is_none()
-                        || p.omitted.is_some()
-                        || (!tracked.contains(&shadow_key(path))
-                            && (ignored.contains(&shadow_key(path)) || p.content.as_ref().is_some_and(|c| c.len() > MAX_UNTRACKED_FILE_BYTES))))
-            })
-            // A path whose exact baseline is already in the tree keeps it; one that is not and whose
-            // bytes were never captured is recorded as omitted.
-            .map(|(path, p)| BaselineEntry {
-                path: path.clone(),
-                content: p.content.clone(),
-                oid: None,
-                omitted: p.omitted.is_some(),
-                size: p.omitted.unwrap_or(0),
-            })
-            .collect();
-        // A path ls-tree read literally and did not list is not in the tree.
+        let ignored = if !literal || pending.iter().any(asks_ignored) { self.ignored_among(&paths).await? } else { HashSet::new() };
+        let missing = missing_baselines(&pending, &present, &tracked, &ignored);
         let absent: Option<HashSet<String>> = literal.then(|| paths.iter().map(|p| shadow_key(p)).filter(|k| !present.contains(k)).collect());
         let (next_tree, files) = self.root.apply_baseline_files(&tree, &missing, absent.as_ref()).await?;
         let mut snap = self.snap();

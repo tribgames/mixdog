@@ -1,14 +1,7 @@
-//! A routine fire as a TURN in its owner bot's home thread (routine-home-turn.mjs): the
-//! routine's instructions are delivered there as a queued turn the bot handles itself —
-//! doing it or delegating as in any turn — and its reply in the chat is the result. Nothing
-//! else is created: no run session, no result card.
-//!
-//! The turn waits behind the thread's own work (a user turn, another routine), shows as a
-//! routine marker row, and selects skills only from the routine's instructions, never from a
-//! webhook payload. With an `executor_agent_id` the fire is first carried out by that
-//! sub-agent and the turn holds only its final report, which the bot relays; the quiet marker
-//! as the report wakes nobody and resolves it. A heartbeat turn past its wall-clock cap is
-//! aborted and resolves with no reply.
+//! Skills are selected only from the routine's instructions, never from a webhook payload.
+//! With an `executor_agent_id` the turn holds only the executor's final report; the quiet
+//! marker as the report wakes nobody and resolves it. A heartbeat turn past its wall-clock cap
+//! is aborted and resolves with no reply.
 
 use std::time::Duration;
 
@@ -150,33 +143,7 @@ impl RoutineRuntime {
             trigger,
         };
         let heartbeat = args.session_id.is_some() && self.host.is_heartbeat_session(&home_id);
-        let turn_cancel = cancel.token().child_token();
-        let settle = self.host.run_turn(turn, turn_cancel.clone());
-        tokio::pin!(settle);
-        let (settle, timed_out) = if heartbeat {
-            // The heartbeat turn is cut off at its wall-clock cap: it is aborted and ends
-            // cleanly with no reply.
-            let cap = mixdog_rt::time::sleep(Duration::from_millis(HEARTBEAT_WALL_CLOCK_MS));
-            tokio::pin!(cap);
-            let early = tokio::select! {
-                settle = &mut settle => Some(settle),
-                () = &mut cap => None,
-            };
-            match early {
-                Some(settle) => (settle, false),
-                None => {
-                    mixdog_rt::node_stderr!(
-                        "mixdog routines: {} \"{name}\" in {home_id} passed {}s: ended without a reply",
-                        kind.word(),
-                        HEARTBEAT_WALL_CLOCK_MS / 1000
-                    );
-                    turn_cancel.cancel();
-                    (settle.await, true)
-                }
-            }
-        } else {
-            (settle.await, false)
-        };
+        let (settle, timed_out) = self.run_turn_capped(turn, cancel, heartbeat).await;
         drop(slot);
         if timed_out {
             return Ok(RoutineRun { session_id: home_id, result: String::new(), timed_out: true });
@@ -184,14 +151,46 @@ impl RoutineRuntime {
         if cancel.is_cancelled() {
             return Err(abort_error(cancel));
         }
-        match settle {
-            TurnSettle::Done { result } => Ok(RoutineRun { session_id: home_id, result, timed_out: false }),
-            TurnSettle::HumanNeeded(text) => Err(text),
-            TurnSettle::Cancelled => Err("the routine turn was cancelled".into()),
-            TurnSettle::Rejected => Err("the bot's chat closed before the routine ran".into()),
-            TurnSettle::Failed(message) if message.is_empty() => Err("the routine turn failed".into()),
-            TurnSettle::Failed(message) => Err(message),
-            TurnSettle::NotAccepted => Err(format!("the bot's chat did not accept the {} \"{name}\"", kind.word())),
+        run_of_settle(settle, home_id, kind, name)
+    }
+
+    async fn run_turn_capped(&self, turn: RoutineTurn, cancel: &CancelView, heartbeat: bool) -> (TurnSettle, bool) {
+        let (kind, name, home_id) = (turn.kind, turn.name.clone(), turn.session_id.clone());
+        let turn_cancel = cancel.token().child_token();
+        let settle = self.host.run_turn(turn, turn_cancel.clone());
+        tokio::pin!(settle);
+        if !heartbeat {
+            return (settle.await, false);
         }
+        let cap = mixdog_rt::time::sleep(Duration::from_millis(HEARTBEAT_WALL_CLOCK_MS));
+        tokio::pin!(cap);
+        let early = tokio::select! {
+            settle = &mut settle => Some(settle),
+            () = &mut cap => None,
+        };
+        match early {
+            Some(settle) => (settle, false),
+            None => {
+                mixdog_rt::node_stderr!(
+                    "mixdog routines: {} \"{name}\" in {home_id} passed {}s: ended without a reply",
+                    kind.word(),
+                    HEARTBEAT_WALL_CLOCK_MS / 1000
+                );
+                turn_cancel.cancel();
+                (settle.await, true)
+            }
+        }
+    }
+}
+
+fn run_of_settle(settle: TurnSettle, home_id: String, kind: RoutineKind, name: &str) -> Result<RoutineRun, String> {
+    match settle {
+        TurnSettle::Done { result } => Ok(RoutineRun { session_id: home_id, result, timed_out: false }),
+        TurnSettle::HumanNeeded(text) => Err(text),
+        TurnSettle::Cancelled => Err("the routine turn was cancelled".into()),
+        TurnSettle::Rejected => Err("the bot's chat closed before the routine ran".into()),
+        TurnSettle::Failed(message) if message.is_empty() => Err("the routine turn failed".into()),
+        TurnSettle::Failed(message) => Err(message),
+        TurnSettle::NotAccepted => Err(format!("the bot's chat did not accept the {} \"{name}\"", kind.word())),
     }
 }

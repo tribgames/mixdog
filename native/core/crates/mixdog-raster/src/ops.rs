@@ -396,6 +396,35 @@ fn colour_channels(channels: u8) -> u8 {
 /// by alpha, cut to bytes, around the resampling when the image has alpha.
 fn resample(image: &Image, width: u32, height: u32, x_factor: f64, y_factor: f64, kernel: Kernel) -> Image {
     let alpha = image.has_alpha();
+    let mut plane = premultiplied_plane(image);
+    let (out_w, out_h) = (width as usize, height as usize);
+    if y_factor > 1.0 {
+        plane = shrink_axis(&plane, Axis::Y, out_h, y_factor, kernel);
+    }
+    if x_factor > 1.0 {
+        plane = shrink_axis(&plane, Axis::X, out_w, x_factor, kernel);
+    }
+    if x_factor < 1.0 || y_factor < 1.0 {
+        // libvips enlarges with one affine over both axes: the axis that is not enlarged goes through it at scale 1, which reads half a pixel
+        // back (the interpolators centre their window on the sample before the one the position falls on).
+        let (x_inverse, y_inverse) = (x_factor.min(1.0), y_factor.min(1.0));
+        plane = match kernel {
+            Kernel::Linear => enlarge_linear(&plane, out_w, out_h, Some(x_inverse), Some(y_inverse)),
+            Kernel::Nearest => {
+                plane = enlarge_nearest(&plane, Axis::X, out_w, x_inverse);
+                enlarge_nearest(&plane, Axis::Y, out_h, y_inverse)
+            }
+            _ => {
+                plane = enlarge_cubic(&plane, Axis::X, out_w, x_inverse);
+                enlarge_cubic(&plane, Axis::Y, out_h, y_inverse)
+            }
+        };
+    }
+    Image::from_rgba(width, height, colour_channels(image.channels()), unpremultiplied_bytes(&plane, alpha))
+}
+
+fn premultiplied_plane(image: &Image) -> Plane {
+    let alpha = image.has_alpha();
     let mut plane = Plane { width: image.width() as usize, height: image.height() as usize, data: Vec::with_capacity(image.rgba().len()) };
     for pixel in image.rgba().chunks_exact(4) {
         if alpha {
@@ -410,45 +439,14 @@ fn resample(image: &Image, width: u32, height: u32, x_factor: f64, y_factor: f64
             plane.data.extend(pixel.iter().map(|b| i32::from(*b)));
         }
     }
-    let (out_w, out_h) = (width as usize, height as usize);
-    if y_factor > 1.0 {
-        plane = shrink_axis(&plane, Axis::Y, out_h, y_factor, kernel);
-    }
-    if x_factor > 1.0 {
-        plane = shrink_axis(&plane, Axis::X, out_w, x_factor, kernel);
-    }
-    if x_factor < 1.0 || y_factor < 1.0 {
-        // libvips enlarges with one affine over both axes: the axis that is not enlarged goes through it at scale 1, which reads half a pixel
-        // back (the interpolators centre their window on the sample before the one the position falls on).
-        let x_inverse = Some(x_factor.min(1.0));
-        let y_inverse = Some(y_factor.min(1.0));
-        plane = match kernel {
-            Kernel::Linear => enlarge_linear(&plane, out_w, out_h, x_inverse, y_inverse),
-            Kernel::Nearest => {
-                if let Some(inverse) = x_inverse {
-                    plane = enlarge_nearest(&plane, Axis::X, out_w, inverse);
-                }
-                if let Some(inverse) = y_inverse {
-                    plane = enlarge_nearest(&plane, Axis::Y, out_h, inverse);
-                }
-                plane
-            }
-            _ => {
-                if let Some(inverse) = x_inverse {
-                    plane = enlarge_cubic(&plane, Axis::X, out_w, inverse);
-                }
-                if let Some(inverse) = y_inverse {
-                    plane = enlarge_cubic(&plane, Axis::Y, out_h, inverse);
-                }
-                plane
-            }
-        };
-    }
+    plane
+}
+
+fn unpremultiplied_bytes(plane: &Plane, alpha: bool) -> Vec<u8> {
     let mut data = Vec::with_capacity(plane.data.len());
     for pixel in plane.data.chunks_exact(4) {
         let alpha_value = pixel[3].clamp(0, 255);
         if alpha {
-            // The premultiplied colour goes back to bytes first, then is divided by alpha and cut.
             let gain = if alpha_value > 0 { 255.0f32 / alpha_value as f32 } else { 0.0 };
             for c in &pixel[..3] {
                 data.push(((*c).clamp(0, 255) as f32 * gain).clamp(0.0, 255.0) as u8);
@@ -459,7 +457,7 @@ fn resample(image: &Image, width: u32, height: u32, x_factor: f64, y_factor: f64
             data.push(255);
         }
     }
-    Image::from_rgba(width, height, colour_channels(image.channels()), data)
+    data
 }
 
 /// The image resampled to exactly `width` x `height` (sharp's `fill`).
@@ -524,18 +522,7 @@ pub fn resize(image: &Image, options: &ResizeOptions) -> Result<Image, RasterErr
     };
     match options.fit {
         Fit::Fill | Fit::Inside | Fit::Outside => Ok(resized),
-        Fit::Contain => {
-            // The canvas is laid while the picture still has its own bands: a grey picture takes the grey of the
-            // background colour; the colour bands come after.
-            let mut background = options.background;
-            if source.channels() <= 2 {
-                let grey = (0.2126 * f64::from(background[0]) + 0.7152 * f64::from(background[1]) + 0.0722 * f64::from(background[2])).round() as u8;
-                background = [grey, grey, grey, background[3]];
-            }
-            let narrow = Image::from_rgba(resized.width(), resized.height(), source.channels(), resized.rgba().to_vec());
-            let placed = embed(&narrow, w, h, options.position, background);
-            Ok(Image::from_rgba(placed.width(), placed.height(), colour_channels(placed.channels()), placed.rgba().to_vec()))
-        }
+        Fit::Contain => Ok(contain(&resized, source.channels(), w, h, options)),
         Fit::Cover => {
             let (left, top) = match options.position {
                 Position::Entropy | Position::Attention => smartcrop::position(&resized, w, h, options.position),
@@ -552,6 +539,19 @@ pub fn resize(image: &Image, options: &ResizeOptions) -> Result<Image, RasterErr
             extract(&resized, left, top, w, h)
         }
     }
+}
+
+/// The resized picture laid on a `w` x `h` canvas of the background colour while it still has its own bands: a grey
+/// picture takes the grey of the background colour; the colour bands come after.
+fn contain(resized: &Image, channels: u8, w: u32, h: u32, options: &ResizeOptions) -> Image {
+    let mut background = options.background;
+    if channels <= 2 {
+        let grey = (0.2126 * f64::from(background[0]) + 0.7152 * f64::from(background[1]) + 0.0722 * f64::from(background[2])).round() as u8;
+        background = [grey, grey, grey, background[3]];
+    }
+    let narrow = Image::from_rgba(resized.width(), resized.height(), channels, resized.rgba().to_vec());
+    let placed = embed(&narrow, w, h, options.position, background);
+    Image::from_rgba(placed.width(), placed.height(), colour_channels(placed.channels()), placed.rgba().to_vec())
 }
 
 /// `extract({ left, top, width, height })`.

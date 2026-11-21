@@ -131,47 +131,42 @@ impl Host {
     }
 
     pub(in crate::host) fn do_key(&self, req: &Req) -> Res<Obj> {
+        if req.delivery_foreground() { self.do_key_foreground(req) } else { self.do_key_background(req) }
+    }
+
+    fn do_key_background(&self, req: &Req) -> Res<Obj> {
         let keys_text = req.text("keys");
-        if !req.delivery_foreground() {
-            let (target, element) = match self.background_key_target(req, "key") {
-                Ok(found) => found,
-                Err(result) => return Ok(result),
-            };
-            let id = Some(window_id(target));
-            let background = match self.background_or_unsupported("key", id.clone()) {
-                Ok(background) => background,
-                Err(result) => return Ok(result),
-            };
-            // A ref names its exact native child; one without its own window
-            // would send to whichever control has focus (Do-Key,
-            // runtime-typing.ps1:41-44, :67-77).
-            let preferred = element.as_ref().map_or(0, |element| element.native_handle());
-            if element.is_some() && preferred == 0 {
-                return Ok(self.background_unavailable("key", NO_NATIVE_KEY_TARGET, id, "background_unsupported", false));
-            }
-            let before = element.as_ref().and_then(|element| self.observable_state(element, "key"));
-            if let Err(error) = self.authorize(req, target) {
-                return self.background_failure("key", &error, id, false);
-            }
-            return match background.keys_to(target, preferred, &keys_text) {
-                Ok(message_target) => {
-                    Ok(self.complete_native_action("key", &message_target, id, before, element.as_ref(), "keys delivered as native key events"))
-                }
-                Err(error) => self.background_failure("key", &error, id, false),
-            };
+        let (target, element) = match self.background_key_target(req, "key") {
+            Ok(found) => found,
+            Err(result) => return Ok(result),
+        };
+        let id = Some(window_id(target));
+        let background = match self.background_or_unsupported("key", id.clone()) {
+            Ok(background) => background,
+            Err(result) => return Ok(result),
+        };
+        // A ref names its exact native child; one without its own window
+        // would send to whichever control has focus (Do-Key,
+        // runtime-typing.ps1:41-44, :67-77).
+        let preferred = element.as_ref().map_or(0, |element| element.native_handle());
+        if element.is_some() && preferred == 0 {
+            return Ok(self.background_unavailable("key", NO_NATIVE_KEY_TARGET, id, "background_unsupported", false));
         }
+        let before = element.as_ref().and_then(|element| self.observable_state(element, "key"));
+        if let Err(error) = self.authorize(req, target) {
+            return self.background_failure("key", &error, id, false);
+        }
+        return match background.keys_to(target, preferred, &keys_text) {
+            Ok(message_target) => Ok(self.complete_native_action("key", &message_target, id, before, element.as_ref(), "keys delivered as native key events")),
+            Err(error) => self.background_failure("key", &error, id, false),
+        };
+    }
+
+    fn do_key_foreground(&self, req: &Req) -> Res<Obj> {
+        let keys_text = req.text("keys");
         let (target, point) = self.typing_target(req, false)?;
         if !self.is_window(target) {
-            return Ok(self.action_result(
-                "key",
-                "none",
-                "suspected_noop",
-                false,
-                "key requires window_id/window or a prior focus_window in this session",
-                Some("target_required"),
-                "foreground",
-                None,
-            ));
+            return Ok(self.no_typing_window("key"));
         }
         let mut body = || -> Res<()> {
             self.focus_typing_point(req, target, &point)?;
@@ -179,6 +174,11 @@ impl Host {
             if keys::is_plain_text(&keys_text) { self.fg_text(&keys_text) } else { keys::send(&keys_text, &mut ForegroundKeys { host: self }) }
         };
         self.foreground_input(target, "key", false, &mut body)
+    }
+
+    fn no_typing_window(&self, action: &str) -> Obj {
+        let message = format!("{action} requires window_id/window or a prior focus_window in this session");
+        self.action_result(action, "none", "suspected_noop", false, &message, Some("target_required"), "foreground", None)
     }
 
     /// Holding a key past its command needs the real keyboard.
@@ -196,8 +196,7 @@ impl Host {
         let keys_text = req.text("keys");
         let (target, point) = self.typing_target(req, false)?;
         if !self.is_window(target) {
-            let message = format!("{action} requires window_id/window or a prior focus_window in this session");
-            return Ok(self.action_result(action, "none", "suspected_noop", false, &message, Some("target_required"), "foreground", None));
+            return Ok(self.no_typing_window(action));
         }
         let mut body = || -> Res<()> {
             self.focus_typing_point(req, target, &point)?;
@@ -230,72 +229,71 @@ impl Host {
 
     pub(in crate::host) fn do_type(&self, req: &Req) -> Res<Obj> {
         let text = req.text("text");
-        if req.delivery_foreground() && text.encode_utf16().count() > self.cfg.max_foreground_text {
+        if !req.delivery_foreground() {
+            return self.do_type_background(req, &text);
+        }
+        if text.encode_utf16().count() > self.cfg.max_foreground_text {
             return Err(format!("input_too_large: foreground text exceeds {} UTF-16 code units", self.cfg.max_foreground_text));
         }
-        if !req.delivery_foreground() {
-            let (target, element) = match self.background_key_target(req, "type") {
-                Ok(found) => found,
-                Err(result) => return Ok(result),
-            };
-            let id = Some(window_id(target));
-            let background = match self.background_or_unsupported("type", id.clone()) {
-                Ok(background) => background,
-                Err(result) => return Ok(result),
-            };
-            // Keyboard messages to the ref's exact child first; its own value
-            // only where that keeps what is there; never UIA SetFocus, which
-            // can activate the target (Do-Type, runtime-typing.ps1:158-178).
-            let mut preferred = 0;
-            if let Some(element) = &element {
-                if element.source() != "msaa" {
-                    preferred = element.native_handle();
-                }
-                let keyboard_ok = preferred != 0 && background.validate_target(target, preferred, "type", None).is_ok();
-                let value_target = is_value_target(element.as_ref(), background.is_web_content_host(target));
-                match type_route(preferred != 0, keyboard_ok, value_target) {
-                    TypeRoute::Keyboard => {}
-                    TypeRoute::Value => {
-                        let mut valued = self.background_semantic(req, "type", |host| host.do_set_value(req, &text))?;
-                        valued.insert("action".into(), json!("type"));
-                        return Ok(valued);
-                    }
-                    TypeRoute::Refuse => return Ok(self.background_unavailable("type", NO_NATIVE_TYPE_ROUTE, id, "background_unsupported", false)),
-                }
+        self.do_type_foreground(req, &text)
+    }
+
+    fn do_type_background(&self, req: &Req, text: &str) -> Res<Obj> {
+        let (target, element) = match self.background_key_target(req, "type") {
+            Ok(found) => found,
+            Err(result) => return Ok(result),
+        };
+        let id = Some(window_id(target));
+        let background = match self.background_or_unsupported("type", id.clone()) {
+            Ok(background) => background,
+            Err(result) => return Ok(result),
+        };
+        // Keyboard messages to the ref's exact child first; its own value
+        // only where that keeps what is there; never UIA SetFocus, which
+        // can activate the target (Do-Type, runtime-typing.ps1:158-178).
+        let mut preferred = 0;
+        if let Some(element) = &element {
+            if element.source() != "msaa" {
+                preferred = element.native_handle();
             }
-            let before = element.as_ref().and_then(|element| self.observable_state(element, "type"));
-            let mut pointer_completed = false;
-            // One hold covers the click, the wait and the text, so the target is
-            // never activatable between them (runtime-typing.ps1:190-204).
-            let outcome = self.within_scope(background, target, || -> Res<String> {
-                if let (Some(x), Some(y)) = (req.int("x"), req.int("y")) {
-                    background.pointer(target, x as i32, y as i32, "click", &[])?;
-                    pointer_completed = true;
-                    sleep_ms(80);
+            let keyboard_ok = preferred != 0 && background.validate_target(target, preferred, "type", None).is_ok();
+            let value_target = is_value_target(element.as_ref(), background.is_web_content_host(target));
+            match type_route(preferred != 0, keyboard_ok, value_target) {
+                TypeRoute::Keyboard => {}
+                TypeRoute::Value => {
+                    let mut valued = self.background_semantic(req, "type", |host| host.do_set_value(req, &text))?;
+                    valued.insert("action".into(), json!("type"));
+                    return Ok(valued);
                 }
-                self.authorize(req, target)?;
-                background.text_to(target, preferred, &text)
-            });
-            return match outcome {
-                Ok(message_target) => {
-                    let message = format!("typed {} literal characters as native key events", text.chars().count());
-                    Ok(self.complete_native_action("type", &message_target, id, before, element.as_ref(), &message))
-                }
-                Err(error) => self.background_failure("type", &error, id, pointer_completed),
-            };
+                TypeRoute::Refuse => return Ok(self.background_unavailable("type", NO_NATIVE_TYPE_ROUTE, id, "background_unsupported", false)),
+            }
         }
+        let before = element.as_ref().and_then(|element| self.observable_state(element, "type"));
+        let mut pointer_completed = false;
+        // One hold covers the click, the wait and the text, so the target is
+        // never activatable between them (runtime-typing.ps1:190-204).
+        let outcome = self.within_scope(background, target, || -> Res<String> {
+            if let (Some(x), Some(y)) = (req.int("x"), req.int("y")) {
+                background.pointer(target, x as i32, y as i32, "click", &[])?;
+                pointer_completed = true;
+                sleep_ms(80);
+            }
+            self.authorize(req, target)?;
+            background.text_to(target, preferred, &text)
+        });
+        return match outcome {
+            Ok(message_target) => {
+                let message = format!("typed {} literal characters as native key events", text.chars().count());
+                Ok(self.complete_native_action("type", &message_target, id, before, element.as_ref(), &message))
+            }
+            Err(error) => self.background_failure("type", &error, id, pointer_completed),
+        };
+    }
+
+    fn do_type_foreground(&self, req: &Req, text: &str) -> Res<Obj> {
         let (target, point) = self.typing_target(req, true)?;
         if !self.is_window(target) {
-            return Ok(self.action_result(
-                "type",
-                "none",
-                "suspected_noop",
-                false,
-                "type requires window_id/window or a prior focus_window in this session",
-                Some("target_required"),
-                "foreground",
-                None,
-            ));
+            return Ok(self.no_typing_window("type"));
         }
         let mut body = || -> Res<()> {
             self.focus_typing_point(req, target, &point)?;

@@ -1,14 +1,3 @@
-//! `ProgressHints`: the hint line of a thread, for the voice install's download progress (Node:
-//! the session's `setProgressHint`, `voice-setup.mjs`). The hint is the thread's
-//! `ThreadRuntime.progress_hint` in the runtime section, the field the running tool's hint
-//! (`run_host/tool_progress.rs`) already publishes, through the same `Section::ProgressHint`, which
-//! changes that field alone (a busy turn's runtime state is not reset); there is no second hint
-//! mechanism.
-//!
-//! One publisher task serves one install: it takes the hints in the order they were shown and
-//! publishes each that differs from the one on show, as `ToolHints` does. A clear removes the
-//! hint and resolves once that is published. The task ends with the last handle.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

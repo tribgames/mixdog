@@ -1,11 +1,3 @@
-//! The hook-rule setup actions (`add_hook_rule`, `set_hook_rule_enabled`, `delete_hook_rule`):
-//! `extended-actions.mjs` over the legacy before-tool rule file (`hook-bus/rule-store.mjs`,
-//! `rule-file.mjs`). The dispatcher of `SetupService` has already checked the caller and wraps the
-//! answer in the receipt, so this only carries the call to the rule file and a failure's message back.
-//!
-//! Every action is one maintenance-lane job: read the rules (`loadRules`), check the index
-//! (`hookRuleAt`), write under the file's lock with a `.bak` (`updateHookRules`).
-
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;

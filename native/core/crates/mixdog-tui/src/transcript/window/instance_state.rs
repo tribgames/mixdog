@@ -1,10 +1,7 @@
-//! The state one transcript window keeps between frames (`use-transcript-window/instance-state.mjs`) and its reset when the
-//! session changes.
+//! The state one transcript window keeps between frames and its reset when the session changes.
 //!
-//! Node also reset the App-owned scroll refs (reading anchor, scroll target and position, follow, selection layout) in the same
-//! render; those belong to the scroll state and the mouse, so [`WindowState::switch_session`] answers whether a reset
-//! happened and the caller clears them with it. The committed-max hold of Node (a cap held while a mounted row still waited
-//! for its Yoga measurement) is gone with the measurement: the published maximum is always the current one.
+//! The scroll state (reading anchor, scroll target and position, follow) and the selection layout reset with it:
+//! [`WindowState::switch_session`] answers whether a reset happened and the caller clears them.
 
 use super::heights::ItemHeights;
 use super::row_index::IncrementalRowIndex;

@@ -28,6 +28,21 @@ pub(super) trait MeterEvents {
     fn progress(&mut self);
 }
 
+/// The payload length a frame header declares and its mask key, if it has one.
+fn declared_length_and_mask(header: &[u8; MAX_HEADER_BYTES]) -> (u64, Option<[u8; 4]>) {
+    let (length, cursor) = match header[1] & 0x7f {
+        126 => (u64::from(u16::from_be_bytes([header[2], header[3]])), 4),
+        127 => {
+            let mut wide = [0u8; 8];
+            wide.copy_from_slice(&header[2..10]);
+            (u64::from_be_bytes(wide), 10)
+        }
+        short => (u64::from(short), 2),
+    };
+    let mask = (header[1] & 0x80 == 0x80).then(|| [header[cursor], header[cursor + 1], header[cursor + 2], header[cursor + 3]]);
+    (length, mask)
+}
+
 pub(super) struct WireMeter {
     transport: u64,
     /// Application bytes committed to the message currently on the wire.
@@ -120,17 +135,8 @@ impl WireMeter {
     fn start_frame(&mut self, events: &mut impl MeterEvents) {
         let header = self.header;
         let opcode = header[0] & 0x0f;
-        let marker = header[1] & 0x7f;
-        let (length, cursor) = match marker {
-            126 => (u64::from(u16::from_be_bytes([header[2], header[3]])), 4),
-            127 => {
-                let mut wide = [0u8; 8];
-                wide.copy_from_slice(&header[2..10]);
-                (u64::from_be_bytes(wide), 10)
-            }
-            short => (u64::from(short), 2),
-        };
-        self.mask = (header[1] & 0x80 == 0x80).then(|| [header[cursor], header[cursor + 1], header[cursor + 2], header[cursor + 3]]);
+        let (length, mask) = declared_length_and_mask(&header);
+        self.mask = mask;
         self.control = opcode >= 0x8;
         self.fin = header[0] & 0x80 == 0x80;
         self.payload_remaining = length;

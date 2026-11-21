@@ -130,6 +130,19 @@ pub enum Query {
     Apple { name: String, total_bytes: i64, wired_limit_mb: i64 },
 }
 
+fn gpus_from_query(outcome: Result<Query, String>) -> (Vec<Gpu>, Option<String>) {
+    match outcome {
+        Ok(Query::Apple { name, total_bytes, wired_limit_mb }) => (vec![apple_silicon_gpu(&name, total_bytes, wired_limit_mb)], None),
+        Ok(Query::Nvidia(text)) => {
+            let mut gpus = parse_nvidia_gpus(&text);
+            gpus.sort_by(|a, b| b.memory_bytes.cmp(&a.memory_bytes).then(b.free_memory_bytes.cmp(&a.free_memory_bytes)).then(a.index.cmp(&b.index)));
+            let error = gpus.is_empty().then(|| "No compatible NVIDIA GPU detected.".to_owned());
+            (gpus, error)
+        }
+        Err(message) => (Vec::new(), Some(message)),
+    }
+}
+
 pub struct HardwareProbe {
     os: String,
     arch: String,
@@ -333,17 +346,7 @@ impl HardwareProbe {
                 self.signal.notify();
             }
         }
-        let outcome = query().await;
-        let (gpus, error) = match outcome {
-            Ok(Query::Apple { name, total_bytes, wired_limit_mb }) => (vec![apple_silicon_gpu(&name, total_bytes, wired_limit_mb)], None),
-            Ok(Query::Nvidia(text)) => {
-                let mut gpus = parse_nvidia_gpus(&text);
-                gpus.sort_by(|a, b| b.memory_bytes.cmp(&a.memory_bytes).then(b.free_memory_bytes.cmp(&a.free_memory_bytes)).then(a.index.cmp(&b.index)));
-                let error = gpus.is_empty().then(|| "No compatible NVIDIA GPU detected.".to_owned());
-                (gpus, error)
-            }
-            Err(message) => (Vec::new(), Some(message)),
-        };
+        let (gpus, error) = gpus_from_query(query().await);
         let next = Hardware {
             platform: self.os.clone(),
             arch: self.arch.clone(),

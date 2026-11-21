@@ -72,18 +72,18 @@ fn write_opts() -> Opts {
 /// good copy. Never throws for damage. The first read is a read-lane job; a damaged
 /// file is recovered under its lock on the durability lane, and while another writer
 /// holds the lock for the whole wait it is left in place and the answer is the empty
-/// roster.
+/// roster. Both jobs wait for room on their lane: the roster names the account a send goes out on.
 pub(crate) async fn read_roster(io: &CredentialIo, path: PathBuf) -> io::Result<Value> {
     #[cfg(feature = "count-work")]
     crate::work::credential_read();
     let first = path.clone();
-    let peeked = io.read_job(move |lane| mixdog_statefile::peek(lane, &first, Some(&validate))).await?;
+    let peeked = io.read_required(move |lane| mixdog_statefile::peek(lane, &first, Some(&validate))).await?;
     match peeked {
         Peek::Value(value) => Ok(value),
         Peek::Absent | Peek::Unsupported => Ok(empty_roster()),
         Peek::Damaged(_) => {
             let recovered =
-                io.write_job(move |lane| mixdog_statefile::read_json(lane, &path, Some(&validate), &Opts { secret: true, ..Opts::default() })).await?;
+                io.write_required(move |lane| mixdog_statefile::read_json(lane, &path, Some(&validate), &Opts { secret: true, ..Opts::default() })).await?;
             Ok(recovered.unwrap_or_else(empty_roster))
         }
     }

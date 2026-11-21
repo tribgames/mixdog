@@ -60,7 +60,7 @@ impl DispatchThreads {
     /// `createSession`: a new thread whose first durable write is `header` with `createdAt`,
     /// `updatedAt` and `lastUsedAt` now; its id. The session is agent-owned (`prepareAgentSession`), so it begins
     /// with the tool surface and prompt identity `createSession` gives one (`create_agent_session`): a tool-free
-    /// hidden role with no tools and its own role rules. Without them its requests carried no system prompt.
+    /// hidden role with no tools and its own role rules.
     pub async fn create(&self, mut header: Header) -> Result<String, String> {
         let now = json!(self.directory.deps().clock.now_ms());
         for key in ["createdAt", "updatedAt", "lastUsedAt"] {

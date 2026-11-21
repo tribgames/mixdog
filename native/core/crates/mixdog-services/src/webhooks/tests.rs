@@ -499,27 +499,7 @@ async fn read_response_to(stream: &mut (impl AsyncReadExt + Unpin), pending: &mu
     if no_body {
         // no body
     } else if headers.get("transfer-encoding").is_some_and(|v| v == "chunked") {
-        loop {
-            let line_end = loop {
-                if let Some(p) = pending[at..].windows(2).position(|w| w == b"\r\n") {
-                    break at + p;
-                }
-                if !fill(stream, pending, &format!("{waiting}: a chunk size line")).await {
-                    return None;
-                }
-            };
-            let size = usize::from_str_radix(std::str::from_utf8(&pending[at..line_end]).unwrap().trim(), 16).expect("a hex chunk size");
-            while pending.len() < line_end + 2 + size + 2 {
-                if !fill(stream, pending, &format!("{waiting}: a chunk of {size} bytes")).await {
-                    return None;
-                }
-            }
-            body.extend_from_slice(&pending[line_end + 2..line_end + 2 + size]);
-            at = line_end + 2 + size + 2;
-            if size == 0 {
-                break;
-            }
-        }
+        at = read_chunks(stream, pending, at, waiting, &mut body).await?;
     } else if let Some(length) = headers.get("content-length") {
         let length: usize = length.parse().unwrap();
         while pending.len() < at + length {
@@ -539,7 +519,31 @@ async fn read_response_to(stream: &mut (impl AsyncReadExt + Unpin), pending: &mu
     pending.drain(..at);
     Some((status, head, String::from_utf8_lossy(&body).into_owned(), raw))
 }
-/// Sends `parts` one after the other and returns the first reply, None when the server closed
+/// Appends the chunked body that starts at `at` to `body`; returns where it ends in `pending`.
+async fn read_chunks(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>, mut at: usize, waiting: &str, body: &mut Vec<u8>) -> Option<usize> {
+    loop {
+        let line_end = loop {
+            if let Some(p) = pending[at..].windows(2).position(|w| w == b"\r\n") {
+                break at + p;
+            }
+            if !fill(stream, pending, &format!("{waiting}: a chunk size line")).await {
+                return None;
+            }
+        };
+        let size = usize::from_str_radix(std::str::from_utf8(&pending[at..line_end]).unwrap().trim(), 16).expect("a hex chunk size");
+        while pending.len() < line_end + 2 + size + 2 {
+            if !fill(stream, pending, &format!("{waiting}: a chunk of {size} bytes")).await {
+                return None;
+            }
+        }
+        body.extend_from_slice(&pending[line_end + 2..line_end + 2 + size]);
+        at = line_end + 2 + size + 2;
+        if size == 0 {
+            return Some(at);
+        }
+    }
+}
+/// Sends `parts` one after the other and returns the first reply, None when the server closes
 /// without one.
 async fn try_exchange(port: u16, parts: &[&[u8]], half_close: bool) -> Option<(u16, String)> {
     let (read, write) = connect(port).await.into_split();
@@ -548,11 +552,6 @@ async fn try_exchange(port: u16, parts: &[&[u8]], half_close: bool) -> Option<(u
 /// [`try_exchange`] over any pair of stream halves.
 async fn exchange_over(mut read: impl AsyncReadExt + Unpin, mut write: impl AsyncWriteExt + Unpin, parts: &[&[u8]], half_close: bool) -> Option<(u16, String)> {
     let parts: Vec<Vec<u8>> = parts.iter().map(|p| p.to_vec()).collect();
-    // The writer runs beside the reader: a reply may arrive while the sender is still sending,
-    // and a server that closes on it must not take the reply down with a failed write.
-    // It is polled by this function, not by a task of its own, so a write that passes its deadline fails the test that
-    // issued the exchange, by name, even when a reply is still on its way. The write half is kept after the writes, so
-    // a sender that does not half-close does not end its side.
     let writer = async move {
         for part in parts {
             match mixdog_rt::time::timeout(DEADLINE, write.write_all(&part)).await {
@@ -628,10 +627,8 @@ async fn malformed_body_framing_is_a_400_and_never_dispatches() {
     assert!(f.dispatched.0.lock().unwrap().is_empty());
     listener.stop().await;
 }
-/// A request framed both ways is the smuggling shape. Node's parser answers it 400; hyper takes
-/// RFC 9112 §6.1's other permitted course (chunked wins, Content-Length is dropped) and closes
-/// the connection after the reply. Either way the bytes behind the body are never a second
-/// request, which is what this pins.
+/// RFC 9112 §6.1: with both framings hyper lets chunked win, drops Content-Length and closes the
+/// connection after the reply.
 #[tokio::test]
 async fn a_request_framed_both_ways_never_carries_a_second_request() {
     let f = fx(WebhookConfig::default());

@@ -1,8 +1,5 @@
-//! Mixy's hidden heartbeat sessions (`mixy-heartbeat.mjs` `wakeMixy`), marked in this process from
-//! the session's creation until its close lands (`shared/routine-trigger.mjs`
-//! `markHeartbeatSession` / `isHeartbeatSession`). Only the mark counts: the stored fields
-//! (source, owner) can be supplied by any session create, so a turn's heartbeat limits and the
-//! delegation refusals key on this set and nothing else.
+//! Only the in-process mark makes a heartbeat session: the stored fields (source, owner) can be
+//! supplied by any session create, so heartbeat limits and delegation refusals key on this set.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};

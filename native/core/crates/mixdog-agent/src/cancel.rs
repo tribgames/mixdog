@@ -1,5 +1,4 @@
-//! An abort signal that remembers who aborted it and why. Node's `abortError` throws the reason
-//! when it is an `Error` and `String(reason)` otherwise, so the text of a cancelled wait depends
+//! An abort signal that remembers who aborted it and why. The text of a cancelled wait depends
 //! on the source: the agent job says [`JOB_CANCELLED`], a parent session's signal brings its own
 //! reason, and a bare `abort()` reads [`ABORTED`].
 
@@ -15,12 +14,11 @@ pub const ABORTED: &str = "This operation was aborted";
 /// The reason the agent job's own controller aborts with before it is admitted (`job-start.mjs`).
 pub const JOB_CANCELLED: &str = "agent task cancelled before resource admission";
 
-/// The `reason` of the `SessionClosedError` Node aborts a session's controller with. The provider
-/// request's signal is that controller's, so a wait ended by it reads this text (`abortError`
-/// returns an `Error` reason as is). Sources: `closeSession` (a job's cancel closes its worker
-/// session with [`AGENT_TASK_CANCEL`]; `agent close`, session delete and teardown close with their
-/// own reasons), `abortSessionTurn`, and the runtime's `abortRuntime` (a user stop, [`USER_CANCEL`]).
-/// A steer aborts nothing: it queues behind the running turn.
+/// The reason a session's controller aborts with when the session closes. The provider request's
+/// signal is that controller's, so a wait ended by it reads this text. A job's cancel closes its
+/// worker session with [`AGENT_TASK_CANCEL`]; `agent close`, session delete and teardown close with
+/// their own reasons; a user stop is [`USER_CANCEL`]. A steer aborts nothing: it queues behind the
+/// running turn.
 pub fn session_closed(session_id: &str, detail: &str) -> String {
     format!("Session \"{session_id}\" closed: {detail}")
 }

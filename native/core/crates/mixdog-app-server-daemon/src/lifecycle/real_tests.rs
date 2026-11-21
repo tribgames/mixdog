@@ -237,7 +237,7 @@ fn a_boot_state_that_cannot_be_published_is_fatal_and_a_draining_one_is_only_log
 fn fixture() -> Fixture {
     // A worker thread drives the spawned pool tasks while the test thread blocks on the handle, as
     // the release thread does in production.
-    let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(1).build().unwrap();
+    let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
     let sections = Arc::new(Sections::default());
     let cancel = Arc::new(CancelRegistry::default());
     let barriers = Arc::new(AtomicU32::new(0));

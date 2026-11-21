@@ -1,10 +1,7 @@
-//! What is overlaid on a cached provider setup on every read (`session-runtime/provider-auth/setup.mjs`
-//! `withLiveKeychain` / `withCatalogErrors`): the keyring alert reflects the live state (the keyring
-//! can lock or unlock while a cached setup is served), and a provider whose model list failed says why
-//! on its row so a view never shows its empty list as if nothing were wrong.
-//!
-//! The failures themselves are [`CatalogFailures`], the store `recordProviderCatalogOutcome` fills
-//! (message cut to 300, whitespace collapsed, the error's kind).
+//! What is overlaid on a cached provider setup on every read: the keyring alert reflects the live state
+//! (the keyring can lock or unlock while a cached setup is served), and a provider whose model list
+//! failed says why on its row. The failures are [`CatalogFailures`] (message cut to 300, whitespace
+//! collapsed, the error's kind).
 
 use std::sync::Arc;
 

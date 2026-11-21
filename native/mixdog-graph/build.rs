@@ -8,18 +8,6 @@ fn bundle_outline_rules() {
     build_rules::bundle_outline_rules(&manifest_dir);
 }
 
-// Windows VERSIONINFO for the helper executable.
-//
-// A Rust binary ships NO version resource at all, so this helper was nameless
-// in Explorer's properties dialog and in every process list. Stamping the same
-// ProductName the desktop app uses (electron-builder.yml `productName: Mixdog`)
-// gives it a branded identity wherever Windows reads file metadata.
-//
-// What this does NOT do is merge the process into the app's Task Manager row.
-// That grouping keys off AppUserModelID, which a version resource cannot carry
-// — an earlier version of this comment assumed ProductName plus the
-// parent/child chain was enough, and the helper kept listing itself at the top
-// level. main.rs claims the desktop AUMID at startup to actually fix it.
 #[cfg(windows)]
 fn main() {
     bundle_outline_rules();

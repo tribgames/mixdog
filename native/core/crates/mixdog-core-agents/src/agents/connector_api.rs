@@ -36,6 +36,29 @@ use super::connectors::stored_policy;
 use super::connectors::tool_entries;
 use crate::setup::Approval;
 
+/// `tools` with the tool's permission stored once under the connector's `group`; the entry another account of the group kept of its own goes.
+fn with_group_permission(tools: &Map<String, Value>, group: &str, tool: &str, permission: Value) -> Map<String, Value> {
+    let mut kept = Map::new();
+    for id in mixdog_js::js_object_keys(tools) {
+        let entries = &tools[id];
+        if id == group || group_id(id) != group {
+            kept.insert(id.clone(), entries.clone());
+            continue;
+        }
+        let mut rest = entries.as_object().cloned().unwrap_or_default();
+        rest.shift_remove(tool);
+        kept.insert(id.clone(), Value::Object(rest));
+    }
+    let mut own = kept.get(group).and_then(Value::as_object).cloned().unwrap_or_default();
+    if permission.is_null() {
+        own.shift_remove(tool);
+    } else {
+        own.insert(tool.to_owned(), permission);
+    }
+    kept.insert(group.to_owned(), Value::Object(own));
+    kept
+}
+
 /// What the MCP service knows of the connectors: the installed ones and their tools.
 #[async_trait]
 pub trait ConnectorCatalog: Send + Sync {
@@ -239,25 +262,7 @@ impl AgentConnectors {
                         return Err(TOOL_ALREADY.to_owned());
                     }
                 }
-                let mut kept = Map::new();
-                for id in mixdog_js::js_object_keys(&tools) {
-                    let entries = &tools[id];
-                    if *id == group || group_id(id) != group {
-                        kept.insert(id.clone(), entries.clone());
-                        continue;
-                    }
-                    let mut rest = entries.as_object().cloned().unwrap_or_default();
-                    rest.shift_remove(&tool);
-                    kept.insert(id.clone(), Value::Object(rest));
-                }
-                let mut own = kept.get(&group).and_then(Value::as_object).cloned().unwrap_or_default();
-                if permission.is_null() {
-                    own.shift_remove(&tool);
-                } else {
-                    own.insert(tool.clone(), permission);
-                }
-                kept.insert(group, Value::Object(own));
-                Ok((off, kept))
+                Ok((off, with_group_permission(&tools, &group, &tool, permission)))
             })
             .await?;
         Ok(stored.json())

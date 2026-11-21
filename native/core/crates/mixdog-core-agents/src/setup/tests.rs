@@ -21,6 +21,7 @@ use mixdog_core_config::tool_modules::External;
 use mixdog_core_config::tool_modules::ToolModulesHost;
 
 mod dispatch_rules;
+mod media_default;
 mod scalar_settings;
 mod status_domains;
 

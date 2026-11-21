@@ -1,22 +1,14 @@
-//! The provider model cache's own warm: Node's `scheduleProviderModelWarmup` (`warmup/provider-warmups.mjs`) with the
-//! timer discipline of `warmup/timer-arm.mjs`, and the direct `warmProviderModelCache` calls of the account flows.
+//! The provider model cache's own warm.
 //!
-//! Triggers, each Node's:
-//! * boot: `scheduleProviderModelWarmup()` once the runtime is up ([`ModelWarmup::start`]);
-//! * the first turn settling: `turn-settle.mjs` reschedules it once per process ([`ModelWarmup::first_turn_settled`]);
-//! * a wake (a turn ended, a session create settled, a catalog refresh settled): a parked run re-checks on its own tick
-//!   ([`ModelWarmup::wake`]);
-//! * an account change: `warmProviderModelCache()` straight away, no switch, no deferral, no secrets
-//!   ([`ModelWarmup::warm_now`]).
+//! Triggers: boot ([`ModelWarmup::start`]); the first turn settling ([`ModelWarmup::first_turn_settled`]); a wake
+//! ([`ModelWarmup::wake`]): a parked run re-checks on its own tick; an account change ([`ModelWarmup::warm_now`]):
+//! straight away, no switch, no deferral, no secrets.
 //!
 //! A scheduled run does nothing when the cache is loaded or a load is in flight, parks while the runtime is busy or a
-//! catalog refresh is running, and otherwise starts the load the readers share (`ModelListService::warm_cache`). The
-//! refresh state it waits on is the catalog's own counter, so a job that is scheduled after the refresh began, or after
-//! it settled, reads the same answer.
+//! catalog refresh is running, and otherwise starts the load the readers share (`ModelListService::warm_cache`).
 //!
-//! Switches (`runtime-tunables.mjs`): `MIXDOG_DISABLE_PROVIDER_WARMUP` and `MIXDOG_DISABLE_MODEL_PREFETCH` (either on
-//! turns the scheduled warm off), `MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS` (default 0: the Rust runtime is the daemon,
-//! `MIXDOG_DAEMON_HOST`; 0 to 120 000).
+//! Switches: `MIXDOG_DISABLE_PROVIDER_WARMUP` and `MIXDOG_DISABLE_MODEL_PREFETCH` (either on turns the scheduled
+//! warm off), `MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS` (default 0; 0 to 120 000).
 
 use std::sync::Arc;
 use std::sync::Mutex;

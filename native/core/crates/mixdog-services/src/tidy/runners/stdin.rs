@@ -153,6 +153,10 @@ pub async fn format_each(req: &RunRequest, id: &str, write: bool, plan: Plan<'_>
         }
     })
     .await;
+    fold_outcomes(req, id, write, outcomes)
+}
+
+fn fold_outcomes(req: &RunRequest, id: &str, write: bool, outcomes: Vec<One>) -> RunnerResult {
     let mut result = RunnerResult::default();
     let mut checked = 0;
     for (file, outcome) in req.files.iter().zip(outcomes) {

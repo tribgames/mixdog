@@ -1,4 +1,4 @@
-//! `goal-storage.mjs`: one record file per session under `<dataDir>/goals/<sessionId>.json`,
+//! One record file per session under `<dataDir>/goals/<sessionId>.json`,
 //! `{ version: 1, goal }`, written atomically with the replaced version kept as `.bak`. A damaged
 //! record never blocks the feature (it is set aside and the last good copy restored, else the
 //! session has no Goal); one a newer build wrote reads as no Goal and is never replaced.

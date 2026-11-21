@@ -1,9 +1,3 @@
-//! The provider tool-exclusion hookup of a turn (Node `send-phase.mjs:117`): each provider request
-//! of the turn begins a new exclusion set for the session, the adapters report the tools they leave
-//! out through `RequestOptions.on_tool_excluded`, and the report is recorded for the session. The
-//! user is told once per tool (stage `notice`); a later call of an excluded tool is answered with
-//! the reason, which the session's tool surface does from the exclusions it is re-derived with.
-
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::Weak;

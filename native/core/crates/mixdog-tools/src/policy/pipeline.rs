@@ -209,6 +209,17 @@ fn missing_approval_ui_denial(name: &str, ask_reason: &str) -> String {
     format!("Error: tool \"{name}\" denied by hook: approval required but no approval UI is available{reason}")
 }
 
+fn not_approved(name: &str, detail: &str, ask_reason: &str) -> ToolError {
+    let detail = mixdog_js::js_trim(detail);
+    let detail = if detail.is_empty() { mixdog_js::js_trim(ask_reason) } else { detail };
+    let detail = detail.trim_end_matches(|c: char| c == '.' || mixdog_js::is_js_space(c));
+    let detail = if detail.is_empty() { "not approved" } else { detail };
+    ToolError::new(
+        ToolErrorCode::PermissionDenied,
+        format!("Error: tool \"{name}\" was not approved: {detail}. Do not retry it or reach the same result another way; report it."),
+    )
+}
+
 fn remember_name(scope: ApprovalRemember) -> &'static str {
     match scope {
         ApprovalRemember::Once => "once",
@@ -445,22 +456,7 @@ impl ToolPolicy {
     async fn ask(&self, rq: &AuthorizeRequest<'_>, spec: AskSpec<'_>) -> Result<Answer, ToolError> {
         // A schedule or webhook run never asks: saving it was the user's grant.
         if rq.facts.run.is_some_and(|run| run.is_granted()) {
-            let forbidden = matches!(
-                spec.request,
-                Some(AskRequest::Outbound { card, .. }) if forbidden_in_run(card.category)
-            );
-            let decision = if forbidden { "run-forbidden" } else { "run-allowed" };
-            if let Some(audit) = spec.audit {
-                self.audit(audit, decision, "").await.map_err(|e| check_failed(spec.name, &e))?;
-            }
-            if forbidden {
-                return Err(denied(
-                    spec.name,
-                    ToolErrorCode::DeniedByPolicy { rule: "run-forbidden".into() },
-                    &format!(": {RUN_FORBIDDEN_REASON} Report this to the user; do not retry it or reach the same result another way."),
-                ));
-            }
-            return Ok(Answer { remember: None, edited_args: None });
+            return self.answer_for_run(&spec).await;
         }
 
         let resolution = rq.approvals.request(self.approval_ask(rq, &spec)).await;
@@ -497,16 +493,29 @@ impl ToolPolicy {
         }
 
         if !approved {
-            let detail = mixdog_js::js_trim(&detail);
-            let detail = if detail.is_empty() { mixdog_js::js_trim(spec.reason) } else { detail };
-            let detail = detail.trim_end_matches(|c: char| c == '.' || mixdog_js::is_js_space(c));
-            let detail = if detail.is_empty() { "not approved" } else { detail };
-            return Err(ToolError::new(
-                ToolErrorCode::PermissionDenied,
-                format!("Error: tool \"{}\" was not approved: {detail}. Do not retry it or reach the same result another way; report it.", spec.name),
-            ));
+            return Err(not_approved(spec.name, &detail, spec.reason));
         }
         Ok(Answer { remember, edited_args })
+    }
+
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+    async fn answer_for_run(&self, spec: &AskSpec<'_>) -> Result<Answer, ToolError> {
+        let forbidden = matches!(
+            spec.request,
+            Some(AskRequest::Outbound { card, .. }) if forbidden_in_run(card.category)
+        );
+        let decision = if forbidden { "run-forbidden" } else { "run-allowed" };
+        if let Some(audit) = spec.audit {
+            self.audit(audit, decision, "").await.map_err(|e| check_failed(spec.name, &e))?;
+        }
+        if forbidden {
+            return Err(denied(
+                spec.name,
+                ToolErrorCode::DeniedByPolicy { rule: "run-forbidden".into() },
+                &format!(": {RUN_FORBIDDEN_REASON} Report this to the user; do not retry it or reach the same result another way."),
+            ));
+        }
+        Ok(Answer { remember: None, edited_args: None })
     }
 
     fn approval_ask(&self, rq: &AuthorizeRequest<'_>, spec: &AskSpec<'_>) -> ApprovalAsk {

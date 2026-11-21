@@ -1,8 +1,4 @@
-//! The rows a home thread is given from outside its turns: a routine's result, a task session's
-//! report, a held request, the agent's own reply, and the notices that show them live
-//! (session/routine-result.mjs, session/human-gate/held-message.mjs, and the `queuedRow` /
-//! `postedMessage` of agent-home-delivery.mjs). Items are the queue's JSON rows, read as Node reads
-//! them: a missing field is `undefined`, a stored `null` is not.
+//! Items are the queue's JSON rows, read as Node reads them: a missing field is `undefined`, a stored `null` is not.
 
 use mixdog_core_base::rooms::ids::{agent_id_of_home_session, is_room_thread_session_id};
 use mixdog_js::{js_trim, js_trim_end, json_number, number_to_string, slice_utf16, to_number_of, utf16_len, value_to_string};
@@ -580,58 +576,66 @@ pub fn routine_result_notice(message: &Value) -> Value {
         return json!({ "text": format!("⚠ Task results not relayed: {} — they are shown above", js_str(routine.get("relayFailed"))), "tone": "warn", "routine": { "relayFailed": routine["relayFailed"] } });
     }
     if routine.get("kind").and_then(Value::as_str) == Some("task") {
-        let session = routine.get("target").and_then(Value::as_str) == Some("session");
-        let status = routine.get("status");
-        let what = match str_of(status) {
-            "started" => "started".to_string(),
-            "blocked" => "waiting for confirmation".to_string(),
-            _ => js_str(status),
-        };
-        let files = normalize_handoff_files(routine.get("files"));
-        let summary = routine.get("summary");
-        let mut payload = Map::new();
-        payload.insert("kind".into(), json!("task"));
-        for (key, value) in [("name", routine.get("name")), ("status", status), ("summary", summary), ("sessionId", routine.get("sessionId"))] {
-            if let Some(value) = value {
-                payload.insert(key.into(), value.clone());
-            }
-        }
-        if session {
-            payload.insert("target".into(), json!("session"));
-        }
-        if let Some(agent_id) = routine.get("agentId").filter(|v| truthy(v)) {
-            payload.insert("agentId".into(), agent_id.clone());
-        }
-        if let Some(send_id) = routine.get("sendId").filter(|v| truthy(v)) {
-            payload.insert("sendId".into(), send_id.clone());
-        }
-        if let Some(ids) = routine.get("sendIds").filter(|v| v.as_array().is_some_and(|a| a.len() > 1)) {
-            payload.insert("sendIds".into(), ids.clone());
-        }
-        if !files.is_empty() {
-            payload.insert("files".into(), Value::Array(files));
-        }
-        if let Some(line) = routine.get("line").and_then(Value::as_str).filter(|l| !l.is_empty()) {
-            payload.insert("line".into(), json!(line));
-        }
-        let mut notice = Map::new();
-        notice.insert(
-            "text".into(),
-            json!(format!(
-                "🛠 {} {what} · {}{}",
-                if session { "Session" } else { "Agent task" },
-                js_str(routine.get("name")),
-                if truthy_of(summary) { format!(" — {}", js_str(summary)) } else { String::new() }
-            )),
-        );
-        notice.insert("tone".into(), json!(if str_of(status) == "failed" { "warn" } else { "info" }));
-        notice.insert("routine".into(), Value::Object(payload));
-        let attachments = normalize_attachments(message.pointer("/meta/transcript/attachments"));
-        if !attachments.is_empty() {
-            notice.insert("attachments".into(), Value::Array(attachments));
-        }
-        return Value::Object(notice);
+        return task_result_notice(message, routine);
     }
+    schedule_result_notice(routine)
+}
+
+fn task_result_notice(message: &Value, routine: &Value) -> Value {
+    let session = routine.get("target").and_then(Value::as_str) == Some("session");
+    let status = routine.get("status");
+    let what = match str_of(status) {
+        "started" => "started".to_string(),
+        "blocked" => "waiting for confirmation".to_string(),
+        _ => js_str(status),
+    };
+    let files = normalize_handoff_files(routine.get("files"));
+    let summary = routine.get("summary");
+    let mut payload = Map::new();
+    payload.insert("kind".into(), json!("task"));
+    for (key, value) in [("name", routine.get("name")), ("status", status), ("summary", summary), ("sessionId", routine.get("sessionId"))] {
+        if let Some(value) = value {
+            payload.insert(key.into(), value.clone());
+        }
+    }
+    if session {
+        payload.insert("target".into(), json!("session"));
+    }
+    if let Some(agent_id) = routine.get("agentId").filter(|v| truthy(v)) {
+        payload.insert("agentId".into(), agent_id.clone());
+    }
+    if let Some(send_id) = routine.get("sendId").filter(|v| truthy(v)) {
+        payload.insert("sendId".into(), send_id.clone());
+    }
+    if let Some(ids) = routine.get("sendIds").filter(|v| v.as_array().is_some_and(|a| a.len() > 1)) {
+        payload.insert("sendIds".into(), ids.clone());
+    }
+    if !files.is_empty() {
+        payload.insert("files".into(), Value::Array(files));
+    }
+    if let Some(line) = routine.get("line").and_then(Value::as_str).filter(|l| !l.is_empty()) {
+        payload.insert("line".into(), json!(line));
+    }
+    let mut notice = Map::new();
+    notice.insert(
+        "text".into(),
+        json!(format!(
+            "🛠 {} {what} · {}{}",
+            if session { "Session" } else { "Agent task" },
+            js_str(routine.get("name")),
+            if truthy_of(summary) { format!(" — {}", js_str(summary)) } else { String::new() }
+        )),
+    );
+    notice.insert("tone".into(), json!(if str_of(status) == "failed" { "warn" } else { "info" }));
+    notice.insert("routine".into(), Value::Object(payload));
+    let attachments = normalize_attachments(message.pointer("/meta/transcript/attachments"));
+    if !attachments.is_empty() {
+        notice.insert("attachments".into(), Value::Array(attachments));
+    }
+    Value::Object(notice)
+}
+
+fn schedule_result_notice(routine: &Value) -> Value {
     let webhook = routine.get("kind").and_then(Value::as_str) == Some("webhook");
     let name = or_text(routine.get("name"), "");
     let failed = str_of(routine.get("status")) == "failed";
@@ -897,4 +901,71 @@ fn queued_row(item: &Value, message_id: &str, now: i64) -> QueuedRow {
 pub fn delivered_row(item: &Value, message_id: &str, now: i64) -> QueuedRow {
     let row = queued_row(item, message_id, now);
     QueuedRow { message: posted_message(&row.message), ..row }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn notice_of(routine: Value) -> Value {
+        routine_result_notice(&json!({ "meta": { "routine": routine } }))
+    }
+
+    #[test]
+    fn an_omitted_count_notice_is_informational() {
+        assert_eq!(notice_of(json!({ "omitted": 3 })), json!({ "text": "⏱ Routine results omitted: 3", "tone": "info", "routine": { "omitted": 3 } }));
+    }
+
+    #[test]
+    fn a_relay_failure_notice_warns_with_the_count() {
+        assert_eq!(
+            notice_of(json!({ "relayFailed": 2 })),
+            json!({ "text": "⚠ Task results not relayed: 2 — they are shown above", "tone": "warn", "routine": { "relayFailed": 2 } })
+        );
+    }
+
+    #[test]
+    fn a_started_session_task_notice_names_the_session_and_its_summary() {
+        let routine = json!({ "kind": "task", "name": "Build", "status": "started", "summary": "s", "sessionId": "x", "target": "session" });
+        assert_eq!(notice_of(routine.clone()), json!({ "text": "🛠 Session started · Build — s", "tone": "info", "routine": routine }));
+    }
+
+    #[test]
+    fn a_failed_agent_task_notice_warns_and_drops_an_empty_summary() {
+        let notice = notice_of(json!({ "kind": "task", "name": "Build", "status": "failed", "files": [], "line": "" }));
+        assert_eq!(notice["text"], "🛠 Agent task failed · Build");
+        assert_eq!(notice["tone"], "warn");
+        assert_eq!(notice["routine"], json!({ "kind": "task", "name": "Build", "status": "failed" }));
+    }
+
+    #[test]
+    fn a_failed_schedule_notice_carries_its_failure_reason_and_pause() {
+        let notice = notice_of(json!({ "name": "Daily", "status": "failed", "summary": "boom", "reason": "r", "paused": true, "runId": "r1" }));
+        assert_eq!(notice["text"], "⏱ Schedule · Daily — Failed: boom");
+        assert_eq!(notice["tone"], "warn");
+        assert_eq!(notice["routine"], json!({ "name": "Daily", "status": "failed", "summary": "boom", "reason": "r", "paused": true, "runId": "r1" }));
+    }
+
+    #[test]
+    fn a_completed_webhook_notice_is_informational() {
+        let notice = notice_of(json!({ "kind": "webhook", "name": "Hook", "status": "done", "summary": "ok" }));
+        assert_eq!(notice["text"], "🔗 Webhook · Hook — ok");
+        assert_eq!(notice["tone"], "info");
+        assert_eq!(notice["routine"], json!({ "kind": "webhook", "name": "Hook", "status": "completed", "summary": "ok" }));
+    }
+
+    #[test]
+    fn a_held_request_is_normalized_to_known_values_and_flat_text() {
+        let held = normalize_held_request(&json!({
+            "id": "h1", "status": "weird", "tool": "bash\n\"x\"", "target": "t",
+            "details": { "a": "b", "c": "" }, "run": { "kind": "other", "name": "n" }
+        }));
+        assert_eq!(
+            held,
+            json!({
+                "id": "h1", "status": "pending", "agentId": "", "kind": "approval", "tool": "bash x", "target": "t", "reason": "",
+                "details": { "a": "b" }, "run": { "kind": "schedule", "name": "n" }
+            })
+        );
+    }
 }

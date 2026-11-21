@@ -93,9 +93,7 @@ impl SessionView {
 }
 
 /// Whether rows older than the snapshot's exist: the store has rows older than the view (`store_has_older`), or the
-/// window sent only the newest `sent` of the view's `held` rows. The desktop follows a thread with `lastItems: 32` of a
-/// view of up to 200, and pages older rows only while this says some exist: a thread whose whole history fitted the
-/// view answered "none older" and the rows above its newest 32 could not be scrolled to.
+/// window sent only the newest `sent` of the view's `held` rows.
 pub(crate) fn snapshot_has_older(store_has_older: bool, window: &Window, sent: usize, held: usize) -> bool {
     store_has_older || (matches!(window, Window::LastItems(_) | Window::LastTurns(_)) && sent < held)
 }

@@ -37,6 +37,7 @@ async fn a_stalled_or_failing_pid_read_still_records_a_dispatch_outcome() {
 /// and its pid read (pools not published): the record named the cluster synchronously at the attach, so the stop resolves the pid itself and
 /// dispatches to the attached postmaster.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn an_attached_opening_revoked_before_publication_still_has_its_stop_dispatched() {
     let dir = tempfile::tempdir().expect("dir");
     let first = stack_over(dir.path(), PgRuntimeSource::Dir(pg_runtime())).await;
@@ -62,6 +63,7 @@ async fn an_attached_opening_revoked_before_publication_still_has_its_stop_dispa
 /// while that poll is still held, before the stop could have returned: the signal did not wait for the acknowledgement. Released, the report
 /// carries the late outcome once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_cluster_attached_after_the_dispatch_decided_is_signalled_before_the_acknowledgement() {
     let dir = tempfile::tempdir().expect("dir");
     let lane = mixdog_rt::testing::tokens().durability_io;
@@ -101,6 +103,7 @@ async fn a_cluster_attached_after_the_dispatch_decided_is_signalled_before_the_a
 /// The opening fenced after `pg_ctl start` was spawned and before its cluster is ready: at the cutoff the record names a start handed to the OS, so
 /// the stop either reaches its postmaster (its pid file exists) or reports `ExternalStartUnresolved`; it never claims nothing was started.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn an_opening_fenced_after_the_os_launch_is_dispatched_or_reported_unresolved() {
     let dir = tempfile::tempdir().expect("dir");
     let (mut entered, release) = fences::arm("pg-launched");
@@ -202,6 +205,7 @@ fn suspend(pid: u32, suspended: bool) {
 /// delivered shutdown cannot proceed. The graceful stop (WAL flushed before the dispatch) observes the postmaster still alive at the cutoff and returns with that recorded;
 /// resumed, the postmaster finishes its shutdown, observed here.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_stop_reports_its_dispatch_while_a_suspended_postmaster_is_still_alive() {
     let dir = tempfile::tempdir().expect("dir");
     let stack = stack_over(dir.path(), PgRuntimeSource::Dir(pg_runtime())).await;
@@ -229,6 +233,7 @@ async fn a_stop_reports_its_dispatch_while_a_suspended_postmaster_is_still_alive
 /// The shutdown's last finalizer, fenced inside its SQL (the WAL flush's transaction begun, its commit not sent): it holds the graceful stop until the
 /// cutoff, where the revocation destroys it with its connection; the stop reports no flush and is dispatched without waiting further.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_finalizer_fenced_inside_its_sql_is_revoked_at_the_cutoff() {
     let dir = tempfile::tempdir().expect("dir");
     let stack = stack_over(dir.path(), PgRuntimeSource::Dir(pg_runtime())).await;
@@ -256,6 +261,7 @@ fn postmaster_port(dir: &std::path::Path) -> u16 {
 /// Commits made with asynchronous commit before the stop are covered when the stop reports `flushed`: at the dispatch (fenced right before it), the
 /// cluster's flush position is at or past the WAL position read after the last such commit.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_flushed_stop_covers_the_asynchronous_commits_made_before_it() {
     let dir = tempfile::tempdir().expect("dir");
     let stack = stack_over(dir.path(), PgRuntimeSource::Dir(pg_runtime())).await;
@@ -336,6 +342,7 @@ impl crate::bots::delivery::env::RetryTimer for NeverFires {
 /// the watcher and tracing on: the offset write is released and completes, the trace write is held until the cutoff, where the revocation destroys it
 /// with its connection; nothing of either is left outstanding.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn the_offset_write_and_the_trace_drain_are_owned_finalizers_fenced_inside_their_sql() {
     let dir = tempfile::tempdir().expect("dir");
     std::fs::write(crate::memory::trace::trace_marker_path(dir.path()), "").expect("tracing on");

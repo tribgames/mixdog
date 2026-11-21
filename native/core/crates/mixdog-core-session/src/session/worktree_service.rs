@@ -1,6 +1,6 @@
-//! The thread methods of the session workspace and the turn changes (Node's session read and
-//! configure actions `getBranchMenu`, `getSessionWorktreeWork`, `requestWorktree`, `selectBranch`,
-//! `mergeWorkspace`, `revertTurnChanges`, `reapplyTurnChanges`). The app-server hands them to
+//! The thread methods of the session workspace and the turn changes (`getBranchMenu`,
+//! `getSessionWorktreeWork`, `requestWorktree`, `selectBranch`, `mergeWorkspace`,
+//! `revertTurnChanges`, `reapplyTurnChanges`). The app-server hands them to
 //! this domain instead of the thread's actor: they act on the workspace transitions
 //! ([`SessionWorkspaces`]) and the turn review, and only name the thread. They are the public
 //! input of those actions: never `ownTurn`, which stays with the `git` tool.
@@ -197,7 +197,7 @@ fn prompt_title(input: Option<&JsonValue>) -> String {
 }
 
 impl ThreadScmService {
-    /// The draft's worktree step of `createNewTask` (`session-host-lifecycle.ts:847-897`), through the same workspace
+    /// The draft's worktree step of `createNewTask`, through the same workspace
     /// transitions `thread/selectBranch` and `thread/requestWorktree` use: a named branch is selected (created when
     /// `create`), else a worktree is provisioned at the current commit without the project folder's changes. The session
     /// must have entered it before the first prompt. Only the settings default (`fromDefault`) is allowed to find the

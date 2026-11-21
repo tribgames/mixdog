@@ -64,12 +64,6 @@ fn profile_files(base: &Path) -> Vec<String> {
     names
 }
 
-// ── Crash matrix over generation 2 ────────────────────────────────────────────────────────────────────────────
-//
-// The start runs in a child (this test binary, on `upgrade_chain::crash_child`) with
-// `durable::set_step_hook`; the hook exits the process at the chosen mutating step. The directory is the 1.4.5 directory
-// already migrated to generation 1 with the profile's files waiting, so every step of the child is one of generation 2.
-
 const KILLED: i32 = 86;
 
 static STEPS: AtomicUsize = AtomicUsize::new(0);

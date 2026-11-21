@@ -254,11 +254,6 @@ impl<H: ExchangeHost> State<'_, H> {
         None
     }
 
-    /// The member the supervisor's `decision` gives the next turn, or `None` to finish. A decision
-    /// that names no other member than the last one to take a turn, or that finishes while nobody
-    /// has spoken (`must_pick`), falls back deterministically: first the member the user
-    /// addressed, else the first member, preferring one that has not had a turn yet; later, the
-    /// peer the last speech @mentioned, else finish.
     fn next_speaker(&self, decision: Option<&Decision>, targets: &[String], must_pick: bool) -> Option<(String, String)> {
         let last = self.turns.last().map(|turn| turn.id.as_str()).unwrap_or("");
         match decision.map(|d| &d.action) {

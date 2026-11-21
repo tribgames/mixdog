@@ -432,24 +432,19 @@ struct Ink {
     b: i64,
 }
 
-/// The ink inside a region: pixels that differ from the colour most common on its border.
-fn ink_bounds(image: &Pixels, region: &Region) -> Option<Ink> {
-    let x0 = (region.x - region.pad).floor().max(0.0) as i64;
-    let y0 = (region.y - region.pad).floor().max(0.0) as i64;
-    let x1 = (image.width - 1).min((region.x + region.w + region.pad).ceil() as i64);
-    let y1 = (image.height - 1).min((region.y + region.h + region.pad).ceil() as i64);
-    if x1 <= x0 || y1 <= y0 {
-        return None;
+impl Pixels {
+    fn rgb(&self, x: i64, y: i64) -> [i64; 3] {
+        let i = ((y * self.width + x) * 4) as usize;
+        [i64::from(self.data[i]), i64::from(self.data[i + 1]), i64::from(self.data[i + 2])]
     }
-    let at = |x: i64, y: i64| ((y * image.width + x) * 4) as usize;
-    let rgb = |x: i64, y: i64| {
-        let i = at(x, y);
-        [i64::from(image.data[i]), i64::from(image.data[i + 1]), i64::from(image.data[i + 2])]
-    };
-    // The colours of the border in the order first met, with how often each stands there.
+}
+
+/// The colour most common on the border of a box `(x0, y0, x1, y1)` (the first met when two are as common) and how many
+/// border pixels carry it.
+fn border_colour(image: &Pixels, (x0, y0, x1, y1): (i64, i64, i64, i64)) -> Option<([i64; 3], usize)> {
     let mut counts: Vec<([i64; 3], usize)> = Vec::new();
     let mut count = |x: i64, y: i64| {
-        let colour = rgb(x, y);
+        let colour = image.rgb(x, y);
         match counts.iter_mut().find(|(known, _)| *known == colour) {
             Some((_, seen)) => *seen += 1,
             None => counts.push((colour, 1)),
@@ -463,11 +458,23 @@ fn ink_bounds(image: &Pixels, region: &Region) -> Option<Ink> {
         count(x0, y);
         count(x1, y);
     }
-    // The most common colour; the first met when two are as common.
-    let (bg, bg_count) = counts.iter().fold(None::<([i64; 3], usize)>, |best, entry| match best {
+    counts.iter().fold(None::<([i64; 3], usize)>, |best, entry| match best {
         Some(best) if best.1 >= entry.1 => Some(best),
         _ => Some(*entry),
-    })?;
+    })
+}
+
+/// The ink inside a region: pixels that differ from the colour most common on its border.
+fn ink_bounds(image: &Pixels, region: &Region) -> Option<Ink> {
+    let x0 = (region.x - region.pad).floor().max(0.0) as i64;
+    let y0 = (region.y - region.pad).floor().max(0.0) as i64;
+    let x1 = (image.width - 1).min((region.x + region.w + region.pad).ceil() as i64);
+    let y1 = (image.height - 1).min((region.y + region.h + region.pad).ceil() as i64);
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    let rgb = |x: i64, y: i64| image.rgb(x, y);
+    let (bg, bg_count) = border_colour(image, (x0, y0, x1, y1))?;
     // A drawn item on a surround that is not one colour (a band, a gradient, a picture) has no edge to read.
     let border = 2 * (x1 - x0 + 1) + 2 * (y1 - y0 + 1);
     let boxed = region.align == "box";
@@ -534,6 +541,33 @@ fn largest_move(item: &Value) -> f64 {
     number(item, "dy").abs().max(number(item, "dx").abs())
 }
 
+/// The items of one page that moved more than `threshold` between the HTML shot and the render, largest move first
+/// (equal moves keep their order).
+fn moved_items(html: &Pixels, pptx: &Pixels, targets: &[Value], threshold: f64) -> Vec<Value> {
+    let mut moved: Vec<Value> = Vec::new();
+    for target in targets {
+        let region = Region::of(target);
+        let (Some(a), Some(b)) = (ink_bounds(html, &region), ink_bounds(pptx, &region)) else { continue };
+        if region.align == "box" {
+            if let Some(drift) = box_drift(a, b, &region.text, threshold) {
+                moved.push(drift);
+            }
+            continue;
+        }
+        let dy = js_round(((b.t - a.t) as f64 + (b.b - a.b) as f64) / 2.0);
+        let dx = match region.align.as_str() {
+            "center" => js_round(((b.l - a.l) as f64 + (b.r - a.r) as f64) / 2.0),
+            "right" => (b.r - a.r) as f64,
+            _ => (b.l - a.l) as f64,
+        };
+        if dy.abs() > threshold || dx.abs() > threshold {
+            moved.push(json!({ "text": region.text, "dx": json_number(dx), "dy": json_number(dy) }));
+        }
+    }
+    moved.sort_by(|p, q| largest_move(q).partial_cmp(&largest_move(p)).unwrap_or(std::cmp::Ordering::Equal));
+    moved
+}
+
 /// `html_render_drift`: how far each item moved between the HTML and PowerPoint's render, in px of the HTML canvas:
 /// vertically the mean of the top and bottom ink edges (a size change is not a move); horizontally the edge a text is
 /// aligned to, or the mean of both edges for a picture, drawing, decoration or box. Only single-page render images can be
@@ -563,29 +597,8 @@ pub async fn measure_html_drift(tokens: LaneTokens, html_shots: &Value, html_tex
         let (Some(targets), Some(shot), Some(rendered)) = (targets, shot, rendered) else { continue };
         let html = canvas_pixels(&tokens, &lanes, Path::new(shot)).await?;
         let pptx = canvas_pixels(&tokens, &lanes, Path::new(rendered)).await?;
-        let mut moved: Vec<Value> = Vec::new();
-        for target in targets {
-            let region = Region::of(target);
-            let (Some(a), Some(b)) = (ink_bounds(&html, &region), ink_bounds(&pptx, &region)) else { continue };
-            if region.align == "box" {
-                if let Some(drift) = box_drift(a, b, &region.text, threshold) {
-                    moved.push(drift);
-                }
-                continue;
-            }
-            let dy = js_round(((b.t - a.t) as f64 + (b.b - a.b) as f64) / 2.0);
-            let dx = match region.align.as_str() {
-                "center" => js_round(((b.l - a.l) as f64 + (b.r - a.r) as f64) / 2.0),
-                "right" => (b.r - a.r) as f64,
-                _ => (b.l - a.l) as f64,
-            };
-            if dy.abs() > threshold || dx.abs() > threshold {
-                moved.push(json!({ "text": region.text, "dx": json_number(dx), "dy": json_number(dy) }));
-            }
-        }
+        let moved = moved_items(&html, &pptx, targets, threshold);
         if !moved.is_empty() {
-            // Largest move first; equal moves keep their order.
-            moved.sort_by(|p, q| largest_move(q).partial_cmp(&largest_move(p)).unwrap_or(std::cmp::Ordering::Equal));
             pages.push(json!({ "page": image["page"], "items": moved }));
         }
     }

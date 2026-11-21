@@ -293,22 +293,6 @@ fn migrate(args: &MigrateArgs) -> ExitCode {
     ExitCode::from(status)
 }
 
-/// Writes the exec's answer and errors to this process's stdout and stderr.
-struct StdSink;
-
-impl exec::Sink for StdSink {
-    fn out(&self, text: &str) {
-        use std::io::Write;
-        let mut out = std::io::stdout().lock();
-        let _ = out.write_all(text.as_bytes());
-        let _ = out.flush();
-    }
-    fn err(&self, text: &str) {
-        use std::io::Write;
-        let _ = std::io::stderr().lock().write_all(text.as_bytes());
-    }
-}
-
 /// The usage on stdout: Node's `help` kind (`printHelp`, exit 0).
 fn exec_help() -> ExitCode {
     use std::io::Write;
@@ -318,81 +302,18 @@ fn exec_help() -> ExitCode {
 
 /// Refuses what Node refuses before anything starts, then runs the exec on its own core (`runHeadlessExec`).
 fn exec_command(args: exec::ExecArgs) -> ExitCode {
-    let options = match args.into_invocation(std::env::var("MIXDOG_USAGE_LOG").ok()) {
+    let refusal = match args.into_invocation(std::env::var("MIXDOG_USAGE_LOG").ok()) {
         Ok(exec::Invocation::Help) => return exec_help(),
         Ok(exec::Invocation::React) => {
             eprint!("{}", exec::REACT_REMOVED);
             return ExitCode::FAILURE;
         }
-        Ok(exec::Invocation::Plain) => Err("--plain starts Node's readline REPL, which mixdogd exec does not have".to_owned()),
-        Ok(exec::Invocation::Run(options)) => {
-            exec::route::validate_explicit_route(options.provider.as_deref(), options.model.as_deref(), options.effort.as_deref()).map(|()| options)
-        }
-        Err(refusal) => Err(refusal),
+        Ok(exec::Invocation::Run(options)) => return ExitCode::from(u8::try_from(exec::run_command(options)).unwrap_or(1)),
+        Ok(exec::Invocation::Plain) => "--plain starts Node's readline REPL, which mixdogd exec does not have".to_owned(),
+        Err(refusal) => refusal,
     };
-    let options = match options {
-        Ok(options) => options,
-        Err(refusal) => {
-            eprintln!("mixdog: {refusal}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let js = match mixdog_app_server_daemon::js_runtime::resolve_current() {
-        Ok(js) => js,
-        Err(err) => {
-            eprintln!("mixdog: resolving the JS runtime: {err}");
-            return ExitCode::FAILURE;
-        }
-    };
-    // The host's own data folder (`resolvePluginData()`), where its credentials live; the run never writes to it.
-    let Some(host_data_dir) = mixdog_store::paths::Paths::from_process(&js.package_root).map(|paths| paths.data_dir) else {
-        eprintln!("mixdog: no data directory (set MIXDOG_DATA_DIR or HOME)");
-        return ExitCode::FAILURE;
-    };
-    let (executors, tokens) = match mixdog_app_server_daemon::boot_executors() {
-        Ok(booted) => booted,
-        Err(err) => {
-            eprintln!("mixdog: starting the executors: {err}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let provider = exec::route::clean(options.provider.as_deref()).to_owned();
-    let credentials = executors.handle(TaskClass::Work).block_on(exec::launcher::ResolvedCredentials::read(&tokens, &provider, &host_data_dir));
-    // The exec's own thread: one, so the boundary's environment is applied while no other thread reads it.
-    let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-        Ok(runtime) => runtime,
-        Err(err) => {
-            eprintln!("mixdog: starting the async runtime: {err}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let ort_library = match mixdog_app_server_daemon::js_runtime::resolve_ort_library_current() {
-        Ok(Some(library)) => mixdog_services::effort_judge::model::OrtRuntime::Library(library),
-        Ok(None) => mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
-        Err(err) => {
-            eprintln!("mixdog: resolving the ONNX Runtime: {err}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let launcher = exec::launcher::InProcessLauncher::new(executors, tokens, js, ort_library);
-    let host = exec::run::Host {
-        launcher: &launcher,
-        credentials: &credentials,
-        host_env: std::env::vars().collect(),
-        host_data_dir,
-        temp_dir: std::env::temp_dir(),
-        sink: Arc::new(StdSink),
-        now: exec::lifecycle::system_clock(),
-    };
-    // `installProcessSignalCleanup`: an interrupt ends the run with 130 after the shutdown.
-    let signal: exec::run::Signal = Box::pin(async {
-        match tokio::signal::ctrl_c().await {
-            Ok(()) => 130,
-            Err(_) => std::future::pending().await,
-        }
-    });
-    let code = runtime.block_on(exec::run::run_exec(options, host, signal));
-    ExitCode::from(u8::try_from(code).unwrap_or(1))
+    eprintln!("mixdog: {refusal}");
+    ExitCode::FAILURE
 }
 
 fn ctl(args: CtlArgs) -> ExitCode {

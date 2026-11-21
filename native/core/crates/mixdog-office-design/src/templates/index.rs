@@ -347,7 +347,6 @@ fn file_name(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
 
-// A fresh index entry for one template file.
 fn index_template_file<P: ReadProof>(
     proof: &P,
     env: &Environment,
@@ -409,30 +408,30 @@ fn path_type_error(value: Option<&Value>) -> String {
     format!("The \"path\" argument must be of type string. Received {received}")
 }
 
-/// `indexOfficeTemplates({ dataDir, config })`: walks the template directories of `config`, indexes what changed and
-/// writes `template-index.json`; answers the index (with `changed` and `count`).
-pub fn index_office_templates<P: WriteProof>(lane: &P, env: &Environment, data_dir: &Path, config: &LibraryConfig) -> Result<Value, String> {
-    let paths = library_paths(env, data_dir);
-    mixdog_fsio::create_dir_all(lane, &paths.templates).map_err(|error| fs_message(&error, "mkdir", &paths.templates))?;
-    let previous = read_json(lane, &paths.template_index, json!({ "templates": [] }));
-    let previous_entries: Vec<Value> = match prop(&previous, "templates").filter(|templates| truthy(templates)) {
-        None => Vec::new(),
-        Some(Value::Array(entries)) => entries.clone(),
+fn previous_entries_by_path<'a>(env: &Environment, previous: &'a Value) -> Result<HashMap<String, &'a Value>, String> {
+    let entries: &[Value] = match prop(previous, "templates").filter(|templates| truthy(templates)) {
+        None => &[],
+        Some(Value::Array(entries)) => entries,
         Some(_) => return Err("(previous.templates || []).map is not a function".to_owned()),
     };
-    let mut previous_by_path: HashMap<String, &Value> = HashMap::new();
-    for entry in &previous_entries {
+    let mut by_path: HashMap<String, &Value> = HashMap::new();
+    for entry in entries {
         match prop(entry, "path") {
-            Some(Value::String(path)) => previous_by_path.insert(canonical_path(env, path), entry),
+            Some(Value::String(path)) => by_path.insert(canonical_path(env, path), entry),
             other => return Err(path_type_error(other)),
         };
     }
-    let mut files: Vec<PathBuf> = Vec::new();
-    for directory in &config.template_directories {
-        walk_template_directory(lane, Path::new(directory), &mut files, 0);
-    }
+    Ok(by_path)
+}
+
+fn index_template_files<P: ReadProof>(
+    lane: &P,
+    env: &Environment,
+    files: &[PathBuf],
+    previous_by_path: &HashMap<String, &Value>,
+) -> Result<Vec<Value>, String> {
     let mut templates: Vec<Value> = Vec::new();
-    for path in &files {
+    for path in files {
         let details = stat(lane, path).map_err(|error| fs_message(&error, "stat", path))?;
         let sidecar_path = PathBuf::from(format!("{}.mixdog.json", path.to_string_lossy()));
         let sidecar = stat(lane, &sidecar_path).ok();
@@ -446,11 +445,30 @@ pub fn index_office_templates<P: WriteProof>(lane: &P, env: &Environment, data_d
     templates.sort_by(|left, right| {
         locale_compare(&text(prop(left, "id")), &text(prop(right, "id"))).then_with(|| locale_compare(&text(prop(left, "path")), &text(prop(right, "path"))))
     });
+    Ok(templates)
+}
+
+fn templates_revision(templates: &[Value]) -> String {
     let digest_rows: Vec<Value> = templates
         .iter()
         .map(|entry| Value::Array(["id", "path", "sha256", "sidecarMtimeMs"].iter().map(|key| prop(entry, key).cloned().unwrap_or(Value::Null)).collect()))
         .collect();
-    let revision = sha256(json_stringify(&Value::Array(digest_rows)));
+    sha256(json_stringify(&Value::Array(digest_rows)))
+}
+
+/// `indexOfficeTemplates({ dataDir, config })`: walks the template directories of `config`, indexes what changed and
+/// writes `template-index.json`; answers the index (with `changed` and `count`).
+pub fn index_office_templates<P: WriteProof>(lane: &P, env: &Environment, data_dir: &Path, config: &LibraryConfig) -> Result<Value, String> {
+    let paths = library_paths(env, data_dir);
+    mixdog_fsio::create_dir_all(lane, &paths.templates).map_err(|error| fs_message(&error, "mkdir", &paths.templates))?;
+    let previous = read_json(lane, &paths.template_index, json!({ "templates": [] }));
+    let previous_by_path = previous_entries_by_path(env, &previous)?;
+    let mut files: Vec<PathBuf> = Vec::new();
+    for directory in &config.template_directories {
+        walk_template_directory(lane, Path::new(directory), &mut files, 0);
+    }
+    let templates = index_template_files(lane, env, &files, &previous_by_path)?;
+    let revision = templates_revision(&templates);
     let changed = prop(&previous, "revision") != Some(&Value::String(revision.clone()));
     let index = json!({
         "schemaVersion": SCHEMA_VERSION,

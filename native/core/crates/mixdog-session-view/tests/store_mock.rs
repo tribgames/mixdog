@@ -386,7 +386,7 @@ async fn a_reconnect_resumes_the_session_and_shows_only_in_the_status() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn a_sign_in_flow_is_tracked_and_a_pending_one_is_cancelled_when_the_store_is_disposed() {
+async fn a_sign_in_flow_is_begun_polled_and_waited_on() {
     let rig = Rig::open_default().await;
     let pending = json!({ "flowId": "oauth_1", "provider": "p", "url": "http://x", "state": "pending", "manualCodeSupported": true });
     let (begun, request) = rig.answering(pending, rig.store.begin_oauth(OAuthKind::Provider, "openai", &json!({ "openBrowser": true }))).await;
@@ -402,6 +402,17 @@ async fn a_sign_in_flow_is_tracked_and_a_pending_one_is_cancelled_when_the_store
     let (_, request) =
         rig.answering(json!({ "flowId": "oauth_3", "state": "pending" }), rig.store.begin_oauth(OAuthKind::Mcp, "srv", &json!({ "openBrowser": true }))).await;
     assert_eq!(request["method"], "mcp/beginMcpOAuthLogin");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn disposing_the_store_cancels_every_pending_sign_in_flow_and_closes_the_connection() {
+    let rig = Rig::open_default().await;
+    let pending = json!({ "flowId": "oauth_1", "provider": "p", "url": "http://x", "state": "pending", "manualCodeSupported": true });
+    rig.answering(pending, rig.store.begin_oauth(OAuthKind::Provider, "openai", &json!({ "openBrowser": true }))).await.0.expect("begun");
+    rig.answering(json!({ "flowId": "oauth_3", "state": "pending" }), rig.store.begin_oauth(OAuthKind::Mcp, "srv", &json!({ "openBrowser": true })))
+        .await
+        .0
+        .expect("begun");
     // Disposal cancels both pending flows, stops following the session and closes the connection.
     let mut sent = Vec::new();
     let (finished, ()) = tokio::join!(rig.store.dispose("test"), async {

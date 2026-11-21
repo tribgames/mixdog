@@ -12,10 +12,6 @@ enum Out {
     Drained(mpsc::Sender<()>),
 }
 
-/// The queue to the one thread that writes stdout (start_writer). Unbounded,
-/// so an enqueue never waits on the client: an event emitted inside a
-/// state-lock hold keeps transition order without ever blocking the hold.
-/// Only ever locked for a non-blocking send.
 static OUT: Mutex<Option<mpsc::Sender<Out>>> = Mutex::new(None);
 /// Bytes queued and not yet written.
 static QUEUED_BYTES: AtomicUsize = AtomicUsize::new(0);
@@ -88,11 +84,6 @@ pub(crate) fn emit_task(id: u64, event: &str, managed: &ManagedProcess) {
     }
 }
 
-// Retained (promoted / background) tasks stay queryable after they finish, so
-// the jobs map only ever grew: a long-lived daemon accumulated one entry per
-// command for its whole life. Clients release explicitly (releaseTask), and
-// this cap is the backstop for clients that never do. FINISHED jobs are
-// dropped oldest-first; a live job is never pruned.
 pub(crate) const RETAINED_JOB_LIMIT: usize = 256;
 
 pub(crate) fn prune_retained_jobs(manager: &Arc<Manager>) {
@@ -130,10 +121,6 @@ pub(crate) fn arm_timeout(managed: Arc<ManagedProcess>, timeout_ms: u64) {
     });
 }
 
-/// The kill of a command over its output cap, under its state lock (`state`,
-/// `killed` and the error already recorded). A contained command's only while
-/// it runs (kill_running: never its kept survivors); an uncontained one's
-/// process group / job as before, even after its root exited.
 pub(crate) fn kill_over_cap(managed: &ManagedProcess, state: &mut TaskState) {
     if state.contained {
         kill_running(managed, state);
@@ -271,11 +258,6 @@ pub(crate) fn read_capture_tail(path: &str, limit: usize) -> (u64, Vec<u8>) {
     (size, buf)
 }
 
-// File capture has no pump thread, so byte counts and the preview tails that
-// completion envelopes render come from the files themselves. Returns true
-// when the output cap is now exceeded — the same verdict pump_pipe reaches
-// per chunk on the pipe path — and then, with `kill`, kills the command in the
-// same hold.
 pub(crate) fn refresh_capture_state(managed: &ManagedProcess, stdout_path: &str, stderr_path: &str, kill: bool) -> bool {
     let (out_bytes, out_tail) = read_capture_tail(stdout_path, TAIL_LIMIT);
     let (err_bytes, err_tail) = read_capture_tail(stderr_path, TAIL_LIMIT);

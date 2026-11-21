@@ -330,21 +330,27 @@ impl Lowering<'_> {
             }));
             return;
         }
-        if let Some(arguments) = self.search_calls.get(call_id) {
-            let item = native_search_output(message, call_id).unwrap_or_else(|| empty_search_output(call_id));
-            let no_tools = item.get("tools").and_then(Value::as_array).is_none_or(Vec::is_empty);
-            let named = arguments.get("name").and_then(Value::as_str).is_some_and(|name| !name.is_empty());
-            self.out.push(item);
-            // The search output has no text field; keep skill status and
-            // failed loader results visible as a user message.
-            if named || no_tools {
-                self.pending_media.push(json!({
-                    "type": "input_text",
-                    "text": content_text(&message.content),
-                }));
-            }
+        if self.search_calls.contains_key(call_id) {
+            self.push_search_result(message, call_id);
             return;
         }
+        self.push_function_result(message, call_id, output);
+    }
+
+    fn push_search_result(&mut self, message: &Message, call_id: &str) {
+        let item = native_search_output(message, call_id).unwrap_or_else(|| empty_search_output(call_id));
+        let no_tools = item.get("tools").and_then(Value::as_array).is_none_or(Vec::is_empty);
+        let named = self.search_calls.get(call_id).and_then(|arguments| arguments.get("name")).and_then(Value::as_str).is_some_and(|name| !name.is_empty());
+        self.out.push(item);
+        if named || no_tools {
+            self.pending_media.push(json!({
+                "type": "input_text",
+                "text": content_text(&message.content),
+            }));
+        }
+    }
+
+    fn push_function_result(&mut self, message: &Message, call_id: &str, output: Value) {
         let loaded: Vec<String> = if self.opts.native_tool_search {
             message
                 .native_tool_search
@@ -454,26 +460,23 @@ fn ensure_call_outputs(items: Vec<Value>) -> Vec<Value> {
         matches!(item_type(item), "tool_search_call" | "tool_search_output")
             && (item.get("execution").and_then(Value::as_str) == Some("server") || item.get("call_id").is_some_and(Value::is_null))
     };
-    let call_id = |item: &Value| -> Option<String> {
-        if !matches!(item_type(item), "function_call" | "custom_tool_call" | "tool_search_call") || is_server_search(item) {
-            return None;
-        }
+    let own_id = |item: &Value| -> Option<String> {
         item.get("call_id")
             .and_then(Value::as_str)
             .filter(|c| !c.is_empty())
             .or_else(|| item.get("id").and_then(Value::as_str).filter(|c| !c.is_empty()))
             .map(str::to_owned)
     };
+    let call_id = |item: &Value| -> Option<String> {
+        if !matches!(item_type(item), "function_call" | "custom_tool_call" | "tool_search_call") || is_server_search(item) {
+            return None;
+        }
+        own_id(item)
+    };
     let mut answered: HashSet<String> = items
         .iter()
         .filter(|item| matches!(item_type(item), "function_call_output" | "custom_tool_call_output" | "tool_search_output") && !is_server_search(item))
-        .filter_map(|item| {
-            item.get("call_id")
-                .and_then(Value::as_str)
-                .filter(|c| !c.is_empty())
-                .or_else(|| item.get("id").and_then(Value::as_str).filter(|c| !c.is_empty()))
-                .map(str::to_owned)
-        })
+        .filter_map(own_id)
         .collect();
     let mut out = Vec::with_capacity(items.len());
     for item in items {
@@ -561,10 +564,6 @@ pub fn lower_from(messages: &[Message], opts: &LowerOptions, extras: &LowerExtra
         }
         let assistant = message.role == Role::Assistant;
         let replays = if assistant { replay_items(message, &opts.replay_owner) } else { Vec::new() };
-        // The one decision point (Node `orderedReplay?.length`): an owned
-        // replay with anything left to send replaces the message and the
-        // carried history alike; history reasoning is only for a message
-        // with no owned replay.
         if assistant && lowering.push_ordered_replay(&replays) {
             continue;
         }
@@ -594,9 +593,13 @@ pub fn lower_from(messages: &[Message], opts: &LowerOptions, extras: &LowerExtra
         lowering.out.push(configuration_update(effort));
     }
     let mut out = ensure_call_outputs(lowering.out);
-    if extras.keep_full_tool_outputs {
-        return out;
+    if !extras.keep_full_tool_outputs {
+        apply_receipts(&mut out, messages, wire);
     }
+    out
+}
+
+fn apply_receipts(out: &mut [Value], messages: &[Message], wire: impl Fn(&str) -> String) {
     use crate::providers::tool_result_copies::{WireUse, receipts};
     let uses = out.iter().enumerate().filter_map(|(index, item)| {
         let kind = match item_type(item) {
@@ -610,5 +613,4 @@ pub fn lower_from(messages: &[Message], opts: &LowerOptions, extras: &LowerExtra
     for (index, receipt) in receipts(messages, wire, uses) {
         out[index]["output"] = receipt.into();
     }
-    out
 }

@@ -1,11 +1,4 @@
 // Resident search server: JSONL over stdio, one request per line.
-//
-// Motivation (measured): every grep pays ~100ms of Windows process spawn +
-// AV on-access scan for rg while the actual match work is ~5-10ms. This mode
-// keeps ONE warm process and answers rg-COMPATIBLE content searches without a
-// spawn. The Node side forwards the exact rg argv it would have used;
-// unsupported requests fail explicitly; there is no external rg fallback.
-//
 // Request : {"id":1,"cwd":"C:/repo","args":["--color","never",...],"offset":0,"limit":400}
 // Response: {"id":1,"lines":[...],"complete":true,"totalSeen":N}
 //         | {"id":1,"unsupported":"reason"} | {"id":1,"error":"..."}

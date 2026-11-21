@@ -190,8 +190,9 @@ impl CoreHandle for MockCore {
         lock(&self.closed).push(connection);
     }
 
-    fn connection_opened(&self, connection: ConnectionId, origin: mixdog_protocol::Origin, device: &str, kind: mixdog_protocol::ConnectionKind) {
+    fn connection_opened(&self, connection: ConnectionId, origin: mixdog_protocol::Origin, device: &str, kind: mixdog_protocol::ConnectionKind) -> String {
         lock(&self.opened).push(OpenedConnection { connection, origin, device: device.to_owned(), kind });
+        device.to_owned()
     }
 
     fn request_started(&self, _method: &str, _params: &serde_json::Value) -> crate::handle::RequestGuard {

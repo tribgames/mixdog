@@ -96,6 +96,85 @@ fn unique(ids: Vec<String>) -> Vec<String> {
     seen
 }
 
+fn normalize_fact(index: usize, fact: &Value, fact_ids: &mut Vec<String>) -> Result<Value, String> {
+    if !plain_object(fact) {
+        return Err("Office content facts must be objects".into());
+    }
+    let named = match prop(fact, "label").filter(|label| truthy(label)) {
+        Some(label) => format!(": {}", value_to_string(label)),
+        None => String::new(),
+    };
+    let id = safe_id(prop(fact, "id"), "fact id", &format!("fact {}{named}", index + 1))?;
+    if fact_ids.contains(&id) {
+        return Err(format!("Office content model has duplicate fact id {id}"));
+    }
+    fact_ids.push(id.clone());
+    let number_format = office_number_format(fact);
+    let source = normalize_source(prop(fact, "source"));
+    let unknown: Vec<&String> = js_object_keys(fact.as_object().expect("an object")).into_iter().filter(|key| !FACT_KEYS.contains(&key.as_str())).collect();
+    if !unknown.is_empty() {
+        return Err(format!(
+            "Office content fact {id} has unknown key(s): {}. A fact takes: {}.",
+            unknown.iter().map(|key| key.as_str()).collect::<Vec<_>>().join(", "),
+            FACT_KEYS.join(", ")
+        ));
+    }
+    let mut entry = Map::new();
+    entry.insert("id".into(), Value::String(id.clone()));
+    entry.insert("label".into(), Value::String(first_text(&[prop(fact, "label"), Some(&Value::String(id))])));
+    // A fact written without a value carries none: `JSON.stringify` leaves an undefined value out.
+    if let Some(fact_value) = prop(fact, "value") {
+        entry.insert("value".into(), clone(fact_value));
+    }
+    for key in ["unit", "detail"] {
+        if let Some(written) = prop(fact, key).filter(|written| truthy(written)) {
+            entry.insert(key.into(), Value::String(value_to_string(written)));
+        }
+    }
+    if !number_format.is_empty() {
+        entry.insert("numberFormat".into(), Value::String(number_format));
+    }
+    if let Some(source) = source.filter(truthy) {
+        entry.insert("source".into(), source);
+    }
+    Ok(Value::Object(entry))
+}
+
+fn normalize_claim(index: usize, claim: &Value, claim_ids: &mut Vec<String>, fact_ids: &[String]) -> Result<Value, String> {
+    if !plain_object(claim) {
+        return Err("Office content claims must be objects".into());
+    }
+    let named = match prop(claim, "text").filter(|written| truthy(written)) {
+        Some(written) => format!(": {}", value_to_string(written)),
+        None => String::new(),
+    };
+    let id = safe_id(prop(claim, "id"), "claim id", &format!("claim {}{named}", index + 1))?;
+    if claim_ids.contains(&id) {
+        return Err(format!("Office content model has duplicate claim id {id}"));
+    }
+    claim_ids.push(id.clone());
+    let empty = Vec::new();
+    let references = array_of(prop(claim, "factIds")).or_else(|| array_of(prop(claim, "facts"))).unwrap_or(&empty);
+    let mut resolved = Vec::new();
+    for entry in references {
+        resolved.push(safe_id(Some(entry), &format!("claim {id} fact reference"), "")?);
+    }
+    let fact_refs = unique(resolved);
+    for fact_id in &fact_refs {
+        if !fact_ids.contains(fact_id) {
+            return Err(format!("Office content claim {id} references unknown fact {fact_id}"));
+        }
+    }
+    let mut entry = Map::new();
+    entry.insert("id".into(), Value::String(id));
+    entry.insert("text".into(), Value::String(js_trim(&text(prop(claim, "text"))).to_owned()));
+    entry.insert("factIds".into(), json!(fact_refs));
+    if let Some(implication) = prop(claim, "implication").filter(|written| truthy(written)) {
+        entry.insert("implication".into(), Value::String(value_to_string(implication)));
+    }
+    Ok(Value::Object(entry))
+}
+
 /// `normalizeOfficeContentModel`: `Value::Null` for an absent model, else the normalised facts and claims with the
 /// fingerprint of the whole. The errors are the texts of the ones Node throws.
 pub fn normalize_office_content_model(value: Option<&Value>) -> Result<Value, String> {
@@ -115,85 +194,12 @@ pub fn normalize_office_content_model(value: Option<&Value>) -> Result<Value, St
     let mut fact_ids: Vec<String> = Vec::new();
     let mut facts = Vec::new();
     for (index, fact) in raw_facts.iter().enumerate() {
-        if !plain_object(fact) {
-            return Err("Office content facts must be objects".into());
-        }
-        let named = match prop(fact, "label").filter(|label| truthy(label)) {
-            Some(label) => format!(": {}", value_to_string(label)),
-            None => String::new(),
-        };
-        let id = safe_id(prop(fact, "id"), "fact id", &format!("fact {}{named}", index + 1))?;
-        if fact_ids.contains(&id) {
-            return Err(format!("Office content model has duplicate fact id {id}"));
-        }
-        fact_ids.push(id.clone());
-        // A key the model does not read is dropped, and the figure then ships in the wrong notation. The natural
-        // spellings reach numberFormat, and anything else is named rather than ignored.
-        let number_format = office_number_format(fact);
-        let source = normalize_source(prop(fact, "source"));
-        let unknown: Vec<&String> = js_object_keys(fact.as_object().expect("an object")).into_iter().filter(|key| !FACT_KEYS.contains(&key.as_str())).collect();
-        if !unknown.is_empty() {
-            return Err(format!(
-                "Office content fact {id} has unknown key(s): {}. A fact takes: {}.",
-                unknown.iter().map(|key| key.as_str()).collect::<Vec<_>>().join(", "),
-                FACT_KEYS.join(", ")
-            ));
-        }
-        let mut entry = Map::new();
-        entry.insert("id".into(), Value::String(id.clone()));
-        entry.insert("label".into(), Value::String(first_text(&[prop(fact, "label"), Some(&Value::String(id))])));
-        // A fact written without a value carries none: `JSON.stringify` leaves an undefined value out.
-        if let Some(fact_value) = prop(fact, "value") {
-            entry.insert("value".into(), clone(fact_value));
-        }
-        for key in ["unit", "detail"] {
-            if let Some(written) = prop(fact, key).filter(|written| truthy(written)) {
-                entry.insert(key.into(), Value::String(value_to_string(written)));
-            }
-        }
-        if !number_format.is_empty() {
-            entry.insert("numberFormat".into(), Value::String(number_format));
-        }
-        if let Some(source) = source.filter(truthy) {
-            entry.insert("source".into(), source);
-        }
-        facts.push(Value::Object(entry));
+        facts.push(normalize_fact(index, fact, &mut fact_ids)?);
     }
     let mut claim_ids: Vec<String> = Vec::new();
     let mut claims = Vec::new();
     for (index, claim) in raw_claims.iter().enumerate() {
-        if !plain_object(claim) {
-            return Err("Office content claims must be objects".into());
-        }
-        let named = match prop(claim, "text").filter(|written| truthy(written)) {
-            Some(written) => format!(": {}", value_to_string(written)),
-            None => String::new(),
-        };
-        let id = safe_id(prop(claim, "id"), "claim id", &format!("claim {}{named}", index + 1))?;
-        if claim_ids.contains(&id) {
-            return Err(format!("Office content model has duplicate claim id {id}"));
-        }
-        claim_ids.push(id.clone());
-        // The references are the point of a claim, so `facts` is accepted as an alias of `factIds`.
-        let references = array_of(prop(claim, "factIds")).or_else(|| array_of(prop(claim, "facts"))).unwrap_or(&empty);
-        let mut resolved = Vec::new();
-        for entry in references {
-            resolved.push(safe_id(Some(entry), &format!("claim {id} fact reference"), "")?);
-        }
-        let fact_refs = unique(resolved);
-        for fact_id in &fact_refs {
-            if !fact_ids.contains(fact_id) {
-                return Err(format!("Office content claim {id} references unknown fact {fact_id}"));
-            }
-        }
-        let mut entry = Map::new();
-        entry.insert("id".into(), Value::String(id));
-        entry.insert("text".into(), Value::String(js_trim(&text(prop(claim, "text"))).to_owned()));
-        entry.insert("factIds".into(), json!(fact_refs));
-        if let Some(implication) = prop(claim, "implication").filter(|written| truthy(written)) {
-            entry.insert("implication".into(), Value::String(value_to_string(implication)));
-        }
-        claims.push(Value::Object(entry));
+        claims.push(normalize_claim(index, claim, &mut claim_ids, &fact_ids)?);
     }
     let package_id = match prop(value, "packageId").filter(|written| truthy(written)) {
         Some(written) => safe_id(Some(written), "package id", "")?,
@@ -303,6 +309,49 @@ impl<'a> Facts<'a> {
     }
 }
 
+/// The claim's facts count as used, and its text fills the title, takeaway and (of a document) summary the operation
+/// left empty.
+fn bind_claim(map: &mut Map<String, Value>, claim: &Value, used: &mut Used) {
+    let empty = Vec::new();
+    for fact_id in array_of(prop(claim, "factIds")).unwrap_or(&empty) {
+        used.add(&text_of(fact_id));
+    }
+    let claim_text = prop(claim, "text").cloned().unwrap_or(Value::Null);
+    let claim_line = first_truthy(&[prop(claim, "implication"), prop(claim, "text")]).cloned().unwrap_or(Value::Null);
+    if !map.get("title").is_some_and(truthy) {
+        map.insert("title".into(), claim_text.clone());
+    }
+    if !map.get("takeaway").is_some_and(truthy) {
+        map.insert("takeaway".into(), claim_line.clone());
+    }
+    if map.get("op") == Some(&json!("compose_document")) && !map.get("summary").is_some_and(truthy) && map.get("title") != Some(&claim_text) {
+        map.insert("summary".into(), claim_line);
+    }
+}
+
+/// A metric that names a `factId` takes its value, label, unit, detail and number format from the fact wherever it left
+/// them empty; any other metric is resolved as a plain value.
+fn bind_metric(facts: &Facts<'_>, metric: &Value, used: &mut Used) -> Result<Value, String> {
+    let fact_ref = prop(metric, "factId").filter(|written| truthy(written));
+    let Some(fact_ref) = fact_ref.filter(|_| plain_object(metric)) else {
+        return Ok(facts.resolve_value(metric, used)?.unwrap_or(Value::Null));
+    };
+    let resolved = facts.fact(Some(fact_ref), used)?;
+    let mut entry = metric.as_object().expect("an object").clone();
+    match prop(metric, "value").filter(|written| !written.is_null()).cloned().or_else(|| prop(resolved, "value").map(clone)) {
+        Some(found) => entry.insert("value".into(), found),
+        None => entry.shift_remove("value"),
+    };
+    entry.insert("label".into(), first_truthy(&[prop(metric, "label"), prop(resolved, "label")]).cloned().unwrap_or(Value::Null));
+    if let Some(unit) = first_truthy(&[prop(metric, "unit"), prop(resolved, "unit")]) {
+        entry.insert("unit".into(), Value::String(value_to_string(unit)));
+    }
+    let or_empty = |key: &str| first_truthy(&[prop(metric, key), prop(resolved, key)]).cloned().unwrap_or_else(|| Value::String(String::new()));
+    entry.insert("detail".into(), or_empty("detail"));
+    entry.insert("numberFormat".into(), or_empty("numberFormat"));
+    Ok(Value::Object(entry))
+}
+
 /// `bindOfficeContent`: resolves the fact and claim references of one semantic operation against the model.
 pub fn bind_office_content(operation: &Value, model: Option<&Value>) -> Result<BoundOperation, String> {
     let Some(model) = model.filter(|model| truthy(model)) else {
@@ -322,47 +371,12 @@ pub fn bind_office_content(operation: &Value, model: Option<&Value>) -> Result<B
     if let Some(claim_ref) = map.get("claimId").filter(|written| truthy(written)).cloned() {
         let claim_id = safe_id(Some(&claim_ref), "claim reference", "")?;
         let claim = claims.get(claim_id.as_str()).copied().ok_or_else(|| format!("Office semantic operation references unknown claim {claim_id}"))?;
-        for fact_id in array_of(prop(claim, "factIds")).unwrap_or(&empty) {
-            used.add(&text_of(fact_id));
-        }
-        let claim_text = prop(claim, "text").cloned().unwrap_or(Value::Null);
-        let claim_line = first_truthy(&[prop(claim, "implication"), prop(claim, "text")]).cloned().unwrap_or(Value::Null);
-        if !map.get("title").is_some_and(truthy) {
-            map.insert("title".into(), claim_text.clone());
-        }
-        if !map.get("takeaway").is_some_and(truthy) {
-            map.insert("takeaway".into(), claim_line.clone());
-        }
-        // The claim is the sentence the document exists to make. When the caller also titled the operation, binding
-        // it to the title alone dropped it.
-        if map.get("op") == Some(&json!("compose_document")) && !map.get("summary").is_some_and(truthy) && map.get("title") != Some(&claim_text) {
-            map.insert("summary".into(), claim_line);
-        }
+        bind_claim(map, claim, &mut used);
     }
     if let Some(Value::Array(metrics)) = map.get("metrics").cloned() {
         let mut resolved_metrics = Vec::with_capacity(metrics.len());
         for metric in &metrics {
-            let fact_ref = prop(metric, "factId").filter(|written| truthy(written));
-            let Some(fact_ref) = fact_ref.filter(|_| plain_object(metric)) else {
-                resolved_metrics.push(facts.resolve_value(metric, &mut used)?.unwrap_or(Value::Null));
-                continue;
-            };
-            let resolved = facts.fact(Some(fact_ref), &mut used)?;
-            let mut entry = metric.as_object().expect("an object").clone();
-            // The unit stays a unit: it closes on the figure the composers print, where parking it in `detail` left an
-            // orphan word on a row of otherwise empty cells.
-            match prop(metric, "value").filter(|written| !written.is_null()).cloned().or_else(|| prop(resolved, "value").map(clone)) {
-                Some(found) => entry.insert("value".into(), found),
-                None => entry.shift_remove("value"),
-            };
-            entry.insert("label".into(), first_truthy(&[prop(metric, "label"), prop(resolved, "label")]).cloned().unwrap_or(Value::Null));
-            if let Some(unit) = first_truthy(&[prop(metric, "unit"), prop(resolved, "unit")]) {
-                entry.insert("unit".into(), Value::String(value_to_string(unit)));
-            }
-            let or_empty = |key: &str| first_truthy(&[prop(metric, key), prop(resolved, key)]).cloned().unwrap_or_else(|| Value::String(String::new()));
-            entry.insert("detail".into(), or_empty("detail"));
-            entry.insert("numberFormat".into(), or_empty("numberFormat"));
-            resolved_metrics.push(Value::Object(entry));
+            resolved_metrics.push(bind_metric(&facts, metric, &mut used)?);
         }
         map.insert("metrics".into(), Value::Array(resolved_metrics));
     }

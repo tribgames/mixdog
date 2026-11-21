@@ -1,8 +1,5 @@
-//! `runSlashCommand` (`src/tui/app/slash-dispatch.mjs`): the slash-command dispatcher.
-//!
-//! Commands are a table keyed by the normalized name ([`route`], [`session`], [`panel`]); every handler gets the host and the
-//! raw argument. The Node dispatcher was a factory closing over live state and injected openers; here the host is the
-//! [`SlashHost`] the caller passes.
+//! `runSlashCommand`: the slash-command dispatcher. Commands are a table keyed by the normalized name ([`route`], [`session`],
+//! [`panel`]); every handler gets the host and the raw argument.
 
 pub mod panel;
 pub mod route;

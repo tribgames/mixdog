@@ -136,59 +136,7 @@ fn or_empty_text(value: &Value) -> Value {
 
 /// `mcpRows(status)`: the public rows of an MCP status.
 pub fn mcp_rows(status: &Value) -> Value {
-    let servers: Vec<Value> = field(status, "servers")
-        .as_array()
-        .map(|list| {
-            list.iter()
-                .map(|server| {
-                    let mut row = Map::new();
-                    row.insert("name".to_owned(), field(server, "name").clone());
-                    row.insert("enabled".to_owned(), json!(field(server, "enabled") != &json!(false)));
-                    row.insert("connected".to_owned(), json!(field(server, "connected") == &json!(true)));
-                    let transport = if truthy(field(server, "transport")) { field(server, "transport") } else { field(server, "type") };
-                    row.insert("transport".to_owned(), or_empty_text(transport));
-                    row.insert("toolCount".to_owned(), number(field(server, "toolCount")));
-                    row.insert("source".to_owned(), or_empty_text(field(server, "source")));
-                    let owner = field(server, "owner");
-                    if field(owner, "kind") == "plugin" {
-                        row.insert("plugin".to_owned(), field(owner, "id").clone());
-                        row.insert("pluginServer".to_owned(), field(owner, "key").clone());
-                        let reason = field(server, "disabledReason");
-                        row.insert("disabledReason".to_owned(), if truthy(reason) { reason.clone() } else { Value::Null });
-                    }
-                    let error = field(server, "error");
-                    row.insert("error".to_owned(), if truthy(error) { error.clone() } else { Value::Null });
-                    if field(server, "warnings").as_array().is_some_and(|w| !w.is_empty()) {
-                        row.insert("warnings".to_owned(), field(server, "warnings").clone());
-                    }
-                    row.insert("scope".to_owned(), if field(server, "scope").is_array() { field(server, "scope").clone() } else { Value::Null });
-                    if truthy(field(server, "connector")) {
-                        row.insert("connector".to_owned(), field(server, "connector").clone());
-                    }
-                    // A multi-account connector's accounts: remove_mcp_server / sign-in take an account's name.
-                    if let Some(accounts) = field(server, "accounts").as_array() {
-                        let accounts: Vec<Value> = accounts
-                            .iter()
-                            .map(|account| {
-                                let mut out = Map::new();
-                                out.insert("name".to_owned(), field(account, "name").clone());
-                                out.insert("email".to_owned(), or_empty_text(field(account, "email")));
-                                if truthy(field(account, "authRequired")) {
-                                    out.insert("authRequired".to_owned(), json!(true));
-                                }
-                                if truthy(field(account, "error")) {
-                                    out.insert("error".to_owned(), field(account, "error").clone());
-                                }
-                                Value::Object(out)
-                            })
-                            .collect();
-                        row.insert("accounts".to_owned(), Value::Array(accounts));
-                    }
-                    Value::Object(row)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let servers: Vec<Value> = field(status, "servers").as_array().map(|list| list.iter().map(mcp_row).collect()).unwrap_or_default();
     let mut out = Map::new();
     out.insert("connectedCount".to_owned(), number(field(status, "connectedCount")));
     out.insert("servers".to_owned(), Value::Array(servers));
@@ -196,6 +144,51 @@ pub fn mcp_rows(status: &Value) -> Value {
         if field(status, key).as_array().is_some_and(|w| !w.is_empty()) {
             out.insert(key.to_owned(), field(status, key).clone());
         }
+    }
+    Value::Object(out)
+}
+
+fn mcp_row(server: &Value) -> Value {
+    let mut row = Map::new();
+    row.insert("name".to_owned(), field(server, "name").clone());
+    row.insert("enabled".to_owned(), json!(field(server, "enabled") != &json!(false)));
+    row.insert("connected".to_owned(), json!(field(server, "connected") == &json!(true)));
+    let transport = if truthy(field(server, "transport")) { field(server, "transport") } else { field(server, "type") };
+    row.insert("transport".to_owned(), or_empty_text(transport));
+    row.insert("toolCount".to_owned(), number(field(server, "toolCount")));
+    row.insert("source".to_owned(), or_empty_text(field(server, "source")));
+    let owner = field(server, "owner");
+    if field(owner, "kind") == "plugin" {
+        row.insert("plugin".to_owned(), field(owner, "id").clone());
+        row.insert("pluginServer".to_owned(), field(owner, "key").clone());
+        let reason = field(server, "disabledReason");
+        row.insert("disabledReason".to_owned(), if truthy(reason) { reason.clone() } else { Value::Null });
+    }
+    let error = field(server, "error");
+    row.insert("error".to_owned(), if truthy(error) { error.clone() } else { Value::Null });
+    if field(server, "warnings").as_array().is_some_and(|w| !w.is_empty()) {
+        row.insert("warnings".to_owned(), field(server, "warnings").clone());
+    }
+    row.insert("scope".to_owned(), if field(server, "scope").is_array() { field(server, "scope").clone() } else { Value::Null });
+    if truthy(field(server, "connector")) {
+        row.insert("connector".to_owned(), field(server, "connector").clone());
+    }
+    if let Some(accounts) = field(server, "accounts").as_array() {
+        row.insert("accounts".to_owned(), Value::Array(accounts.iter().map(account_row).collect()));
+    }
+    Value::Object(row)
+}
+
+/// A multi-account connector's account: `remove_mcp_server` and sign-in take its name.
+fn account_row(account: &Value) -> Value {
+    let mut out = Map::new();
+    out.insert("name".to_owned(), field(account, "name").clone());
+    out.insert("email".to_owned(), or_empty_text(field(account, "email")));
+    if truthy(field(account, "authRequired")) {
+        out.insert("authRequired".to_owned(), json!(true));
+    }
+    if truthy(field(account, "error")) {
+        out.insert("error".to_owned(), field(account, "error").clone());
     }
     Value::Object(out)
 }
@@ -316,61 +309,63 @@ pub async fn run(action: &str, args: &Value, rt: &dyn SetupRuntime) -> Result<Va
             let name = require_text(field(args, "name"), "name")?;
             Ok(json!({"plugin": plugin_of(&rt.remove_plugin(&name).await?)}))
         }
-        "connect_connector" => {
-            // The chat path of the one-click connect: the attached Desktop renders a connect card.
-            // Nothing is connected here.
-            let wanted = require_text(field(args, "connector"), "connector")?;
-            let Some(entry) = connector(&wanted) else {
-                let ids: Vec<&str> = CATALOG.iter().map(|c| c.id).collect();
-                return Err(format!("connector must be one of {}", ids.join(", ")));
-            };
-            let status = rt.mcp_status().await?;
-            let server = field(&status, "servers").as_array().and_then(|rows| rows.iter().find(|row| field(row, "connector") == &json!(entry.id)));
-            let connected = server.is_some_and(|s| field(s, "connected") == &json!(true));
-            let mut out = Map::new();
-            out.insert("connector".to_owned(), json!(entry.id));
-            out.insert("name".to_owned(), json!(entry.name));
-            out.insert(
-                "backend".to_owned(),
-                json!(match entry.backend {
-                    Backend::OAuth { .. } => "oauth",
-                    Backend::ApiKey { .. } => "apiKey",
-                }),
-            );
-            if let Some(server) = server {
-                out.insert("server".to_owned(), field(server, "name").clone());
-            }
-            out.insert("connected".to_owned(), json!(connected));
-            out.insert(
-                "note".to_owned(),
-                json!(if connected {
-                    format!("{} is already connected.", entry.name)
-                } else {
-                    format!(
-                        "A connect card for {} is shown in this conversation; the user presses it (Desktop: Extensions → 커넥터). Check status mcp afterwards.",
-                        entry.name
-                    )
-                }),
-            );
-            Ok(Value::Object(out))
-        }
-        "enable_plugin_mcp" => {
-            let name = require_text(field(args, "name"), "name")?;
-            let status = rt.plugins_status().await?;
-            let plugin = field(&status, "plugins")
-                .as_array()
-                .and_then(|rows| rows.iter().find(|row| field(row, "name") == &json!(name) || field(row, "id") == &json!(name)))
-                .cloned();
-            let Some(plugin) = plugin else { return Err(format!("plugin \"{name}\" not found")) };
-            let result = rt.enable_plugin_mcp(&plugin).await?;
-            let mut out = Map::new();
-            out.insert("serverName".to_owned(), field(&result, "serverName").clone());
-            if truthy(field(&result, "serverNames")) {
-                out.insert("serverNames".to_owned(), field(&result, "serverNames").clone());
-            }
-            out.insert("mcp".to_owned(), mcp_rows(field(&result, "status")));
-            Ok(Value::Object(out))
-        }
+        "connect_connector" => connect_connector_card(args, rt).await,
+        "enable_plugin_mcp" => enable_plugin_mcp(args, rt).await,
         other => Err(format!("setup: {other} is not an MCP, skills, plugins or connectors action")),
     }
+}
+
+async fn connect_connector_card(args: &Value, rt: &dyn SetupRuntime) -> Result<Value, String> {
+    let wanted = require_text(field(args, "connector"), "connector")?;
+    let Some(entry) = connector(&wanted) else {
+        let ids: Vec<&str> = CATALOG.iter().map(|c| c.id).collect();
+        return Err(format!("connector must be one of {}", ids.join(", ")));
+    };
+    let status = rt.mcp_status().await?;
+    let server = field(&status, "servers").as_array().and_then(|rows| rows.iter().find(|row| field(row, "connector") == &json!(entry.id)));
+    let connected = server.is_some_and(|s| field(s, "connected") == &json!(true));
+    let mut out = Map::new();
+    out.insert("connector".to_owned(), json!(entry.id));
+    out.insert("name".to_owned(), json!(entry.name));
+    out.insert(
+        "backend".to_owned(),
+        json!(match entry.backend {
+            Backend::OAuth { .. } => "oauth",
+            Backend::ApiKey { .. } => "apiKey",
+        }),
+    );
+    if let Some(server) = server {
+        out.insert("server".to_owned(), field(server, "name").clone());
+    }
+    out.insert("connected".to_owned(), json!(connected));
+    out.insert(
+        "note".to_owned(),
+        json!(if connected {
+            format!("{} is already connected.", entry.name)
+        } else {
+            format!(
+                "A connect card for {} is shown in this conversation; the user presses it (Desktop: Extensions → 커넥터). Check status mcp afterwards.",
+                entry.name
+            )
+        }),
+    );
+    Ok(Value::Object(out))
+}
+
+async fn enable_plugin_mcp(args: &Value, rt: &dyn SetupRuntime) -> Result<Value, String> {
+    let name = require_text(field(args, "name"), "name")?;
+    let status = rt.plugins_status().await?;
+    let plugin = field(&status, "plugins")
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| field(row, "name") == &json!(name) || field(row, "id") == &json!(name)))
+        .cloned();
+    let Some(plugin) = plugin else { return Err(format!("plugin \"{name}\" not found")) };
+    let result = rt.enable_plugin_mcp(&plugin).await?;
+    let mut out = Map::new();
+    out.insert("serverName".to_owned(), field(&result, "serverName").clone());
+    if truthy(field(&result, "serverNames")) {
+        out.insert("serverNames".to_owned(), field(&result, "serverNames").clone());
+    }
+    out.insert("mcp".to_owned(), mcp_rows(field(&result, "status")));
+    Ok(Value::Object(out))
 }

@@ -310,15 +310,11 @@ impl Drop for AttributeList {
 
 /// Starts `spec` inside `job`.
 pub(crate) fn spawn(job: HANDLE, spec: &Spawn<'_>) -> io::Result<WinProcess> {
-    spawn_with(job, spec, || {})
+    spawn_observed(job, spec, || {})
 }
 
-/// [`spawn`], running `created` at the first instant the OS has the child, before this returns.
+/// [`spawn`], running `observe` at the first instant the OS has the child, before this returns.
 pub(crate) fn spawn_observed(job: HANDLE, spec: &Spawn<'_>, observe: impl FnOnce()) -> io::Result<WinProcess> {
-    spawn_with(job, spec, observe)
-}
-
-fn spawn_with(job: HANDLE, spec: &Spawn<'_>, observe: impl FnOnce()) -> io::Result<WinProcess> {
     ensure_spec_has_no_nuls(spec)?;
     let application = resolve_program(spec.program, spec.env)?;
     let null_device;

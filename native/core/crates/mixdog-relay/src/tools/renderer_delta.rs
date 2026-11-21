@@ -1,6 +1,6 @@
-//! `mixdog-relay renderer-delta --action=manifest|create|apply`: the renderer tree manifest, a delta between two trees and
-//! the rebuild of a tree from a base and a delta. The manifest bytes are those `deploy/renderer-delta.mjs` wrote, because
-//! the workstation creates deltas and the relay host checks them across releases: schemaVersion 1, files sorted the way
+//! `mixdog-relay renderer-delta --action=manifest|create|apply`: the renderer tree manifest, a delta between two trees and the
+//! rebuild of a tree from a base and a delta. The manifest bytes are those `deploy/renderer-delta.mjs` writes, because the
+//! workstation creates deltas and the relay host checks them across releases: schemaVersion 1, files sorted the way
 //! `String.prototype.localeCompare` sorts the full paths, and a tree hash over path, size and sha256 with NUL separators.
 
 use std::collections::{HashMap, HashSet};
@@ -458,8 +458,6 @@ pub fn apply_delta(base_dir: &Path, delta_dir: &Path, manifest: &ValidManifest, 
     let base_dir = PathBuf::from(resolve(base_dir));
     let delta_dir = PathBuf::from(resolve(delta_dir));
     let output_dir = PathBuf::from(resolve(output_dir));
-    // Without this gate a cached delta of an older release rebuilds that older renderer, and every later hash check,
-    // computed from the same rebuild, would confirm it.
     if !manifest.base.is_empty() {
         let state = build_manifest(&base_dir)?;
         if state.tree_hash != manifest.base {
@@ -467,22 +465,36 @@ pub fn apply_delta(base_dir: &Path, delta_dir: &Path, manifest: &ValidManifest, 
         }
     }
     let target: HashMap<&str, &FileEntry> = manifest.files.iter().map(|file| (file.path.as_str(), file)).collect();
-    remove_all(&output_dir)?;
-    if path_type(&base_dir)? == PathType::Directory {
-        if hardlink_base {
-            clone_with_hardlinks(&base_dir, &output_dir)?;
-        } else {
-            copy_tree(&base_dir, &output_dir)?;
-        }
-    } else {
-        mixdog_fsio::create_dir_all(&Unlaned, &output_dir)?;
-    }
+    seed_output(&base_dir, &output_dir, hardlink_base)?;
     for file in walk(&output_dir)? {
         if !target.contains_key(file.rel.as_str()) {
             remove_all(&file.path)?;
         }
     }
-    for file in walk(&delta_dir)? {
+    overlay_delta(&delta_dir, &output_dir, &target, hardlink_base)?;
+    let applied = build_manifest(&output_dir)?;
+    if applied.tree_hash != manifest.tree_hash {
+        return fail(format!("Renderer reconstruction failed verification: expected {}, got {}", manifest.tree_hash, applied.tree_hash));
+    }
+    Ok(ApplyResult { files: applied.files.len(), bytes: applied.files.iter().map(|file| file.size).sum(), tree_hash: applied.tree_hash })
+}
+
+fn seed_output(base_dir: &Path, output_dir: &Path, hardlink_base: bool) -> Result<()> {
+    remove_all(output_dir)?;
+    if path_type(base_dir)? == PathType::Directory {
+        if hardlink_base {
+            clone_with_hardlinks(base_dir, output_dir)?;
+        } else {
+            copy_tree(base_dir, output_dir)?;
+        }
+    } else {
+        mixdog_fsio::create_dir_all(&Unlaned, output_dir)?;
+    }
+    Ok(())
+}
+
+fn overlay_delta(delta_dir: &Path, output_dir: &Path, target: &HashMap<&str, &FileEntry>, hardlink_base: bool) -> Result<()> {
+    for file in walk(delta_dir)? {
         let Some(expected) = target.get(file.rel.as_str()) else {
             return fail(format!("Renderer delta contains an unlisted file: {}", file.rel));
         };
@@ -490,7 +502,7 @@ pub fn apply_delta(base_dir: &Path, delta_dir: &Path, manifest: &ValidManifest, 
         if size != expected.size || hash_file(&file.path)? != expected.sha256 {
             return fail(format!("Renderer delta file failed verification: {}", file.rel));
         }
-        let destination = join_rel(&output_dir, &file.rel);
+        let destination = join_rel(output_dir, &file.rel);
         if hardlink_base {
             replace_hardlinked_file(&file.path, &destination)?;
         } else {
@@ -498,11 +510,7 @@ pub fn apply_delta(base_dir: &Path, delta_dir: &Path, manifest: &ValidManifest, 
             mixdog_fsio::copy(&Unlaned, &file.path, &destination)?;
         }
     }
-    let applied = build_manifest(&output_dir)?;
-    if applied.tree_hash != manifest.tree_hash {
-        return fail(format!("Renderer reconstruction failed verification: expected {}, got {}", manifest.tree_hash, applied.tree_hash));
-    }
-    Ok(ApplyResult { files: applied.files.len(), bytes: applied.files.iter().map(|file| file.size).sum(), tree_hash: applied.tree_hash })
+    Ok(())
 }
 
 enum Arg {

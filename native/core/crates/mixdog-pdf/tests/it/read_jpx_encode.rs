@@ -518,6 +518,24 @@ struct Level<T> {
     hh: Grid<T>,
 }
 
+impl<T> Level<T> {
+    fn band(&self, kind: usize) -> &Grid<T> {
+        match kind {
+            1 => &self.hl,
+            2 => &self.lh,
+            _ => &self.hh,
+        }
+    }
+
+    fn band_mut(&mut self, kind: usize) -> &mut Grid<T> {
+        match kind {
+            1 => &mut self.hl,
+            2 => &mut self.lh,
+            _ => &mut self.hh,
+        }
+    }
+}
+
 /// The analysis (F.4.2) of a component of a tile: `plane` has its first sample at the global coordinates
 /// (`x0`, `y0`); at each level the columns are lifted and then the rows, and the samples sorted into the four bands by
 /// the parity of their global coordinates (even ones are low-pass). Returns the lowest band and the levels, the finest
@@ -832,20 +850,11 @@ pub fn general_bound(rows: usize, columns: usize, levels: usize, origin: (usize,
     }
     for k in 0..levels {
         for kind in 1..4 {
-            let grid = match kind {
-                1 => &bands[k].hl,
-                2 => &bands[k].lh,
-                _ => &bands[k].hh,
-            };
+            let grid = bands[k].band(kind);
             for r in 0..grid.len() {
                 for c in 0..grid.first().map_or(0, Vec::len) {
                     let mut at = blank(&bands);
-                    let target = match kind {
-                        1 => &mut at[k].hl,
-                        2 => &mut at[k].lh,
-                        _ => &mut at[k].hh,
-                    };
-                    target[r][c] = 1.0;
+                    at[k].band_mut(kind)[r][c] = 1.0;
                     add(&vec![vec![0.0f64; ll.first().map_or(0, Vec::len)]; ll.len()], &at, step_of(kind, levels - k));
                 }
             }
@@ -1019,12 +1028,7 @@ fn plan_component(ll: &Grid<i32>, bands: &[Level<i32>], bounds: (usize, usize, u
                         ceil_shift(cy1 - (yb << down), down + 1),
                     )
                 };
-                let grid = match kind {
-                    0 => ll,
-                    1 => &bands[levels - resolution].hl,
-                    2 => &bands[levels - resolution].lh,
-                    _ => &bands[levels - resolution].hh,
-                };
+                let grid = if kind == 0 { ll } else { bands[levels - resolution].band(kind) };
                 let (gx, gy) = (cell_x + (px << cell_exponent), cell_y + (py << cell_exponent));
                 let (qx0, qy0) = (gx.max(bx0), gy.max(by0));
                 let (qx1, qy1) = ((gx + (1 << cell_exponent)).min(bx1), (gy + (1 << cell_exponent)).min(by1));
@@ -1148,197 +1152,257 @@ fn quantization_parameters(settings: &Settings, levels: usize) -> Vec<u8> {
     out
 }
 
-/// A codestream of the planes (rows of samples, each component its own size) coded as `settings` ask. Sizes are
-/// divisible by `2^levels`, and a tile's size and offsets by what keeps the code-block grid of a tile that of the
-/// image (a tile size that is a multiple of the code-block size times `2^levels`).
-pub fn encode_samples(planes: &[Grid<i32>], settings: &Settings) -> Vec<u8> {
-    let count = planes.len();
-    let sampling = |c: usize| settings.subsampling.get(c).copied().unwrap_or((1, 1));
-    let component = |c: usize| settings.components.get(c).copied().unwrap_or((settings.levels, settings.style));
-    let (origin_x, origin_y) = settings.origin;
-    let (tile_origin_x, tile_origin_y) = settings.tile_origin;
-    // The reference grid is the first component's, which is sampled at every point.
-    let (reference_rows, reference_columns) = (planes[0].len() * sampling(0).1, planes[0][0].len() * sampling(0).0);
-    let (end_x, end_y) = (origin_x + reference_columns, origin_y + reference_rows);
-    let (tile_width, tile_height) = settings.tile.unwrap_or((end_x - tile_origin_x, end_y - tile_origin_y));
-    let colour = settings.colour && count == 3 && planes.iter().all(|p| p.len() == planes[0].len() && p[0].len() == planes[0][0].len());
-    let level_shift = if settings.signed { 0 } else { 1 << (settings.precision - 1) };
-    let roi_shift = if settings.roi { settings.precision + 4 } else { 0 };
-    let sampling_all: Vec<(usize, usize)> = (0..count).map(sampling).collect();
+fn sampling_of(settings: &Settings, c: usize) -> (usize, usize) {
+    settings.subsampling.get(c).copied().unwrap_or((1, 1))
+}
 
-    // The packets of each tile, in the order of the progression.
-    let mut tiles: Vec<Vec<Packet>> = Vec::new();
-    for ty in 0..(end_y - tile_origin_y).div_ceil(tile_height) {
-        for tx in 0..(end_x - tile_origin_x).div_ceil(tile_width) {
-            let tile_x0 = (tile_origin_x + tx * tile_width).max(origin_x);
-            let tile_y0 = (tile_origin_y + ty * tile_height).max(origin_y);
-            let tile_x1 = (tile_origin_x + (tx + 1) * tile_width).min(end_x);
-            let tile_y1 = (tile_origin_y + (ty + 1) * tile_height).min(end_y);
-            // The tile's part of each component on the component's own grid.
-            let bounds: Vec<(usize, usize, usize, usize)> = (0..count)
-                .map(|c| {
-                    let (dx, dy) = sampling(c);
-                    (tile_x0.div_ceil(dx), tile_y0.div_ceil(dy), tile_x1.div_ceil(dx), tile_y1.div_ceil(dy))
-                })
-                .collect();
-            let mut shifted: Vec<Grid<i32>> = (0..count)
-                .map(|c| {
-                    let (dx, dy) = sampling(c);
-                    let (x0, y0, x1, y1) = bounds[c];
-                    let (first_x, first_y) = (origin_x.div_ceil(dx), origin_y.div_ceil(dy));
-                    (y0..y1).map(|y| (x0..x1).map(|x| planes[c][y - first_y][x - first_x] - level_shift).collect()).collect()
-                })
-                .collect();
-            let (rows, columns) = (shifted[0].len(), shifted[0][0].len());
-            let mut floats: Vec<Grid<f64>> = Vec::new();
-            if settings.irreversible {
-                floats = shifted.iter().map(|p| p.iter().map(|row| row.iter().map(|&v| f64::from(v)).collect()).collect()).collect();
-                if colour {
-                    for r in 0..rows {
-                        for c in 0..columns {
-                            let (red, green, blue) = (floats[0][r][c], floats[1][r][c], floats[2][r][c]);
-                            floats[0][r][c] = 0.299 * red + 0.587 * green + 0.114 * blue;
-                            floats[1][r][c] = -0.168_75 * red - 0.331_26 * green + 0.5 * blue;
-                            floats[2][r][c] = 0.5 * red - 0.418_69 * green - 0.081_31 * blue;
-                        }
-                    }
-                }
-            } else if colour {
-                for r in 0..rows {
-                    for c in 0..columns {
-                        let (red, green, blue) = (shifted[0][r][c], shifted[1][r][c], shifted[2][r][c]);
-                        shifted[0][r][c] = (red + 2 * green + blue).div_euclid(4);
-                        shifted[1][r][c] = blue - green;
-                        shifted[2][r][c] = red - green;
-                    }
-                }
-            }
-            let tile_index = tiles.len();
-            let tile_levels = settings.tile_levels.get(tile_index).copied().flatten();
-            let mut plans: Vec<ComponentPlan> = (0..count)
-                .map(|c| {
-                    let (levels, style) = tile_levels.map_or_else(|| component(c), |l| (l, settings.style));
-                    let (x0, y0, _, _) = bounds[c];
-                    let (mut ll, mut bands): (Grid<i32>, Vec<Level<i32>>) = if settings.irreversible {
-                        let (ll, bands) = decompose(floats[c].clone(), x0, y0, levels, &analyse_97);
-                        let quantize = |grid: &Grid<f64>, kind: usize, resolution: usize| -> Grid<i32> {
-                            let step = irreversible_step(settings.precision, kind, resolution, settings.derived);
-                            grid.iter().map(|row| row.iter().map(|&v| (v.abs() / step).floor() as i32 * if v < 0.0 { -1 } else { 1 }).collect()).collect()
-                        };
-                        // The finest level is resolution `levels`.
-                        let levels_quantized = bands
-                            .iter()
-                            .enumerate()
-                            .map(|(i, l)| Level { hl: quantize(&l.hl, 1, levels - i), lh: quantize(&l.lh, 2, levels - i), hh: quantize(&l.hh, 3, levels - i) })
-                            .collect();
-                        (quantize(&ll, 0, 0), levels_quantized)
-                    } else {
-                        decompose(shifted[c].clone(), x0, y0, levels, &analyse_53)
-                    };
-                    if settings.roi {
-                        // Max-shift: the lowest band and the horizontally high-pass ones are raised by the shift; the
-                        // others stay smaller than half the smallest raised value.
-                        for grid in std::iter::once(&mut ll).chain(bands.iter_mut().map(|l| &mut l.hl)) {
-                            grid.iter_mut().flatten().for_each(|v| *v <<= roi_shift);
-                        }
-                    }
-                    plan_component(&ll, &bands, bounds[c], style, settings, roi_shift)
-                })
-                .collect();
-            let layers = settings.layers;
-            let mut order = Vec::new();
-            let mut seen = std::collections::HashSet::new();
-            let changes: Vec<[usize; 6]> = if tile_index == 1 && !settings.tile_poc.is_empty() {
-                settings.tile_poc.clone()
-            } else if settings.poc.is_empty() {
-                vec![[0, 0, layers, 33, count, usize::from(settings.progression)]]
-            } else {
-                settings.poc.clone()
-            };
-            for [res0, comp0, layer1, res1, comp1, prog] in changes {
-                for id in progression(&plans, &sampling_all, layer1.min(layers), prog as u8, [res0, comp0, res1, comp1.min(count)]) {
-                    if seen.insert(id) {
-                        order.push(id);
-                    }
-                }
-            }
-            tiles.push(
-                order
-                    .into_iter()
-                    .map(|(l, r, c, p)| {
-                        let (header, body) = packet(&mut plans[c].resolutions[r].precincts[p], l, settings.eph);
-                        Packet { header, body }
-                    })
-                    .collect(),
-            );
-        }
+fn component_coding(settings: &Settings, c: usize) -> (usize, u8) {
+    settings.components.get(c).copied().unwrap_or((settings.levels, settings.style))
+}
+
+/// Component numbers are two bytes when there are 257 components or more.
+fn component_number(count: usize, c: usize) -> Vec<u8> {
+    if count >= 257 { (c as u16).to_be_bytes().to_vec() } else { vec![c as u8] }
+}
+
+fn poc_bytes(count: usize, changes: &[[usize; 6]]) -> Vec<u8> {
+    let mut poc = Vec::new();
+    for &[res0, comp0, layer1, res1, comp1, prog] in changes {
+        poc.push(res0 as u8);
+        poc.extend(component_number(count, comp0));
+        poc.extend((layer1 as u16).to_be_bytes());
+        poc.push(res1 as u8);
+        poc.extend(component_number(count, comp1));
+        poc.push(prog as u8);
+    }
+    poc
+}
+
+/// The image and tile grid a codestream is coded on.
+struct Frame {
+    count: usize,
+    origin: (usize, usize),
+    end: (usize, usize),
+    tile_origin: (usize, usize),
+    tile: (usize, usize),
+    colour: bool,
+    roi_shift: u32,
+}
+
+impl Frame {
+    fn new(planes: &[Grid<i32>], settings: &Settings) -> Self {
+        let count = planes.len();
+        let origin = settings.origin;
+        let tile_origin = settings.tile_origin;
+        // The reference grid is the first component's, which is sampled at every point.
+        let (reference_rows, reference_columns) = (planes[0].len() * sampling_of(settings, 0).1, planes[0][0].len() * sampling_of(settings, 0).0);
+        let end = (origin.0 + reference_columns, origin.1 + reference_rows);
+        let tile = settings.tile.unwrap_or((end.0 - tile_origin.0, end.1 - tile_origin.1));
+        let colour = settings.colour && count == 3 && planes.iter().all(|p| p.len() == planes[0].len() && p[0].len() == planes[0][0].len());
+        let roi_shift = if settings.roi { settings.precision + 4 } else { 0 };
+        Frame { count, origin, end, tile_origin, tile, colour, roi_shift }
     }
 
-    // The main header.
+    fn tiles_across(&self) -> usize {
+        (self.end.0 - self.tile_origin.0).div_ceil(self.tile.0)
+    }
+
+    fn tiles_down(&self) -> usize {
+        (self.end.1 - self.tile_origin.1).div_ceil(self.tile.1)
+    }
+}
+
+/// The part of tile (`tx`, `ty`) of each component on the component's own grid, (x0, y0, x1, y1), and its samples with
+/// the level shift taken off.
+fn tile_samples(planes: &[Grid<i32>], settings: &Settings, frame: &Frame, tx: usize, ty: usize) -> (Vec<(usize, usize, usize, usize)>, Vec<Grid<i32>>) {
+    let tile_x0 = (frame.tile_origin.0 + tx * frame.tile.0).max(frame.origin.0);
+    let tile_y0 = (frame.tile_origin.1 + ty * frame.tile.1).max(frame.origin.1);
+    let tile_x1 = (frame.tile_origin.0 + (tx + 1) * frame.tile.0).min(frame.end.0);
+    let tile_y1 = (frame.tile_origin.1 + (ty + 1) * frame.tile.1).min(frame.end.1);
+    let level_shift = if settings.signed { 0 } else { 1 << (settings.precision - 1) };
+    let bounds: Vec<(usize, usize, usize, usize)> = (0..frame.count)
+        .map(|c| {
+            let (dx, dy) = sampling_of(settings, c);
+            (tile_x0.div_ceil(dx), tile_y0.div_ceil(dy), tile_x1.div_ceil(dx), tile_y1.div_ceil(dy))
+        })
+        .collect();
+    let shifted = (0..frame.count)
+        .map(|c| {
+            let (dx, dy) = sampling_of(settings, c);
+            let (x0, y0, x1, y1) = bounds[c];
+            let (first_x, first_y) = (frame.origin.0.div_ceil(dx), frame.origin.1.div_ceil(dy));
+            (y0..y1).map(|y| (x0..x1).map(|x| planes[c][y - first_y][x - first_x] - level_shift).collect()).collect()
+        })
+        .collect();
+    (bounds, shifted)
+}
+
+/// The component transform (G.2 reversible on `shifted`, G.3 irreversible on the returned floats, which are empty for the
+/// reversible path).
+fn colour_transform(shifted: &mut [Grid<i32>], colour: bool, irreversible: bool) -> Vec<Grid<f64>> {
+    let (rows, columns) = (shifted[0].len(), shifted[0][0].len());
+    let mut floats: Vec<Grid<f64>> = Vec::new();
+    if irreversible {
+        floats = shifted.iter().map(|p| p.iter().map(|row| row.iter().map(|&v| f64::from(v)).collect()).collect()).collect();
+        if colour {
+            for r in 0..rows {
+                for c in 0..columns {
+                    let (red, green, blue) = (floats[0][r][c], floats[1][r][c], floats[2][r][c]);
+                    floats[0][r][c] = 0.299 * red + 0.587 * green + 0.114 * blue;
+                    floats[1][r][c] = -0.168_75 * red - 0.331_26 * green + 0.5 * blue;
+                    floats[2][r][c] = 0.5 * red - 0.418_69 * green - 0.081_31 * blue;
+                }
+            }
+        }
+    } else if colour {
+        for r in 0..rows {
+            for c in 0..columns {
+                let (red, green, blue) = (shifted[0][r][c], shifted[1][r][c], shifted[2][r][c]);
+                shifted[0][r][c] = (red + 2 * green + blue).div_euclid(4);
+                shifted[1][r][c] = blue - green;
+                shifted[2][r][c] = red - green;
+            }
+        }
+    }
+    floats
+}
+
+/// The wavelet transform, quantization and region-of-interest shift of one component of a tile, then its code-blocks.
+fn plan_tile_component(
+    settings: &Settings,
+    frame: &Frame,
+    c: usize,
+    tile_levels: Option<usize>,
+    bounds: (usize, usize, usize, usize),
+    samples: &Grid<i32>,
+    floats: Option<&Grid<f64>>,
+) -> ComponentPlan {
+    let (levels, style) = tile_levels.map_or_else(|| component_coding(settings, c), |l| (l, settings.style));
+    let (x0, y0, _, _) = bounds;
+    let (mut ll, mut bands): (Grid<i32>, Vec<Level<i32>>) = if let Some(floats) = floats {
+        let (ll, bands) = decompose(floats.clone(), x0, y0, levels, &analyse_97);
+        let quantize = |grid: &Grid<f64>, kind: usize, resolution: usize| -> Grid<i32> {
+            let step = irreversible_step(settings.precision, kind, resolution, settings.derived);
+            grid.iter().map(|row| row.iter().map(|&v| (v.abs() / step).floor() as i32 * if v < 0.0 { -1 } else { 1 }).collect()).collect()
+        };
+        // The finest level is resolution `levels`.
+        let levels_quantized = bands
+            .iter()
+            .enumerate()
+            .map(|(i, l)| Level { hl: quantize(&l.hl, 1, levels - i), lh: quantize(&l.lh, 2, levels - i), hh: quantize(&l.hh, 3, levels - i) })
+            .collect();
+        (quantize(&ll, 0, 0), levels_quantized)
+    } else {
+        decompose(samples.clone(), x0, y0, levels, &analyse_53)
+    };
+    if settings.roi {
+        // Max-shift: the lowest band and the horizontally high-pass ones are raised by the shift; the
+        // others stay smaller than half the smallest raised value.
+        for grid in std::iter::once(&mut ll).chain(bands.iter_mut().map(|l| &mut l.hl)) {
+            grid.iter_mut().flatten().for_each(|v| *v <<= frame.roi_shift);
+        }
+    }
+    plan_component(&ll, &bands, bounds, style, settings, frame.roi_shift)
+}
+
+/// The packets of a tile in the order of its progression order changes, each once.
+fn packet_order(plans: &[ComponentPlan], settings: &Settings, count: usize, tile_index: usize) -> Vec<(usize, usize, usize, usize)> {
+    let sampling_all: Vec<(usize, usize)> = (0..count).map(|c| sampling_of(settings, c)).collect();
+    let layers = settings.layers;
+    let mut order = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let changes: Vec<[usize; 6]> = if tile_index == 1 && !settings.tile_poc.is_empty() {
+        settings.tile_poc.clone()
+    } else if settings.poc.is_empty() {
+        vec![[0, 0, layers, 33, count, usize::from(settings.progression)]]
+    } else {
+        settings.poc.clone()
+    };
+    for [res0, comp0, layer1, res1, comp1, prog] in changes {
+        for id in progression(plans, &sampling_all, layer1.min(layers), prog as u8, [res0, comp0, res1, comp1.min(count)]) {
+            if seen.insert(id) {
+                order.push(id);
+            }
+        }
+    }
+    order
+}
+
+/// The packets of tile (`tx`, `ty`), the `tile_index`th, in the order of the progression.
+fn tile_packets(planes: &[Grid<i32>], settings: &Settings, frame: &Frame, tile_index: usize, tx: usize, ty: usize) -> Vec<Packet> {
+    let (bounds, mut shifted) = tile_samples(planes, settings, frame, tx, ty);
+    let floats = colour_transform(&mut shifted, frame.colour, settings.irreversible);
+    let tile_levels = settings.tile_levels.get(tile_index).copied().flatten();
+    let mut plans: Vec<ComponentPlan> =
+        (0..frame.count).map(|c| plan_tile_component(settings, frame, c, tile_levels, bounds[c], &shifted[c], floats.get(c))).collect();
+    packet_order(&plans, settings, frame.count, tile_index)
+        .into_iter()
+        .map(|(l, r, c, p)| {
+            let (header, body) = packet(&mut plans[c].resolutions[r].precincts[p], l, settings.eph);
+            Packet { header, body }
+        })
+        .collect()
+}
+
+fn cod_marker(settings: &Settings, colour: bool, levels: usize) -> Vec<u8> {
+    let scod = u8::from(settings.precincts) | (u8::from(settings.sop) << 1) | (u8::from(settings.eph) << 2);
+    let mut cod = vec![scod, settings.progression];
+    cod.extend((settings.layers as u16).to_be_bytes());
+    cod.push(u8::from(colour));
+    cod.extend(coding_parameters(settings, levels, settings.style));
+    marker(0x52, &cod)
+}
+
+/// SOC and the main header markers: SIZ, COD, QCD, the component-specific COC, QCC and RGN, and POC.
+fn main_header(settings: &Settings, frame: &Frame) -> Vec<u8> {
+    let count = frame.count;
     let mut out = vec![0xFF, 0x4F];
     let mut siz = vec![0, 0];
-    for value in [end_x, end_y, origin_x, origin_y, tile_width, tile_height, tile_origin_x, tile_origin_y] {
+    for value in [frame.end.0, frame.end.1, frame.origin.0, frame.origin.1, frame.tile.0, frame.tile.1, frame.tile_origin.0, frame.tile_origin.1] {
         siz.extend((value as u32).to_be_bytes());
     }
     siz.extend((count as u16).to_be_bytes());
     for c in 0..count {
-        siz.extend([(settings.precision as u8 - 1) | (u8::from(settings.signed) << 7), sampling(c).0 as u8, sampling(c).1 as u8]);
+        let (dx, dy) = sampling_of(settings, c);
+        siz.extend([(settings.precision as u8 - 1) | (u8::from(settings.signed) << 7), dx as u8, dy as u8]);
     }
     out.extend(marker(0x51, &siz));
-    let scod = u8::from(settings.precincts) | (u8::from(settings.sop) << 1) | (u8::from(settings.eph) << 2);
-    let cod_for = |levels: usize| {
-        let mut cod = vec![scod, settings.progression];
-        cod.extend((settings.layers as u16).to_be_bytes());
-        cod.push(u8::from(colour));
-        cod.extend(coding_parameters(settings, levels, settings.style));
-        marker(0x52, &cod)
-    };
-    // Component numbers are two bytes when there are 257 components or more.
-    let component_number = |c: usize| -> Vec<u8> { if count >= 257 { (c as u16).to_be_bytes().to_vec() } else { vec![c as u8] } };
-    let poc_bytes = |changes: &[[usize; 6]]| -> Vec<u8> {
-        let mut poc = Vec::new();
-        for &[res0, comp0, layer1, res1, comp1, prog] in changes {
-            poc.push(res0 as u8);
-            poc.extend(component_number(comp0));
-            poc.extend((layer1 as u16).to_be_bytes());
-            poc.push(res1 as u8);
-            poc.extend(component_number(comp1));
-            poc.push(prog as u8);
-        }
-        poc
-    };
-    out.extend(cod_for(settings.levels));
+    out.extend(cod_marker(settings, frame.colour, settings.levels));
     out.extend(marker(0x5C, &quantization_parameters(settings, settings.levels)));
     for c in 0..count {
-        let (levels, style) = component(c);
+        let (levels, style) = component_coding(settings, c);
         if (levels, style) != (settings.levels, settings.style) {
-            let mut coc = component_number(c);
+            let mut coc = component_number(count, c);
             coc.push(u8::from(settings.precincts));
             coc.extend(coding_parameters(settings, levels, style));
             out.extend(marker(0x53, &coc));
-            let mut qcc = component_number(c);
+            let mut qcc = component_number(count, c);
             qcc.extend(quantization_parameters(settings, levels));
             out.extend(marker(0x5D, &qcc));
         }
         if settings.roi {
-            let mut rgn = component_number(c);
-            rgn.extend([0, roi_shift as u8]);
+            let mut rgn = component_number(count, c);
+            rgn.extend([0, frame.roi_shift as u8]);
             out.extend(marker(0x5E, &rgn));
         }
     }
     if !settings.poc.is_empty() {
-        out.extend(marker(0x5F, &poc_bytes(&settings.poc)));
+        out.extend(marker(0x5F, &poc_bytes(count, &settings.poc)));
     }
+    out
+}
 
-    // The tile-parts: each tile's packets cut into `parts` runs of whole packets.
-    struct Part {
-        tile: usize,
-        index: usize,
-        of: usize,
-        headers: Vec<u8>,
-        body: Vec<u8>,
-        lengths: Vec<usize>,
-    }
+struct TilePart {
+    tile: usize,
+    index: usize,
+    of: usize,
+    headers: Vec<u8>,
+    body: Vec<u8>,
+    lengths: Vec<usize>,
+}
+
+/// Each tile's packets cut into `settings.parts` runs of whole packets, with the packet headers set apart when they are packed.
+fn tile_parts(tiles: &[Vec<Packet>], settings: &Settings) -> Vec<TilePart> {
     let mut parts = Vec::new();
     for (tile, packets) in tiles.iter().enumerate() {
         let of = settings.parts.min(packets.len());
@@ -1361,99 +1425,135 @@ pub fn encode_samples(planes: &[Grid<i32>], settings: &Settings) -> Vec<u8> {
                 body.extend_from_slice(&packet.body);
                 lengths.push(body.len() - before);
             }
-            parts.push(Part { tile, index, of, headers, body, lengths });
+            parts.push(TilePart { tile, index, of, headers, body, lengths });
         }
     }
     if settings.interleave {
         parts.sort_by_key(|part| (part.index, part.tile));
     }
-    // Each tile-part's length: its SOT segment, header markers, SOD and body.
-    let packet_lengths = |part: &Part| -> Vec<u8> {
-        let mut plt = vec![0u8];
-        for &length in &part.lengths {
-            let groups: Vec<u8> = (0..5).rev().map(|i| ((length >> (7 * i)) & 0x7F) as u8).skip_while(|&g| g == 0).collect();
-            let groups = if groups.is_empty() { vec![0] } else { groups };
-            let last = groups.len() - 1;
-            plt.extend(groups.iter().enumerate().map(|(i, g)| if i == last { *g } else { g | 0x80 }));
-        }
-        plt
-    };
-    let part_header = |part: &Part| -> Vec<u8> {
-        let mut header = Vec::new();
-        if settings.side_markers {
-            header.extend(marker(0x58, &packet_lengths(part)));
-        }
-        if part.index == 0 {
-            if let Some(Some(levels)) = settings.tile_levels.get(part.tile) {
-                header.extend(cod_for(*levels));
-                header.extend(marker(0x5C, &quantization_parameters(settings, *levels)));
-            }
-            if part.tile == 1 && !settings.tile_poc.is_empty() {
-                header.extend(marker(0x5F, &poc_bytes(&settings.tile_poc)));
-            }
-        }
-        if settings.packed == Packed::Tile {
-            let halves: Vec<(u8, &[u8])> = if settings.split_markers {
-                let middle = part.headers.len() / 2;
-                vec![(1, &part.headers[middle..]), (0, &part.headers[..middle])]
-            } else {
-                vec![(0, &part.headers[..])]
-            };
-            for (z, bytes) in halves {
-                let mut ppt = vec![z];
-                ppt.extend_from_slice(bytes);
-                header.extend(marker(0x61, &ppt));
-            }
-        }
-        header
-    };
-    if settings.side_markers {
-        let mut tlm = vec![0, [0b0101_0000, 0b0000_0000, 0b0010_0000][settings.tlm_variant as usize]];
-        for part in &parts {
-            let length = 12 + part_header(part).len() + 2 + part.body.len();
-            match settings.tlm_variant {
-                0 => {
-                    tlm.push(part.tile as u8);
-                    tlm.extend((length as u32).to_be_bytes());
-                }
-                1 => tlm.extend((length as u16).to_be_bytes()),
-                _ => {
-                    tlm.extend((part.tile as u16).to_be_bytes());
-                    tlm.extend((length as u16).to_be_bytes());
-                }
-            }
-        }
-        out.extend(marker(0x55, &tlm));
-        out.extend(marker(0x64, &[0, 1, b'j', b'p', b'x']));
-        out.extend(marker(0x63, &vec![0; 4 * count]));
-        // A packet length marker of the main header and a reserved marker without a length: both are skipped.
-        out.extend(marker(0x57, &[0, 0, 0, 0]));
-        out.extend([0xFF, 0x30]);
+    parts
+}
+
+fn packet_lengths(part: &TilePart) -> Vec<u8> {
+    let mut plt = vec![0u8];
+    for &length in &part.lengths {
+        let groups: Vec<u8> = (0..5).rev().map(|i| ((length >> (7 * i)) & 0x7F) as u8).skip_while(|&g| g == 0).collect();
+        let groups = if groups.is_empty() { vec![0] } else { groups };
+        let last = groups.len() - 1;
+        plt.extend(groups.iter().enumerate().map(|(i, g)| if i == last { *g } else { g | 0x80 }));
     }
-    if settings.packed == Packed::Main {
-        let mut ppm = Vec::new();
-        for part in &parts {
-            ppm.extend((part.headers.len() as u32).to_be_bytes());
-            ppm.extend_from_slice(&part.headers);
+    plt
+}
+
+/// The markers of a tile-part header: PLT, the first part's own COD, QCD and POC, and PPT.
+fn tile_part_header(settings: &Settings, frame: &Frame, part: &TilePart) -> Vec<u8> {
+    let mut header = Vec::new();
+    if settings.side_markers {
+        header.extend(marker(0x58, &packet_lengths(part)));
+    }
+    if part.index == 0 {
+        if let Some(Some(levels)) = settings.tile_levels.get(part.tile) {
+            header.extend(cod_marker(settings, frame.colour, *levels));
+            header.extend(marker(0x5C, &quantization_parameters(settings, *levels)));
         }
-        if settings.split_markers {
-            let middle = ppm.len() / 2;
-            for (z, bytes) in [(1u8, &ppm[middle..]), (0, &ppm[..middle])] {
-                let mut body = vec![z];
-                body.extend_from_slice(bytes);
-                out.extend(marker(0x60, &body));
-            }
+        if part.tile == 1 && !settings.tile_poc.is_empty() {
+            header.extend(marker(0x5F, &poc_bytes(frame.count, &settings.tile_poc)));
+        }
+    }
+    if settings.packed == Packed::Tile {
+        let halves: Vec<(u8, &[u8])> = if settings.split_markers {
+            let middle = part.headers.len() / 2;
+            vec![(1, &part.headers[middle..]), (0, &part.headers[..middle])]
         } else {
-            let mut body = vec![0u8];
-            body.extend(ppm);
+            vec![(0, &part.headers[..])]
+        };
+        for (z, bytes) in halves {
+            let mut ppt = vec![z];
+            ppt.extend_from_slice(bytes);
+            header.extend(marker(0x61, &ppt));
+        }
+    }
+    header
+}
+
+/// The length of a tile-part: its SOT segment, header markers, SOD and body.
+fn tile_part_length(header: &[u8], part: &TilePart) -> usize {
+    12 + header.len() + 2 + part.body.len()
+}
+
+/// TLM, then markers a reader skips: a comment, a component registration, a packet length marker of the main header
+/// and a reserved marker without a length.
+fn side_markers(settings: &Settings, frame: &Frame, parts: &[TilePart]) -> Vec<u8> {
+    let mut tlm = vec![0, [0b0101_0000, 0b0000_0000, 0b0010_0000][settings.tlm_variant as usize]];
+    for part in parts {
+        let length = tile_part_length(&tile_part_header(settings, frame, part), part);
+        match settings.tlm_variant {
+            0 => {
+                tlm.push(part.tile as u8);
+                tlm.extend((length as u32).to_be_bytes());
+            }
+            1 => tlm.extend((length as u16).to_be_bytes()),
+            _ => {
+                tlm.extend((part.tile as u16).to_be_bytes());
+                tlm.extend((length as u16).to_be_bytes());
+            }
+        }
+    }
+    let mut out = marker(0x55, &tlm);
+    out.extend(marker(0x64, &[0, 1, b'j', b'p', b'x']));
+    out.extend(marker(0x63, &vec![0; 4 * frame.count]));
+    out.extend(marker(0x57, &[0, 0, 0, 0]));
+    out.extend([0xFF, 0x30]);
+    out
+}
+
+/// PPM: the packet headers of every tile-part, in one marker or in two out of order.
+fn packed_headers_marker(parts: &[TilePart], split: bool) -> Vec<u8> {
+    let mut ppm = Vec::new();
+    for part in parts {
+        ppm.extend((part.headers.len() as u32).to_be_bytes());
+        ppm.extend_from_slice(&part.headers);
+    }
+    let mut out = Vec::new();
+    if split {
+        let middle = ppm.len() / 2;
+        for (z, bytes) in [(1u8, &ppm[middle..]), (0, &ppm[..middle])] {
+            let mut body = vec![z];
+            body.extend_from_slice(bytes);
             out.extend(marker(0x60, &body));
         }
+    } else {
+        let mut body = vec![0u8];
+        body.extend(ppm);
+        out.extend(marker(0x60, &body));
+    }
+    out
+}
+
+/// A codestream of the planes (rows of samples, each component its own size) coded as `settings` ask. Sizes are
+/// divisible by `2^levels`, and a tile's size and offsets by what keeps the code-block grid of a tile that of the
+/// image (a tile size that is a multiple of the code-block size times `2^levels`).
+pub fn encode_samples(planes: &[Grid<i32>], settings: &Settings) -> Vec<u8> {
+    let frame = Frame::new(planes, settings);
+    let mut tiles: Vec<Vec<Packet>> = Vec::new();
+    for ty in 0..frame.tiles_down() {
+        for tx in 0..frame.tiles_across() {
+            tiles.push(tile_packets(planes, settings, &frame, tiles.len(), tx, ty));
+        }
+    }
+    let mut out = main_header(settings, &frame);
+    let parts = tile_parts(&tiles, settings);
+    if settings.side_markers {
+        out.extend(side_markers(settings, &frame, &parts));
+    }
+    if settings.packed == Packed::Main {
+        out.extend(packed_headers_marker(&parts, settings.split_markers));
     }
     for (n, part) in parts.iter().enumerate() {
-        let header = part_header(part);
+        let header = tile_part_header(settings, &frame, part);
         out.extend([0xFF, 0x90, 0, 10]);
         out.extend((part.tile as u16).to_be_bytes());
-        let length = if settings.open_ended && n + 1 == parts.len() { 0 } else { 12 + header.len() + 2 + part.body.len() };
+        let length = if settings.open_ended && n + 1 == parts.len() { 0 } else { tile_part_length(&header, part) };
         out.extend((length as u32).to_be_bytes());
         out.extend([part.index as u8, part.of as u8]);
         out.extend(header);

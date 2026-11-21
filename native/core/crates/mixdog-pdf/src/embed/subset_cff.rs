@@ -487,6 +487,99 @@ fn is_dropped_top_operator(op: u16) -> bool {
     matches!(op, 15..=18 | 1220 | 1230..=1238)
 }
 
+/// The subroutines of `index` with the ones not in `used` replaced by a lone `return`.
+fn stubbed(cff: &[u8], index: &Index, used: &BTreeSet<usize>) -> Vec<Vec<u8>> {
+    (0..index.len()).map(|number| if used.contains(&number) { index.get(cff, number).unwrap_or(&[11]).to_vec() } else { vec![11] }).collect()
+}
+
+/// The top dictionary entries the subset copies, with the strings among them that are not standard moved to a new
+/// String INDEX.
+fn rewrite_top(cff: &[u8], top: &[Entry], strings: &Index) -> (Vec<Entry>, Strings) {
+    let mut new_strings = Strings::default();
+    let mut top_entries: Vec<Entry> = Vec::new();
+    for entry in top {
+        if is_dropped_top_operator(entry.op) {
+            continue;
+        }
+        if is_sid_operator(entry.op) {
+            let Some(sid) = entry.operands.first().map(|operand| operand.value as u16) else {
+                continue;
+            };
+            if sid < STANDARD_STRINGS {
+                top_entries.push(entry.clone());
+            } else if let Some(text) = strings.get(cff, usize::from(sid - STANDARD_STRINGS)) {
+                let sid = new_strings.add(text);
+                top_entries.push(Entry { op: entry.op, operands: vec![Operand { raw: int_operand(i64::from(sid)), value: f64::from(sid) }] });
+            }
+            continue;
+        }
+        top_entries.push(entry.clone());
+    }
+    (top_entries, new_strings)
+}
+
+/// The charset of `count` glyphs where CID = glyph id.
+fn identity_charset(count: usize) -> Vec<u8> {
+    if count < 2 {
+        vec![0]
+    } else if count <= 256 {
+        vec![1, 0, 1, (count - 2) as u8]
+    } else {
+        let mut bytes = vec![2, 0, 1];
+        bytes.extend_from_slice(&((count - 2) as u16).to_be_bytes());
+        bytes
+    }
+}
+
+/// A format-0 FDSelect: the position in `used_fds` of each glyph's font dictionary.
+fn fd_select_format0(fd_of_glyph: &[usize], used_fds: &[usize]) -> Vec<u8> {
+    let mut bytes = vec![0u8];
+    bytes.extend(fd_of_glyph.iter().map(|fd| used_fds.iter().position(|used| used == fd).unwrap_or(0) as u8));
+    bytes
+}
+
+/// A format-3 FDSelect sending all `count` glyphs to the one font dictionary.
+fn fd_select_single(count: usize) -> Vec<u8> {
+    let mut bytes = vec![3, 0, 1, 0, 0, 0];
+    bytes.extend_from_slice(&(count as u16).to_be_bytes());
+    bytes
+}
+
+/// The Private dictionaries with their local subroutines, one per font dictionary written.
+fn private_blobs(cff: &[u8], fd_list: &[usize], privates: &[Option<Private>], used_locals: &[BTreeSet<usize>]) -> Vec<Option<(Vec<u8>, Vec<u8>)>> {
+    let mut blobs = Vec::new();
+    for fd in fd_list {
+        let Some(private) = &privates[*fd] else {
+            blobs.push(None);
+            continue;
+        };
+        let local = private.subrs.as_ref().filter(|index| index.len() > 0).map(|index| write_index(&stubbed(cff, index, &used_locals[*fd])));
+        let mut body = Vec::new();
+        for entry in private.entries.iter().filter(|entry| entry.op != 19) {
+            write_entry(&mut body, entry);
+        }
+        if local.is_some() {
+            let size = body.len() + 6;
+            write_with(&mut body, &[five_byte(size as i64)], 19);
+        }
+        blobs.push(Some((body, local.unwrap_or_default())));
+    }
+    blobs
+}
+
+/// A font dictionary: `entries` without their Private and FontName operators, then Private with `private` as
+/// (size, offset).
+fn fd_dict(private: Option<(usize, usize)>, entries: &[Entry]) -> Vec<u8> {
+    let mut dict = Vec::new();
+    for entry in entries.iter().filter(|entry| entry.op != 1238 && entry.op != 18) {
+        write_entry(&mut dict, entry);
+    }
+    if let Some((size, offset)) = private {
+        write_with(&mut dict, &[five_byte(size as i64), five_byte(offset as i64)], 18);
+    }
+    dict
+}
+
 /// The subset of the CFF table `cff` for `glyphs` (original glyph ids, `.notdef` first).
 pub(super) fn subset(cff: &[u8], glyphs: &[u16]) -> Result<Vec<u8>, EmbedError> {
     let header_size = usize::from(*cff.get(2).ok_or_else(damaged)?);
@@ -539,32 +632,9 @@ pub(super) fn subset(cff: &[u8], glyphs: &[u16]) -> Result<Vec<u8>, EmbedError> 
         scanner.run(code, 0);
         charstrings.push(code.to_vec());
     }
-    let stubbed = |index: &Index, used: &BTreeSet<usize>| -> Vec<Vec<u8>> {
-        (0..index.len()).map(|number| if used.contains(&number) { index.get(cff, number).unwrap_or(&[11]).to_vec() } else { vec![11] }).collect()
-    };
-    let global_subrs = stubbed(&globals, &used_globals);
+    let global_subrs = stubbed(cff, &globals, &used_globals);
 
-    // the strings: the ones of the top dictionary that are not standard, then Adobe and Identity
-    let mut new_strings = Strings::default();
-    let mut top_entries: Vec<Entry> = Vec::new();
-    for entry in &top {
-        if is_dropped_top_operator(entry.op) {
-            continue;
-        }
-        if is_sid_operator(entry.op) {
-            let Some(sid) = entry.operands.first().map(|operand| operand.value as u16) else {
-                continue;
-            };
-            if sid < STANDARD_STRINGS {
-                top_entries.push(entry.clone());
-            } else if let Some(text) = strings.get(cff, usize::from(sid - STANDARD_STRINGS)) {
-                let sid = new_strings.add(text);
-                top_entries.push(Entry { op: entry.op, operands: vec![Operand { raw: int_operand(i64::from(sid)), value: f64::from(sid) }] });
-            }
-            continue;
-        }
-        top_entries.push(entry.clone());
-    }
+    let (top_entries, mut new_strings) = rewrite_top(cff, &top, &strings);
     let adobe = new_strings.add(b"Adobe");
     let identity = new_strings.add(b"Identity");
 
@@ -574,43 +644,10 @@ pub(super) fn subset(cff: &[u8], glyphs: &[u16]) -> Result<Vec<u8>, EmbedError> 
     let string_index = write_index(&new_strings.0);
     let global_index = write_index(&global_subrs);
     let char_strings_index = write_index(&charstrings);
-    let charset = if count < 2 {
-        vec![0]
-    } else if count <= 256 {
-        vec![1, 0, 1, (count - 2) as u8]
-    } else {
-        let mut bytes = vec![2, 0, 1];
-        bytes.extend_from_slice(&((count - 2) as u16).to_be_bytes());
-        bytes
-    };
-    let (fd_select, fd_list): (Vec<u8>, Vec<usize>) = if cid {
-        let mut bytes = vec![0u8];
-        bytes.extend(fd_of_glyph.iter().map(|fd| used_fds.iter().position(|used| used == fd).unwrap_or(0) as u8));
-        (bytes, used_fds.clone())
-    } else {
-        let mut bytes = vec![3, 0, 1, 0, 0, 0];
-        bytes.extend_from_slice(&(count as u16).to_be_bytes());
-        (bytes, vec![0])
-    };
+    let charset = identity_charset(count);
+    let (fd_select, fd_list) = if cid { (fd_select_format0(&fd_of_glyph, &used_fds), used_fds.clone()) } else { (fd_select_single(count), vec![0]) };
 
-    // the Private dictionaries with their local subroutines, one per font dictionary written
-    let mut private_blobs: Vec<Option<(Vec<u8>, Vec<u8>)>> = Vec::new();
-    for fd in &fd_list {
-        let Some(private) = &privates[*fd] else {
-            private_blobs.push(None);
-            continue;
-        };
-        let local = private.subrs.as_ref().filter(|index| index.len() > 0).map(|index| write_index(&stubbed(index, &used_locals[*fd])));
-        let mut body = Vec::new();
-        for entry in private.entries.iter().filter(|entry| entry.op != 19) {
-            write_entry(&mut body, entry);
-        }
-        if local.is_some() {
-            let size = body.len() + 6;
-            write_with(&mut body, &[five_byte(size as i64)], 19);
-        }
-        private_blobs.push(Some((body, local.unwrap_or_default())));
-    }
+    let private_blobs = private_blobs(cff, &fd_list, &privates, &used_locals);
 
     // sizes first, then the offsets they give
     let top_with = |charset_at: usize, char_strings_at: usize, fd_array_at: usize, fd_select_at: usize| -> Vec<u8> {
@@ -631,16 +668,6 @@ pub(super) fn subset(cff: &[u8], glyphs: &[u16]) -> Result<Vec<u8>, EmbedError> 
     let fd_select_at = charset_at + charset.len();
     let char_strings_at = fd_select_at + fd_select.len();
     let fd_array_at = char_strings_at + char_strings_index.len();
-    let fd_dict = |private: Option<(usize, usize)>, entries: &[Entry]| -> Vec<u8> {
-        let mut dict = Vec::new();
-        for entry in entries.iter().filter(|entry| entry.op != 1238 && entry.op != 18) {
-            write_entry(&mut dict, entry);
-        }
-        if let Some((size, offset)) = private {
-            write_with(&mut dict, &[five_byte(size as i64), five_byte(offset as i64)], 18);
-        }
-        dict
-    };
     let placeholder: Vec<Vec<u8>> =
         fd_list.iter().zip(&private_blobs).map(|(fd, blob)| fd_dict(blob.as_ref().map(|_| (0, 0)), if cid { dicts[*fd].as_slice() } else { &[] })).collect();
     let fd_array_size = write_index(&placeholder).len();
@@ -750,5 +777,89 @@ mod tests {
         // two stems (four numbers, hstemhm), hintmask with a mask byte 0x1d that looks like callgsubr, then endchar
         assert!(scanner.run(&[140, 141, 142, 143, 18, 19, 29, 14], 0));
         assert!(used_globals.is_empty());
+    }
+
+    /// A non-CID CFF with two glyphs (`.notdef` and one calling local subroutine 0 of two) and no global subroutines.
+    fn cff_font() -> Vec<u8> {
+        let name = write_index(&[b"T".to_vec()]);
+        let strings = write_index(&[]);
+        let globals = write_index(&[]);
+        let char_strings = write_index(&[vec![14], vec![32, 10, 14]]);
+        let private = [five_byte(6), vec![19]].concat();
+        let local = write_index(&[vec![139, 139, 21, 11], vec![139, 139, 21, 11]]);
+        let top = |char_strings_at: usize, private_at: usize| -> Vec<u8> {
+            [five_byte(char_strings_at as i64), vec![17], five_byte(private.len() as i64), five_byte(private_at as i64), vec![18]].concat()
+        };
+        let top_index_size = write_index(&[top(0, 0)]).len();
+        let char_strings_at = 4 + name.len() + top_index_size + strings.len() + globals.len();
+        let private_at = char_strings_at + char_strings.len();
+        [vec![1, 0, 4, 4], name, write_index(&[top(char_strings_at, private_at)]), strings, globals, char_strings, private, local].concat()
+    }
+
+    fn subset_top(glyphs: &[u16]) -> (Vec<u8>, Vec<Entry>) {
+        let out = subset(&cff_font(), glyphs).unwrap();
+        let names = Index::read(&out, 4).unwrap();
+        let tops = Index::read(&out, names.end).unwrap();
+        let top = read_dict(tops.get(&out, 0).unwrap()).unwrap();
+        (out, top)
+    }
+
+    fn operand(entries: &[Entry], op: u16) -> usize {
+        find(entries, op).unwrap().operands[0].value as usize
+    }
+
+    #[test]
+    fn the_subset_is_a_cid_keyed_font_with_the_adobe_identity_ordering() {
+        let (out, top) = subset_top(&[0, 1]);
+        assert_eq!(&out[..4], &[1, 0, 4, 4]);
+        let ros: Vec<f64> = find(&top, 1230).unwrap().operands.iter().map(|operand| operand.value).collect();
+        assert_eq!(ros, vec![391.0, 392.0, 0.0]);
+        assert_eq!(operand(&top, 1234), 2);
+        let names = Index::read(&out, 4).unwrap();
+        let tops = Index::read(&out, names.end).unwrap();
+        let strings = Index::read(&out, tops.end).unwrap();
+        assert_eq!(strings.len(), 2);
+        assert_eq!(strings.get(&out, 0), Some(&b"Adobe"[..]));
+        assert_eq!(strings.get(&out, 1), Some(&b"Identity"[..]));
+    }
+
+    #[test]
+    fn the_charset_is_the_identity_and_every_glyph_selects_the_one_font_dictionary() {
+        let (out, top) = subset_top(&[0, 1]);
+        assert_eq!(&out[operand(&top, 15)..operand(&top, 15) + 4], &[1, 0, 1, 0]);
+        assert_eq!(read_fd_select(&out, operand(&top, 1237), 2).unwrap(), vec![0, 0]);
+        assert_eq!(Index::read(&out, operand(&top, 1236)).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_charstrings_follow_the_glyph_list_and_a_missing_glyph_is_an_endchar() {
+        let (out, top) = subset_top(&[1, 0, 7]);
+        let char_strings = Index::read(&out, operand(&top, 17)).unwrap();
+        assert_eq!(char_strings.len(), 3);
+        assert_eq!(char_strings.get(&out, 0), Some(&[32u8, 10, 14][..]));
+        assert_eq!(char_strings.get(&out, 1), Some(&[14u8][..]));
+        assert_eq!(char_strings.get(&out, 2), Some(&[14u8][..]));
+    }
+
+    #[test]
+    fn a_local_subroutine_no_glyph_calls_is_replaced_by_a_return() {
+        let (out, top) = subset_top(&[0, 1]);
+        let font_dicts = Index::read(&out, operand(&top, 1236)).unwrap();
+        let font_dict = read_dict(font_dicts.get(&out, 0).unwrap()).unwrap();
+        let private = read_private(&out, &font_dict).unwrap().unwrap();
+        let local = private.subrs.unwrap();
+        assert_eq!(local.len(), 2);
+        assert_eq!(local.get(&out, 0), Some(&[139u8, 139, 21, 11][..]));
+        assert_eq!(local.get(&out, 1), Some(&[11u8][..]));
+    }
+
+    #[test]
+    fn without_a_call_every_local_subroutine_is_stubbed() {
+        let (out, top) = subset_top(&[0]);
+        let font_dicts = Index::read(&out, operand(&top, 1236)).unwrap();
+        let font_dict = read_dict(font_dicts.get(&out, 0).unwrap()).unwrap();
+        let local = read_private(&out, &font_dict).unwrap().unwrap().subrs.unwrap();
+        assert_eq!(local.get(&out, 0), Some(&[11u8][..]));
+        assert_eq!(local.get(&out, 1), Some(&[11u8][..]));
     }
 }

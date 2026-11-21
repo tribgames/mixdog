@@ -1,24 +1,18 @@
-//! `browser/bridge/run`, `browser/bridge/turn` and `browser/bridge/abort` (desktop -> core): the desktop's loopback browser bridge,
-//! which the Node-hosted runtime's `browser` tool still talks to, runs each command it accepts through the core's own browser
-//! command path ([`HostCommands`]: the engine where the connected desktop serves it, `host/browser/command` otherwise), with the
-//! bridge's semantics (`browser/bridge-server.ts`, `agent-bridge.ts`):
+//! `browser/bridge/run`, `browser/bridge/turn` and `browser/bridge/abort` (desktop -> core): the loopback browser bridge the
+//! Node-hosted runtime's `browser` tool talks to, run through the core's browser command path ([`HostCommands`]).
 //!
-//! - the command is the bridge's wire shape: the tool's fields beside `action`, `session_id` (`browser` when absent), `turn_id`, and
-//!   the runtime-set fields `unattended_run`, `unattended_agent`, `session_life` and `mail_link`; an `internalStep` is refused;
-//! - an action of the tool is validated as the tool validates it before it runs; the runtime-only actions (the secret and
-//!   saved-login actions and the handoff facts) are not, and go the way they went before;
-//! - `begin_turn` and `finish_turn` mark a turn's start and end (`browser/bridge/turn` does the same): the end waits for the
-//!   session's commands still running, then closes the temporary pages of the turn (the engine's, or the host's when it runs them);
-//! - at most 32 commands run at once, one past that is answered 429; a command ended by [`BRIDGE_ABORT`] (the runtime's connection
-//!   dropped) or by the caller's own cancel is stopped;
-//! - a card a step raises goes through the one approval path ([`BrowserApprovals`](super::browser_approval::BrowserApprovals),
-//!   which raises a command no tool call made through the session's own gate); [`BridgeApprovals`] adds what only a bridge command
-//!   carries: a schedule or webhook run asks nothing (the saved routine was the grant) and the session's own allowance by its life
-//!   mark;
-//! - every reply is redacted of the secrets typed in its session, and a failure's message of urls' secrets too.
+//! - The command is the tool's fields beside `action`, `session_id` (`browser` when absent), `turn_id`, and the runtime-set fields
+//!   `unattended_run`, `unattended_agent`, `session_life` and `mail_link`; an `internalStep` is refused.
+//! - Tool actions are validated as the tool validates them; the runtime-only actions (secret input, saved logins, handoff facts)
+//!   are not.
+//! - `begin_turn` and `finish_turn` mark a turn's start and end; the end waits for the session's running commands, then closes the
+//!   turn's temporary pages.
+//! - At most 32 commands run at once, one past that is answered 429; a command ended by [`BRIDGE_ABORT`] or by the caller's cancel
+//!   is stopped.
+//! - Every reply is redacted of the secrets typed in its session, and a failure's message of urls' secrets too.
 //!
 //! The answer is `{ok: true, value: {text, image?, outcome?, timing?}}`, or `{ok: false, error, timing?, status?}` where `status` is
-//! the HTTP status the bridge answered (400 for an invalid request, 429 for the allowance spent).
+//! 400 for an invalid request and 429 for the allowance spent.
 
 use std::sync::Arc;
 use std::sync::Mutex;

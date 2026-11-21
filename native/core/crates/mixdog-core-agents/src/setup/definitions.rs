@@ -124,20 +124,7 @@ impl DefinitionSetup {
         let mut next = Map::new();
         let current = if creating { None } else { Some(self.read_kind(kind, &identity.map(js_string).unwrap_or_default()).await?) };
         if kind == "skill" && !creating && current.as_ref().is_some_and(|c| c["editable"] != true) {
-            // Built-in and plugin skills keep their document; like the Skills editor, only their
-            // tool dependencies are user-editable (null restores them).
-            let current = current.unwrap_or_default();
-            let edits: Vec<&String> = input.keys().filter(|key| *key != "originalName" && *key != "name").collect();
-            let renamed = input.contains_key("name") && input["name"] != current["name"];
-            if edits.len() != 1 || edits[0].as_str() != "toolDependencies" || renamed {
-                return Err("Built-in and plugin skills accept only toolDependencies edits".into());
-            }
-            let params = json!({ "input": {
-                "originalName": current["originalName"],
-                "dependenciesOnly": true,
-                "toolDependencies": input["toolDependencies"],
-            } });
-            return service_call(self.skills.as_ref(), "skills/saveSkill", params).await;
+            return self.save_locked_skill(&input, current.unwrap_or_default()).await;
         }
         if let Some(current) = &current {
             for key in DEFINITION_KEYS {
@@ -191,6 +178,22 @@ impl DefinitionSetup {
         let id = current.as_ref().and_then(|c| c.get("id")).cloned().unwrap_or_default();
         edit.insert("id".into(), id);
         self.agents.save(&edit).await.map_err(|error| error.to_string())
+    }
+
+    /// Built-in and plugin skills keep their document; like the Skills editor, only their tool
+    /// dependencies are user-editable (null restores them).
+    async fn save_locked_skill(&self, input: &Map<String, Value>, current: Value) -> Result<Value, String> {
+        let edits: Vec<&String> = input.keys().filter(|key| *key != "originalName" && *key != "name").collect();
+        let renamed = input.contains_key("name") && input["name"] != current["name"];
+        if edits.len() != 1 || edits[0].as_str() != "toolDependencies" || renamed {
+            return Err("Built-in and plugin skills accept only toolDependencies edits".into());
+        }
+        let params = json!({ "input": {
+            "originalName": current["originalName"],
+            "dependenciesOnly": true,
+            "toolDependencies": input["toolDependencies"],
+        } });
+        service_call(self.skills.as_ref(), "skills/saveSkill", params).await
     }
 
     async fn delete(&self, kind: &str, call: &SetupCall<'_>) -> Result<Value, String> {

@@ -886,9 +886,8 @@ impl GatewayHttp {
     }
 }
 
-#[async_trait]
-impl HttpSend for GatewayHttp {
-    async fn send(&self, mut request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
+impl GatewayHttp {
+    fn shape(&self, request: &mut WireRequest) {
         if self.mirror_key_as_bearer
             && let Some(at) = request.headers.iter().position(|(k, _)| k.eq_ignore_ascii_case("x-api-key"))
         {
@@ -932,10 +931,17 @@ impl HttpSend for GatewayHttp {
                 request.headers.push(("x-org-id".to_owned(), org));
             }
         }
+    }
+}
+
+#[async_trait]
+impl HttpSend for GatewayHttp {
+    async fn send(&self, mut request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
+        self.shape(&mut request);
         let guarded = self.refuse_redirects && request.method == "POST";
         let exchange = if guarded { Exchange { redirect: crate::transport::Redirect::Manual, ..exchange } } else { exchange };
         let host = request.url.split("://").nth(1).and_then(|rest| rest.split('/').next()).unwrap_or_default().to_owned();
-        let mut response = self.inner.send(request, exchange).await?;
+        let response = self.inner.send(request, exchange).await?;
         if guarded && (300..400).contains(&response.status) {
             if let Some(label) = &self.refusal_label {
                 let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
@@ -951,20 +957,24 @@ impl HttpSend for GatewayHttp {
         if response.is_success() {
             return Ok(response);
         }
-        // The engine reads the refusal as it arrived; its status and body are kept for the routing decision.
-        let mut parts = VecDeque::new();
-        let mut bytes = Vec::new();
-        while let Some(part) = response.body.next().await {
-            if let Ok(chunk) = &part {
-                bytes.extend_from_slice(chunk);
-            }
-            parts.push_back(part);
-        }
-        let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-        *slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Refusal { status: response.status, headers: response.headers.clone(), body });
-        response.body = Box::new(Replayed(parts));
-        Ok(response)
+        Ok(keep_refusal(&slot, response).await)
     }
+}
+
+/// The engine reads the refusal as it arrived; its status and body are kept in `slot` for the routing decision.
+async fn keep_refusal(slot: &Mutex<Option<Refusal>>, mut response: HttpResponse) -> HttpResponse {
+    let mut parts = VecDeque::new();
+    let mut bytes = Vec::new();
+    while let Some(part) = response.body.next().await {
+        if let Ok(chunk) = &part {
+            bytes.extend_from_slice(chunk);
+        }
+        parts.push_back(part);
+    }
+    let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    *slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Refusal { status: response.status, headers: response.headers.clone(), body });
+    response.body = Box::new(Replayed(parts));
+    response
 }
 
 #[cfg(test)]

@@ -524,10 +524,6 @@ mod tests {
         assert_eq!(calls[0].end_col, calls[0].col + 3);
     }
 
-    /// The tuple is positional, so every element has to be there in order
-    /// even when it is empty — and every string goes through JSON escaping,
-    /// because a callee name can carry a quote or a backslash in the
-    /// languages whose identifiers are not ASCII words.
     #[test]
     fn call_tuples_escape_strings_and_keep_empty_fields() {
         let calls = vec![
@@ -620,18 +616,12 @@ mod tests {
         assert_eq!(named(&calls("rust", "rs", source)), vec!["call assert_eq", "call foo", "call vec", "call f", "call println", "call g",]);
     }
 
-    /// `cfg(not(windows))` / `cfg_attr(test, allow(..))` are configuration
-    /// predicates inside an attribute's token tree, not calls. And a macro
-    /// name is reported exactly once — by the macro rule; the token-tree rule
-    /// never sees it, not even for a macro nested in another macro's
-    /// arguments (`matches` sits behind its own `!`).
     #[test]
     fn rust_attribute_predicates_are_not_calls_and_macro_names_are_not_doubled() {
         let source = "#![cfg_attr(test, allow(dead_code))]\n#[cfg(not(windows))]\n#[cfg(all(test, feature = \"x\"))]\nfn main() {\n    assert!(matches!(mode(), Mode::On));\n}\n";
         assert_eq!(named(&calls("rust", "rs", source)), vec!["call assert", "call mode"]);
     }
 
-    /// A parenthesised or awaited receiver is still a receiver.
     #[test]
     fn parenthesised_and_awaited_receivers_are_reported() {
         let source = "async function run() {\n  (await import('x')).foo();\n  (await load()).baz();\n}\n";
@@ -665,10 +655,6 @@ mod tests {
         }
     }
 
-    /// The turbofish wraps the WHOLE callee in a `generic_function`, so
-    /// `x.parse::<T>()` and `path::fn::<T>()` hide their name node one level
-    /// deeper than the plain shapes do. Without the generic rules every
-    /// `.collect::<Vec<_>>()` in a Rust file is silently missing.
     #[test]
     fn rust_turbofish_calls_keep_their_name_node() {
         let source =
@@ -680,10 +666,6 @@ mod tests {
         assert_eq!((parse.1, parse.2, parse.3), (2, 17, 22));
     }
 
-    /// A C# callee with type arguments is a `generic_name`, and a
-    /// null-conditional invocation puts the callee under the
-    /// `conditional_access_expression` the invocation calls. Both shapes used
-    /// to answer wrong (`GetService<IFoo>` as the name) or not at all.
     #[test]
     fn csharp_generic_and_null_conditional_calls() {
         let source = "class H {\n  void Go(S sp) {\n    sp.GetService<IFoo>();\n    Resolve<IBar>(2);\n    sp?.Maybe();\n    sp.Items?.Count();\n  }\n}\n";
@@ -773,13 +755,6 @@ mod tests {
         }
     }
 
-    /// A call rule that PARSES but cannot run (unknown node kind for this
-    /// grammar, or no `kind:` for the walk to index on) is reported per
-    /// language — `outline::language_rule_errors` forwards exactly these
-    /// strings, and that is what `--langs` prints as the language's
-    /// `ruleErrors`. The healthy rules in the same bundle keep running, and
-    /// symbol extraction — compiled from the outline rules, not these — is
-    /// untouched.
     #[test]
     fn a_broken_call_rule_is_reported_and_symbol_extraction_survives() {
         let lang = scan_lang_for_ext("ts").expect("ts");

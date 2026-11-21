@@ -84,55 +84,57 @@ impl SvgFonts {
     /// be read or parsed is not part of the set.
     pub fn from_registry<P: ReadProof>(proof: &P, registry: &Registry) -> Self {
         let mut database = fontdb::Database::new();
-        // What the font parser says of each distinct file, by the file's bytes and the face's index in it.
-        let mut parsed: HashMap<(usize, u32), fontdb::FaceInfo> = HashMap::new();
-        let mut files: HashSet<usize> = HashSet::new();
-        let mut order: Vec<(FaceId, (usize, u32))> = Vec::new();
-        for id in 0..registry.len() {
-            let face = registry.face(id);
-            let Ok(data) = face.ensure_loaded(proof) else { continue };
-            let file = data.as_ptr() as usize;
-            if files.insert(file) {
-                for loaded in database.load_font_source(fontdb::Source::Binary(Arc::new(SharedBytes(Arc::clone(data))))) {
-                    if let Some(info) = database.face(loaded) {
-                        parsed.insert((file, info.index), info.clone());
-                    }
-                    database.remove_face(loaded);
-                }
-            }
-            order.push((id, (file, face.index())));
-        }
-        for (id, key) in order {
-            if let Some(info) = parsed.get(&key) {
-                let mut info = info.clone();
-                info.families = vec![(registry.family_of(id).to_owned(), fontdb::Language::English_UnitedStates)];
-                database.push_face_info(info);
-            }
-        }
+        load_faces(&mut database, proof, registry);
         let default_family = registry.family_names().next().map(str::to_owned);
         if let Some(default) = &default_family {
-            let serif = registry.family(database.family_name(&fontdb::Family::Serif)).is_none();
-            let sans = registry.family(database.family_name(&fontdb::Family::SansSerif)).is_none();
-            let cursive = registry.family(database.family_name(&fontdb::Family::Cursive)).is_none();
-            let fantasy = registry.family(database.family_name(&fontdb::Family::Fantasy)).is_none();
-            let monospace = registry.family(database.family_name(&fontdb::Family::Monospace)).is_none();
-            if serif {
-                database.set_serif_family(default.clone());
-            }
-            if sans {
-                database.set_sans_serif_family(default.clone());
-            }
-            if cursive {
-                database.set_cursive_family(default.clone());
-            }
-            if fantasy {
-                database.set_fantasy_family(default.clone());
-            }
-            if monospace {
-                database.set_monospace_family(default.clone());
-            }
+            route_unregistered_generics(&mut database, registry, default);
         }
         Self { database: Arc::new(database), default_family }
+    }
+}
+
+fn load_faces<P: ReadProof>(database: &mut fontdb::Database, proof: &P, registry: &Registry) {
+    // What the font parser says of each distinct file, by the file's bytes and the face's index in it.
+    let mut parsed: HashMap<(usize, u32), fontdb::FaceInfo> = HashMap::new();
+    let mut files: HashSet<usize> = HashSet::new();
+    let mut order: Vec<(FaceId, (usize, u32))> = Vec::new();
+    for id in 0..registry.len() {
+        let face = registry.face(id);
+        let Ok(data) = face.ensure_loaded(proof) else { continue };
+        let file = data.as_ptr() as usize;
+        if files.insert(file) {
+            for loaded in database.load_font_source(fontdb::Source::Binary(Arc::new(SharedBytes(Arc::clone(data))))) {
+                if let Some(info) = database.face(loaded) {
+                    parsed.insert((file, info.index), info.clone());
+                }
+                database.remove_face(loaded);
+            }
+        }
+        order.push((id, (file, face.index())));
+    }
+    for (id, key) in order {
+        if let Some(info) = parsed.get(&key) {
+            let mut info = info.clone();
+            info.families = vec![(registry.family_of(id).to_owned(), fontdb::Language::English_UnitedStates)];
+            database.push_face_info(info);
+        }
+    }
+}
+
+/// Every generic family (`serif`, `sans-serif`, ...) the registry has no face under is routed to `default`.
+fn route_unregistered_generics(database: &mut fontdb::Database, registry: &Registry, default: &str) {
+    type Setter = fn(&mut fontdb::Database, String);
+    let generics: [(fontdb::Family<'static>, Setter); 5] = [
+        (fontdb::Family::Serif, fontdb::Database::set_serif_family::<String>),
+        (fontdb::Family::SansSerif, fontdb::Database::set_sans_serif_family::<String>),
+        (fontdb::Family::Cursive, fontdb::Database::set_cursive_family::<String>),
+        (fontdb::Family::Fantasy, fontdb::Database::set_fantasy_family::<String>),
+        (fontdb::Family::Monospace, fontdb::Database::set_monospace_family::<String>),
+    ];
+    for (family, set) in generics {
+        if registry.family(database.family_name(&family)).is_none() {
+            set(database, default.to_owned());
+        }
     }
 }
 
@@ -407,11 +409,7 @@ fn whole_tree(tree: &usvg::Tree, width: u32, height: u32, factor: u32, scale: f6
     let k = f64::from(factor);
     let transform = tiny_skia::Transform::from_row((scale * k) as f32, 0.0, 0.0, (scale * k) as f32, (left * k) as f32, (top * k) as f32);
     resvg::render(tree, transform, &mut pixmap.as_mut());
-    Ok(if factor == 1 {
-        pixmap.pixels().iter().map(|pixel| [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]).collect()
-    } else {
-        mean_of_blocks(pixmap.pixels(), width as usize, height as usize, factor as usize)
-    })
+    Ok(mean_of_blocks(pixmap.pixels(), width as usize, height as usize, factor as usize))
 }
 
 /// Whether the tree has a raster image (not an SVG one) anywhere.
@@ -455,33 +453,10 @@ fn paint_shapes(tree: &usvg::Tree, width: usize, height: usize, factor: usize, s
     paint_units(tree.root(), &mut units);
     let mut out = vec![[0u8; 4]; width * height];
     for (node, parent) in units {
-        let layer = node.abs_layer_bounding_box();
-        // The box in final pixels, widened by two for the edge pixels.
-        let stroke = match node {
-            // The box usvg keeps for an image is moved a second time by the placement of the image: the box is the image rectangle at its
-            // absolute transform.
-            usvg::Node::Image(image) => {
-                image.size().to_rect(0.0, 0.0).and_then(|rect| rect.transform(image.abs_transform())).unwrap_or_else(|| node.abs_stroke_bounding_box())
-            }
-            _ => node.abs_stroke_bounding_box(),
-        };
-        let (mut min_x, mut min_y, mut max_x, mut max_y) =
-            (f64::from(stroke.left()), f64::from(stroke.top()), f64::from(stroke.right()), f64::from(stroke.bottom()));
-        if let (Some(bbox), false) = (layer, matches!(node, usvg::Node::Image(_))) {
-            (min_x, min_y) = (min_x.min(f64::from(bbox.left())), min_y.min(f64::from(bbox.top())));
-            (max_x, max_y) = (max_x.max(f64::from(bbox.right())), max_y.max(f64::from(bbox.bottom())));
-        }
-        let x0 = ((min_x * scale + left).floor() as i64 - 2).max(0);
-        let y0 = ((min_y * scale + top).floor() as i64 - 2).max(0);
-        let x1 = ((max_x * scale + left).ceil() as i64 + 2).min(width as i64);
-        let y1 = ((max_y * scale + top).ceil() as i64 + 2).min(height as i64);
-        if x1 <= x0 || y1 <= y0 {
-            continue;
-        }
-        let (region_width, region_height) = ((x1 - x0) as usize, (y1 - y0) as usize);
+        let Some((x0, y0, region_width, region_height)) = unit_region(node, scale, left, top, width, height) else { continue };
         if let usvg::Node::Path(path) = node {
             let base = tiny_skia::Transform::from_row(scale as f32, 0.0, 0.0, scale as f32, left as f32, top as f32).pre_concat(parent);
-            if cairo_path(path, base, &mut out, width, (x0 as usize, y0 as usize, region_width, region_height)) {
+            if cairo_path(path, base, &mut out, width, (x0, y0, region_width, region_height)) {
                 continue;
             }
         }
@@ -490,6 +465,7 @@ fn paint_shapes(tree: &usvg::Tree, width: usize, height: usize, factor: usize, s
         let base =
             tiny_skia::Transform::from_row((scale * k) as f32, 0.0, 0.0, (scale * k) as f32, ((left - x0 as f64) * k) as f32, ((top - y0 as f64) * k) as f32)
                 .pre_concat(parent);
+        let layer = node.abs_layer_bounding_box();
         // The tolerance cairo flattens a curve at, 0.1 of a device pixel, in the units the path is written in.
         let device = f64::from(parent.sx).hypot(f64::from(parent.ky)) * scale;
         let drawn = match node {
@@ -497,37 +473,63 @@ fn paint_shapes(tree: &usvg::Tree, width: usize, height: usize, factor: usize, s
             _ => false,
         };
         if !drawn {
-            match (layer, node) {
-                // `resvg::render_node` puts the node layer box at the corner: the translation by the box undoes that.
-                (Some(bbox), _) => {
-                    if resvg::render_node(node, base.pre_translate(bbox.x(), bbox.y()), &mut pixmap.as_mut()).is_none() {
-                        continue;
-                    }
-                }
-                (None, _) => continue,
+            let Some(bbox) = layer else { continue };
+            // `resvg::render_node` puts the node layer box at the corner: the translation by the box undoes that.
+            if resvg::render_node(node, base.pre_translate(bbox.x(), bbox.y()), &mut pixmap.as_mut()).is_none() {
+                continue;
             }
         }
-        let layer: Vec<[u8; 4]> = if factor == 1 {
-            pixmap.pixels().iter().map(|pixel| [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]).collect()
-        } else {
-            mean_of_blocks(pixmap.pixels(), region_width, region_height, factor)
-        };
-        for row in 0..region_height {
-            let target = (y0 as usize + row) * width + x0 as usize;
-            for (column, source) in layer[row * region_width..(row + 1) * region_width].iter().enumerate() {
-                if source[3] == 0 {
-                    continue;
-                }
-                let below = &mut out[target + column];
-                let keep = 255 - u32::from(source[3]);
-                for channel in 0..4 {
-                    let product = u32::from(below[channel]) * keep + 128;
-                    below[channel] = (u32::from(source[channel]) + ((product + (product >> 8)) >> 8)).min(255) as u8;
-                }
+        let layer = mean_of_blocks(pixmap.pixels(), region_width, region_height, factor);
+        lay_over(&mut out, width, (x0, y0, region_width, region_height), &layer);
+    }
+    Ok(out)
+}
+
+/// The pixel box (left, top, width, height) a paint unit can touch at `scale`, widened by two for the edge pixels and cut to the raster;
+/// `None` when it is outside.
+fn unit_region(node: &usvg::Node, scale: f64, left: f64, top: f64, width: usize, height: usize) -> Option<(usize, usize, usize, usize)> {
+    let layer = node.abs_layer_bounding_box();
+    let stroke = match node {
+        // The box usvg keeps for an image is moved a second time by the placement of the image: the box is the image rectangle at its
+        // absolute transform.
+        usvg::Node::Image(image) => {
+            image.size().to_rect(0.0, 0.0).and_then(|rect| rect.transform(image.abs_transform())).unwrap_or_else(|| node.abs_stroke_bounding_box())
+        }
+        _ => node.abs_stroke_bounding_box(),
+    };
+    let (mut min_x, mut min_y, mut max_x, mut max_y) =
+        (f64::from(stroke.left()), f64::from(stroke.top()), f64::from(stroke.right()), f64::from(stroke.bottom()));
+    if let (Some(bbox), false) = (layer, matches!(node, usvg::Node::Image(_))) {
+        (min_x, min_y) = (min_x.min(f64::from(bbox.left())), min_y.min(f64::from(bbox.top())));
+        (max_x, max_y) = (max_x.max(f64::from(bbox.right())), max_y.max(f64::from(bbox.bottom())));
+    }
+    let x0 = ((min_x * scale + left).floor() as i64 - 2).max(0);
+    let y0 = ((min_y * scale + top).floor() as i64 - 2).max(0);
+    let x1 = ((max_x * scale + left).ceil() as i64 + 2).min(width as i64);
+    let y1 = ((max_y * scale + top).ceil() as i64 + 2).min(height as i64);
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    Some((x0 as usize, y0 as usize, (x1 - x0) as usize, (y1 - y0) as usize))
+}
+
+/// Lays the premultiplied pixels of `layer` (the size of `region`) over `out`, source-over.
+fn lay_over(out: &mut [[u8; 4]], width: usize, region: (usize, usize, usize, usize), layer: &[[u8; 4]]) {
+    let (x0, y0, region_width, region_height) = region;
+    for row in 0..region_height {
+        let target = (y0 + row) * width + x0;
+        for (column, source) in layer[row * region_width..(row + 1) * region_width].iter().enumerate() {
+            if source[3] == 0 {
+                continue;
+            }
+            let below = &mut out[target + column];
+            let keep = 255 - u32::from(source[3]);
+            for channel in 0..4 {
+                let product = u32::from(below[channel]) * keep + 128;
+                below[channel] = (u32::from(source[channel]) + ((product + (product >> 8)) >> 8)).min(255) as u8;
             }
         }
     }
-    Ok(out)
 }
 
 /// The paint of a fill or a stroke: a colour or a gradient (a pattern is `None`: it is drawn by `resvg` itself).
@@ -830,13 +832,9 @@ fn grid_edges(polygon: &[Vec<(i64, i64)>]) -> Vec<GridEdge> {
     edges
 }
 
-/// A rectilinear polygon (every edge vertical or horizontal in 24.8 fixed point) as cairo fills it: `_cairo_path_fixed_fill_rectilinear_to_boxes`
-/// turns it into boxes and the rectangular scan converter covers a pixel by the product of the box's fractions of it, in 256ths
-/// (`coverage = x * y >> 8`, and 256 is written as 255). The coverage of the union is taken slab by slab between the edges' y values.
-/// `None` when an edge is neither vertical nor horizontal.
-fn rectilinear_coverage(polygon: &[Vec<(i64, i64)>], even_odd: bool, left: usize, top: usize, width: usize, height: usize) -> Option<Vec<u8>> {
-    // Vertical edges: (x, top y, bottom y, direction), all in fixed point.
-    let mut verticals: Vec<(i64, i64, i64, i32)> = Vec::new();
+/// The vertical edges of a polygon as (x, top y, bottom y, direction) in fixed point, horizontal edges dropped; `None` when an edge is neither.
+fn vertical_edges(polygon: &[Vec<(i64, i64)>]) -> Option<Vec<(i64, i64, i64, i32)>> {
+    let mut verticals = Vec::new();
     let mut add = |from: (i64, i64), to: (i64, i64)| -> bool {
         if from.1 == to.1 {
             return true;
@@ -857,6 +855,31 @@ fn rectilinear_coverage(polygon: &[Vec<(i64, i64)>], even_odd: bool, left: usize
             return None;
         }
     }
+    Some(verticals)
+}
+
+/// Calls `span` with the start and end of every run the fill rule holds inside, over `crossings` (x, winding direction) sorted by x.
+fn for_each_span(crossings: &[(i64, i32)], even_odd: bool, mut span: impl FnMut(i64, i64)) {
+    let inside = |winding: i32| if even_odd { winding & 1 != 0 } else { winding != 0 };
+    let mut winding = 0i32;
+    let mut start = 0i64;
+    for &(x, direction) in crossings {
+        let was_inside = inside(winding);
+        winding += direction;
+        match (was_inside, inside(winding)) {
+            (false, true) => start = x,
+            (true, false) => span(start, x),
+            _ => {}
+        }
+    }
+}
+
+/// A rectilinear polygon (every edge vertical or horizontal in 24.8 fixed point) as cairo fills it: `_cairo_path_fixed_fill_rectilinear_to_boxes`
+/// turns it into boxes and the rectangular scan converter covers a pixel by the product of the box's fractions of it, in 256ths
+/// (`coverage = x * y >> 8`, and 256 is written as 255). The coverage of the union is taken slab by slab between the edges' y values.
+/// `None` when an edge is neither vertical nor horizontal.
+fn rectilinear_coverage(polygon: &[Vec<(i64, i64)>], even_odd: bool, left: usize, top: usize, width: usize, height: usize) -> Option<Vec<u8>> {
+    let verticals = vertical_edges(polygon)?;
     let mut mask = vec![0u8; width * height];
     let mut area = vec![0i64; width];
     let mut breaks: Vec<i64> = Vec::new();
@@ -887,26 +910,17 @@ fn rectilinear_coverage(polygon: &[Vec<(i64, i64)>], even_odd: bool, left: usize
                 }
             }
             crossings.sort_by_key(|c| c.0);
-            let mut winding = 0i32;
-            let mut span_start = 0i64;
-            for &(x, direction) in &crossings {
-                let was_inside = if even_odd { winding & 1 != 0 } else { winding != 0 };
-                winding += direction;
-                let inside = if even_odd { winding & 1 != 0 } else { winding != 0 };
-                if !was_inside && inside {
-                    span_start = x;
-                } else if was_inside && !inside {
-                    let (a, b) = (span_start.clamp(0, width as i64 * 256), x.clamp(0, width as i64 * 256));
-                    let mut at = a;
-                    while at < b {
-                        let column = (at / 256) as usize;
-                        let next = ((at / 256 + 1) * 256).min(b);
-                        area[column] += (next - at) * (yb - ya);
-                        touched = true;
-                        at = next;
-                    }
+            for_each_span(&crossings, even_odd, |start, end| {
+                let (a, b) = (start.clamp(0, width as i64 * 256), end.clamp(0, width as i64 * 256));
+                let mut at = a;
+                while at < b {
+                    let column = (at / 256) as usize;
+                    let next = ((at / 256 + 1) * 256).min(b);
+                    area[column] += (next - at) * (yb - ya);
+                    touched = true;
+                    at = next;
                 }
-            }
+            });
         }
         if !touched {
             continue;
@@ -946,30 +960,21 @@ fn cairo_coverage(edges: &[GridEdge], even_odd: bool, left: usize, top: usize, w
                 continue;
             }
             crossings.sort_by_key(|c| c.0);
-            let mut winding = 0i32;
-            let mut span_start = 0i64;
-            for &(x, direction) in &crossings {
-                let was_inside = if even_odd { winding & 1 != 0 } else { winding != 0 };
-                winding += direction;
-                let inside = if even_odd { winding & 1 != 0 } else { winding != 0 };
-                if !was_inside && inside {
-                    span_start = x;
-                } else if was_inside && !inside {
-                    let (a, b) = (span_start.clamp(0, right), x.clamp(0, right));
-                    if b > a {
-                        touched = true;
-                        let (ia, ib) = ((a / GRID_X) as usize, (b / GRID_X) as usize);
-                        if ia == ib {
-                            sums[ia] += b - a;
-                        } else {
-                            sums[ia] += GRID_X - (a % GRID_X);
-                            sums[ib] += b % GRID_X;
-                            steps[ia + 1] += GRID_X;
-                            steps[ib] -= GRID_X;
-                        }
+            for_each_span(&crossings, even_odd, |start, end| {
+                let (a, b) = (start.clamp(0, right), end.clamp(0, right));
+                if b > a {
+                    touched = true;
+                    let (ia, ib) = ((a / GRID_X) as usize, (b / GRID_X) as usize);
+                    if ia == ib {
+                        sums[ia] += b - a;
+                    } else {
+                        sums[ia] += GRID_X - (a % GRID_X);
+                        sums[ib] += b % GRID_X;
+                        steps[ia + 1] += GRID_X;
+                        steps[ib] -= GRID_X;
                     }
                 }
-            }
+            });
         }
         if !touched {
             continue;
@@ -1011,6 +1016,35 @@ fn lay(out: &mut [[u8; 4]], width: usize, region: (usize, usize, usize, usize), 
 
 type Source = Box<dyn Fn(usize, usize) -> [u8; 4]>;
 
+fn solid_color(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<(usvg::Color, f32)> {
+    match paint {
+        usvg::Paint::Color(c) => Some((*c, opacity.get())),
+        _ => None,
+    }
+}
+
+/// The source of a paint at the pixel (column, row) of a region: a solid colour or the shader at the pixel centre.
+fn paint_source(
+    paint: &tiny_skia::Paint<'static>,
+    color: Option<(usvg::Color, f32)>,
+    region_size: (usize, usize),
+    user_region: tiny_skia::Rect,
+    local: tiny_skia::Transform,
+) -> Option<Source> {
+    if let Some((c, opacity)) = color {
+        let alpha16 = (f64::from(opacity) * 65535.0).round() as u32;
+        let premultiplied = |channel: u8| ((((f64::from(channel) / 255.0) * f64::from(opacity) * 65535.0).round() as u32) >> 8) as u8;
+        let solid = [premultiplied(c.red), premultiplied(c.green), premultiplied(c.blue), (alpha16 >> 8) as u8];
+        return Some(Box::new(move |_, _| solid));
+    }
+    let mut pixmap = tiny_skia::Pixmap::new(region_size.0 as u32, region_size.1 as u32)?;
+    pixmap.fill_rect(user_region, paint, local, None);
+    Some(Box::new(move |column, row| {
+        let pixel = pixmap.pixel(column as u32, row as u32).expect("inside");
+        [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]
+    }))
+}
+
 /// A fill or a stroke of a path drawn as cairo draws it: the path in device space flattened at 0.1 pixel, scan-converted on cairo's grid and
 /// composited over `out`. `false` when the shape is not drawn here (a pattern paint, an aliased shape, a transform that cannot be inverted):
 /// nothing has been drawn then.
@@ -1033,27 +1067,8 @@ fn cairo_path(path: &usvg::Path, transform: tiny_skia::Transform, out: &mut [[u8
     let Some(user_region) = device_region.transform(inverse) else { return false };
     let device_scale = f64::from(transform.sx).hypot(f64::from(transform.ky)).max(f64::from(transform.kx).hypot(f64::from(transform.sy)));
 
-    // The source of a paint at the pixel (column, row) of the region: a solid colour or the shader at the pixel centre.
-    let source_of = |paint: &tiny_skia::Paint<'static>, color: Option<(usvg::Color, f32)>| -> Option<Source> {
-        if let Some((c, opacity)) = color {
-            let alpha16 = (f64::from(opacity) * 65535.0).round() as u32;
-            let premultiplied = |channel: u8| ((((f64::from(channel) / 255.0) * f64::from(opacity) * 65535.0).round() as u32) >> 8) as u8;
-            let solid = [premultiplied(c.red), premultiplied(c.green), premultiplied(c.blue), (alpha16 >> 8) as u8];
-            return Some(Box::new(move |_, _| solid));
-        }
-        let mut pixmap = tiny_skia::Pixmap::new(region_width as u32, region_height as u32)?;
-        pixmap.fill_rect(user_region, paint, local, None);
-        Some(Box::new(move |column, row| {
-            let pixel = pixmap.pixel(column as u32, row as u32).expect("inside");
-            [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]
-        }))
-    };
-    let color_of = |paint: &usvg::Paint, opacity: usvg::Opacity| -> Option<(usvg::Color, f32)> {
-        match paint {
-            usvg::Paint::Color(c) => Some((*c, opacity.get())),
-            _ => None,
-        }
-    };
+    let source_of =
+        |paint: &tiny_skia::Paint<'static>, color: Option<(usvg::Color, f32)>| paint_source(paint, color, (region_width, region_height), user_region, local);
 
     let fill_it = |out: &mut [[u8; 4]]| {
         let Some((fill, Some(paint))) = &fill else { return };
@@ -1066,7 +1081,7 @@ fn cairo_path(path: &usvg::Path, transform: tiny_skia::Transform, out: &mut [[u8
         let even_odd = fill.rule() == usvg::FillRule::EvenOdd;
         let mask = rectilinear_coverage(&polygon, even_odd, left, top, region_width, region_height)
             .unwrap_or_else(|| cairo_coverage(&grid_edges(&polygon), even_odd, left, top, region_width, region_height));
-        if let Some(source) = source_of(paint, color_of(fill.paint(), fill.opacity())) {
+        if let Some(source) = source_of(paint, solid_color(fill.paint(), fill.opacity())) {
             lay(out, width, region, &mask, &*source);
         }
     };
@@ -1096,7 +1111,7 @@ fn cairo_path(path: &usvg::Path, transform: tiny_skia::Transform, out: &mut [[u8
         let Some(device) = outline.transform(transform) else { return };
         let polygon = fixed_polygon(&device);
         let mask = cairo_coverage(&grid_edges(&polygon), false, left, top, region_width, region_height);
-        if let Some(source) = source_of(paint, color_of(stroke.paint(), stroke.opacity())) {
+        if let Some(source) = source_of(paint, solid_color(stroke.paint(), stroke.opacity())) {
             lay(out, width, region, &mask, &*source);
         }
     };
@@ -1448,6 +1463,32 @@ mod tests {
         assert_eq!((image.width(), image.height()), (10, 10));
         assert!(image.rgba()[3].abs_diff(207) <= 2);
         assert_eq!(image.rgba()[5 * 40 + 20 + 3], 255);
+    }
+
+    fn registered_fonts() -> SvgFonts {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../mixdog-pdf/assets/standard_fonts/LiberationSans-Regular.ttf");
+        let mut registry = Registry::new();
+        registry.register_file(&mixdog_fsio::Unlaned, &path, Some("Twin Lisu")).expect("the repository face registers");
+        SvgFonts::from_registry(&mixdog_fsio::Unlaned, &registry)
+    }
+
+    fn text_ink(fonts: &SvgFonts, family: &str) -> bool {
+        let page = svg("width=\"60\" height=\"40\"", &format!("<text x=\"4\" y=\"30\" font-size=\"30\" font-family=\"{family}\" fill=\"#000\">H</text>"));
+        rasterize(fonts, &page, 72.0).unwrap().rgba().chunks_exact(4).any(|pixel| pixel[3] > 0)
+    }
+
+    #[test]
+    fn text_is_drawn_in_a_registered_family() {
+        assert!(text_ink(&registered_fonts(), "Twin Lisu"));
+        assert!(!text_ink(&SvgFonts::none(), "Twin Lisu"));
+    }
+
+    #[test]
+    fn a_family_that_is_not_registered_falls_to_the_registry_default() {
+        let fonts = registered_fonts();
+        for family in ["Nowhere", "serif", "sans-serif", "cursive", "fantasy", "monospace"] {
+            assert!(text_ink(&fonts, family), "{family}");
+        }
     }
 
     #[test]

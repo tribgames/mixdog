@@ -395,27 +395,9 @@ async fn run(
     };
     let key_wanted = Arc::new(Notify::new());
     spawn_feedback_reader(Arc::clone(&local_track), Arc::clone(&key_wanted), budget.token());
-    let (input_tx, mut input_rx) = mpsc::unbounded_channel();
-    {
-        let input = Arc::clone(&input);
-        let closed = budget.token();
-        mixdog_rt::spawn("webrtc-liveview-input", TaskClass::Work, async move {
-            loop {
-                let event = tokio::select! {
-                    biased;
-                    () = closed.cancelled() => break,
-                    event = input.poll() => event,
-                };
-                let Some(event) = event else { break };
-                if input_tx.send(event).is_err() {
-                    break;
-                }
-            }
-        });
-    }
+    let mut input_rx = spawn_input_reader(Arc::clone(&input), budget.token());
     let mut live = Live {
         pc,
-        // A failed input write was never reported; the channel's own close or error is.
         input: Outbound::new("webrtc-liveview-input-writer", Arc::new(input), INPUT_QUEUE_BYTES, |_| {}),
         sender,
         track,
@@ -473,6 +455,24 @@ async fn run(
     }
     budget.close();
     peer::close(&live.pc).await;
+}
+
+fn spawn_input_reader(input: Arc<dyn DataChannel>, closed: tokio_util::sync::CancellationToken) -> mpsc::UnboundedReceiver<DataChannelEvent> {
+    let (input_tx, input_rx) = mpsc::unbounded_channel();
+    mixdog_rt::spawn("webrtc-liveview-input", TaskClass::Work, async move {
+        loop {
+            let event = tokio::select! {
+                biased;
+                () = closed.cancelled() => break,
+                event = input.poll() => event,
+            };
+            let Some(event) = event else { break };
+            if input_tx.send(event).is_err() {
+                break;
+            }
+        }
+    });
+    input_rx
 }
 
 fn build_track() -> Result<Arc<TrackLocalStaticSample>, PeerFault> {

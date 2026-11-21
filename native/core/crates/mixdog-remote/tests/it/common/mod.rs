@@ -215,6 +215,16 @@ pub struct Relay {
     pub legs: mpsc::UnboundedReceiver<std::time::Instant>,
     inbox: SharedInbox,
 }
+fn relay_answer(frame: &Value, clients: &Value, revoke_ok: bool) -> Option<Value> {
+    match frame["type"].as_str() {
+        Some("list-clients") => Some(json!({ "type": "clients-list", "requestId": frame["requestId"], "clients": clients })),
+        Some("revoke-client") if revoke_ok => Some(json!({ "type": "client-revoked", "requestId": frame["requestId"], "ok": true })),
+        Some("revoke-client") => {
+            Some(json!({ "type": "client-revoked", "requestId": frame["requestId"], "ok": false, "error": "The relay could not unpair the device." }))
+        }
+        _ => None,
+    }
+}
 pub async fn driven_relay(clients: Value) -> Relay {
     driven_relay_with(clients, true).await
 }
@@ -251,13 +261,7 @@ pub async fn driven_relay_with(clients: Value, revoke_ok: bool) -> Relay {
                     message = ws.next() => match message {
                         Some(Ok(Message::Text(text))) => {
                             let Ok(frame) = serde_json::from_str::<Value>(text.as_str()) else { continue };
-                            let answer = match frame["type"].as_str() {
-                                Some("list-clients") => Some(json!({ "type": "clients-list", "requestId": frame["requestId"], "clients": clients })),
-                                Some("revoke-client") if revoke_ok => Some(json!({ "type": "client-revoked", "requestId": frame["requestId"], "ok": true })),
-                                Some("revoke-client") => Some(json!({ "type": "client-revoked", "requestId": frame["requestId"], "ok": false, "error": "The relay could not unpair the device." })),
-                                _ => None,
-                            };
-                            if let Some(answer) = answer {
+                            if let Some(answer) = relay_answer(&frame, &clients, revoke_ok) {
                                 ws.send(Message::Text(answer.to_string().into())).await.unwrap();
                             }
                             if frame["type"] != "list-clients" {

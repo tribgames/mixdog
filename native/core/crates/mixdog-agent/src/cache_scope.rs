@@ -1,30 +1,29 @@
-//! `promptCacheScope: 'shared'` (agent-runtime/cache-strategy.mjs): a request whose calls are each
+//! The `shared` prompt cache scope: a request whose calls are each
 //! a new session and share one prefix is keyed on that prefix, not on its session, so a
 //! key-prefix provider does not scatter the identical prefix across a fresh server-side lane
 //! per call.
 //!
-//! Two callers take it: the explorer (`sharedPrefixProviderCacheOpts`, :548) and the one-shot
-//! maintenance roles (`oneShotPromptCacheOpts`, :538), which session lifecycle and title
-//! completion send through.
+//! Two callers take it: the explorer and the one-shot maintenance roles, which session
+//! lifecycle and title completion send through.
 
 /// The scope value every key-prefix provider reads (`RequestOptions.prompt_cache_scope`).
 pub const SHARED: &str = "shared";
 
-/// `isOneShotMaintenanceAgent`: the declarative `kind: "maintenance"` plus
+/// The declarative `kind: "maintenance"` plus
 /// `toolSchemaProfile: "none"` pair of a hidden agent (`defaults/agents.json`), not role names.
 pub fn is_one_shot_maintenance(kind: Option<&str>, tool_schema_profile: Option<&str>) -> bool {
     kind == Some("maintenance") && tool_schema_profile == Some("none")
 }
 
-/// `oneShotPromptCacheOpts`: the scope a hidden agent's requests carry.
+/// The scope a hidden agent's requests carry.
 pub fn one_shot_scope(kind: Option<&str>, tool_schema_profile: Option<&str>) -> Option<String> {
     is_one_shot_maintenance(kind, tool_schema_profile).then(|| SHARED.to_owned())
 }
 
-/// `sharedPrefixProviderCacheOpts(provider).cacheStrategy`: the breakpoints of a session-less loop whose system prompt and
-/// tool schemas are the same bytes on every call (the explorers). Its readers are the parallel explorers of a fan-out and the
-/// next calls minutes later, so the prefix is written once on the 5m tier and no 1h write is paid; only an explicit-breakpoint
-/// provider has a strategy to state. Node's rule, kept for this loop (the product's `autoClear`-linked tail is for sessions).
+/// The breakpoints of a session-less loop whose system prompt and tool schemas are the same bytes on every
+/// call (the explorers). Its readers are the parallel explorers of a fan-out and the next calls minutes
+/// later, so the prefix is written once on the 5m tier and no 1h write is paid; only an explicit-breakpoint
+/// provider has a strategy to state.
 pub fn shared_prefix_strategy(provider: &str) -> Option<serde_json::Value> {
     matches!(provider, "anthropic" | "anthropic-oauth").then(|| serde_json::json!({ "tools": "none", "system": "5m", "tier3": "none", "messages": "5m" }))
 }

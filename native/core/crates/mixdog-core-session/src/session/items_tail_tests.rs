@@ -1,8 +1,3 @@
-//! `thread/items/list` reads the newest rows of the history it pages (`ThreadStore::history_tail`), not the whole of it. Driven
-//! over the real store: every call shape's page from the tail is compared with the page of the whole history, the one the
-//! reads built before they read tails (`history_rows`, every row projected, one window over all of it), through both the
-//! store's own `history_tail` and the trait's default one.
-
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -300,8 +295,7 @@ fn shapes_of_big() -> Vec<Value> {
     shapes
 }
 
-/// Every call shape against `threads`' views of `big`, and the sizes around the tail's boundaries.
-async fn compare(label: &str, stores: &[(&str, Arc<dyn ThreadStore>)], tokens: LaneTokens) {
+fn compare_cases() -> Vec<(ThreadId, Value)> {
     let mut cases: Vec<(ThreadId, Value)> = shapes_of_big().into_iter().map(|shape| (ThreadId::from("big"), shape)).collect();
     for n in [129, 200, 201, 257] {
         for limit in [1, 128, 129, 200, 201, 256, 257] {
@@ -309,46 +303,55 @@ async fn compare(label: &str, stores: &[(&str, Arc<dyn ThreadStore>)], tokens: L
         }
         cases.push((ThreadId::from(format!("n{n}").as_str()), json!({ "limit": 200, "sortDirection": "asc" })));
     }
-    use futures::StreamExt;
-    // The cases are independent (each reads only), so they run together (their jobs spread over the lanes' threads) and every
-    // failing one is named, instead of the run stopping at the first.
-    let total = cases.len();
-    let outcomes: Vec<Result<Option<usize>, String>> = futures::stream::iter(cases)
-        .map(|(id, mut shape)| async move {
-            shape["threadId"] = json!(id);
-            let want = whole(&stores[0].1, tokens, &id, &shape).await;
-            let mut newest = None;
-            for (path, store) in stores {
-                let (got, widest) = tailed(store, tokens, &id, &shape).await;
-                let what = format!("{label}/{path}: {shape}");
-                if shape == json!({ "threadId": "big", "limit": 1 }) {
-                    newest = Some(widest);
-                }
-                match (&want, got) {
-                    (Ok(Reply::Value(want)), Ok(Reply::Value(got))) if &got != want => {
-                        return Err(format!(
-                            "{what}
+    cases
+}
+
+async fn compare_case(
+    label: &str,
+    stores: &[(&str, Arc<dyn ThreadStore>)],
+    tokens: LaneTokens,
+    id: ThreadId,
+    mut shape: Value,
+) -> Result<Option<usize>, String> {
+    shape["threadId"] = json!(id);
+    let want = whole(&stores[0].1, tokens, &id, &shape).await;
+    let mut newest = None;
+    for (path, store) in stores {
+        let (got, widest) = tailed(store, tokens, &id, &shape).await;
+        let what = format!("{label}/{path}: {shape}");
+        if shape == json!({ "threadId": "big", "limit": 1 }) {
+            newest = Some(widest);
+        }
+        match (&want, got) {
+            (Ok(Reply::Value(want)), Ok(Reply::Value(got))) if &got != want => {
+                return Err(format!(
+                    "{what}
   left: {got}
  right: {want}"
-                        ));
-                    }
-                    (Ok(Reply::Value(_)), Ok(Reply::Value(_))) => {}
-                    (Err(want), Err(got)) if format!("{got:?}") != format!("{want:?}") => {
-                        return Err(format!(
-                            "{what}
+                ));
+            }
+            (Ok(Reply::Value(_)), Ok(Reply::Value(_))) => {}
+            (Err(want), Err(got)) if format!("{got:?}") != format!("{want:?}") => {
+                return Err(format!(
+                    "{what}
   left: {got:?}
  right: {want:?}"
-                        ));
-                    }
-                    (Err(_), Err(_)) => {}
-                    (want, got) => return Err(format!("{what}: {got:?} against {want:?}")),
-                }
+                ));
             }
-            Ok(newest)
-        })
-        .buffer_unordered(16)
-        .collect()
-        .await;
+            (Err(_), Err(_)) => {}
+            (want, got) => return Err(format!("{what}: {got:?} against {want:?}")),
+        }
+    }
+    Ok(newest)
+}
+
+/// Every call shape against `threads`' views of `big`, and the sizes around the tail's boundaries.
+async fn compare(label: &str, stores: &[(&str, Arc<dyn ThreadStore>)], tokens: LaneTokens) {
+    let cases = compare_cases();
+    use futures::StreamExt;
+    let total = cases.len();
+    let outcomes: Vec<Result<Option<usize>, String>> =
+        futures::stream::iter(cases).map(|(id, shape)| compare_case(label, stores, tokens, id, shape)).buffer_unordered(16).collect().await;
     eprintln!("{label}: {total} cases compared");
     let failed: Vec<&String> = outcomes.iter().filter_map(|outcome| outcome.as_ref().err()).collect();
     assert!(
@@ -504,7 +507,7 @@ async fn a_turn_scan_survives_other_writes_but_rejects_unprojected_changes_to_it
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cancelling_a_turn_page_at_the_read_barrier_reports_caller_cancellation() {
+async fn cancelling_a_read_at_the_read_barrier_reports_caller_cancellation() {
     use mixdog_core_api::ThreadDirectory;
 
     let tokens = mixdog_rt::testing::tokens();
@@ -519,8 +522,13 @@ async fn cancelling_a_turn_page_at_the_read_barrier_reports_caller_cancellation(
     let directory = super::SessionDirectory::new(rig.deps_on(threads.clone()));
     let (held, release) = threads.hold_index();
     held.await.expect("index held");
-    for items_view in [false, true] {
-        let req = super::thread_fence_tests::request("thread/turns/list", json!({"threadId": "cancel-turns", "itemsView": items_view}));
+    let reads = [
+        ("thread/turns/list", json!({"threadId": "cancel-turns", "itemsView": false})),
+        ("thread/turns/list", json!({"threadId": "cancel-turns", "itemsView": true})),
+        ("thread/items/list", json!({"threadId": "cancel-turns"})),
+    ];
+    for (method, params) in reads {
+        let req = super::thread_fence_tests::request(method, params);
         let cancel = req.ctx.cancel.clone();
         let mut response = std::pin::pin!(directory.request(req));
         assert!(futures::poll!(response.as_mut()).is_pending());

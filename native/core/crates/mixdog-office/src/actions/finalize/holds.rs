@@ -55,7 +55,6 @@ pub fn review_hold(context: &HoldContext<'_>, args: &Value, stage: &ReviewStage)
             ],
         ));
     }
-    // Zero formula errors is a hard rule: a recalculation that found any holds the workbook even when the review was skipped.
     if context.recalculation.get("totalErrors").is_some_and(|errors| mixdog_js::to_number(errors) > 0.0) {
         return Some(with_review(
             "formula_errors",
@@ -86,28 +85,25 @@ pub fn review_hold(context: &HoldContext<'_>, args: &Value, stage: &ReviewStage)
         && args.get("review") != Some(&Value::Bool(false))
         && visual.get("acknowledged").is_none_or(|acknowledged| !truthy(acknowledged))
     {
-        let blockers = visual.get("blockers").and_then(Value::as_array).filter(|blockers| !blockers.is_empty()).map_or_else(String::new, |blockers| {
-            let joined: Vec<String> = blockers.iter().map(mixdog_js::value_to_string).collect();
-            format!("Review not accepted \u{2014} {}. ", joined.join(" \u{b7} "))
-        });
-        let checks: Vec<String> =
-            visual.get("checks").and_then(Value::as_array).map(|checks| checks.iter().map(mixdog_js::value_to_string).collect()).unwrap_or_default();
         return Some(with_review(
             "visual_review_required",
-            vec![
-                ("reviewToken", stage.review_token.clone()),
-                ("visualReview", visual.clone()),
-                (
-                    "nextAction",
-                    json!(format!(
-                        "{blockers}Inspect the actual pages for {}. Record specific keep/fix observations, not checkbox assertions. Correct material issues and rerender. Then submit design.reviewed:true, design.reviewToken and design.critique with one {{page, verdict:'pass', note}} per page; unresolved fixes cannot be accepted. This records agent review, not user approval.",
-                        checks.join(", ")
-                    )),
-                ),
-            ],
+            vec![("reviewToken", stage.review_token.clone()), ("visualReview", visual.clone()), ("nextAction", json!(document_review_instruction(visual)))],
         ));
     }
     None
+}
+
+fn document_review_instruction(visual: &Value) -> String {
+    let blockers = visual.get("blockers").and_then(Value::as_array).filter(|blockers| !blockers.is_empty()).map_or_else(String::new, |blockers| {
+        let joined: Vec<String> = blockers.iter().map(mixdog_js::value_to_string).collect();
+        format!("Review not accepted \u{2014} {}. ", joined.join(" \u{b7} "))
+    });
+    let checks: Vec<String> =
+        visual.get("checks").and_then(Value::as_array).map(|checks| checks.iter().map(mixdog_js::value_to_string).collect()).unwrap_or_default();
+    format!(
+        "{blockers}Inspect the actual pages for {}. Record specific keep/fix observations, not checkbox assertions. Correct material issues and rerender. Then submit design.reviewed:true, design.reviewToken and design.critique with one {{page, verdict:'pass', note}} per page; unresolved fixes cannot be accepted. This records agent review, not user approval.",
+        checks.join(", ")
+    )
 }
 
 #[cfg(test)]

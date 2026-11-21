@@ -307,6 +307,12 @@ crate::server_request_definitions! {
         result: HostComputerPermissionsResult,
         requires: Some("host.computer"),
     },
+    /// The OS's answer about one process, read by the desktop's own computer host (a saved-login owner's pid proof).
+    HostComputerProcessFate => "host/computer/processFate" {
+        params: HostComputerProcessFateParams,
+        result: HostComputerProcessFateResult,
+        requires: Some("host.computer"),
+    },
     /// Revokes automation scopes Computer Use switched off revoked; answered once the desktop refuses their effects.
     HostComputerRevokeScopes => "host/computer/revokeScopes" {
         params: HostComputerRevokeScopesParams,

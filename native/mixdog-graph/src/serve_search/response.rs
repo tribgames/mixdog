@@ -44,10 +44,6 @@ impl ResponseQueue {
         self.changed.notify_one();
     }
 
-    // Generic over the sink so one queue type serves both transports: the
-    // stdio server writes to stdout, and a shared pipe server gives every
-    // accepted connection its own queue + writer thread. Responses must never
-    // cross connections, so ownership of the writer belongs to the queue.
     pub(super) fn run<W: Write>(&self, writer: W) {
         let mut out = BufWriter::new(writer);
         loop {
@@ -90,10 +86,6 @@ impl ResponseQueue {
         }
     }
 
-    /// Release the writer thread. Queued lines are dropped rather than
-    /// written: a caller reaching teardown has already flushed whatever it
-    /// still cared about, and blocking shutdown behind a writer whose consumer
-    /// may itself be gone is how a hung teardown starts.
     pub(super) fn close(&self) {
         let mut state = lock_recover(&self.state);
         state.closed = true;
@@ -105,15 +97,6 @@ impl ResponseQueue {
     }
 }
 
-/// The process-wide outbound route for UNSOLICITED events.
-///
-/// Watcher invalidations are emitted deep inside the engine with no request in
-/// hand, so they cannot travel through a per-request sink. That route is
-/// installable rather than hard-wired to stdout: the in-process addon shares
-/// its host's stdout, and writing JSONL there would corrupt whatever the host
-/// is printing. The addon therefore installs its own queue before the engine
-/// can emit anything; an empty slot means the standalone process, which owns
-/// stdout outright.
 pub(super) static RESPONSE_QUEUE: RwLock<Option<Arc<ResponseQueue>>> = RwLock::new(None);
 
 pub(super) fn response_queue() -> Arc<ResponseQueue> {
@@ -167,13 +150,6 @@ pub(super) fn flush_responses() {
     response_queue().flush();
 }
 
-/// One connected client's outbound channel.
-///
-/// The stdio server has exactly one of these (wrapping the process-wide stdout
-/// queue); a shared server hands every accepted connection its own queue and
-/// writer thread. Request ids are only unique WITHIN a client — each JS client
-/// starts its sequence at 1 — so a response must travel back through the sink
-/// that carried its request, never through a global.
 #[derive(Clone)]
 pub(super) struct ClientSink {
     pub(super) queue: Arc<ResponseQueue>,

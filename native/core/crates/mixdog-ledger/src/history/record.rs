@@ -1,9 +1,3 @@
-//! A surviving original row as a usage record (`importTraceRow` and the part of `makeUsageRecord`
-//! an import takes), and the repricing of restored whole days (`repriceRestoredDays`).
-//!
-//! Imports are priced at their day (`historical`), never at the exact request time, and a daily
-//! sum is priced as a sum (`price_aggregate`): it cannot say which requests crossed a tier.
-
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -130,6 +124,31 @@ fn record_id(record: &UsageRecord, response_id: &str) -> String {
     Sha256::digest(mixdog_js::json_stringify(&identity).as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// The cost of an imported row, where it came from, and whether the row's own supplied cost is the one kept.
+fn classify_cost(kind: &str, supplied: Option<f64>, priced: Option<f64>) -> (Option<f64>, &'static str, bool) {
+    let subscription = kind == "oauth";
+    let reported = supplied.is_some() && !subscription && kind != "local";
+    let cost_usd = if kind == "local" {
+        Some(0.0)
+    } else if reported {
+        supplied
+    } else {
+        priced
+    };
+    let source = if kind == "local" {
+        "local"
+    } else if cost_usd.is_none() {
+        "unpriced"
+    } else if subscription {
+        "subscription"
+    } else if reported {
+        "provider"
+    } else {
+        "catalog"
+    };
+    (cost_usd, source, reported)
+}
+
 /// `importTraceRow` then `makeUsageRecord(.., historical: true)`: `None` for a row that cannot
 /// be recorded (no input or output figure, no provider or model). A figure that
 /// is empty is unknown, and importing it as zero would claim coverage.
@@ -190,26 +209,7 @@ pub(super) fn import_row(row: &Value, pricer: &dyn Pricer) -> Result<Option<Usag
         historical: true,
     })?;
     let supplied = if raw { None } else { supplied_cost(row.get("costUsd")) };
-    let subscription = kind == "oauth";
-    let reported = supplied.is_some() && !subscription && kind != "local";
-    let cost_usd = if kind == "local" {
-        Some(0.0)
-    } else if reported {
-        supplied
-    } else {
-        priced.cost_usd
-    };
-    let cost_source = if kind == "local" {
-        "local"
-    } else if cost_usd.is_none() {
-        "unpriced"
-    } else if subscription {
-        "subscription"
-    } else if reported {
-        "provider"
-    } else {
-        "catalog"
-    };
+    let (cost_usd, cost_source, reported) = classify_cost(kind, supplied, priced.cost_usd);
     let rates = if reported || kind == "local" { Some(own_rates(priced.rates.as_deref(), &provider, kind)) } else { priced.rates };
     let session = first(&[row.get("session_id"), row.get("sessionId")]);
     let session_id = match session {

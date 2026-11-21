@@ -1,6 +1,5 @@
-//! Owner: s4-engine-queue
 //! How one command waits for the work ahead of it on its queue key, and how its own completion is recorded for the commands
-//! after it (`command-queue-barrier.ts`). Reads overlap each other; a write also outlasts the reads already in flight.
+//! after it. Reads overlap each other; a write also outlasts the reads already in flight.
 //!
 //! Every command holds a [`CancellationToken`] that fires when it is done (its [`Admission`] dropped, finished or not). A
 //! write's place on its key is every token it waited for plus its own, so a caller that cancels while still behind an older

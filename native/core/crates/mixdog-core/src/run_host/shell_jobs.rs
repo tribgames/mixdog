@@ -1,8 +1,3 @@
-//! The shell job table as the pool and the worker views read it: Node's `waitedJobSilence` and
-//! `activeBackgroundTaskSessionIds({ surface: 'shell', awaitedOnly: true })` (`background-tasks.mjs`).
-//! Node's task registry is process-wide, so both answer for tasks of sessions that are not loaded;
-//! the runtime's table is too (`ExecRuntime::awaited_owners`, `waited_silence`).
-
 use std::collections::HashSet;
 use std::sync::Arc;
 

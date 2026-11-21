@@ -136,6 +136,20 @@ fn skip_until(data: &[u8], offset: usize, what: &[u8]) -> usize {
     }
 }
 
+/// How many bytes from `position` the object or trailer there takes: up to the end of the next keyword found from
+/// `start_pos`, less that keyword when it is not the `expected` one, to the end of the data when there is none.
+fn section_length(buffer: &[u8], position: usize, start_pos: usize, in_object: bool, expected: &str, context: &str) -> usize {
+    let Some(found) = scan(buffer, start_pos, in_object) else {
+        return buffer.len() - position;
+    };
+    let mut content_length = found.end + 1 - position;
+    if found.text_is != expected {
+        tracing::warn!("indexObjects: Found \"{}\" {context}, caused by missing \"{expected}\" -- trying to recover.", found.text_is);
+        content_length -= (found.end - found.start) + 1;
+    }
+    content_length
+}
+
 /// `readToken`: the bytes from `offset` up to a line end or `<` (the last byte of the data is left out, as in pdf.js).
 fn read_token(data: &[u8], offset: usize) -> &[u8] {
     let mut pos = offset;
@@ -155,6 +169,18 @@ fn read_token(data: &[u8], offset: usize) -> &[u8] {
 impl Xref {
     /// `XRef.indexObjects`: rebuilds the entries by scanning the file and returns the trailer dictionary to use.
     pub(crate) fn index_objects(&self) -> Result<Arc<Dict>> {
+        let (trailers, xref_stms) = self.scan_objects()?;
+        for xref_stm in xref_stms {
+            self.state.borrow_mut().queue.push(xref_stm);
+            self.read_xref(true)?;
+        }
+        let (trailer_dicts, is_encrypted) = self.read_trailer_dicts(&trailers)?;
+        self.choose_trailer(&trailer_dicts, is_encrypted)
+    }
+
+    /// Scans the file for `N G obj` and `trailer`, registering the entries found: returns the offsets of the
+    /// trailers and of the objects that are cross-reference streams.
+    fn scan_objects(&self) -> Result<(Vec<usize>, Vec<i64>)> {
         const TAB: u8 = 0x9;
         const LF: u8 = 0xa;
         const CR: u8 = 0xd;
@@ -199,42 +225,10 @@ impl Xref {
                 position += skip_until(buffer, position, b"startxref");
             } else if let Some((num, generation)) = match_obj_token(token) {
                 let start_pos = position + token.len();
-                let existing = self.state.borrow().entries.get(&num).copied();
-                let update_entries = match existing {
-                    None => true,
-                    Some(e) if e.generation == generation => {
-                        let sub = self.stream.make_sub_stream(start_pos, None);
-                        let checked = Parser::new(Lexer::new(sub, guard.clone()), None, false, false).and_then(|mut parser| parser.get_obj(None));
-                        match checked {
-                            Ok(_) => true,
-                            Err(PdfError::ParserEof(message)) => {
-                                tracing::warn!("indexObjects -- checking object ({}): \"ParserEOFException: {message}\".", String::from_utf8_lossy(token));
-                                false
-                            }
-                            Err(e) if e.is_fatal() => return Err(e),
-                            Err(_) => true,
-                        }
-                    }
-                    Some(_) => false,
-                };
-                if update_entries {
+                if self.replaces_entry(num, generation, start_pos, token)? {
                     self.add_entry_replacing(num, Entry { offset: (position - start) as i64, generation, free: false, uncompressed: true })?;
                 }
-                let content_length = match scan(buffer, start_pos, true) {
-                    Some(found) => {
-                        let end_pos = found.end + 1;
-                        let mut content_length = end_pos - position;
-                        if found.text_is != "endobj" {
-                            tracing::warn!(
-                                "indexObjects: Found \"{}\" inside of another \"obj\", caused by missing \"endobj\" -- trying to recover.",
-                                found.text_is
-                            );
-                            content_length -= (found.end - found.start) + 1;
-                        }
-                        content_length
-                    }
-                    None => length - position,
-                };
+                let content_length = section_length(buffer, position, start_pos, true, "endobj", "inside of another \"obj\"");
                 let content = &buffer[position..length.min(position + content_length)];
                 let xref_tag_offset = skip_until(content, 0, b"/XRef");
                 if xref_tag_offset < content_length && content.get(xref_tag_offset + 5).is_some_and(|b| *b < 64) {
@@ -246,36 +240,44 @@ impl Xref {
             } else if token.starts_with(b"trailer") && (token.len() == 7 || js_space(token[7])) {
                 trailers.push(position);
                 let start_pos = position + token.len();
-                let content_length = match scan(buffer, start_pos, false) {
-                    Some(found) => {
-                        let end_pos = found.end + 1;
-                        let mut content_length = end_pos - position;
-                        if found.text_is != "startxref" {
-                            tracing::warn!(
-                                "indexObjects: Found \"{}\" after \"trailer\", caused by missing \"startxref\" -- trying to recover.",
-                                found.text_is
-                            );
-                            content_length -= (found.end - found.start) + 1;
-                        }
-                        content_length
-                    }
-                    None => length - position,
-                };
-                position += content_length;
+                position += section_length(buffer, position, start_pos, false, "startxref", "after \"trailer\"");
             } else {
                 position += token.len() + 1;
             }
         }
-        for xref_stm in xref_stms {
-            self.state.borrow_mut().queue.push(xref_stm);
-            self.read_xref(true)?;
+        Ok((trailers, xref_stms))
+    }
+
+    /// Whether an `N G obj` found by the scan takes the place of the entry already held for `N`: not when the held
+    /// one has another generation, nor when the object at `start_pos` is cut off.
+    fn replaces_entry(&self, num: i64, generation: i64, start_pos: usize, token: &[u8]) -> Result<bool> {
+        let Some(existing) = self.state.borrow().entries.get(&num).copied() else {
+            return Ok(true);
+        };
+        if existing.generation != generation {
+            return Ok(false);
         }
+        let sub = self.stream.make_sub_stream(start_pos, None);
+        let checked = Parser::new(Lexer::new(sub, self.opts.guard.clone()), None, false, false).and_then(|mut parser| parser.get_obj(None));
+        match checked {
+            Ok(_) => Ok(true),
+            Err(PdfError::ParserEof(message)) => {
+                tracing::warn!("indexObjects -- checking object ({}): \"ParserEOFException: {message}\".", String::from_utf8_lossy(token));
+                Ok(false)
+            }
+            Err(e) if e.is_fatal() => Err(e),
+            Err(_) => Ok(true),
+        }
+    }
+
+    /// The trailer dictionaries at the offsets found, and whether one of them names an `Encrypt`.
+    fn read_trailer_dicts(&self, trailers: &[usize]) -> Result<(Vec<Arc<Dict>>, bool)> {
         let mut trailer_dicts: Vec<Arc<Dict>> = Vec::new();
         let mut is_encrypted = false;
         for trailer in trailers {
             let mut stream = self.stream.clone();
-            stream.pos = trailer;
-            let mut parser = Parser::new(Lexer::new(stream, guard.clone()), Some(self), true, true)?;
+            stream.pos = *trailer;
+            let mut parser = Parser::new(Lexer::new(stream, self.opts.guard.clone()), Some(self), true, true)?;
             if !parser.get_obj(None)?.is_cmd("trailer") {
                 continue;
             }
@@ -287,6 +289,13 @@ impl Xref {
             }
             trailer_dicts.push(dict);
         }
+        Ok((trailer_dicts, is_encrypted))
+    }
+
+    /// The trailer to use: the first one whose catalog leads to a page tree (and that carries `ID`, and `Encrypt`
+    /// when the file is encrypted), else the last readable one, the table's own, or the first object with a `Root`.
+    fn choose_trailer(&self, trailer_dicts: &[Arc<Dict>], is_encrypted: bool) -> Result<Arc<Dict>> {
+        let guard = &self.opts.guard;
         let mut trailer_dict: Option<Arc<Dict>> = None;
         let mut trailer_error = false;
         for pass in 0..2 {
@@ -296,7 +305,7 @@ impl Xref {
                 }
                 self.state.borrow_mut().generation_fallback = true;
             }
-            for dict in &trailer_dicts {
+            for dict in trailer_dicts {
                 guard.tick()?;
                 let valid_pages_dict = match self.trailer_pages_count(dict) {
                     Ok(Some(valid)) => valid,

@@ -337,6 +337,26 @@ fn migration_time(cx: &ItemContext<'_>) -> f64 {
         .map_or(0.0, |d| d.as_millis() as f64)
 }
 
+fn manager_receipt_submissions<'a>(buckets: &'a [Bucket<'_>], manager_delivered: &BTreeSet<&str>) -> Vec<&'a str> {
+    let mut manager_ids: HashMap<&str, Option<&str>> = HashMap::new();
+    for row in buckets.iter().flat_map(|bucket| &bucket.rows) {
+        if let Some(id) = local_id(row, false).filter(|id| manager_delivered.contains(id))
+            && let Some(submission) = submission_id(row)
+        {
+            match manager_ids.entry(id) {
+                std::collections::hash_map::Entry::Occupied(mut old) if *old.get() != Some(submission) => {
+                    old.insert(None);
+                }
+                std::collections::hash_map::Entry::Vacant(slot) => {
+                    slot.insert(Some(submission));
+                }
+                _ => {}
+            }
+        }
+    }
+    manager_ids.into_values().flatten().collect()
+}
+
 pub(super) fn read(
     cx: &ItemContext<'_>,
     owner: &str,
@@ -374,23 +394,7 @@ pub(super) fn read(
     let now = migration_time(cx);
     // Apply the manager's local-ID receipts before making either bucket's
     // submission claims. A reused ID cannot prove which of its rows was sent.
-    let mut manager_ids: HashMap<&str, Option<&str>> = HashMap::new();
-    for row in sources[0].iter().flat_map(|bucket| &bucket.rows) {
-        if let Some(id) = local_id(row, false).filter(|id| manager_delivered.contains(id))
-            && let Some(submission) = submission_id(row)
-        {
-            match manager_ids.entry(id) {
-                std::collections::hash_map::Entry::Occupied(mut old) if *old.get() != Some(submission) => {
-                    old.insert(None);
-                }
-                std::collections::hash_map::Entry::Vacant(slot) => {
-                    slot.insert(Some(submission));
-                }
-                _ => {}
-            }
-        }
-    }
-    delivered.extend(manager_ids.values().copied().flatten());
+    delivered.extend(manager_receipt_submissions(&sources[0], &manager_delivered));
     let mut submissions = BTreeSet::new();
     for ((bucket, tui), sources) in buckets.into_iter().zip(&sources) {
         let mut local_ids = BTreeSet::new();
@@ -438,9 +442,15 @@ pub(super) fn read(
         let shard = |path| path != LEGACY_SPOOL;
         a.0.total_cmp(&b.0).then_with(|| shard(a.2).cmp(&shard(b.2)))
     });
+    Ok(assign_queue_ids(entries))
+}
+
+type Queued<'a> = (f64, Option<&'a str>, &'a str, &'a str, usize, Value);
+
+fn assign_queue_ids(entries: Vec<Queued<'_>>) -> Vec<(String, Value)> {
     let reserved: BTreeSet<_> = entries.iter().filter_map(|e| e.1).collect();
     let mut used = BTreeSet::new();
-    Ok(entries
+    entries
         .into_iter()
         .map(|(_, id, path, bucket, index, entry)| {
             let qid = id.filter(|id| Id::try_from(*id).is_ok() && used.insert((*id).to_owned()));
@@ -453,5 +463,5 @@ pub(super) fn read(
             });
             (qid, entry)
         })
-        .collect())
+        .collect()
 }

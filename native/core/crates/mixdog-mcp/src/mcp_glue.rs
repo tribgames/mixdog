@@ -1,15 +1,11 @@
-//! The process side of MCP management (Node `session-runtime/mcp-glue/*`, the connect half of
-//! `resource-extension-sync.mjs` and `resource-mcp-oauth-api.mjs`): resolving the effective server
-//! set, connecting it on the [`McpHub`], the status rows, the sign-in flows over the hub's
-//! sign-ins, and the [`ExtensionHost`] operations. [`McpGlue`] is the [`McpRuntime`] of the
+//! The process side of MCP management: resolving the effective server set, connecting it on the
+//! [`McpHub`], the status rows, the sign-in flows over the hub's sign-ins, and the
+//! [`ExtensionHost`] operations. [`McpGlue`] is the [`McpRuntime`] of the
 //! [`McpService`](crate::mcp_service::McpService), [`GlueHost`] its [`ExtensionHost`] and
 //! [`GlueSecretOps`] its [`SecretOps`].
 //!
-//! The in-process runtime is single: every session shares the one hub, so Node's fan-out to
-//! "the other session runtimes of this process" has no receiver and only the surface refresh and
-//! the cross-process announcement remain. The management operations below act on the hub's
-//! default scope; a session's own scope (Node's `rt.mcpScopeId`) is a key into the same hub that
-//! [`McpScopes`] opens and releases.
+//! Every session shares the one hub. The management operations below act on the hub's default
+//! scope; a session's own scope is a key into the same hub that [`McpScopes`] opens and releases.
 //!
 //! A catalog connector is one hub server; its private account connections share one tool
 //! catalog and route calls through the `account` selector.
@@ -173,11 +169,9 @@ pub struct McpGlue {
     scopes: Arc<ScopeRuntime>,
 }
 
-/// The MCP scope of a session as the session layer opens and releases it. Node creates the
-/// scope id at boot (`rt.mcpScopeId = randomUUID()`, `boot/begin.mjs:24`), connects the
-/// effective servers under it (`connectMcpServers(servers, { scopeId })`, `mcp-glue/connect.mjs:18,120`)
-/// and disconnects them when the runtime closes (`disconnectAll({ scopeId })`,
-/// `lifecycle/teardown/runtime-stops.mjs:24`).
+/// The MCP scope of a session as the session layer opens and releases it: the scope id is created
+/// at boot, the effective servers are connected under it, and they are disconnected when the
+/// runtime closes.
 #[async_trait]
 pub trait McpScopes: Send + Sync {
     /// Opens `scope`, which `owner` holds, for the servers configured for `cwd`, and returns once
@@ -185,8 +179,7 @@ pub trait McpScopes: Send + Sync {
     /// or the owner was released, so nothing is opened.
     async fn open(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased>;
     /// [`open`](Self::open) without the wait: the scope is registered and its first connect started, and the
-    /// caller goes on while it runs, as a Node runtime's boot starts `connectConfiguredMcp()` unawaited
-    /// (`boot/tools.mjs:56`).
+    /// caller goes on while it runs.
     fn start(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased>;
     /// Releases every scope `owner` holds, exactly once: its servers close. Not awaited.
     fn release(&self, owner: &str);
@@ -194,11 +187,9 @@ pub trait McpScopes: Send + Sync {
     fn release_unloaded(&self, owner: &str) {
         self.release(owner);
     }
-    /// The runtime scope (the one `rt.mcpScopeId` of the runtime the daemon's own callers act as,
-    /// `begin.mjs:24`): opened once, for `cwd`, and returned once its first connect settled. The
-    /// pre-session preview reads it, as Node's preview reads its serving runtime's scope
-    /// (`tool-surface.mjs:100,109,142`). It is never handed to a session: each session is created with a
-    /// scope of its own, as each Node `createSession` boots a runtime of its own.
+    /// The runtime scope (the one the daemon's own callers act as): opened once, for `cwd`, and
+    /// returned once its first connect settled. The pre-session preview reads it. It is never handed
+    /// to a session: each session is created with a scope of its own.
     async fn open_runtime(&self, cwd: &Path) -> Result<String, ScopeReleased>;
     /// `awaitInitialMcpConnect()` for `scope`: returns once its first connect settled or the startup budget passed.
     async fn await_initial(&self, _scope: &str) {}
@@ -390,8 +381,7 @@ impl McpGlue {
         out
     }
 
-    /// What the skill list depends on, as watch targets (Node's `skillRootsSignature` +
-    /// `pluginShallowWatchPaths`): every skills root watched deep, or, while it does not exist yet, its
+    /// What the skill list depends on, as watch targets: every skills root watched deep, or, while it does not exist yet, its
     /// nearest existing ancestor watched shallow; each plugin root (its manifests) and the registry's folder
     /// shallow, so a plugin installed, removed or edited is seen.
     pub fn skill_watch_targets(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> crate::skill_catalog::SkillWatchTargets {
@@ -560,11 +550,9 @@ impl McpGlue {
         (out, bad)
     }
 
-    /// `connectConfiguredMcp`: every open scope runs `op` behind its own earlier operations, each
-    /// resolving its configuration in its own turn (the caller's runtime and Node's fan-out to the
-    /// process's other runtimes, `resource-extension-sync.mjs`, alike). With no scope open nothing
-    /// connects: the change is configuration only, and the next scope opened reads it. The answer
-    /// is the status now.
+    /// Every open scope runs `op` behind its own earlier operations, each resolving its
+    /// configuration in its own turn. With no scope open nothing connects: the change is
+    /// configuration only, and the next scope opened reads it. The answer is the status now.
     async fn connect_configured(&self, op: Op) -> Value {
         for task in self.scopes.fan_out(&op) {
             let _ = task.await;
@@ -722,10 +710,8 @@ impl McpGlue {
         for (name, msg) in self.configs_of(catalog).1.iter() {
             failures.entry(name.clone()).or_insert(Failure { msg: msg.clone(), auth_required: false });
         }
-        // A scope whose first connect did not return carries one generic failure named `mcp`
-        // (`connect.mjs:121-124`: `[{ name: 'mcp', msg }]`), which the status matches by server name
-        // (`server-catalog.mjs:151,159`): an ordinary unconnected server stays `disconnected`, and only a
-        // server literally named `mcp` shows `failed`. A reset, reconnect or reconcile that applies clears it.
+        // A scope whose first connect did not return carries one generic failure named `mcp`, matched by
+        // server name: only a server literally named `mcp` shows `failed`.
         record_scope_failure(&mut failures, self.request_scope().and_then(|scope| self.scopes.failure_of(&scope)));
         // Servers the catalog does not name (and that are no connector account): listed as connected.
         for server in self.live_servers() {
@@ -1134,131 +1120,134 @@ pub fn record_scope_failure(failures: &mut HashMap<String, Failure>, recorded: O
     }
 }
 
-/// `statusRows` and `mcpStatus` of `server-catalog.mjs`.
 pub fn status_value(input: &StatusInput<'_>) -> Value {
     let catalog = input.catalog;
-    let mut servers: Vec<Value> = Vec::new();
-    let mut seen: HashSet<&str> = HashSet::new();
-    for (name, cfg) in &catalog.servers {
-        seen.insert(name);
-        let live = input.live.get(name);
-        // `statusRows`: a registered server whose connection ended by itself is failed, not connected; its row keeps the
-        // tools, capabilities and warnings it had.
-        let alive = live.filter(|l| l.connected);
-        let fail = input.failures.get(name);
-        let entry = catalog.entries.get(name).cloned().unwrap_or(Value::Null);
-        let owner = entry.get("owner").filter(|o| !o.is_null());
-        let pending = alive.is_none() && input.login_pending.contains(name);
-        let stored = if owner.is_some() { Vec::new() } else { accounts_of(cfg) };
-        let connector = if owner.is_some() { None } else { connector_of_server(cfg) };
-        let record = if stored.is_empty() { None } else { connector.and_then(|c| input.in_use.get(c.id)) };
-        let recorded = record.and_then(|(rname, rid)| {
-            stored
-                .iter()
-                .find(|a| clean(&a["name"]) == *rname && !rid.is_empty() && a.get("id").and_then(Value::as_str) == Some(rid.as_str()))
-                .map(|a| clean(&a["name"]))
-        });
-        let in_use = if record.is_some() { recorded } else { stored.iter().find(|a| account_enabled(a)).map(|a| clean(&a["name"])) };
-        let accounts: Vec<Value> = stored
+    let mut servers: Vec<Value> = catalog.servers.iter().map(|(name, cfg)| configured_row(input, name, cfg)).collect();
+    servers.extend(input.live.iter().filter(|(name, _)| !catalog.servers.contains_key(name.as_str())).map(|(name, live)| unconfigured_row(input, name, live)));
+    servers.sort_by(|a, b| mixdog_js::locale_compare(a["name"].as_str().unwrap_or_default(), b["name"].as_str().unwrap_or_default()));
+    json!({
+        "servers": servers,
+        "configuredCount": catalog.servers.len(),
+        "connectedCount": servers.iter().filter(|r| r["connected"] == json!(true)).count(),
+        "failedCount": servers.iter().filter(|r| r["status"] == json!("failed")).count(),
+        "warnings": catalog.warnings,
+        "declarationErrors": declaration_errors(catalog),
+        "googleClient": input.google_client,
+    })
+}
+
+fn configured_row(input: &StatusInput<'_>, name: &String, cfg: &Value) -> Value {
+    let catalog = input.catalog;
+    let live = input.live.get(name);
+    // A registered server whose connection ended by itself is failed, not connected; its row keeps the
+    // tools, capabilities and warnings it had.
+    let alive = live.filter(|l| l.connected);
+    let fail = input.failures.get(name);
+    let entry = catalog.entries.get(name).cloned().unwrap_or(Value::Null);
+    let owner = entry.get("owner").filter(|o| !o.is_null());
+    let pending = alive.is_none() && input.login_pending.contains(name);
+    let stored = if owner.is_some() { Vec::new() } else { accounts_of(cfg) };
+    let connector = if owner.is_some() { None } else { connector_of_server(cfg) };
+    let record = if stored.is_empty() { None } else { connector.and_then(|c| input.in_use.get(c.id)) };
+    let recorded = record.and_then(|(rname, rid)| {
+        stored
             .iter()
-            .map(|a| account_row(input, &account_server(cfg, a), account_enabled(a), in_use.as_deref() == Some(clean(&a["name"]).as_str())))
-            .collect();
-        let accounts_sign_in = !accounts.is_empty() && accounts.iter().all(|a| a["authRequired"] == json!(true));
-        let fail_sign_in = fail.map(|f| Failure { msg: f.msg.clone(), auth_required: f.auth_required || accounts_sign_in });
-        let status = server_status(cfg, alive.is_some(), fail_sign_in.as_ref(), pending);
-        let auth_required = status == "sign-in required";
-        let mut row = Map::new();
-        row.insert("name".to_owned(), json!(name));
-        row.insert("configured".to_owned(), json!(true));
-        row.insert("enabled".to_owned(), json!(cfg.get("enabled") != Some(&Value::Bool(false))));
-        row.insert("connected".to_owned(), json!(alive.is_some()));
-        row.insert("status".to_owned(), json!(status));
-        row.insert("transport".to_owned(), json!(transport_label(cfg)));
-        row.insert("toolCount".to_owned(), json!(live.map_or(0, |l| l.tools.len())));
-        row.insert(
-            "tools".to_owned(),
-            Value::Array(live.map(|l| l.tools.iter().map(|(n, d)| json!({"name": n, "description": d})).collect()).unwrap_or_default()),
-        );
-        let caps = live.map(|l| &l.capabilities);
-        let cap = |key: &str| caps.and_then(|c| c.get(key)).is_some_and(truthy);
-        row.insert("capabilities".to_owned(), json!({"tools": cap("tools"), "prompts": cap("prompts"), "resources": cap("resources")}));
-        row.insert("error".to_owned(), if auth_required { Value::Null } else { fail.map_or(Value::Null, |f| json!(f.msg)) });
-        // `server-catalog.mjs:198`: the catalog entry's warnings, then the connection's.
-        let mut warnings = entry.get("warnings").and_then(Value::as_array).cloned().unwrap_or_default();
-        warnings.extend(live.into_iter().flat_map(|l| l.warnings.iter().map(|w| json!(w))));
-        row.insert("warnings".to_owned(), Value::Array(warnings));
-        row.insert("source".to_owned(), catalog.sources.get(name).cloned().unwrap_or(json!("config")));
-        if auth_required {
-            row.insert("authRequired".to_owned(), json!(true));
+            .find(|a| clean(&a["name"]) == *rname && !rid.is_empty() && a.get("id").and_then(Value::as_str) == Some(rid.as_str()))
+            .map(|a| clean(&a["name"]))
+    });
+    let in_use = if record.is_some() { recorded } else { stored.iter().find(|a| account_enabled(a)).map(|a| clean(&a["name"])) };
+    let accounts: Vec<Value> =
+        stored.iter().map(|a| account_row(input, &account_server(cfg, a), account_enabled(a), in_use.as_deref() == Some(clean(&a["name"]).as_str()))).collect();
+    let accounts_sign_in = !accounts.is_empty() && accounts.iter().all(|a| a["authRequired"] == json!(true));
+    let fail_sign_in = fail.map(|f| Failure { msg: f.msg.clone(), auth_required: f.auth_required || accounts_sign_in });
+    let status = server_status(cfg, alive.is_some(), fail_sign_in.as_ref(), pending);
+    let auth_required = status == "sign-in required";
+    let mut row = Map::new();
+    row.insert("name".to_owned(), json!(name));
+    row.insert("configured".to_owned(), json!(true));
+    row.insert("enabled".to_owned(), json!(cfg.get("enabled") != Some(&Value::Bool(false))));
+    row.insert("connected".to_owned(), json!(alive.is_some()));
+    row.insert("status".to_owned(), json!(status));
+    row.insert("transport".to_owned(), json!(transport_label(cfg)));
+    row.insert("toolCount".to_owned(), json!(live.map_or(0, |l| l.tools.len())));
+    row.insert("tools".to_owned(), Value::Array(live.map(|l| l.tools.iter().map(|(n, d)| json!({"name": n, "description": d})).collect()).unwrap_or_default()));
+    let caps = live.map(|l| &l.capabilities);
+    let cap = |key: &str| caps.and_then(|c| c.get(key)).is_some_and(truthy);
+    row.insert("capabilities".to_owned(), json!({"tools": cap("tools"), "prompts": cap("prompts"), "resources": cap("resources")}));
+    row.insert("error".to_owned(), if auth_required { Value::Null } else { fail.map_or(Value::Null, |f| json!(f.msg)) });
+    let mut warnings = entry.get("warnings").and_then(Value::as_array).cloned().unwrap_or_default();
+    warnings.extend(live.into_iter().flat_map(|l| l.warnings.iter().map(|w| json!(w))));
+    row.insert("warnings".to_owned(), Value::Array(warnings));
+    row.insert("source".to_owned(), catalog.sources.get(name).cloned().unwrap_or(json!("config")));
+    if auth_required {
+        row.insert("authRequired".to_owned(), json!(true));
+    }
+    if let Some(connector) = connector {
+        row.insert("connector".to_owned(), json!(connector.id));
+    }
+    let oauth = input.oauth.get(name);
+    if let Some(oauth) = oauth {
+        let mut state = oauth.clone();
+        if auth_required && let Some(f) = fail {
+            state["lastError"] = json!(f.msg);
         }
-        if let Some(connector) = connector {
-            row.insert("connector".to_owned(), json!(connector.id));
-        }
-        let oauth = input.oauth.get(name);
-        if let Some(oauth) = oauth {
-            let mut state = oauth.clone();
-            if auth_required && let Some(f) = fail {
-                state["lastError"] = json!(f.msg);
-            }
-            row.insert("oauth".to_owned(), state);
-        }
-        let address = gmail_app_password_account(cfg);
-        if !address.is_empty() {
-            row.insert("appPassword".to_owned(), json!({"account": address}));
-        }
-        if connector.is_some() && cfg.get("oauthClientId").and_then(Value::as_str).is_some_and(|s| !mixdog_js::js_trim(s).is_empty()) {
+        row.insert("oauth".to_owned(), state);
+    }
+    let address = gmail_app_password_account(cfg);
+    if !address.is_empty() {
+        row.insert("appPassword".to_owned(), json!({"account": address}));
+    }
+    if connector.is_some() && cfg.get("oauthClientId").and_then(Value::as_str).is_some_and(|s| !mixdog_js::js_trim(s).is_empty()) {
+        row.insert("ownClient".to_owned(), json!(true));
+    }
+    if !accounts.is_empty() {
+        if accounts.iter().any(|a| a["ownClient"] == json!(true)) {
             row.insert("ownClient".to_owned(), json!(true));
         }
-        if !accounts.is_empty() {
-            if accounts.iter().any(|a| a["ownClient"] == json!(true)) {
-                row.insert("ownClient".to_owned(), json!(true));
+        if accounts.len() == 1 {
+            if let Some(o) = accounts[0].get("oauth") {
+                row.insert("oauth".to_owned(), o.clone());
             }
-            if accounts.len() == 1 {
-                if let Some(o) = accounts[0].get("oauth") {
-                    row.insert("oauth".to_owned(), o.clone());
-                }
-                if let Some(p) = accounts[0].get("appPassword") {
-                    row.insert("appPassword".to_owned(), p.clone());
-                }
-            }
-            row.insert("accounts".to_owned(), Value::Array(accounts));
-        }
-        if let Some(owner) = owner {
-            row.insert("owner".to_owned(), owner.clone());
-            row.insert("pluginEnabled".to_owned(), entry["pluginEnabled"].clone());
-            row.insert("serverEnabled".to_owned(), entry["serverEnabled"].clone());
-            if entry["pluginEnabled"] != json!(true) {
-                row.insert("disabledReason".to_owned(), json!("plugin disabled"));
-            } else if entry["serverEnabled"] != json!(true) {
-                row.insert("disabledReason".to_owned(), json!("server disabled"));
+            if let Some(p) = accounts[0].get("appPassword") {
+                row.insert("appPassword".to_owned(), p.clone());
             }
         }
-        servers.push(Value::Object(row));
+        row.insert("accounts".to_owned(), Value::Array(accounts));
     }
-    for (name, live) in input.live {
-        if seen.contains(name.as_str()) {
-            continue;
+    if let Some(owner) = owner {
+        row.insert("owner".to_owned(), owner.clone());
+        row.insert("pluginEnabled".to_owned(), entry["pluginEnabled"].clone());
+        row.insert("serverEnabled".to_owned(), entry["serverEnabled"].clone());
+        if entry["pluginEnabled"] != json!(true) {
+            row.insert("disabledReason".to_owned(), json!("plugin disabled"));
+        } else if entry["serverEnabled"] != json!(true) {
+            row.insert("disabledReason".to_owned(), json!("server disabled"));
         }
-        let mut row = json!({
-            "name": name, "connected": live.connected, "warnings": live.warnings, "toolCount": live.tools.len(),
-            "tools": live.tools.iter().map(|(n, d)| json!({"name": n, "description": d})).collect::<Vec<_>>(),
-            "capabilities": {
-                "tools": live.capabilities.get("tools").is_some_and(truthy),
-                "prompts": live.capabilities.get("prompts").is_some_and(truthy),
-                "resources": live.capabilities.get("resources").is_some_and(truthy),
-            },
-            "configured": false, "status": "connected",
-        });
-        // `{ ...live, configured: false, status: 'connected' }`: a dead connection's row carries how it ended.
-        if !live.connected
-            && let Some(f) = input.failures.get(name)
-        {
-            row["error"] = json!(f.msg);
-        }
-        servers.push(row);
     }
-    servers.sort_by(|a, b| mixdog_js::locale_compare(a["name"].as_str().unwrap_or_default(), b["name"].as_str().unwrap_or_default()));
-    let declaration_errors: Vec<Value> = catalog
+    Value::Object(row)
+}
+
+fn unconfigured_row(input: &StatusInput<'_>, name: &String, live: &LiveServer) -> Value {
+    let mut row = json!({
+        "name": name, "connected": live.connected, "warnings": live.warnings, "toolCount": live.tools.len(),
+        "tools": live.tools.iter().map(|(n, d)| json!({"name": n, "description": d})).collect::<Vec<_>>(),
+        "capabilities": {
+            "tools": live.capabilities.get("tools").is_some_and(truthy),
+            "prompts": live.capabilities.get("prompts").is_some_and(truthy),
+            "resources": live.capabilities.get("resources").is_some_and(truthy),
+        },
+        "configured": false, "status": "connected",
+    });
+    if !live.connected
+        && let Some(f) = input.failures.get(name)
+    {
+        row["error"] = json!(f.msg);
+    }
+    row
+}
+
+fn declaration_errors(catalog: &Catalog) -> Vec<Value> {
+    catalog
         .plugins
         .values()
         .flat_map(|plugin| {
@@ -1275,16 +1264,7 @@ pub fn status_value(input: &StatusInput<'_>) -> Value {
                 })
                 .collect::<Vec<_>>()
         })
-        .collect();
-    json!({
-        "servers": servers,
-        "configuredCount": catalog.servers.len(),
-        "connectedCount": servers.iter().filter(|r| r["connected"] == json!(true)).count(),
-        "failedCount": servers.iter().filter(|r| r["status"] == json!("failed")).count(),
-        "warnings": catalog.warnings,
-        "declarationErrors": declaration_errors,
-        "googleClient": input.google_client,
-    })
+        .collect()
 }
 
 // ── McpRuntime ────────────────────────────────────────────────────────────────────────────
@@ -1305,13 +1285,6 @@ impl McpRuntime for McpGlue {
     async fn scope_of_request(&self, thread: Option<&str>) -> Result<Option<String>, String> {
         match thread {
             Some(thread) => Ok(self.surface.thread_scope(thread).await?.filter(|scope| self.scopes.is_open(scope))),
-            // Before the boot's spawn has run, this request starts the connect itself; it never waits for it
-            // here. What Node waits for waits on the scope's own barrier: a status read (`mcpStatus()`,
-            // `server-catalog.mjs:239`) and a config, sign-in or flow read answer from the state of the
-            // moment while `connectConfiguredMcp()` runs in the background (`boot/tools.mjs:56`), and
-            // `reconnectMcp`, `setMcpServerEnabled` and the other writes queue behind the in-flight connect
-            // (`connect.mjs:70-88`: they run in the scope's fan-out, `ScopeRuntime::fan_out`). A tool call is
-            // not this request: it names its session's scope and finds the server absent (`client.mjs:499`).
             None => {
                 let cwd = self.surface.current_cwd(None).await?;
                 self.scopes.start_runtime(&cwd.to_string_lossy()).map(Some).map_err(|error| format!("the runtime's MCP scope: {error}"))
@@ -1705,25 +1678,28 @@ mod probe_tests {
         assert_eq!(error, format!("Unknown autoDetect target: \"{shown}\""));
     }
 
-    /// The sign-in itself refuses a switched-off account or one whose connector server is switched off, whatever the
-    /// request was checked against.
+    fn sign_in_servers(enabled: bool) -> Map<String, Value> {
+        json!({"linear": {"connector": "linear", "enabled": enabled, "url": "https://mcp.linear.app/mcp", "accounts": [
+            {"name": "work", "url": "https://mcp.linear.app/mcp", "enabled": false},
+            {"name": "home", "url": "https://mcp.linear.app/mcp"},
+        ]}, "plain": {"url": "https://x.example/mcp", "enabled": false}})
+        .as_object()
+        .cloned()
+        .unwrap()
+    }
+
     #[test]
     fn a_sign_in_refuses_a_disabled_account_or_parent() {
-        let servers = |enabled: bool| {
-            json!({"linear": {"connector": "linear", "enabled": enabled, "url": "https://mcp.linear.app/mcp", "accounts": [
-                {"name": "work", "url": "https://mcp.linear.app/mcp", "enabled": false},
-                {"name": "home", "url": "https://mcp.linear.app/mcp"},
-            ]}, "plain": {"url": "https://x.example/mcp", "enabled": false}})
-            .as_object()
-            .cloned()
-            .unwrap()
-        };
+        let servers = sign_in_servers;
         assert_eq!(disabled_for_sign_in(&servers(true), "work").as_deref(), Some("MCP server is disabled: work"));
         assert_eq!(disabled_for_sign_in(&servers(true), "home"), None);
         assert_eq!(disabled_for_sign_in(&servers(false), "home").as_deref(), Some("MCP server is disabled: linear"));
         assert_eq!(disabled_for_sign_in(&servers(true), "plain").as_deref(), Some("MCP server is disabled: plain"));
+    }
 
-        // What the sign-in proceeds with is read again after its reconnect: an account switched off meanwhile is refused.
+    #[test]
+    fn a_sign_in_target_is_read_again_and_refuses_an_account_switched_off_meanwhile() {
+        let servers = sign_in_servers;
         let (account, named) = sign_in_target(&servers(true), "home").unwrap();
         assert_eq!(account.map(|a| a.server_name).as_deref(), Some("linear"));
         assert_eq!((named["name"].as_str(), named["url"].as_str()), (Some("home"), Some("https://mcp.linear.app/mcp")));

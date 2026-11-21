@@ -75,30 +75,40 @@ pub(crate) fn save_with_object_streams(store: &ObjectStore, encrypted: bool) -> 
 
     let mut next_num = store.largest_object_number() + 1;
     for chunk in &chunks {
-        let stream_num = next_num;
+        write_object_stream(&mut out, &mut placed, next_num, chunk);
         next_num += 1;
-        let mut header = String::new();
-        let mut body: Vec<u8> = Vec::new();
-        for (index, (r, obj)) in chunk.iter().enumerate() {
-            header.push_str(&format!("{} {} ", r.num, body.len()));
-            write_obj(&mut body, obj);
-            body.push(b'\n');
-            placed.insert(r.num, Placed::Packed { stream: stream_num, index });
-        }
-        let mut dict = Dict::new();
-        dict.set("Type", Obj::name("ObjStm"));
-        dict.set("N", Obj::Num(chunk.len() as f64));
-        dict.set("First", Obj::Num(header.len() as f64));
-        let mut contents = header.into_bytes();
-        contents.extend_from_slice(&body);
-        placed.insert(stream_num, Placed::Plain { offset: out.len(), generation: 0 });
-        write_indirect(&mut out, Ref::new(stream_num, 0), &flate_stream(dict, &contents));
     }
 
     let xref_num = next_num;
     let xref_offset = out.len();
     placed.insert(xref_num, Placed::Plain { offset: xref_offset, generation: 0 });
+    write_xref_stream(&mut out, store, &placed, xref_num);
+    out.extend_from_slice(format!("startxref\n{xref_offset}\n%%EOF\n").as_bytes());
+    out
+}
 
+/// One `ObjStm` numbered `stream_num` holding `chunk`, written at the end of `out`.
+fn write_object_stream(out: &mut Vec<u8>, placed: &mut BTreeMap<i64, Placed>, stream_num: i64, chunk: &[(Ref, &Obj)]) {
+    let mut header = String::new();
+    let mut body: Vec<u8> = Vec::new();
+    for (index, (r, obj)) in chunk.iter().enumerate() {
+        header.push_str(&format!("{} {} ", r.num, body.len()));
+        write_obj(&mut body, obj);
+        body.push(b'\n');
+        placed.insert(r.num, Placed::Packed { stream: stream_num, index });
+    }
+    let mut dict = Dict::new();
+    dict.set("Type", Obj::name("ObjStm"));
+    dict.set("N", Obj::Num(chunk.len() as f64));
+    dict.set("First", Obj::Num(header.len() as f64));
+    let mut contents = header.into_bytes();
+    contents.extend_from_slice(&body);
+    placed.insert(stream_num, Placed::Plain { offset: out.len(), generation: 0 });
+    write_indirect(out, Ref::new(stream_num, 0), &flate_stream(dict, &contents));
+}
+
+/// The cross-reference stream numbered `xref_num` for everything in `placed`, written at the end of `out`.
+fn write_xref_stream(out: &mut Vec<u8>, store: &ObjectStore, placed: &BTreeMap<i64, Placed>, xref_num: i64) {
     let fields: Vec<(i64, [u64; 3])> = placed
         .iter()
         .map(|(num, place)| {
@@ -136,7 +146,5 @@ pub(crate) fn save_with_object_streams(store: &ObjectStore, encrypted: bool) -> 
     }
     dict.set("W", Obj::Array(std::sync::Arc::new(widths.iter().map(|w| Obj::Num(*w as f64)).collect())));
     dict.set("Index", Obj::Array(std::sync::Arc::new(index)));
-    write_indirect(&mut out, Ref::new(xref_num, 0), &flate_stream(dict, &contents));
-    out.extend_from_slice(format!("startxref\n{xref_offset}\n%%EOF\n").as_bytes());
-    out
+    write_indirect(out, Ref::new(xref_num, 0), &flate_stream(dict, &contents));
 }

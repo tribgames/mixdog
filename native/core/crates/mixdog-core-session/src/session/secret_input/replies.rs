@@ -255,19 +255,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_browser_reply_and_failure_hide_the_sessions_secret_and_nothing_else() {
+    async fn a_browser_reply_hides_the_sessions_secret_and_nothing_else() {
         let secrets = remembering("S1", VALUE);
         let reply = json!({ "text": format!("field shows {VALUE}!"), "url": format!("https://x.test/?q={VALUE}"), "n": 3 });
-        let shown = RedactingHostCommands::new(Arc::new(Page { reply: reply.clone(), failure: None }), secrets.clone());
+        let shown = RedactingHostCommands::new(Arc::new(Page { reply: reply.clone(), failure: None }), secrets);
         let got = shown.browser(&ThreadId::from("S1"), "read", json!({}), &mixdog_rt::CancellationToken::new()).await.unwrap();
         assert_eq!(got["text"], "field shows [redacted]!");
         assert_eq!((&got["url"], &got["n"]), (&reply["url"], &reply["n"]), "only the reply text is redacted, as Node does");
         let other = shown.browser(&ThreadId::from("S2"), "read", json!({}), &mixdog_rt::CancellationToken::new()).await.unwrap();
         assert_eq!(other, reply, "another session's reply is untouched");
-        let failing = RedactingHostCommands::new(Arc::new(Page { reply: json!({}), failure: Some(format!("typed {VALUE} failed")) }), secrets);
+    }
+
+    #[tokio::test]
+    async fn a_browser_failure_hides_the_sessions_secret() {
+        let failing = RedactingHostCommands::new(Arc::new(Page { reply: json!({}), failure: Some(format!("typed {VALUE} failed")) }), remembering("S1", VALUE));
         let error = failing.browser(&ThreadId::from("S1"), "read", json!({}), &mixdog_rt::CancellationToken::new()).await.unwrap_err();
         assert_eq!(error, HostCommandError::Rpc { code: -32000, message: "typed [redacted] failed".into(), timing: Some(json!({ "ms": 3 })) });
-        assert_eq!(failing.visualize(&ThreadId::from("S1"), "/p", "x", json!({}), &mixdog_rt::CancellationToken::new()).await.unwrap(), json!({}));
+    }
+
+    #[tokio::test]
+    async fn a_visualize_reply_passes_as_it_came() {
+        let shown = RedactingHostCommands::new(Arc::new(Page { reply: json!({ "text": VALUE }), failure: None }), remembering("S1", VALUE));
+        let got = shown.visualize(&ThreadId::from("S1"), "/p", "x", json!({}), &mixdog_rt::CancellationToken::new()).await.unwrap();
+        assert_eq!(got, json!({ "text": VALUE }));
     }
 
     #[tokio::test]
@@ -348,10 +358,6 @@ mod tests {
         }
     }
 
-    /// The whole path: the card's value arrives through `approval/provideSecret`, the computer fill
-    /// types it, and every reply the agent can see afterwards - browser and computer, text and
-    /// failure - carries `[redacted]`. Those replies are what becomes the tool results, so none of
-    /// them, and so nothing stored in the transcript, holds the value.
     #[tokio::test]
     async fn a_provided_secret_is_in_no_reply_the_agent_sees() {
         let slots = Arc::new(SecretSlots::new(Duration::from_secs(120)));

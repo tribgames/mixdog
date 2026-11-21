@@ -99,8 +99,13 @@ struct Pin {
     note: String,
 }
 
-/// `feedbackDisplay(body)`: the live bubble's lines for one feedback block.
-fn feedback_display(body: &str) -> String {
+struct Feedback {
+    pins: Vec<Pin>,
+    choices: Vec<(String, String, String)>,
+    tweak_sets: Vec<Vec<String>>,
+}
+
+fn parse_feedback(body: &str) -> Feedback {
     let mut pins: Vec<Pin> = Vec::new();
     let mut choices: Vec<(String, String, String)> = Vec::new();
     let mut pin: Option<usize> = None;
@@ -159,6 +164,12 @@ fn feedback_display(body: &str) -> String {
             choices.push((unquote(choice.get(1)), unquote(choice.get(2)), unquote(choice.get(3))));
         }
     }
+    Feedback { pins, choices, tweak_sets }
+}
+
+/// `feedbackDisplay(body)`: the live bubble's lines for one feedback block.
+fn render_feedback(feedback: &Feedback) -> String {
+    let Feedback { pins, choices, tweak_sets } = feedback;
     let mut lines: Vec<String> = pins.iter().map(|p| format!("📌 {} · {} — {}", p.n, p.label, collapse_spaces(&p.note))).collect();
     if !choices.is_empty() {
         let picks: Vec<String> = choices
@@ -181,7 +192,7 @@ fn with_visualize_feedback_display(text: String) -> String {
     if !text.contains(FEEDBACK_OPEN) {
         return text;
     }
-    FEEDBACK_BLOCK.replace_all_with(&text, |caps| feedback_display(caps.get(1).unwrap_or_default()))
+    FEEDBACK_BLOCK.replace_all_with(&text, |caps| render_feedback(&parse_feedback(caps.get(1).unwrap_or_default())))
 }
 
 // ── toolResultText ───────────────────────────────────────────────────────────
@@ -461,8 +472,12 @@ impl<'a> UserText<'a> {
                 String::new()
             };
         }
+        self.resolve_entries(texts, companion_text)
+    }
+
+    fn resolve_entries(&mut self, entries: Vec<Entry>, companion_text: bool) -> Vec<String> {
         let mut resolved = Vec::new();
-        for entry in texts {
+        for entry in entries {
             match entry {
                 Entry::Text(text) => resolved.push(text),
                 Entry::Offloaded(hex) if !companion_text => {
@@ -507,5 +522,42 @@ mod attachment_text_tests {
     #[test]
     fn quotes_and_angle_brackets_in_a_file_name_become_underscores() {
         assert_eq!(attachment_text("x", Some("file"), Some("<a> \"b\" 'c'.txt")), "<file name=\"_a_ _b_ _c_.txt\">\nx\n</file>");
+    }
+}
+
+#[cfg(test)]
+mod user_bubble_tests {
+    use serde_json::Value;
+    use serde_json::json;
+
+    use super::Blobs;
+    use super::ReadError;
+    use super::UserText;
+
+    struct OneBlob(&'static str);
+
+    impl Blobs for OneBlob {
+        fn text_within(&self, _hex: &str, _max_bytes: u64) -> Result<Option<String>, ReadError> {
+            Ok(Some(self.0.to_owned()))
+        }
+    }
+
+    const REF: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn a_feedback_block_shows_its_pins_choices_and_tweaks() {
+        let body = "<visualize_feedback>\npin 1 · Header\n  note: make it\n    bigger\nchoices:\n· group: \"Layout\" → choice: \"A\" (\"Wide\")\n· group: (none) → choice: \"B\"\ntweaks (x):\n  - tab: t\n    size (px): 12 (was 10)\n</visualize_feedback>";
+        let blobs = OneBlob("");
+        let text = UserText::new(&blobs).text(Some(&Value::String(body.to_owned())));
+        assert_eq!(text, "📌 1 · Header — make it bigger\n☑ Layout: Wide, B\n🎚 size: 12 (was 10)");
+    }
+
+    #[test]
+    fn an_offloaded_prompt_is_read_only_when_no_other_text_comes_with_it() {
+        let blobs = OneBlob("the long prompt");
+        let alone = json!([{ "type": "text", "attachmentRef": REF }]);
+        assert_eq!(UserText::new(&blobs).text(Some(&alone)), "the long prompt");
+        let with_text = json!([{ "type": "text", "text": "hi" }, { "type": "text", "attachmentRef": REF }]);
+        assert_eq!(UserText::new(&blobs).text(Some(&with_text)), "hi");
     }
 }

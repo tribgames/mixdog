@@ -463,10 +463,6 @@ async fn a_heartbeat_stopped_before_its_first_tick_never_ticks() {
     run_for(&r, 2_000).await;
     assert_eq!(asked(&r), 0);
 }
-/// Node's `stopHeartbeat()` clears both timers when it is called and returns `heartbeat.idle()`,
-/// which the shutdown awaits only after the model proxy has closed: the halt is at once, the wait
-/// settles when the check in progress has ended, and a tick the interval made before found it
-/// running and began none.
 #[tokio::test(start_paused = true)]
 async fn a_halt_is_at_once_and_the_wait_ends_with_the_check_running() {
     let r = rig(None, None).await;
@@ -669,4 +665,18 @@ async fn nineteen_unclosed_sessions_still_let_a_check_run() {
     r.step("woke", 1, 1, Some("Reported."), 19).await;
     assert_eq!(r.wakes(), [routine_item()]);
     assert_eq!(r.store.state().await.unreleased.len(), 19);
+}
+
+#[test]
+fn a_state_file_is_read_back_keeping_only_the_pending_reviews_and_report_it_can_use() {
+    let state = super::state::HeartbeatState::from_value(&json!({
+        "pending": [{ "key": "k1", "text": "look", "at": 5 }, { "text": "no key" }, "junk"],
+        "reviews": { "s1": { "head": "h1", "note": "n1", "at": 7 }, "s2": { "head": "", "note": "n" }, "s3": { "head": "h3" } },
+        "lastReport": { "text": "done", "at": 9 },
+    }));
+    assert_eq!(state.pending.iter().map(|p| (p.key.as_str(), p.text.as_str(), p.at)).collect::<Vec<_>>(), [("k1", "look", 5)]);
+    assert_eq!(state.reviews.iter().map(|(id, r)| (id.as_str(), r.head.as_str(), r.note.as_str(), r.at)).collect::<Vec<_>>(), [("s1", "h1", "n1", 7)]);
+    assert_eq!(state.last_report.as_ref().map(|r| (r.text.as_str(), r.at)), Some(("done", 9)));
+    let empty = super::state::HeartbeatState::from_value(&json!({ "lastReport": { "text": "" } }));
+    assert!(empty.last_report.is_none() && empty.pending.is_empty() && empty.reviews.is_empty());
 }

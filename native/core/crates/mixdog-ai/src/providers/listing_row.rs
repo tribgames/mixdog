@@ -1,8 +1,3 @@
-//! The listing row of the providers that keep their Node row shape (`grok`,
-//! `cursor`, `devin`, `local`): the provider's row verbatim in
-//! [`ModelRecord::raw`] and the typed record read from the same keys, so the
-//! two can never disagree.
-
 use mixdog_core_api::domain::provider::EnrichedRow;
 use mixdog_core_api::domain::provider::ModelRecord;
 use serde::de::DeserializeOwned;

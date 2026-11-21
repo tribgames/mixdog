@@ -411,6 +411,47 @@ pub fn with_own_counts(files: Vec<Obj>, find: impl Fn(&str) -> Option<OwnStat>) 
         .collect()
 }
 
+struct ViewRow {
+    obj: Obj,
+    text: String,
+}
+
+/// A file known to have changed whose content is gone: its diff is not known.
+fn unmeasured_row(path: String) -> ViewRow {
+    let mut obj = Obj::new();
+    obj.insert("path".into(), Value::String(path));
+    obj.insert("status".into(), Value::String("M".into()));
+    obj.insert("additions".into(), Value::from(0));
+    obj.insert("deletions".into(), Value::from(0));
+    ViewRow { obj, text: String::new() }
+}
+
+fn chain_row(differ: &LineDiffer, chain: &Chain, root: &PatchRoot, budget: &mut LineDiffBudget) -> Option<ViewRow> {
+    let edit = chain_edit(chain, &root.root)?;
+    if root.git && !edit.inside {
+        return None;
+    }
+    let rendered: Vec<Rendered> = edit.steps.iter().map(|step| render_step(differ, step, &root.root, budget)).collect();
+    let path = view_path(&root.root, &edit.end);
+    let old_path = view_path(&root.root, &edit.start);
+    let mut obj = Obj::new();
+    obj.insert("path".into(), Value::String(path.clone()));
+    if old_path != path {
+        obj.insert("oldPath".into(), Value::String(old_path));
+    }
+    obj.insert("status".into(), Value::String(edit.status.to_string()));
+    obj.insert("additions".into(), Value::from(rendered.iter().map(|r| r.additions).sum::<u64>()));
+    obj.insert("deletions".into(), Value::from(rendered.iter().map(|r| r.deletions).sum::<u64>()));
+    if edit.binary {
+        obj.insert("binary".into(), Value::Bool(true));
+    }
+    if let Some(ReviewContent::Omitted { size, .. }) = edit.omitted_marker() {
+        obj.insert("omitted".into(), Value::Bool(true));
+        obj.insert("size".into(), Value::from(*size));
+    }
+    Some(ViewRow { obj, text: rendered.iter().map(|r| r.text.as_str()).collect() })
+}
+
 /// The tracker's own changes as the review shows them: a row per file with its own counts, and the
 /// display patch of its segments, named relative to the tracker's patch root. Beside a Git root a
 /// file outside it is left out, as from the record's undoable files. Cached per revision; `budget`
@@ -422,47 +463,14 @@ pub fn tracker_view(differ: &LineDiffer, state: &mut TrackerState, root: &PatchR
     {
         return view.clone();
     }
-    struct Row {
-        obj: Obj,
-        text: String,
-    }
-    let mut rows: Vec<Row> = Vec::new();
+    let mut rows: Vec<ViewRow> = Vec::new();
     if !state.valid {
-        // The content is gone: which files changed is known, their diff is not.
-        for path in owned_paths_under(&root.root, &state.owned_paths) {
-            let mut obj = Obj::new();
-            obj.insert("path".into(), Value::String(path));
-            obj.insert("status".into(), Value::String("M".into()));
-            obj.insert("additions".into(), Value::from(0));
-            obj.insert("deletions".into(), Value::from(0));
-            rows.push(Row { obj, text: String::new() });
-        }
+        rows.extend(owned_paths_under(&root.root, &state.owned_paths).into_iter().map(unmeasured_row));
     }
     for chain in state.chains.values() {
-        let Some(edit) = chain_edit(chain, &root.root) else { continue };
-        if root.git && !edit.inside {
-            continue;
+        if let Some(row) = chain_row(differ, chain, root, budget) {
+            rows.push(row);
         }
-        let rendered: Vec<Rendered> = edit.steps.iter().map(|step| render_step(differ, step, &root.root, budget)).collect();
-        let path = view_path(&root.root, &edit.end);
-        let old_path = view_path(&root.root, &edit.start);
-        let mut obj = Obj::new();
-        obj.insert("path".into(), Value::String(path.clone()));
-        if old_path != path {
-            obj.insert("oldPath".into(), Value::String(old_path));
-        }
-        obj.insert("status".into(), Value::String(edit.status.to_string()));
-        obj.insert("additions".into(), Value::from(rendered.iter().map(|r| r.additions).sum::<u64>()));
-        obj.insert("deletions".into(), Value::from(rendered.iter().map(|r| r.deletions).sum::<u64>()));
-        if edit.binary {
-            obj.insert("binary".into(), Value::Bool(true));
-        }
-        // Its bytes were never captured: listed, never diffed or undone.
-        if let Some(ReviewContent::Omitted { size, .. }) = edit.omitted_marker() {
-            obj.insert("omitted".into(), Value::Bool(true));
-            obj.insert("size".into(), Value::from(*size));
-        }
-        rows.push(Row { obj, text: rendered.iter().map(|r| r.text.as_str()).collect() });
     }
     rows.sort_by(|left, right| {
         let l = left.obj.get("path").and_then(Value::as_str).unwrap_or("");

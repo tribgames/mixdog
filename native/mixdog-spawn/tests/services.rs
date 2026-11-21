@@ -256,12 +256,21 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
     assert_eq!(attach(2).await["cols"], claimed["cols"]);
     service.notify(Method("terminal/resize"), json!({ "tabId": id, "cols": released["cols"], "rows": released["rows"], "claim": true }), ConnectionId(1));
     assert_eq!(attach(2).await, Value::Null);
+    service.call(request("terminal/dispose", json!({ "tabId": id }), 2)).await.unwrap();
+}
 
+#[tokio::test(flavor = "multi_thread")]
+async fn terminal_pause_and_resume_answer_with_an_empty_result() {
+    let manager = manager();
+    let feeds = ProcessFeeds::new(manager.clone(), scoped());
+    let service = TerminalService::new(manager, feeds, Arc::new(SectionLog::default()), TerminalServiceConfig::default());
+    let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    service.call(request("terminal/ensure", json!({ "tabId": "term_flow", "options": { "cwd": cwd } }), 1)).await.unwrap();
     for method in ["terminal/pause", "terminal/resume"] {
-        let reply = service.call(request(method, json!({ "tabId": id }), 2)).await.unwrap();
+        let reply = service.call(request(method, json!({ "tabId": "term_flow" }), 2)).await.unwrap();
         assert!(matches!(reply, Reply::Value(ref v) if v == &json!({})), "{method} answers with an empty result");
     }
-    service.call(request("terminal/dispose", json!({ "tabId": id }), 2)).await.unwrap();
+    service.call(request("terminal/dispose", json!({ "tabId": "term_flow" }), 2)).await.unwrap();
 }
 
 /// Claims belong to the id, not to a running tab. Node announces a claim and a release whether or not a PTY exists, and disposing an id that has

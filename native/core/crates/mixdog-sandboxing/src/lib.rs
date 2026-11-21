@@ -1,13 +1,8 @@
-//! Sandbox policy and the policy→transform step (T §1.4, SPEC §4.12 D-PATH).
-//!
-//! Mixdog runs commands and file tools with the user's own rights and has no
-//! OS sandbox; the only policy is [`SandboxPolicy::Unrestricted`]. The seams
-//! exist so that a later, separately reviewed restriction is one new policy
-//! variant plus one new [`SandboxType`], not a change in every tool:
-//! * [`SandboxPolicy::resolve_in_workspace`] is the single place a tool turns
-//!   a path argument into the path it touches;
-//! * [`SandboxManager::transform`] is the single place a command becomes the
-//!   request that is spawned.
+//! Sandbox policy and the policy→transform step. Mixdog runs commands and file tools with the user's own rights and has no OS
+//! sandbox; the only policy is [`SandboxPolicy::Unrestricted`]. A later, separately reviewed restriction is one new policy variant
+//! plus one new [`SandboxType`]:
+//! * [`SandboxPolicy::resolve_in_workspace`] is the single place a tool turns a path argument into the path it touches;
+//! * [`SandboxManager::transform`] is the single place a command becomes the request that is spawned.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;

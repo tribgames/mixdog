@@ -1,5 +1,4 @@
-//! Owner: s4-engine-actions-forms
-//! Native control state read from the element itself (`ref-control-state.ts`): the options a `<select>` offers (which the
+//! Native control state read from the element itself: the options a `<select>` offers (which the
 //! accessibility tree hides until it opens), and a checkbox or radio button's checked state, changed by clicking it once and
 //! then read back, never toggled blindly.
 

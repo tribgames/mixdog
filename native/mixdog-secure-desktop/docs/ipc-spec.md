@@ -61,7 +61,7 @@ sink.
   mandatory label, the DACL, and proof of the per-install secret (below).
 - **Server authentication (anti-squat).** While the helper is down, another
   local account could create a pipe with the same name. Every client — Node and
-  native — therefore authenticates the server *before revealing anything*: the
+  native — therefore authenticates the server _before revealing anything_: the
   server must prove it knows the secret first ([Handshake](#handshake)). A
   squatter receives one random client nonce and nothing else. The native client
   additionally checks that the server process is SYSTEM
@@ -89,12 +89,12 @@ Each frame has a **frame deadline** of 10 s — the same human-scale ceiling, an
 reasoning, as the handshake deadline — measured **in total**, never as an
 inactivity timer (trickling one byte at a time cannot extend it):
 
-- **Inbound** (app → helper): from the frame's *first* byte until it is
+- **Inbound** (app → helper): from the frame's _first_ byte until it is
   dispatched. The check runs when the frame is taken for dispatch, before it
   is validated or acted on, so a frame that completes (or would be dispatched)
   past its deadline drops the client and is **never executed**. A frame still
   incomplete past its deadline drops the client too.
-- **Outbound** (helper → app): from when the frame is *queued* until its write
+- **Outbound** (helper → app): from when the frame is _queued_ until its write
   **completes**. Completion means the bytes reached the outbound pipe buffer,
   not that the client read them — the protocol has **no frame
   acknowledgements**. This deadline therefore bounds **backpressure**: a client
@@ -122,7 +122,7 @@ The service never kills a responsive helper:
    ends the client, **releases every pointer button and key it holds**, signals
    **ack**, and exits.
 4. The service waits for the ack and then for the process to exit, bounded by
-   the helper's **shutdown deadline**, which *is* the frame deadline (10 s): no
+   the helper's **shutdown deadline**, which _is_ the frame deadline (10 s): no
    step of the helper's loop blocks on its peer for longer, so a helper silent
    past it is wedged. Only then is it force-killed (`TerminateProcess`), and
    the log records whether it had acknowledged. While the service itself is
@@ -342,7 +342,7 @@ byte mode. The always-on service hosts it on a dedicated thread for its whole
 lifetime; it is **only** reachable while app delegation is enabled in the install
 state, and every request is authenticated regardless.
 
-This is how a phone paired *after* the one-time elevated opt-in is enrolled with
+This is how a phone paired _after_ the one-time elevated opt-in is enrolled with
 no further UAC or password: the genuine signed Mixdog app, running unelevated as
 the installing user, asks the service to enroll (or revoke) one key. The app
 holds no capability token — the service decides against the stored
@@ -376,7 +376,7 @@ install lock (the service runs it as SYSTEM). The policy is read from state on
 **every** request, so a disable or revoke is effective at once, across reconnect
 and reboot; re-enabling delegation needs elevation again. A successful `enroll`
 raises an on-PC notification (`WTSSendMessageW`) in the console session. The key
-set is bounded by the pairing cap (256). No *unelevated, unauthenticated* path
+set is bounded by the pairing cap (256). No _unelevated, unauthenticated_ path
 can add a key — that invariant is the privilege-escalation guard, since input
 this SYSTEM helper injects is not subject to UIPI.
 
@@ -416,20 +416,20 @@ Node client from `validateControl` / `validateHeader` in `protocol.ts`.
 
 JSON objects discriminated by `type`. Direction is noted per message.
 
-| `type`            | Direction      | Fields |
-|-------------------|----------------|--------|
-| `client-hello`    | app → helper   | `protocol:number`, `clientNonce:string` |
-| `server-auth`     | helper → app   | `protocol:number`, `serverNonce:string`, `mac:string` |
-| `client-auth`     | app → helper   | `mac:string` |
-| `server-hello`    | helper → app   | `protocol:number`, `version:string`, `session:number`, `desktop`, `locked?:boolean` |
-| `desktop-changed` | helper → app   | `desktop`, `session:number`, `locked?:boolean` |
-| `input`           | app → helper   | `event:` [InputEvent](#input-events) |
-| `control`         | app → helper   | `active:boolean` |
-| `video-run`       | app → helper   | `epoch:number` |
-| `grant-challenge` | helper → app   | `nonce:string`, `challenge:string` |
-| `grant`           | app → helper   | `challenge:string`, `epoch:number`, `signature:string` |
-| `sas`             | app → helper   | (none) |
-| `error`           | helper → app   | `code:string`, `message:string` |
+| `type`            | Direction    | Fields                                                                              |
+| ----------------- | ------------ | ----------------------------------------------------------------------------------- |
+| `client-hello`    | app → helper | `protocol:number`, `clientNonce:string`                                             |
+| `server-auth`     | helper → app | `protocol:number`, `serverNonce:string`, `mac:string`                               |
+| `client-auth`     | app → helper | `mac:string`                                                                        |
+| `server-hello`    | helper → app | `protocol:number`, `version:string`, `session:number`, `desktop`, `locked?:boolean` |
+| `desktop-changed` | helper → app | `desktop`, `session:number`, `locked?:boolean`                                      |
+| `input`           | app → helper | `event:` [InputEvent](#input-events)                                                |
+| `control`         | app → helper | `active:boolean`                                                                    |
+| `video-run`       | app → helper | `epoch:number`                                                                      |
+| `grant-challenge` | helper → app | `nonce:string`, `challenge:string`                                                  |
+| `grant`           | app → helper | `challenge:string`, `epoch:number`, `signature:string`                              |
+| `sas`             | app → helper | (none)                                                                              |
+| `error`           | helper → app | `code:string`, `message:string`                                                     |
 
 `locked` is the console session's lock state from WTS
 (`WTSQuerySessionInformationW(WTSSessionInfoEx)` → `SessionFlags`:
@@ -668,18 +668,18 @@ as `sas` instead.
 
 `error` frames after the handshake are advisory; the connection stays up.
 
-| `code` | Meaning |
-|--------|---------|
-| `protocol_mismatch`, `unauthorized` | handshake failures (connection closes) |
-| `desktop_attach_failed` | the input desktop could not be attached at connect (closes) |
-| `capture_failed` | one capture failed |
-| `desktop_unavailable` | the input desktop changed but cannot be attached: capture and injection pause (never the old desktop), held input is released, re-attach is retried once per frame interval (66 ms); the next `desktop-changed` ends the outage. Found either by the loop's desktop check or by an injection (an insert of zero events whose re-attach fails — reported as this, not as `input_failed`), which suspends at once, before the next message. Logged when it is found and when it ends |
-| `input_failed` | `SendInput` inserted no events even after re-attaching to the input desktop and retrying once, or inserted only some (not retried, so nothing is typed twice); sent once per failure streak (a full insert ends the streak) |
-| `grant_key_missing` | no phone key is enrolled |
-| `grant_required` | input or `sas` without a live grant |
-| `grant_expired` | the live grant lapsed; held input was released |
-| `grant_malformed`, `grant_unknown_challenge`, `grant_expired_challenge`, `grant_no_video_run`, `grant_wrong_video_run`, `grant_bad_signature` | a `grant` was refused |
-| `sas_disabled_by_policy` | `SoftwareSASGeneration` excludes services |
+| `code`                                                                                                                                        | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `protocol_mismatch`, `unauthorized`                                                                                                           | handshake failures (connection closes)                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `desktop_attach_failed`                                                                                                                       | the input desktop could not be attached at connect (closes)                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `capture_failed`                                                                                                                              | one capture failed                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `desktop_unavailable`                                                                                                                         | the input desktop changed but cannot be attached: capture and injection pause (never the old desktop), held input is released, re-attach is retried once per frame interval (66 ms); the next `desktop-changed` ends the outage. Found either by the loop's desktop check or by an injection (an insert of zero events whose re-attach fails — reported as this, not as `input_failed`), which suspends at once, before the next message. Logged when it is found and when it ends |
+| `input_failed`                                                                                                                                | `SendInput` inserted no events even after re-attaching to the input desktop and retrying once, or inserted only some (not retried, so nothing is typed twice); sent once per failure streak (a full insert ends the streak)                                                                                                                                                                                                                                                        |
+| `grant_key_missing`                                                                                                                           | no phone key is enrolled                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `grant_required`                                                                                                                              | input or `sas` without a live grant                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `grant_expired`                                                                                                                               | the live grant lapsed; held input was released                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `grant_malformed`, `grant_unknown_challenge`, `grant_expired_challenge`, `grant_no_video_run`, `grant_wrong_video_run`, `grant_bad_signature` | a `grant` was refused                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `sas_disabled_by_policy`                                                                                                                      | `SoftwareSASGeneration` excludes services                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 Inbound bytes are parsed **incrementally and non-blockingly**: the helper only
 reads what the pipe reports as available and assembles frames from it, so a
@@ -716,13 +716,13 @@ read yet.
 **desktop pixels** on the virtual screen (the top-left of the primary monitor is
 the origin; negative values are valid on multi-monitor layouts).
 
-| `kind`           | Fields |
-|------------------|--------|
-| `pointer-move`   | `x`, `y` |
+| `kind`           | Fields                                                         |
+| ---------------- | -------------------------------------------------------------- |
+| `pointer-move`   | `x`, `y`                                                       |
 | `pointer-button` | `button` (`left`\|`right`\|`middle`), `down:boolean`, `x`, `y` |
-| `pointer-wheel`  | `x`, `y`, `dx`, `dy` (notches; +dy up, +dx right) |
+| `pointer-wheel`  | `x`, `y`, `dx`, `dy` (notches; +dy up, +dx right)              |
 | `key`            | `down:boolean`, `vk:number`, `scan:number`, `extended:boolean` |
-| `text`           | `text:string` (injected as Unicode key events) |
+| `text`           | `text:string` (injected as Unicode key events)                 |
 
 The injector prefers `scan` when non-zero (correct across layouts and on the
 secure desktop) and falls back to `vk`.
@@ -803,24 +803,24 @@ Microsoft document, used as written; **(b)** an existing Mixdog constant;
 **(c)** derived from the protocol, derivation stated. Where Windows provides
 the mechanism, it is used instead of a constant of ours.
 
-| Constant | Value | Source | Use |
-|----------|-------|--------|-----|
-| `GRANT_REFRESH` (`security.rs`) | 2 s | (b) `DESKTOP_LIVENESS_PROBE_MS`, `apps/relay/lib/relay-legs.mjs:61` — the time a silent leg gets to answer a ping | a fresh `grant-challenge` is due 2 s after the last one was issued |
-| `RELAY_HANDSHAKE_STALL` (`security.rs`) | 4 s | (b) `DESKTOP_HANDSHAKE_STALL_MS`, `relay-legs.mjs:58` | term of `GRANT_LIFETIME` |
-| `GRANT_LIFETIME` (`security.rs`) | 6 s = 4 s + 2 s | (b)+(c) the relay's bound on a leg that missed a turn, `DESKTOP_HANDSHAKE_STALL_MS + DESKTOP_LIVENESS_PROBE_MS` (stated in `relay-legs.mjs`), after which the relay closes it | a grant is live until its challenge's issue time + 6 s, so it never outlasts the path that delivers the phone's input. Pinned to the relay values by `secure-desktop-grant.test.mjs` |
-| `REATTACH_INTERVAL` (`helper.rs:98`) | 66 ms = `CAPTURE_INTERVAL` | (b) `CAPTURE_INTERVAL`, `helper.rs:54` (pre-existing; mirrored by `HELPER_FRAME_INTERVAL_MS`, `screen-webrtc-source.ts:49`) — (c) a re-attach matters only for the next frame, so it is retried at the frame cadence | re-attach attempts while `desktop_unavailable` |
-| `input_failed` | once per failure streak | (c) event-driven: reported when a failure follows a success (or the start); no interval | client notice |
-| `desktop_unavailable` log | when an outage is found + when it ends | (c) event-driven; no interval | helper log |
-| SAS repeat handling | — | (a) auto-reset event: "setting an event that is already set has no effect" (`SetEvent`) | repeated `sas` before the service acts coalesce; no rate limit |
-| Lock state | on notification | (a) `SERVICE_CONTROL_SESSIONCHANGE` + `WTS_SESSION_LOCK` (7) / `WTS_SESSION_UNLOCK` (8) (`service.rs:100-101`, `WM_WTSSESSION_CHANGE` docs) | replaces the 500 ms poll |
-| Helper relaunch / crash loop | SCM failure actions | (a) `SERVICE_FAILURE_ACTIONS_FLAG` (non-crash failures queue the failure actions when `dwWin32ExitCode` ≠ 0) | replaces the 1 s → 60 s backoff and the once-a-minute log limit |
-| `ERROR_SERVICE_SPECIFIC_ERROR` (`service.rs:92`) | 1066 | (a) `SERVICE_STATUS` docs | exit status that triggers the failure actions |
-| `SERVICE_START_WAIT_HINT_MS` (`service.rs`, exported) | 3000 ms | (a) Microsoft's ServiceMain sample, used as written: `ReportSvcStatus( SERVICE_START_PENDING, NO_ERROR, 3000 )`, then an event, then `SERVICE_RUNNING` ("Writing a ServiceMain Function") — the same steps this service takes | `dwWaitHint` of the single START_PENDING; imported by the installer's start wait |
-| Parent watch | the launching service's handle | (a) a process handle is signalled at exit; `CREATE_SUSPENDED` + `DuplicateHandle` + `ResumeThread` (see [Parent watch](#shutdown-service--helper)) | replaces the process-id lookup; no constant |
-| Bootstrap job | — | (a) `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` assigned at creation through `PROC_THREAD_ATTRIBUTE_JOB_LIST`; disarmed by query-modify-set (see [Parent watch](#shutdown-service--helper)) | no timeout: each side's wait also wakes on the other's stop or exit |
-| Parent record | 16 bytes | (c) a u64 handle value (pointer-sized on 64-bit) + a u32 process id, padded | the parent section's size |
-| `LAUNCH_FAILED` (`service.rs:95`) | `0xFFFFFFFF` | (c) a code no helper exit uses (the helper returns 0, 1 or 2, `helper.rs` `run`) | service-specific code for a failed launch |
-| Grant/SAS byte sizes (nonce 16, key 65, signature 64) | — | (a) P-256 / ECDSA encodings (SEC 1 uncompressed point, IEEE P1363 `r ‖ s`); nonce = existing `NONCE_BYTES` | wire validation |
+| Constant                                              | Value                                  | Source                                                                                                                                                                                                                        | Use                                                                                                                                                                                  |
+| ----------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GRANT_REFRESH` (`security.rs`)                       | 2 s                                    | (b) `DESKTOP_LIVENESS_PROBE_MS`, `apps/relay/lib/relay-legs.mjs:61` — the time a silent leg gets to answer a ping                                                                                                             | a fresh `grant-challenge` is due 2 s after the last one was issued                                                                                                                   |
+| `RELAY_HANDSHAKE_STALL` (`security.rs`)               | 4 s                                    | (b) `DESKTOP_HANDSHAKE_STALL_MS`, `relay-legs.mjs:58`                                                                                                                                                                         | term of `GRANT_LIFETIME`                                                                                                                                                             |
+| `GRANT_LIFETIME` (`security.rs`)                      | 6 s = 4 s + 2 s                        | (b)+(c) the relay's bound on a leg that missed a turn, `DESKTOP_HANDSHAKE_STALL_MS + DESKTOP_LIVENESS_PROBE_MS` (stated in `relay-legs.mjs`), after which the relay closes it                                                 | a grant is live until its challenge's issue time + 6 s, so it never outlasts the path that delivers the phone's input. Pinned to the relay values by `secure-desktop-grant.test.mjs` |
+| `REATTACH_INTERVAL` (`helper.rs:98`)                  | 66 ms = `CAPTURE_INTERVAL`             | (b) `CAPTURE_INTERVAL`, `helper.rs:54` (pre-existing; mirrored by `HELPER_FRAME_INTERVAL_MS`, `screen-webrtc-source.ts:49`) — (c) a re-attach matters only for the next frame, so it is retried at the frame cadence          | re-attach attempts while `desktop_unavailable`                                                                                                                                       |
+| `input_failed`                                        | once per failure streak                | (c) event-driven: reported when a failure follows a success (or the start); no interval                                                                                                                                       | client notice                                                                                                                                                                        |
+| `desktop_unavailable` log                             | when an outage is found + when it ends | (c) event-driven; no interval                                                                                                                                                                                                 | helper log                                                                                                                                                                           |
+| SAS repeat handling                                   | —                                      | (a) auto-reset event: "setting an event that is already set has no effect" (`SetEvent`)                                                                                                                                       | repeated `sas` before the service acts coalesce; no rate limit                                                                                                                       |
+| Lock state                                            | on notification                        | (a) `SERVICE_CONTROL_SESSIONCHANGE` + `WTS_SESSION_LOCK` (7) / `WTS_SESSION_UNLOCK` (8) (`service.rs:100-101`, `WM_WTSSESSION_CHANGE` docs)                                                                                   | replaces the 500 ms poll                                                                                                                                                             |
+| Helper relaunch / crash loop                          | SCM failure actions                    | (a) `SERVICE_FAILURE_ACTIONS_FLAG` (non-crash failures queue the failure actions when `dwWin32ExitCode` ≠ 0)                                                                                                                  | replaces the 1 s → 60 s backoff and the once-a-minute log limit                                                                                                                      |
+| `ERROR_SERVICE_SPECIFIC_ERROR` (`service.rs:92`)      | 1066                                   | (a) `SERVICE_STATUS` docs                                                                                                                                                                                                     | exit status that triggers the failure actions                                                                                                                                        |
+| `SERVICE_START_WAIT_HINT_MS` (`service.rs`, exported) | 3000 ms                                | (a) Microsoft's ServiceMain sample, used as written: `ReportSvcStatus( SERVICE_START_PENDING, NO_ERROR, 3000 )`, then an event, then `SERVICE_RUNNING` ("Writing a ServiceMain Function") — the same steps this service takes | `dwWaitHint` of the single START_PENDING; imported by the installer's start wait                                                                                                     |
+| Parent watch                                          | the launching service's handle         | (a) a process handle is signalled at exit; `CREATE_SUSPENDED` + `DuplicateHandle` + `ResumeThread` (see [Parent watch](#shutdown-service--helper))                                                                            | replaces the process-id lookup; no constant                                                                                                                                          |
+| Bootstrap job                                         | —                                      | (a) `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` assigned at creation through `PROC_THREAD_ATTRIBUTE_JOB_LIST`; disarmed by query-modify-set (see [Parent watch](#shutdown-service--helper))                                          | no timeout: each side's wait also wakes on the other's stop or exit                                                                                                                  |
+| Parent record                                         | 16 bytes                               | (c) a u64 handle value (pointer-sized on 64-bit) + a u32 process id, padded                                                                                                                                                   | the parent section's size                                                                                                                                                            |
+| `LAUNCH_FAILED` (`service.rs:95`)                     | `0xFFFFFFFF`                           | (c) a code no helper exit uses (the helper returns 0, 1 or 2, `helper.rs` `run`)                                                                                                                                              | service-specific code for a failed launch                                                                                                                                            |
+| Grant/SAS byte sizes (nonce 16, key 65, signature 64) | —                                      | (a) P-256 / ECDSA encodings (SEC 1 uncompressed point, IEEE P1363 `r ‖ s`); nonce = existing `NONCE_BYTES`                                                                                                                    | wire validation                                                                                                                                                                      |
 
 Pre-existing values these rely on, unchanged in this round: `POLL_INTERVAL`
 1 s (`service.rs:87`, monitor backstop and SCM checkpoint slice),
@@ -856,14 +856,14 @@ the defaults are restrictive.
   consent, as for any remote-desktop or per-user application that elevates its
   own executable. Whatever binary the user approves runs elevated: nothing
   inside that process can prove more about the process itself, and the bridge
-  does not claim to. If a user-level attacker replaced the helper *before* the
+  does not claim to. If a user-level attacker replaced the helper _before_ the
   prompt, UAC shows the attacker's publisher (or "Unknown publisher"), and an
   administrator who approves it anyway is outside this guarantee.
 - **Verified staging after consent.** What the bridge does guarantee is that the
   binary it registers as the SYSTEM service is a genuine release image, even if
   the approved exe is renamed away (a running image can be renamed, not written
   or deleted) and other bytes are planted at its path before the elevated
-  process opens itself. `install` resolves the *current* name of its own mapped
+  process opens itself. `install` resolves the _current_ name of its own mapped
   image (`GetMappedFileNameW`, which follows renames), opens it sharing only
   read — no writer or deleter, and a rename needs delete access, so the held
   file can no longer change or move — and confirms the image still has that name
@@ -961,7 +961,7 @@ the defaults are restrictive.
 - **Bounded, non-blocking I/O.** Frames are assembled incrementally from only
   the bytes available, so a dribbled or truncated frame cannot stall capture;
   writes are overlapped and polled, never flushed; the handshake deadline and
-  the *total* per-frame deadline (both directions) drop a stuck peer; all
+  the _total_ per-frame deadline (both directions) drop a stuck peer; all
   declared sizes are bounds- and overflow-checked before allocation.
 - **Least privilege for service control.** The install grants the user
   start/stop/query on the service — never change-config or delete — so the

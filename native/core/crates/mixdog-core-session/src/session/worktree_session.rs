@@ -1,5 +1,4 @@
-//! The `git` tool's worktree operations over the workspace transitions (Node
-//! `worktree-tool.mjs`): the caller's own session runs with `ownTurn` (the calling turn is
+//! The `git` tool's worktree operations over the workspace transitions: the caller's own session runs with `ownTurn` (the calling turn is
 //! tolerated; workers, background shells and other sessions in an affected folder are not);
 //! another session runs without it, so a target with a running turn, workers or background
 //! shells refuses.

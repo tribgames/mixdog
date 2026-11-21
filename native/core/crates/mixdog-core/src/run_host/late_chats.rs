@@ -1,11 +1,3 @@
-//! The chats of a bot (`AgentChats`) read through the late session directory.
-//!
-//! A bot's saved route reaches its chats through `AgentRouteFollow`, which the route setter holds
-//! (`AgentRouteSetter.publisher`), and the route setter is what `AgentEffects` (so the agent
-//! definitions the tool pool is built from) is made of: all of them exist before the directory,
-//! whose own `AgentChats` is the answer. The directory is bound once after `TurnPath::new` and
-//! the composition verifies it before the listener accepts; a save never comes before that.
-
 use std::sync::Arc;
 
 use mixdog_core_api::ids::ThreadId;

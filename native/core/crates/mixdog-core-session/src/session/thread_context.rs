@@ -1,8 +1,3 @@
-//! `thread/contextStatus`: the context gauge (`contextStatus(options)` of the runtime facade,
-//! Node `context-status*.mjs`). The number is `mixdog_agent::compact::pressure::context_status`
-//! (the compaction meter and pressure code); this service only routes the call to the session
-//! that owns the live inputs (route, transcript, request tools, meters) and returns its record.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -41,22 +36,17 @@ const DOMAIN: &str = "thread context";
 
 /// The session side: the status record of one thread (`None` = the current session), built from
 /// that session's live inputs by `context_status`. A thread that is not loaded answers the empty
-/// status of no session, as Node's facade does.
+/// status of no session.
 #[async_trait]
 pub trait ContextStatusHost: Send + Sync {
     async fn context_status(&self, thread: Option<ThreadId>, options: Option<Value>) -> Result<Value, CoreError>;
 
     /// The status of `thread` as it will be once its header is `header`: a route move reads its new figures before the thread
-    /// shows the new route (Node's `setRoute` runs `syncContextStats` before `publishRoute`, routes-write.mjs:133-142).
+    /// shows the new route.
     async fn context_status_for(&self, thread: ThreadId, _header: Map<String, Value>) -> Result<Value, CoreError> {
         self.context_status(Some(thread), None).await
     }
 
-    /// The status a session's open reads: its `measurement` (the stored reading of its last model call, as Codex restores the
-    /// last token count) and its display figures (`contextWindow`, `compaction.boundaryTokens`, `compaction.triggerTokens`,
-    /// `compaction.autoCompactTokenLimit`) equal [`context_status`](Self::context_status)'s, read without counting the
-    /// conversation; its other fields (the counts of the messages) are not the full status's. `thread/contextStatus` answers
-    /// the full one.
     async fn header_status(&self, thread: ThreadId) -> Result<Value, CoreError> {
         self.context_status(Some(thread), None).await
     }
@@ -147,7 +137,7 @@ pub trait ContextWorld: Send + Sync {
 }
 
 /// [`ContextStatusHost`] over the live world: `context_status` (the compaction meter and pressure
-/// code) fed by the session's own snapshot. No loaded session is Node's status of no session, `null`.
+/// code) fed by the session's own snapshot. No loaded session answers `null`.
 pub struct LiveContextStatus {
     world: Arc<dyn ContextWorld>,
     /// The readings the Context inspector listed, for its entry previews.

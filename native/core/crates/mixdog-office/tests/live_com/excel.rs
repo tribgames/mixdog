@@ -6,12 +6,9 @@ use super::{Live, all_matches, capture, items, matches, number, png_pixel, strin
 
 #[test]
 #[ignore = "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1"]
-fn persistent_excel_sessions_own_one_document_and_preserve_utf8_text() {
+fn excel_a_background_session_opens_no_window_and_preserves_utf8_text() {
     let Some(live) = Live::start() else { return };
-    let background_path = live.path("background-한글.xlsx");
-    let visible_path = live.path("visible-한글.xlsx");
-
-    let background = live.call(json!({ "action": "create", "path": background_path, "format": "xlsx", "mode": "background" }));
+    let background = live.call(json!({ "action": "create", "path": live.path("background-한글.xlsx"), "format": "xlsx", "mode": "background" }));
     assert_eq!(background["mode"], "background");
     assert_eq!(background["ownership"], "owned");
     assert_ne!(background["visible"], true, "a background session opens no window");
@@ -34,7 +31,6 @@ fn persistent_excel_sessions_own_one_document_and_preserve_utf8_text() {
     assert_eq!(isolation["observedVisibleWindows"], json!([]), "{}", stringify(&batch));
     assert_eq!(isolation["hiddenWindows"], 0, "{}", stringify(&batch));
     assert_eq!(isolation["focusRestorations"], 0, "{}", stringify(&batch));
-    // The contract is that background Office never takes the foreground, not that the desktop's foreground window is frozen.
     assert_eq!(isolation["ownedForeground"], false, "{}", stringify(&batch));
 
     let get = |target: &str| live.call(json!({ "action": "get", "session": session, "target": target }));
@@ -46,10 +42,21 @@ fn persistent_excel_sessions_own_one_document_and_preserve_utf8_text() {
     let sheet = &validated["document"]["sheets"][0];
     assert_eq!(sheet["validationCount"], 1);
     assert_eq!(sheet["validations"][0]["ranges"], json!(["E1:E3"]));
-    // Named as the portable reader names it, not by Excel's enumeration number.
     assert_eq!(sheet["validations"][0]["type"], "list");
     assert_eq!(sheet["validations"][0]["formula1"], "\"Yes,No\"");
 
+    let validation = live.call(json!({ "action": "validate", "session": session }));
+    assert_eq!(validation["ok"], true, "{}", stringify(&validation));
+    assert_eq!(validation["native"]["opened"], true);
+    live.close(&session);
+}
+
+#[test]
+#[ignore = "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1"]
+fn excel_inserting_a_row_moves_the_formula_references_below_it() {
+    let Some(live) = Live::start() else { return };
+    let created = live.create("rows.xlsx", "xlsx", "background", json!([{ "op": "set_cell", "sheet": "Sheet1", "cell": "B2", "value": 23 }]));
+    let session = created["session"].clone();
     live.call(json!({
         "action": "batch",
         "session": session,
@@ -62,20 +69,29 @@ fn persistent_excel_sessions_own_one_document_and_preserve_utf8_text() {
             { "op": "set_hyperlink", "sheet": "Sheet1", "cell": "J1", "address": "https://mix.dog", "text": "Mixdog" }
         ]
     }));
-    let shifted = get("/sheet[Sheet1]/cell[G3]");
+    let shifted = live.call(json!({ "action": "get", "session": session, "target": "/sheet[Sheet1]/cell[G3]" }));
     assert!(matches("B3", "", shifted["element"]["formula"].as_str().unwrap_or_default()));
-    live.call(json!({
-        "action": "batch",
-        "session": session,
-        "operations": [
-            { "op": "delete_rows", "sheet": "Sheet1", "row": 2, "count": 1 },
+    live.call(json!({ "action": "batch", "session": session, "operations": [{ "op": "delete_rows", "sheet": "Sheet1", "row": 2, "count": 1 }] }));
+    live.close(&session);
+}
+
+#[test]
+#[ignore = "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1"]
+fn excel_issues_report_a_formula_error_and_the_financial_model_audit_covers_every_cell() {
+    let Some(live) = Live::start() else { return };
+    let created = live.create(
+        "audit.xlsx",
+        "xlsx",
+        "background",
+        json!([
             { "op": "set_formula", "sheet": "Sheet1", "cell": "A1501", "formula": "=1/0" },
             { "op": "set_cell", "sheet": "Sheet1", "cell": "B1501", "value": 99 },
             { "op": "add_sheet", "name": "Checks" },
             { "op": "set_cell", "sheet": "Checks", "cell": "A1", "value": "Tie-out" },
             { "op": "set_formula", "sheet": "Checks", "cell": "B1", "formula": "=1=2" }
-        ]
-    }));
+        ]),
+    );
+    let session = created["session"].clone();
     let formula_issues = live.call(json!({ "action": "issues", "session": session }));
     assert!(items(&formula_issues["issues"]).iter().any(|issue| issue["code"] == "formula_error" && issue["path"] == "/sheet[Sheet1]/cell[A1501]"));
     let audit = live.call(json!({ "action": "issues", "session": session, "auditProfile": "financial-model" }));
@@ -84,13 +100,30 @@ fn persistent_excel_sessions_own_one_document_and_preserve_utf8_text() {
     assert_eq!(audit["auditCoverage"]["scannedCells"], audit["auditCoverage"]["totalCells"]);
     assert!(items(&audit["issues"]).iter().any(|issue| issue["code"] == "hardcode_missing_source" && issue["path"] == "/sheet[Sheet1]/cell[B1501]"));
     assert!(items(&audit["issues"]).iter().any(|issue| issue["code"] == "failed_check" && issue["path"] == "/sheet[Checks]/cell[B1]"));
+    live.close(&session);
+}
 
+#[test]
+#[ignore = "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1"]
+fn excel_a_snapshot_over_the_size_asked_for_comes_back_in_pages_not_as_a_text_preview() {
+    let Some(live) = Live::start() else { return };
+    let created = live.create(
+        "paged.xlsx",
+        "xlsx",
+        "background",
+        json!([
+            { "op": "set_cell", "sheet": "Sheet1", "cell": "A1", "value": "하이하이하이" },
+            { "op": "set_cell", "sheet": "Sheet1", "cell": "B1", "value": 21 },
+            { "op": "set_formula", "sheet": "Sheet1", "cell": "G2", "formula": "=B1*2" },
+            { "op": "set_hyperlink", "sheet": "Sheet1", "cell": "J1", "address": "https://mix.dog", "text": "Mixdog" },
+            { "op": "set_cell", "sheet": "Sheet1", "cell": "B1501", "value": 99 }
+        ]),
+    );
+    let session = created["session"].clone();
     let compact = live.call(json!({ "action": "snapshot", "session": session, "sheet": "Sheet1", "limit": 10_000, "maxChars": 100_000 }));
     let compact_sheet = &compact["document"]["sheets"][0];
     assert_eq!(compact_sheet["representation"], "row-blocks");
     assert_eq!(items(&compact_sheet["cells"]).len(), 0, "row blocks carry the cells");
-    // Excel read the whole workbook whatever the limit, so a read over maxChars came back as a truncated text preview; the retry
-    // now asks for pages, and the result is a document with a cursor.
     let narrow = live.call(json!({ "action": "snapshot", "session": session, "maxChars": 4000 }));
     assert!(narrow["preview"].is_null(), "{}", &stringify(&narrow)[..400.min(stringify(&narrow).len())]);
     assert!(narrow["document"]["sheets"].is_array());
@@ -98,11 +131,15 @@ fn persistent_excel_sessions_own_one_document_and_preserve_utf8_text() {
     assert!(!items(&compact_sheet["rowBlocks"]).is_empty());
     assert_eq!(compact["document"]["pagination"]["scanned"], 10_000);
     assert_eq!(compact_sheet["rowBlocks"][0]["values"][0][0], "하이하이하이");
-    live.call(json!({ "action": "batch", "session": session, "operations": [{ "op": "clear_cell", "sheet": "Sheet1", "cell": "A1501" }] }));
-    let validation = live.call(json!({ "action": "validate", "session": session }));
-    assert_eq!(validation["ok"], true, "{}", stringify(&validation));
-    assert_eq!(validation["native"]["opened"], true);
+    live.close(&session);
+}
 
+#[test]
+#[ignore = "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1"]
+fn excel_a_failed_batch_leaves_the_document_as_it_was() {
+    let Some(live) = Live::start() else { return };
+    let created = live.create("atomic.xlsx", "xlsx", "background", json!([{ "op": "set_cell", "sheet": "Sheet1", "cell": "A1", "value": "하이하이하이" }]));
+    let session = created["session"].clone();
     let failed = live.raw(json!({
         "action": "batch",
         "session": session,
@@ -112,8 +149,17 @@ fn persistent_excel_sessions_own_one_document_and_preserve_utf8_text() {
         ]
     }));
     assert_eq!(failed["isError"], true);
-    assert_eq!(get("/sheet[Sheet1]/cell[A1]")["element"]["value"], "하이하이하이");
+    let kept = live.call(json!({ "action": "get", "session": session, "target": "/sheet[Sheet1]/cell[A1]" }));
+    assert_eq!(kept["element"]["value"], "하이하이하이");
+    live.close(&session);
+}
 
+#[test]
+#[ignore = "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1"]
+fn excel_a_rolled_back_transaction_restores_the_cell_it_changed() {
+    let Some(live) = Live::start() else { return };
+    let created = live.create("rollback.xlsx", "xlsx", "background", json!([{ "op": "set_cell", "sheet": "Sheet1", "cell": "A1", "value": "하이하이하이" }]));
+    let session = created["session"].clone();
     live.call(json!({ "action": "begin", "session": session }));
     live.call(
         json!({ "action": "batch", "session": session, "operations": [{ "op": "set_cell", "sheet": "Sheet1", "cell": "A1", "value": "트랜잭션 임시값" }] }),
@@ -121,13 +167,28 @@ fn persistent_excel_sessions_own_one_document_and_preserve_utf8_text() {
     let diff = live.call(json!({ "action": "diff", "session": session }));
     assert!(number(&diff["transaction"]["diff"]["summary"]["modified"]) > 0.0);
     live.call(json!({ "action": "rollback", "session": session }));
-    assert_eq!(get("/sheet[Sheet1]/cell[A1]")["element"]["value"], "하이하이하이");
-    live.call(json!({ "action": "close", "session": session }));
+    let restored = live.call(json!({ "action": "get", "session": session, "target": "/sheet[Sheet1]/cell[A1]" }));
+    assert_eq!(restored["element"]["value"], "하이하이하이");
+    live.close(&session);
+}
 
-    let strict_attach = live.raw(json!({ "action": "attach", "path": background_path }));
+#[test]
+#[ignore = "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1"]
+fn excel_attach_refuses_a_workbook_no_application_has_open() {
+    let Some(live) = Live::start() else { return };
+    let path = live.path("closed.xlsx");
+    let created = live.call(json!({ "action": "create", "path": path, "format": "xlsx", "mode": "background" }));
+    live.close(&created["session"]);
+    let strict_attach = live.raw(json!({ "action": "attach", "path": path }));
     assert_eq!(strict_attach["isError"], true);
     assert!(matches("not registered as open", "i", &super::text_of(&strict_attach)));
+}
 
+#[test]
+#[ignore = "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1"]
+fn excel_a_visible_session_is_reused_by_a_second_open_and_ends_with_its_process() {
+    let Some(live) = Live::start() else { return };
+    let visible_path = live.path("visible-한글.xlsx");
     let visible = live.call(json!({ "action": "create", "path": visible_path, "format": "xlsx", "mode": "visible" }));
     assert_eq!(visible["mode"], "visible");
     assert_eq!(visible["ownership"], "owned");

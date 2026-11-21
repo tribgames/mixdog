@@ -341,6 +341,47 @@ impl EmbeddedFace {
         flags
     }
 
+    fn descriptor(&self, base_font: &str, program_ref: Ref) -> Dict {
+        let scale = self.scale;
+        let mut descriptor = Dict::new();
+        descriptor.set("Type", Obj::name("FontDescriptor"));
+        descriptor.set("FontName", Obj::name(base_font));
+        descriptor.set("Flags", Obj::Num(self.flags() as f64));
+        descriptor.set("FontBBox", Obj::Array(Arc::new(self.bbox.iter().map(|value| Obj::Num(f64::from(*value) * scale)).collect())));
+        descriptor.set("ItalicAngle", Obj::Num(self.italic_angle));
+        descriptor.set("Ascent", Obj::Num(f64::from(self.ascent) * scale));
+        descriptor.set("Descent", Obj::Num(f64::from(self.descent) * scale));
+        let cap_height = self.cap_height.filter(|height| *height != 0).unwrap_or(self.ascent);
+        descriptor.set("CapHeight", Obj::Num(f64::from(cap_height) * scale));
+        descriptor.set("XHeight", Obj::Num(f64::from(self.x_height.unwrap_or(0)) * scale));
+        descriptor.set("StemV", Obj::Num(0.0));
+        descriptor.set(if self.cff { "FontFile3" } else { "FontFile2" }, Obj::Ref(program_ref));
+        descriptor
+    }
+
+    fn cid_font(&self, base_font: &str, descriptor_ref: Ref, encoded: &[u16]) -> Dict {
+        let scale = self.scale;
+        let widths: Vec<Obj> = encoded.iter().map(|glyph| Obj::Num(self.advance(*glyph) * scale)).collect();
+        let mut w = Vec::new();
+        if !widths.is_empty() {
+            w.push(Obj::Num(1.0));
+        }
+        w.push(Obj::Array(Arc::new(widths)));
+        let mut cid = Dict::new();
+        cid.set("Type", Obj::name("Font"));
+        cid.set("Subtype", Obj::name(if self.cff { "CIDFontType0" } else { "CIDFontType2" }));
+        cid.set("CIDToGIDMap", Obj::name("Identity"));
+        cid.set("BaseFont", Obj::name(base_font));
+        let mut system_info = Dict::new();
+        system_info.set("Registry", Obj::string(b"Adobe"));
+        system_info.set("Ordering", Obj::string(b"Identity"));
+        system_info.set("Supplement", Obj::Num(0.0));
+        cid.set("CIDSystemInfo", Obj::Dict(Arc::new(system_info)));
+        cid.set("FontDescriptor", Obj::Ref(descriptor_ref));
+        cid.set("W", Obj::Array(Arc::new(w)));
+        cid
+    }
+
     /// Writes the font into `store` the way `CustomFontEmbedder.embedIntoContext` does (the program, the descriptor, the
     /// CIDFont, the ToUnicode CMap, then the Type0 dictionary, assigned to `target` when given) and returns its reference.
     pub fn embed_into(&self, store: &mut ObjectStore, target: Option<Ref>, rng: &mut SuffixRng) -> Result<Ref, EmbedError> {
@@ -362,42 +403,8 @@ impl EmbeddedFace {
             program_dict.set("Subtype", Obj::name("CIDFontType0C"));
         }
         let program_ref = store.register(flate_stream(program_dict, &program));
-
-        let scale = self.scale;
-        let mut descriptor = Dict::new();
-        descriptor.set("Type", Obj::name("FontDescriptor"));
-        descriptor.set("FontName", Obj::name(&base_font));
-        descriptor.set("Flags", Obj::Num(self.flags() as f64));
-        descriptor.set("FontBBox", Obj::Array(Arc::new(self.bbox.iter().map(|value| Obj::Num(f64::from(*value) * scale)).collect())));
-        descriptor.set("ItalicAngle", Obj::Num(self.italic_angle));
-        descriptor.set("Ascent", Obj::Num(f64::from(self.ascent) * scale));
-        descriptor.set("Descent", Obj::Num(f64::from(self.descent) * scale));
-        let cap_height = self.cap_height.filter(|height| *height != 0).unwrap_or(self.ascent);
-        descriptor.set("CapHeight", Obj::Num(f64::from(cap_height) * scale));
-        descriptor.set("XHeight", Obj::Num(f64::from(self.x_height.unwrap_or(0)) * scale));
-        descriptor.set("StemV", Obj::Num(0.0));
-        descriptor.set(if self.cff { "FontFile3" } else { "FontFile2" }, Obj::Ref(program_ref));
-        let descriptor_ref = store.register(Obj::Dict(Arc::new(descriptor)));
-
-        let widths: Vec<Obj> = encoded.iter().map(|glyph| Obj::Num(self.advance(*glyph) * scale)).collect();
-        let mut w = Vec::new();
-        if !widths.is_empty() {
-            w.push(Obj::Num(1.0));
-        }
-        w.push(Obj::Array(Arc::new(widths)));
-        let mut cid = Dict::new();
-        cid.set("Type", Obj::name("Font"));
-        cid.set("Subtype", Obj::name(if self.cff { "CIDFontType0" } else { "CIDFontType2" }));
-        cid.set("CIDToGIDMap", Obj::name("Identity"));
-        cid.set("BaseFont", Obj::name(&base_font));
-        let mut system_info = Dict::new();
-        system_info.set("Registry", Obj::string(b"Adobe"));
-        system_info.set("Ordering", Obj::string(b"Identity"));
-        system_info.set("Supplement", Obj::Num(0.0));
-        cid.set("CIDSystemInfo", Obj::Dict(Arc::new(system_info)));
-        cid.set("FontDescriptor", Obj::Ref(descriptor_ref));
-        cid.set("W", Obj::Array(Arc::new(w)));
-        let cid_ref = store.register(Obj::Dict(Arc::new(cid)));
+        let descriptor_ref = store.register(Obj::Dict(Arc::new(self.descriptor(&base_font, program_ref))));
+        let cid_ref = store.register(Obj::Dict(Arc::new(self.cid_font(&base_font, descriptor_ref, &encoded))));
 
         let unicode: Vec<GlyphUnicode> = encoded
             .iter()

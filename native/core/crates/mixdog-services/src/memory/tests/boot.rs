@@ -908,6 +908,7 @@ async fn a_use_after_the_stop_of_an_open_stack_is_refused() {
 /// machine: `at_quit_the_last_client_leaves…` failed on it) moves the start to the next port instead of failing it. The port is taken in
 /// the gap the start leaves between its choice and the spawn.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_port_taken_between_the_choice_and_the_bind_moves_the_start_to_the_next_port() {
     use crate::memory::pg::cluster::{PgCluster, PgRuntime, Start};
     let runtime = PathBuf::from(std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME names a bundled postgres runtime dir"));

@@ -1,8 +1,5 @@
-//! The `prompt_cache_key` of the Codex route: Node's `buildStableProviderPromptCacheKey` for `openai-oauth`
-//! (`agent-runtime/cache-strategy.mjs`, `codexThreadPromptCacheKey`). The key is the thread's identity, clamped to the
-//! backend's 64 characters: Codex gives every request of a thread the same id, and the backend derives the thread's
-//! prompt-cache slot from it. The provider's namespace (`mixdog-codex`, what the session stores as its `promptCacheKey`)
-//! is only the key of a request that has no thread identity. Pure.
+//! The Codex route's `prompt_cache_key`: the thread's identity clamped to the backend's 64 characters; the backend
+//! derives the thread's prompt-cache slot from it. Pure.
 
 mod lanes;
 
@@ -116,12 +113,9 @@ fn summarize_tools(tools: &[Value]) -> Vec<Value> {
         .collect()
 }
 
-/// The request's `prompt_cache_key` (`buildStableProviderPromptCacheKey('openai-oauth', opts, prefix)`).
-///
-/// By default the thread's identity (Node's `codexSessionId`, else its `sessionId`), else the key the options name,
-/// else the provider's namespace; `MIXDOG_OAI_CACHE_KEY_SHARED=1` keys on the named key alone. A one-shot role
-/// (`promptCacheScope: shared`) or `MIXDOG_OAI_CODEX_THREAD_CACHE_KEY` of `0`/`false` keys on the prefix instead: the
-/// namespace and a hash of the prefix (without the session under the shared scope or the shared-key switch).
+/// The request's `prompt_cache_key`: the thread identity, else the key the options name, else the provider's namespace;
+/// `MIXDOG_OAI_CACHE_KEY_SHARED=1` keys on the named key alone. A `shared` `promptCacheScope`, or
+/// `MIXDOG_OAI_CODEX_THREAD_CACHE_KEY` of `0`/`false`, keys on the namespace and a hash of the prefix.
 pub fn codex_prompt_cache_key(options: &RequestOptions, var: &dyn Fn(&str) -> Option<String>, prefix: &Prefix<'_>) -> String {
     codex_key(options, var, prefix, &LaneConfig::default())
 }

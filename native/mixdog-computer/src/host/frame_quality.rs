@@ -34,23 +34,18 @@ pub struct Region {
     pub height: i32,
 }
 
-/// Judges `pixels` (four bytes each; the colour channels are tested alike, so
-/// their order does not matter) of a `width` x `height` frame against the
-/// `expected` size of its target, sampling the interior of `content` (the whole
-/// frame when None) so a window's border cannot make an empty frame look
-/// usable (frameQualityIssue).
-pub fn frame_quality_issue(pixels: &[u8], (width, height): (usize, usize), expected: (i32, i32), content: Option<Region>) -> Option<Issue> {
+fn frame_region(pixels: &[u8], (width, height): (usize, usize), expected: (i32, i32), content: Option<Region>) -> Result<Region, Issue> {
     if width == 0 || height == 0 || pixels.is_empty() {
-        return issue("empty_frame", "capture returned an empty pixel frame");
+        return Err(Issue { reason: "empty_frame", message: "capture returned an empty pixel frame" });
     }
     let expected_ratio = f64::from(expected.0) / f64::from(expected.1.max(1));
     let actual_ratio = width as f64 / height as f64;
     let aspect_error = (actual_ratio - expected_ratio).abs() / expected_ratio.max(0.0001);
     if !aspect_error.is_finite() || aspect_error > 0.05 {
-        return issue("coordinate_mismatch", "capture dimensions do not match the target coordinate space");
+        return Err(Issue { reason: "coordinate_mismatch", message: "capture dimensions do not match the target coordinate space" });
     }
     if pixels.len() / 4 == 0 {
-        return issue("empty_frame", "capture returned no readable pixel data");
+        return Err(Issue { reason: "empty_frame", message: "capture returned no readable pixel data" });
     }
     let region = content.unwrap_or(Region { x: 0, y: 0, width: width as i32, height: height as i32 });
     let fits = region.x >= 0
@@ -60,8 +55,12 @@ pub fn frame_quality_issue(pixels: &[u8], (width, height): (usize, usize), expec
         && i64::from(region.x) + i64::from(region.width) <= width as i64
         && i64::from(region.y) + i64::from(region.height) <= height as i64;
     if !fits {
-        return issue("coordinate_mismatch", "window client bounds do not fit the captured surface");
+        return Err(Issue { reason: "coordinate_mismatch", message: "window client bounds do not fit the captured surface" });
     }
+    Ok(region)
+}
+
+fn sample_extremes(pixels: &[u8], width: usize, region: Region) -> (usize, usize, usize) {
     let (rx, ry) = (region.x as usize, region.y as usize);
     let (rw, rh) = (region.width as usize, region.height as usize);
     let margin = CHROME_MARGIN.min(rw.min(rh) / 8);
@@ -82,6 +81,20 @@ pub fn frame_quality_issue(pixels: &[u8], (width, height): (usize, usize), expec
             white += 1;
         }
     }
+    (sampled, black, white)
+}
+
+/// Judges `pixels` (four bytes each; the colour channels are tested alike, so
+/// their order does not matter) of a `width` x `height` frame against the
+/// `expected` size of its target, sampling the interior of `content` (the whole
+/// frame when None) so a window's border cannot make an empty frame look
+/// usable (frameQualityIssue).
+pub fn frame_quality_issue(pixels: &[u8], (width, height): (usize, usize), expected: (i32, i32), content: Option<Region>) -> Option<Issue> {
+    let region = match frame_region(pixels, (width, height), expected, content) {
+        Ok(region) => region,
+        Err(found) => return Some(found),
+    };
+    let (sampled, black, white) = sample_extremes(pixels, width, region);
     let ratio = |count: usize| count as f64 / sampled.max(1) as f64;
     if ratio(black) >= UNUSABLE_RATIO {
         return issue("blank_black_frame", "capture is effectively all black; no coordinate frame was issued");

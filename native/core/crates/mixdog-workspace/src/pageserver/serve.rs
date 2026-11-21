@@ -763,10 +763,7 @@ impl PageServer {
             lanes::run_fallible(self.lanes.interactive, &CancellationToken::new(), move || page_location(&root, &rel)).await?
         };
         let origin = self.origin().await?;
-        self.authority.check(&scope, &page).await.map_err(|refusal| match refusal {
-            Refusal::Denied => WsError::coded(DENIED_CODE, "The page is not available."),
-            Refusal::Transient => WsError::plain("The page permission could not be checked."),
-        })?;
+        self.check_scope(&scope, &page).await?;
         let path: Vec<String> =
             page.components().skip(location_root.components().count()).map(|part| percent_encode(&part.as_os_str().to_string_lossy())).collect();
         let token = self.leases.insert(Lease { root: location_root, page, scope, owner_id, expires_at: Instant::now() + self.ttl });
@@ -784,13 +781,17 @@ impl PageServer {
             return Err(WsError::invalid("A virtual page needs an index.html."));
         }
         let scope = PageScope::Virtual { files };
-        self.authority.check(&scope, Path::new(INDEX)).await.map_err(|refusal| match refusal {
-            Refusal::Denied => WsError::coded(DENIED_CODE, "The page is not available."),
-            Refusal::Transient => WsError::plain("The page permission could not be checked."),
-        })?;
+        self.check_scope(&scope, Path::new(INDEX)).await?;
         let origin = self.origin().await?;
         let token = self.leases.insert(Lease { root: PathBuf::new(), page: PathBuf::from(INDEX), scope, owner_id, expires_at: Instant::now() + self.ttl });
         Ok(format!("{origin}/{token}/{INDEX}"))
+    }
+
+    async fn check_scope(&self, scope: &PageScope, page: &Path) -> WsResult<()> {
+        self.authority.check(scope, page).await.map_err(|refusal| match refusal {
+            Refusal::Denied => WsError::coded(DENIED_CODE, "The page is not available."),
+            Refusal::Transient => WsError::plain("The page permission could not be checked."),
+        })
     }
 
     /// A closed window leaves no usable preview URL behind.
@@ -835,30 +836,8 @@ impl PageServer {
         if let PageScope::Virtual { files } = &lease.scope {
             return self.serve_virtual(head, token, &lease, files.get(&segments.join("/"))).await;
         }
-        let mut target = lease.root.clone();
-        target.extend(&segments);
-        let target = resolve(&target);
         let is_file_scope = matches!(lease.scope, PageScope::File { .. });
-        if page_asset_type(&lease.root, &target, None).is_none() || (is_file_scope && comparable(&target) != comparable(&lease.page)) {
-            return Err(StatusCode::NOT_FOUND);
-        }
-        let (file, location, size) = {
-            let root = lease.root.clone();
-            lanes::run_fallible(self.lanes.interactive, &CancellationToken::new(), move || {
-                let opened = open_page_file(&target, &root)?;
-                // A platform that cannot name an open file's location has only the path the open was made on.
-                let location = opened_location(&opened.file).unwrap_or_else(|_| opened.path.clone());
-                let size = opened.file.metadata()?.len();
-                Ok((opened.file, location, size))
-            })
-            .await
-            .map_err(|_| StatusCode::NOT_FOUND)?
-        };
-        // A link must obey the same boundary, hidden-path and file-type rules as the requested path.
-        let mime = page_asset_type(&lease.root, &location, None).ok_or(StatusCode::NOT_FOUND)?;
-        if is_file_scope && comparable(&location) != comparable(&lease.page) {
-            return Err(StatusCode::NOT_FOUND);
-        }
+        let (file, location, size, mime) = self.open_leased_page(&lease, &segments).await?;
         self.authorize(token, &lease, &location).await?;
         // Successful GET/HEAD makes this lease most recently used. A bad path or a failed authorization never reaches this line.
         self.leases.touch(token);
@@ -887,6 +866,34 @@ impl PageServer {
             None => ChunkBody::stream(self.lanes, file, length),
         };
         Ok(page_response(body, HeaderValue::from_static(mime), length, is_file_scope))
+    }
+
+    async fn open_leased_page(&self, lease: &Lease, segments: &[String]) -> Result<(File, PathBuf, u64, &'static str), StatusCode> {
+        let mut target = lease.root.clone();
+        target.extend(segments);
+        let target = resolve(&target);
+        let is_file_scope = matches!(lease.scope, PageScope::File { .. });
+        if page_asset_type(&lease.root, &target, None).is_none() || (is_file_scope && comparable(&target) != comparable(&lease.page)) {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        let (file, location, size) = {
+            let root = lease.root.clone();
+            lanes::run_fallible(self.lanes.interactive, &CancellationToken::new(), move || {
+                let opened = open_page_file(&target, &root)?;
+                // A platform that cannot name an open file's location has only the path the open was made on.
+                let location = opened_location(&opened.file).unwrap_or_else(|_| opened.path.clone());
+                let size = opened.file.metadata()?.len();
+                Ok((opened.file, location, size))
+            })
+            .await
+            .map_err(|_| StatusCode::NOT_FOUND)?
+        };
+        // A link must obey the same boundary, hidden-path and file-type rules as the requested path.
+        let mime = page_asset_type(&lease.root, &location, None).ok_or(StatusCode::NOT_FOUND)?;
+        if is_file_scope && comparable(&location) != comparable(&lease.page) {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        Ok((file, location, size, mime))
     }
 
     /// One file of a virtual lease: only the names it was made with, the same authorization and lease bookkeeping as a file, and the shim

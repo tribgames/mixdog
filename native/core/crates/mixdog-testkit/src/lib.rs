@@ -5,6 +5,7 @@
 //! no `#[allow]`. Every function panics with the path in the message when the operation fails,
 //! because a fixture that cannot be written or read is a failed test, not a value to handle.
 
+mod built;
 mod chain;
 mod encoding;
 pub mod exact;
@@ -17,6 +18,8 @@ pub mod parity;
 mod process;
 pub mod provider_fields;
 
+pub use built::runtime_path;
+pub use built::target_tmpdir;
 pub use chain::chain_output;
 pub use encoding::base64_decode;
 pub use encoding::base64_encode;

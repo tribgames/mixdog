@@ -1,19 +1,12 @@
-//! The Lead's profile and language prompt parts (Node `lib/rules-builder.cjs`:
-//! `buildLeadMetaContent`, `buildLeadLanguageContent`, `buildLeadLanguage`, with
-//! `lib/output-style-meta.cjs` and the profile catalog of `shared/profile-config.cjs`).
-//!
-//! The profile catalog, its normaliser, the style-id slug and the instruction-file check are
-//! WP-CONFIG's (`config::settings`, `domains::instructions`); only what they lack is here: the
-//! full style frontmatter, the catalog order and lookup, and the prompt texts.
-
-use std::fs;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::LazyLock;
 
+use mixdog_core_prompt::prompt::source_files::PromptFiles;
 use mixdog_js::{JsRegex, js_trim, locale_compare_en_base};
 use serde_json::Value;
 
-use super::rules::{read_optional, split_lines, strip_frontmatter};
+use super::rules::{file_names, read_optional, split_lines, strip_frontmatter};
 use mixdog_core_config::config::PROFILE_EXPERIENCE_LEVELS;
 use mixdog_core_config::config::PROFILE_LANGUAGES;
 use mixdog_core_config::config::normalize_profile;
@@ -52,6 +45,7 @@ pub struct LeadPaths<'a> {
     pub plugin_root: &'a Path,
     pub data_dir: &'a Path,
     pub config: Option<&'a Value>,
+    pub files: &'a dyn PromptFiles,
 }
 
 #[derive(Clone, Debug)]
@@ -72,15 +66,25 @@ fn text_of(value: Option<&Value>) -> String {
     }
 }
 
-#[allow(clippy::disallowed_methods, reason = "runs inside the composition's io-interactive lane job (HostRunParts::compose_prompt), like RealSources")]
+/// The in-memory config `readUnifiedConfig` takes; `None` reads `mixdog-config.json`.
+fn given_config<'a>(paths: &LeadPaths<'a>) -> Option<&'a Value> {
+    paths.config.filter(|c| c.is_object() || c.is_array())
+}
+
+fn config_file(paths: &LeadPaths) -> PathBuf {
+    paths.data_dir.join("mixdog-config.json")
+}
+
 /// `readUnifiedConfig`.
 fn unified_config(paths: &LeadPaths) -> Value {
-    if let Some(config) = paths.config.filter(|c| c.is_object() || c.is_array()) {
+    if let Some(config) = given_config(paths) {
         return config.clone();
     }
     // A profile title a phone sent cut inside an emoji is stored by Node with half of it: U+FFFD here.
-    let parsed = fs::read_to_string(paths.data_dir.join("mixdog-config.json"))
-        .ok()
+    let parsed = paths
+        .files
+        .read(&config_file(paths))
+        .and_then(|bytes| String::from_utf8(bytes).ok())
         .and_then(|t| serde_json::from_str::<Value>(&mixdog_js::json_well_formed_str(&t)).ok());
     parsed.filter(|v| v.is_object()).unwrap_or_else(|| serde_json::json!({}))
 }
@@ -192,19 +196,47 @@ fn match_style<'a>(value: &str, styles: &'a [StyleEntry]) -> Option<&'a StyleEnt
 
 // ---- the style catalog -----------------------------------------------------------------------------
 
-#[allow(clippy::disallowed_methods, reason = "runs inside the composition's io-interactive lane job (HostRunParts::compose_prompt), like RealSources")]
+/// The style folders, shipped first.
+fn style_dirs(paths: &LeadPaths) -> [PathBuf; 2] {
+    [paths.plugin_root.join("output-styles"), paths.data_dir.join("output-styles")]
+}
+
+/// The style files of `dir`, by name.
+fn style_names(files: &dyn PromptFiles, dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = file_names(files, dir).unwrap_or_default().into_iter().filter(|n| n.to_lowercase().ends_with(".md")).collect();
+    names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+    names
+}
+
+/// Reads, through `paths.files`, the files the Lead parts below ask for: the config file when none is given, the
+/// shipped shared format, and with the output style (`include_output_style`) the style folders.
+pub fn read_lead_files(paths: &LeadPaths, include_output_style: bool) {
+    if given_config(paths).is_none() {
+        paths.files.read(&config_file(paths));
+    }
+    paths.files.read(&shipped_common(paths));
+    if include_output_style {
+        for dir in style_dirs(paths) {
+            for name in style_names(paths.files, &dir) {
+                paths.files.read(&dir.join(name));
+            }
+            paths.files.read(&dir.join("common.md"));
+        }
+    }
+}
+
+fn shipped_common(paths: &LeadPaths) -> PathBuf {
+    paths.plugin_root.join("output-styles").join("common.md")
+}
+
 /// `listOutputStyleEntries`: the shipped styles, then the user's (a user file replaces the
 /// shipped one of the same id in its place).
 fn list_styles(paths: &LeadPaths) -> Vec<StyleEntry> {
     let mut by_id: Vec<StyleEntry> = Vec::new();
-    for dir in [paths.plugin_root.join("output-styles"), paths.data_dir.join("output-styles")] {
-        let mut files: Vec<String> = fs::read_dir(&dir)
-            .map(|rd| rd.filter_map(|e| e.ok()?.file_name().into_string().ok()).filter(|n| n.to_lowercase().ends_with(".md")).collect())
-            .unwrap_or_default();
-        files.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
-        for name in files {
+    for dir in style_dirs(paths) {
+        for name in style_names(paths.files, &dir) {
             // A file the editor reports as unusable is passed over, and the built-in applies.
-            let Ok(bytes) = fs::read(dir.join(&name)) else { continue };
+            let Some(bytes) = paths.files.read(&dir.join(&name)) else { continue };
             let Ok(text) = decode_file(&bytes) else { continue };
             let raw = js_trim(&text).to_owned();
             let Some(mut meta) = style_meta(&raw, &name) else { continue };
@@ -223,8 +255,8 @@ fn list_styles(paths: &LeadPaths) -> Vec<StyleEntry> {
 
 /// `readSharedFormatPartial`: a user copy overrides the built-in one.
 fn shared_format_partial(paths: &LeadPaths) -> String {
-    let user = strip_frontmatter(&read_optional(&paths.data_dir.join("output-styles").join("common.md")));
-    if user.is_empty() { strip_frontmatter(&read_optional(&paths.plugin_root.join("output-styles").join("common.md"))) } else { user }
+    let user = strip_frontmatter(&read_optional(paths.files, &paths.data_dir.join("output-styles").join("common.md")));
+    if user.is_empty() { strip_frontmatter(&read_optional(paths.files, &shipped_common(paths))) } else { user }
 }
 
 struct Resolved {
@@ -372,7 +404,7 @@ pub fn build_lead_meta_content(paths: &LeadPaths, include_output_style: bool) ->
 pub fn build_lead_language_content(paths: &LeadPaths, include_output_style: bool, system_locale: &str) -> String {
     let resolved = if include_output_style { resolve_output_style(paths) } else { None };
     // Only the shipped partial is known to keep literals verbatim; a user override may not.
-    let shipped = strip_frontmatter(&read_optional(&paths.plugin_root.join("output-styles").join("common.md")));
+    let shipped = strip_frontmatter(&read_optional(paths.files, &shipped_common(paths)));
     let active = !shipped.is_empty() && resolved.is_some_and(|r| r.common == shipped);
     build_language_section(paths, active, system_locale)
 }

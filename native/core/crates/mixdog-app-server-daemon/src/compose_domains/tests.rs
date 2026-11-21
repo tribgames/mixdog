@@ -375,18 +375,23 @@ const OWNED: [&str; 18] = [
 /// Methods of an owned namespace whose service another work package is still building, with the owner.
 const OTHER_OWNERS: &[(&str, &str)] = &[("host/claim", "wp-compaction-world: the server owns the connection registry")];
 
-/// Methods of an owned namespace that the real composition (`compose_flip::real_core`) serves with a service it builds itself, after
-/// `compose_domains`, each with that service's whole method list: the phone's live view (`live_view::LiveViewService`, SPEC R36) needs
-/// the remote runtime and device registry `real_core` builds, and the desktop's human-only holds (`secret_input::HumanOnlyService`)
-/// need the one lock `real_core` builds the computer helpers over. The test asks the core composed above which service serves each one.
 const COMPOSED_BY_REAL_CORE: &[(&str, &[&str])] = &[
     (
         "live_view::LiveViewService",
         &["browser/stream", "browser/webrtcSignal", "browser/screenDisplays", "host/browser/page", "host/browser/frame", "browser/streamAck"],
     ),
     ("secret_input::HumanOnlyService", &["host/humanOnly/begin", "host/humanOnly/end"]),
-    ("takeover_port::TakeoverReadyService", &["takeover/ready"]),
+    ("takeover_port::TakeoverReadyService", &["takeover/ready", "takeover/state"]),
+    ("browser_engine_service::BrowserEngineService", &["host/browser/events", "host/browser/page/facts", "host/browser/userInput"]),
+    ("browser_bridge_run::BrowserBridgeRun", &["browser/bridge/run", "browser/bridge/turn", "browser/bridge/abort"]),
+    ("computer_scope_report_service::ComputerScopeReportService", &["host/computer/scopeReport"]),
 ];
+
+/// Methods of an owned namespace that `real_core` serves with a service whose method list reaches past the owned namespaces (the terminal
+/// client's calls of `config/*` and `thread/*`, the saved servers' `connections/*` and `remoteHosts/*` with `host/window/closed`), each with
+/// another method of the same service. The test asks the core composed above whether one instance serves both.
+const SERVED_BY_REAL_CORE_WITH_OTHER_METHODS: &[(&str, &str)] =
+    &[("config/getSettingsSnapshot", "thread/setProgressHint"), ("host/window/closed", "connections/subscribe")];
 
 impl mixdog_agent::compact::settings_service::CompactionHost for Quiet {
     fn route_provider(&self, _: Option<&ThreadId>) -> Option<String> {
@@ -625,6 +630,7 @@ fn every_method_of_the_domains_built_here_has_a_real_service() {
                 .filter(|method| OWNED.contains(&method.split('/').next().unwrap()))
                 .filter(|method| unclaimed.contains(method))
                 .filter(|method| !OTHER_OWNERS.iter().any(|(name, _)| name == method))
+                .filter(|method| !SERVED_BY_REAL_CORE_WITH_OTHER_METHODS.iter().any(|(name, _)| name == method))
                 .partition(|method| COMPOSED_BY_REAL_CORE.iter().any(|(_, methods)| methods.contains(method)));
             assert!(missing.is_empty(), "owned methods without a service: {missing:?}");
             // Each listed method is one this composition leaves to the real one, and the composed core routes it to the one service
@@ -638,6 +644,11 @@ fn every_method_of_the_domains_built_here_has_a_real_service() {
                 for method in *methods {
                     assert_eq!(core.domain_for(method).map(|domain| domain.methods()), Some(*methods), "{method}: the composed core serves it with {service}");
                 }
+            }
+            for (method, sibling) in SERVED_BY_REAL_CORE_WITH_OTHER_METHODS {
+                let served = core.domain_for(method).unwrap_or_else(|| panic!("{method}: no service"));
+                let beside = core.domain_for(sibling).unwrap_or_else(|| panic!("{sibling}: no service"));
+                assert!(std::ptr::addr_eq(served, beside), "{method}: served by the service that serves {sibling}");
             }
             // The core's memory stack stops with it.
             core.set_stop_reason("test");

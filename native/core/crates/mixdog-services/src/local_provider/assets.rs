@@ -1,8 +1,3 @@
-//! Verified downloads and installs of the llama.cpp runtime and models. A download is HTTPS
-//! only, size-bounded, resumable from `<file>.part`, and renamed into place only after its
-//! SHA-256 matches. Paused or failed installs leave the partial file as durable evidence; it
-//! never proves validity, the digest does.
-
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
@@ -328,13 +323,50 @@ fn users_of(partial: &Path) -> usize {
     owners().lock().unwrap().get(partial).map_or(0, |o| o.users)
 }
 
+enum Existing {
+    Complete,
+    ResumeFrom(i64),
+}
+
+async fn settle_existing(
+    options: &DownloadOptions,
+    destination: &Path,
+    partial: &Path,
+    size: i64,
+    sha256: &str,
+    deadline: &CancellationToken,
+) -> Result<Existing, AssetError> {
+    let lane = options.durability;
+    if !options.force {
+        let (path, expected) = (destination.to_owned(), size);
+        if probe(lane, move || exact_file(&path, expected)).await? && sha256_file(lane, destination, deadline).await? == sha256 {
+            report(&options.on_progress, None, size, size, 100);
+            return Ok(Existing::Complete);
+        }
+    }
+    let mut received = file_len(lane, partial).await?;
+    if received > size {
+        remove_file(lane, partial).await?;
+        received = 0;
+    }
+    if received == size {
+        if sha256_file(lane, partial, deadline).await? == sha256 {
+            rename(lane, partial, destination).await?;
+            report(&options.on_progress, None, size, size, 100);
+            return Ok(Existing::Complete);
+        }
+        remove_file(lane, partial).await?;
+        received = 0;
+    }
+    Ok(Existing::ResumeFrom(received))
+}
+
 /// Downloads `asset` (`url`, `size`, `sha256`, optional `name`) to `destination`.
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the file calls are durability-lane jobs")]
 pub async fn download_verified_asset(fetcher: &dyn Fetcher, asset: &Value, destination: &Path, options: DownloadOptions) -> Result<PathBuf, AssetError> {
     let (size, url, sha256) = check_asset(asset)?;
     let name = asset["name"].as_str().map_or_else(|| destination.display().to_string(), str::to_owned);
-    let cancel = options.cancel.clone();
-    let deadline = cancel.child_token();
+    let deadline = options.cancel.child_token();
     {
         let deadline = deadline.clone();
         let timeout = options.timeout;
@@ -351,27 +383,10 @@ pub async fn download_verified_asset(fetcher: &dyn Fetcher, asset: &Value, desti
     let Some(_owner) = own(&partial, &deadline).await else { return Err(AssetError::Aborted) };
     let dir = destination.parent().expect("destination has a parent");
     create_dir_all(lane, dir).await?;
-    if !options.force {
-        let (path, expected) = (destination.to_owned(), size);
-        if probe(lane, move || exact_file(&path, expected)).await? && sha256_file(lane, destination, &deadline).await? == sha256 {
-            report(&options.on_progress, None, size, size, 100);
-            return Ok(destination.to_owned());
-        }
-    }
-    let mut received = file_len(lane, &partial).await?;
-    if received > size {
-        remove_file(lane, &partial).await?;
-        received = 0;
-    }
-    if received == size {
-        if sha256_file(lane, &partial, &deadline).await? == sha256 {
-            rename(lane, &partial, destination).await?;
-            report(&options.on_progress, None, size, size, 100);
-            return Ok(destination.to_owned());
-        }
-        remove_file(lane, &partial).await?;
-        received = 0;
-    }
+    let mut received = match settle_existing(&options, destination, &partial, size, &sha256, &deadline).await? {
+        Existing::Complete => return Ok(destination.to_owned()),
+        Existing::ResumeFrom(received) => received,
+    };
     check_disk(lane, options.check_disk, dir, size - received).await?;
     let mut response = tokio::select! {
         r = fetcher.get(&url, received) => r.map_err(AssetError::Other)?,
@@ -506,8 +521,15 @@ pub(super) async fn extract_archive(processes: &Processes, archive: &Path, desti
     if output.code == -1 && !output.error.is_empty() {
         return Err(AssetError::Other(format!("[local-provider] runtime extraction failed: {}", output.error)));
     }
-    let log = &output.combined;
-    // `log.slice(-16384)`: the last 16384 UTF-16 units; a pair cut in half is dropped whole.
+    let tail = log_tail(&output.combined);
+    Err(AssetError::Other(format!(
+        "[local-provider] runtime extraction failed: {}",
+        if tail.is_empty() { format!("status {}", output.code) } else { tail.to_owned() }
+    )))
+}
+
+/// `log.slice(-16384)`: the last 16384 UTF-16 units; a pair cut in half is dropped whole.
+fn log_tail(log: &str) -> &str {
     let (mut units, mut from) = (0, log.len());
     for (at, c) in log.char_indices().rev() {
         units += c.len_utf16();
@@ -516,11 +538,7 @@ pub(super) async fn extract_archive(processes: &Processes, archive: &Path, desti
         }
         from = at;
     }
-    let tail = &log[from..];
-    Err(AssetError::Other(format!(
-        "[local-provider] runtime extraction failed: {}",
-        if tail.is_empty() { format!("status {}", output.code) } else { tail.to_owned() }
-    )))
+    &log[from..]
 }
 
 const RUNTIME_RECEIPT: &str = ".mixdog-runtime-verification.json";
@@ -994,42 +1012,65 @@ mod tests {
         assert!(!dest2.exists() && !part_path(&dest2).exists());
     }
 
+    const REFUSED: &[u8] = b"abcd";
+
     #[tokio::test]
-    async fn unsafe_or_inconsistent_assets_are_refused() {
+    async fn a_non_https_asset_url_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut http = asset(REFUSED);
+        http["url"] = json!("http://example.test/a");
+        assert!(matches!(download_verified_asset(&fake(REFUSED), &http, &dir.path().join("a.bin"), opts()).await, Err(AssetError::NotHttps)));
+    }
+
+    #[tokio::test]
+    async fn an_asset_without_a_size_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut no_size = asset(REFUSED);
+        no_size["size"] = json!(0);
+        assert!(matches!(download_verified_asset(&fake(REFUSED), &no_size, &dir.path().join("a.bin"), opts()).await, Err(AssetError::NoSize)));
+    }
+
+    #[tokio::test]
+    async fn a_redirect_off_https_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut redirected = fake(REFUSED);
+        redirected.https = false;
+        assert!(matches!(download_verified_asset(&redirected, &asset(REFUSED), &dir.path().join("a.bin"), opts()).await, Err(AssetError::RedirectNotHttps)));
+    }
+
+    #[tokio::test]
+    async fn a_server_error_status_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut server_error = fake(REFUSED);
+        server_error.status = 503;
+        assert!(matches!(download_verified_asset(&server_error, &asset(REFUSED), &dir.path().join("a.bin"), opts()).await, Err(AssetError::Http(503, _))));
+    }
+
+    #[tokio::test]
+    async fn a_body_longer_than_declared_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut oversized = asset(REFUSED);
+        oversized["size"] = json!(2);
+        oversized["sha256"] = json!(digest(&REFUSED[..2]));
+        assert!(matches!(download_verified_asset(&fake(REFUSED), &oversized, &dir.path().join("a.bin"), opts()).await, Err(AssetError::Oversize(_))));
+    }
+
+    #[tokio::test]
+    async fn a_body_shorter_than_declared_stays_resumable() {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("a.bin");
-        let content = b"abcd";
-        let mut http = asset(content);
-        http["url"] = json!("http://example.test/a");
-        assert!(matches!(download_verified_asset(&fake(content), &http, &dest, opts()).await, Err(AssetError::NotHttps)));
-        let mut no_size = asset(content);
-        no_size["size"] = json!(0);
-        assert!(matches!(download_verified_asset(&fake(content), &no_size, &dest, opts()).await, Err(AssetError::NoSize)));
-        let mut redirected = fake(content);
-        redirected.https = false;
-        assert!(matches!(download_verified_asset(&redirected, &asset(content), &dest, opts()).await, Err(AssetError::RedirectNotHttps)));
-        let mut server_error = fake(content);
-        server_error.status = 503;
-        assert!(matches!(download_verified_asset(&server_error, &asset(content), &dest, opts()).await, Err(AssetError::Http(503, _))));
-        // The server sends more than declared.
-        let mut oversized = asset(content);
-        oversized["size"] = json!(2);
-        oversized["sha256"] = json!(digest(&content[..2]));
-        assert!(matches!(download_verified_asset(&fake(content), &oversized, &dest, opts()).await, Err(AssetError::Oversize(_))));
-        // Less than declared stays resumable.
-        let mut short = fake(&content[..2]);
-        short.status = 200;
-        assert!(matches!(download_verified_asset(&short, &asset(content), &dest, opts()).await, Err(AssetError::Incomplete(_, 2, 4))));
+        let short = fake(&REFUSED[..2]);
+        assert!(matches!(download_verified_asset(&short, &asset(REFUSED), &dest, opts()).await, Err(AssetError::Incomplete(_, 2, 4))));
         assert!(part_path(&dest).exists());
-        let cancelled = DownloadOptions {
-            cancel: {
-                let c = CancellationToken::new();
-                c.cancel();
-                c
-            },
-            ..opts()
-        };
-        assert!(matches!(download_verified_asset(&fake(content), &asset(content), &dest, cancelled).await, Err(AssetError::Aborted)));
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_download_is_aborted() {
+        let dir = tempfile::tempdir().unwrap();
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let cancelled = DownloadOptions { cancel, ..opts() };
+        assert!(matches!(download_verified_asset(&fake(REFUSED), &asset(REFUSED), &dir.path().join("a.bin"), cancelled).await, Err(AssetError::Aborted)));
     }
 
     #[tokio::test]

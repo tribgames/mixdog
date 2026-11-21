@@ -1,14 +1,3 @@
-//! The live inbound agent-response card: what the transcript pushes when a task session's
-//! completion arrives (Node's `buildExecutionResponseToolItem` in `agent-envelope.mjs`,
-//! `pushAsyncAgentResponse` in `transcript-intake.mjs`, `appendAgentResponseTail` in
-//! `agent-response-tail.mjs`).
-//!
-//! A completion is `{content, meta}` as `notifySessionCompletion` emits it (`meta.execution_id`,
-//! `meta.execution_surface`, `meta.status`). [`agent_response`] turns it into a card, or, when
-//! the transcript's last item is an inbound agent card, into that card with the response
-//! appended. The tail rule is Node's: only the last item is ever extended, so a later response
-//! never reaches above an outbound tool, an assistant or user row, or a preview/body change.
-
 use mixdog_js::js_trim;
 use mixdog_js::value_to_string;
 use mixdog_protocol::ItemMeta;
@@ -46,8 +35,8 @@ pub enum Delivery {
 }
 
 /// The transcript's item for `completion`: a new card `id`, or the `previous` (last) item
-/// extended. `None` when the text is no card at all (Node then shows it as a user or
-/// synthetic row, `pushUserOrSyntheticItem`); `now` is the arrival time in milliseconds.
+/// extended. `None` when the text is no card at all (it then shows as a user or
+/// synthetic row); `now` is the arrival time in milliseconds.
 pub fn agent_response(completion: &Completion<'_>, id: &str, previous: Option<&ThreadItem>, now: i64) -> Option<Delivery> {
     let text = js_trim(completion.content);
     let meta = completion.meta;

@@ -106,11 +106,6 @@ pub struct Machine {
     /// A stop that skips `drainDeferral` was asked in this drain ([`Machine::cut_in_flight`]): the calls in flight no longer hold it,
     /// and the release's `closeConnections` ends their requests, as Node's `shutdown` closes the lanes. A cancelled drain clears it.
     calls_cut: bool,
-    /// New-task requests in flight (`thread/start` of a task with its first prompt): host logic in Node (`submitNewTask` runs in the
-    /// desktop service's `SessionHost`), counted as a call by the self-shutdown (Node's `activeCalls` holds the `desktop.invoke`). A stop
-    /// request does not wait for one: Node's `/stop` shuts down without `drainDeferral` (`routes.mjs:200-209` → SIGTERM →
-    /// `daemon.mjs:272 shutdown`; `drainDeferral` is consulted by `maybeSelfShutdown` only, `daemon.mjs:533-536`), so the attempts are
-    /// cut first ([`Effect::CutNewTasks`]) and their requests no longer hold the drain.
     new_tasks: usize,
     /// The new-task attempts were cut ([`Effect::CutNewTasks`] is sent once).
     new_tasks_cut: bool,
@@ -270,10 +265,6 @@ impl Machine {
         true
     }
 
-    /// The cut at a stop request, by who asked. Node's `/stop {force:true}` (the app's quit, `session-client.mjs:667-707` →
-    /// `routes.mjs:200-209` → `shutdown`) skips `drainDeferral`: every management stop but `Quit` is that stop. A `Quit` stop is Node's
-    /// `/shutdown` (`routes.mjs:189-196`) and `NoClients` its last client leaving, both `maybeSelfShutdown`, whose `drainDeferral`
-    /// (`daemon.mjs:533-536`, `daemon-drain-policy.mjs:11-16`) waits for every active service call, a new task's `desktop.invoke` included.
     fn cut_in_flight_for(&mut self, reason: StopReason) -> bool {
         !matches!(reason, StopReason::Quit | StopReason::NoClients) && self.cut_in_flight()
     }
@@ -429,15 +420,6 @@ impl Machine {
         }
     }
 
-    /// The abort of the drain in progress: nothing in flight holds it any longer (Node's forced `shutdown`), and no turn starts
-    /// after it (its `daemonWorkGate.shutdown()`): what the sessions queued stays for the next core rather than starting only to be
-    /// cancelled. A drain already releasing is left alone, and one already aborting is not cancelled twice.
-    ///
-    /// `release_now` is Node's forced `shutdown()` (`daemon.mjs:268-296`): it does not wait for the cancelled work to end, the release
-    /// begins at once and its first steps (the sessions' teardown, which cancels what still runs and commits it as interrupted, and
-    /// closes the agents) finalise that work. Waiting for the work to settle first would put whatever does not answer its cancel in front
-    /// of the finalisation, inside a launcher's wait that is not extended for it. Without it a drain only calls held is idle now, and one
-    /// that running work holds releases once the cancelled work ends.
     fn abort_drain(&mut self, release_now: bool) {
         let Phase::Draining(drain) = &self.phase else { return };
         if drain.releasing {
@@ -465,12 +447,6 @@ impl Machine {
         }
     }
 
-    /// Whether a client's request to stop the core is put off while clients are attached. Node's `POST /shutdown` calls
-    /// `maybeSelfShutdown('no live session clients')` (`routes.mjs:189-196`, `daemon.mjs:1245`), which returns after logging
-    /// `shutdown deferred (..)` while any registry holds a client (`daemon.mjs:508-529`) and leaves the stop to the last client
-    /// leaving. That is the `Quit` idle stop only (what `shutdownDaemon` and the headless CLI send): a replacement is not deferred
-    /// (`!replacing`, `:512`), nor is a signal, which does not come through here, nor a `UserStop`, which Node has no request for and
-    /// which the user's own stop command waits on.
     pub fn defers_stop(&self, mode: StopMode, reason: StopReason) -> bool {
         matches!(self.phase, Phase::Serving) && matches!(mode, StopMode::WhenIdle) && matches!(reason, StopReason::Quit) && self.clients > 0
     }

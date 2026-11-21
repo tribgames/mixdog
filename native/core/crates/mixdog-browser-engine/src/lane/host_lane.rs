@@ -1,4 +1,3 @@
-//! Owner: s4-engine-lane
 //! The host lane over the core's [`HostChannel`]: every `host/browser/*` request goes to the connection that claimed the desktop's
 //! `BrowserEngine` capability, and its answer is returned only once the [`Mirror`] has seen everything the host pushed up to the
 //! facts the answer carries (a result and the notifications before it travel separately, and the engine reads the ledgers after

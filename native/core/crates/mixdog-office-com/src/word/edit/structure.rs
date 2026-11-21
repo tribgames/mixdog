@@ -31,9 +31,9 @@ fn section_of(document: &Obj, op: &Value) -> Result<Com> {
     super::item(&sections, at)
 }
 
-/// `set_header_footer`: kind and variant name the story; an unknown name is refused rather than written into a default one.
-pub(super) fn set_header_footer(document: &Obj, op: &Value) -> Result<Value> {
-    let section = section_of(document, op)?;
+/// Whether `set_header_footer` writes the footer, and the page variant it names ("" for the default one); an unknown name is
+/// refused rather than written into a default one.
+fn header_footer_story(op: &Value) -> Result<(bool, String)> {
     // kind names either the thing (header, footer) or the page variant.
     let named = lower(&text_of(&prop(op, "kind")));
     if !named.is_empty() && !["header", "footer", "default", "first", "even"].iter().any(|known| same(known, &named)) {
@@ -46,11 +46,6 @@ pub(super) fn set_header_footer(document: &Obj, op: &Value) -> Result<Value> {
     if variant.is_empty() && ["default", "first", "even"].iter().any(|known| same(known, &named)) {
         variant = named.clone();
     }
-    let kind = match variant.as_str() {
-        "first" => 2,
-        "even" => 3,
-        _ => 1,
-    };
     let header = prop(op, "header");
     let use_footer = if same(&named, "footer") {
         true
@@ -59,34 +54,50 @@ pub(super) fn set_header_footer(document: &Obj, op: &Value) -> Result<Value> {
     } else {
         !header.is_null() && !truthy(&header)
     };
+    Ok((use_footer, variant))
+}
+
+/// The running line in the author's type, as the portable writer sets it.
+fn style_running_line(range: &Com, props: &Value) -> Result<()> {
+    if truthy(&prop(props, "name")) {
+        formatting::set_latin_font(&range.member("Font")?, &text_of(&prop(props, "name")))?;
+    }
+    if truthy(&prop(props, "nameEastAsia")) {
+        range.member("Font")?.set_member("NameFarEast", Com::from(text_of(&prop(props, "nameEastAsia"))))?;
+    }
+    if truthy(&prop(props, "size")) {
+        range.member("Font")?.set_member("Size", r4(&prop(props, "size"))?)?;
+    }
+    if !prop(props, "bold").is_null() {
+        range.member("Font")?.set_member("Bold", flag(&prop(props, "bold"), -1))?;
+    }
+    if truthy(&prop(props, "color")) {
+        range.member("Font")?.set_member("Color", color_of(&prop(props, "color"))?)?;
+    }
+    if truthy(&prop(props, "alignment")) {
+        let code = formatting::line_alignment(&prop(props, "alignment"), "set_header_footer alignment")?;
+        range.member("ParagraphFormat")?.set_member("Alignment", Com::I4(code))?;
+    }
+    Ok(())
+}
+
+/// `set_header_footer`: kind and variant name the story.
+pub(super) fn set_header_footer(document: &Obj, op: &Value) -> Result<Value> {
+    let section = section_of(document, op)?;
+    let (use_footer, variant) = header_footer_story(op)?;
+    let kind = match variant.as_str() {
+        "first" => 2,
+        "even" => 3,
+        _ => 1,
+    };
     // The story is taken straight off the section: a COM collection handed through an if-expression is unrolled into an
     // array, and an array's Item(1) is its second element.
     let item = super::item(&section.member(if use_footer { "Footers" } else { "Headers" })?, kind)?;
     item.set_member("Exists", Com::Bool(true))?;
     item.member("Range")?.set_member("Text", Com::from(text_of(&prop(op, "text"))))?;
-    // The running line in the author's type, as the portable writer sets it.
     let props = prop(op, "properties");
     if truthy(&props) {
-        let range = item.member("Range")?;
-        if truthy(&prop(&props, "name")) {
-            formatting::set_latin_font(&range.member("Font")?, &text_of(&prop(&props, "name")))?;
-        }
-        if truthy(&prop(&props, "nameEastAsia")) {
-            range.member("Font")?.set_member("NameFarEast", Com::from(text_of(&prop(&props, "nameEastAsia"))))?;
-        }
-        if truthy(&prop(&props, "size")) {
-            range.member("Font")?.set_member("Size", r4(&prop(&props, "size"))?)?;
-        }
-        if !prop(&props, "bold").is_null() {
-            range.member("Font")?.set_member("Bold", flag(&prop(&props, "bold"), -1))?;
-        }
-        if truthy(&prop(&props, "color")) {
-            range.member("Font")?.set_member("Color", color_of(&prop(&props, "color"))?)?;
-        }
-        if truthy(&prop(&props, "alignment")) {
-            let code = formatting::line_alignment(&prop(&props, "alignment"), "set_header_footer alignment")?;
-            range.member("ParagraphFormat")?.set_member("Alignment", Com::I4(code))?;
-        }
+        style_running_line(&item.member("Range")?, &props)?;
     }
     Ok(ordered(vec![
         ("op", Value::string("set_header_footer")),
@@ -440,6 +451,28 @@ pub(super) fn add_note(document: &Obj, op: &Value) -> Result<Value> {
     ]))
 }
 
+/// Columns are a property of the section, so the text flows through them instead of being placed into boxes; 1 returns the
+/// section to one column.
+fn set_text_columns(section: &Com, props: &Value) -> Result<()> {
+    if !prop(props, "columns").is_null() {
+        let column_count = cast_int(&prop(props, "columns"))?;
+        if !(1..=12).contains(&column_count) {
+            return Err(Error::host("set_page columns must be a whole number from 1 to 12"));
+        }
+        section.member("PageSetup")?.member("TextColumns")?.call_member("SetCount", &[Com::I4(column_count)])?;
+        if column_count > 1 {
+            section.member("PageSetup")?.member("TextColumns")?.set_member("EvenlySpaced", Com::I4(-1))?;
+            let spacing = prop(props, "columnSpacing");
+            let spacing = if spacing.is_null() { Com::R4(35.4) } else { r4(&spacing)? };
+            section.member("PageSetup")?.member("TextColumns")?.set_member("Spacing", spacing)?;
+        }
+    } else if !prop(props, "columnSpacing").is_null() {
+        section.member("PageSetup")?.member("TextColumns")?.set_member("EvenlySpaced", Com::I4(-1))?;
+        section.member("PageSetup")?.member("TextColumns")?.set_member("Spacing", r4(&prop(props, "columnSpacing"))?)?;
+    }
+    Ok(())
+}
+
 /// `set_page`: orientation (the sheet turned the way the section now lies), margins, and 1 to 12 text columns.
 pub(super) fn set_page(document: &Obj, op: &Value) -> Result<Value> {
     // Without an explicit section the edit lands on the one being written into, the last.
@@ -467,24 +500,7 @@ pub(super) fn set_page(document: &Obj, op: &Value) -> Result<Value> {
             section.member("PageSetup")?.set_member(member, r4(&prop(&props, key))?)?;
         }
     }
-    // Columns are a property of the section, so the text flows through them instead of being placed into boxes; 1 returns
-    // the section to one column.
-    if !prop(&props, "columns").is_null() {
-        let column_count = cast_int(&prop(&props, "columns"))?;
-        if !(1..=12).contains(&column_count) {
-            return Err(Error::host("set_page columns must be a whole number from 1 to 12"));
-        }
-        section.member("PageSetup")?.member("TextColumns")?.call_member("SetCount", &[Com::I4(column_count)])?;
-        if column_count > 1 {
-            section.member("PageSetup")?.member("TextColumns")?.set_member("EvenlySpaced", Com::I4(-1))?;
-            let spacing = prop(&props, "columnSpacing");
-            let spacing = if spacing.is_null() { Com::R4(35.4) } else { r4(&spacing)? };
-            section.member("PageSetup")?.member("TextColumns")?.set_member("Spacing", spacing)?;
-        }
-    } else if !prop(&props, "columnSpacing").is_null() {
-        section.member("PageSetup")?.member("TextColumns")?.set_member("EvenlySpaced", Com::I4(-1))?;
-        section.member("PageSetup")?.member("TextColumns")?.set_member("Spacing", r4(&prop(&props, "columnSpacing"))?)?;
-    }
+    set_text_columns(&section, &props)?;
     Ok(ordered(vec![
         ("op", Value::string("set_page")),
         ("changed", Value::Bool(true)),

@@ -9,10 +9,7 @@ pub const SERVICE_NAME: &str = "MixdogSecureDesktop";
 /// The service display name shown in services.msc.
 pub const SERVICE_DISPLAY_NAME: &str = "Mixdog Secure Desktop Bridge";
 
-/// Fixed app-facing pipe name. A fixed name is safe here: the pipe's DACL
-/// admits only the installing user and SYSTEM, and the hello handshake requires
-/// the per-install secret. The leading component after `pipe\` is unique enough
-/// to avoid collisions with other products.
+/// Fixed app-facing pipe name.
 pub const PIPE_NAME: &str = r"\\.\pipe\mixdog-secure-desktop";
 
 /// Kernel-object names of one helper's shutdown channel, from its per-launch
@@ -27,19 +24,14 @@ pub fn shutdown_event_names(token: &str) -> (String, String) {
 /// protocol version.
 pub const STATE_SCHEMA_VERSION: u32 = 1;
 
-/// `%ProgramData%` — the machine-wide application-data root. It exists on every
-/// Windows install and is the already-present base below which the protected
-/// Mixdog directories are created; it is itself never created or
-/// re-permissioned by the installer.
+/// `%ProgramData%`, the machine-wide application-data root; the installer
+/// never creates or re-permissions it.
 pub fn program_data_root() -> PathBuf {
     std::env::var_os("ProgramData").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"))
 }
 
-/// `%ProgramData%\Mixdog\SecureDesktop`. ProgramData is machine-wide and
-/// readable by all users by default, so everything written here is given an
-/// explicit DACL rather than relying on inheritance. The intermediate
-/// `%ProgramData%\Mixdog` may not exist yet, so the installer creates the whole
-/// chain below `%ProgramData%` top-down with that protected DACL.
+/// `%ProgramData%\Mixdog\SecureDesktop`; the installer creates the whole chain
+/// below `%ProgramData%` top-down with a protected DACL.
 pub fn state_dir() -> PathBuf {
     program_data_root().join("Mixdog").join("SecureDesktop")
 }

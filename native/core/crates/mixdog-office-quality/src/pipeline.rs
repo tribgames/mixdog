@@ -1,4 +1,4 @@
-//! `quality-pipeline.mjs`: issue normalisation, the split between blocking integrity faults and advisory taste
+//! Issue normalisation, the split between blocking integrity faults and advisory taste
 //! observations, the polish plan, and the submission gate.
 //!
 //! Measurable integrity faults (the file is broken, unreadable, or lies about its own fit) are the only codes that
@@ -442,8 +442,8 @@ struct Target {
     actions: Vec<String>,
 }
 
-/// `buildOfficePolishPlan`: the non-advisory issues grouped by path, errors first and then by path.
-pub fn build_office_polish_plan(format: &str, issues: &[Value]) -> Value {
+/// The non-advisory issues grouped by path, errors first and then by path.
+fn polish_targets(issues: &[Value]) -> Vec<Target> {
     let mut targets: Vec<Target> = Vec::new();
     let mut by_path: HashMap<String, usize> = HashMap::new();
     for issue in normalize_office_review_issues(issues) {
@@ -473,11 +473,16 @@ pub fn build_office_polish_plan(format: &str, issues: &[Value]) -> Value {
             current.actions.push(guidance);
         }
     }
-    let mut ordered = targets;
-    js_sort_by(&mut ordered, |left, right| {
+    js_sort_by(&mut targets, |left, right| {
         let errors = f64::from(u8::from(right.error)) - f64::from(u8::from(left.error));
         if errors != 0.0 { errors } else { f64::from(locale_compare(&left.path, &right.path) as i8) }
     });
+    targets
+}
+
+/// `buildOfficePolishPlan`: the polish targets of a document and what to do next.
+pub fn build_office_polish_plan(format: &str, issues: &[Value]) -> Value {
+    let ordered = polish_targets(issues);
     let critical = ordered.iter().filter(|target| target.error).count();
     let next_action = if ordered.is_empty() {
         "No targeted polish remains."

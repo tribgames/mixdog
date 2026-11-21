@@ -64,8 +64,6 @@ pub async fn close_session<H: Host>(
     if microsoft_office {
         let closed = ComSessions::close_session(host, &id, save, signal).await;
         let (ok, reaped) = (closed.get("ok").is_some_and(truthy), closed.get("reaped").is_some_and(truthy));
-        // A session whose application already died cannot be closed through it. Release the record anyway and say the cleanup was
-        // not confirmed; refusing would leave the session unusable and unclosable for the rest of the run.
         if !ok && !reaped {
             return Err(failure(&closed, "Microsoft Office session close failed"));
         }
@@ -82,6 +80,11 @@ pub async fn close_session<H: Host>(
         let session = lock(handle);
         (session.target.clone(), session.com.ownership.clone())
     };
+    Ok(closed_record(id, target, ownership, cleanup, unconfirmed))
+}
+
+/// The answer of a close: `reaped` and `warning` appear only when the application's own close was not confirmed.
+fn closed_record(id: String, target: String, ownership: Option<String>, cleanup: Option<Value>, unconfirmed: String) -> Value {
     let mut result = Map::new();
     result.insert("ok".to_owned(), Value::Bool(true));
     result.insert("session".to_owned(), Value::String(id));
@@ -97,5 +100,18 @@ pub async fn close_session<H: Host>(
         result.insert("reaped".to_owned(), Value::Bool(true));
         result.insert("warning".to_owned(), Value::String(unconfirmed));
     }
-    Ok(Value::Object(result))
+    Value::Object(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_confirmed_close_names_the_session_and_an_unconfirmed_one_carries_a_warning() {
+        let confirmed = closed_record("s1".into(), "a.docx".into(), Some("owned".into()), Some(json!({ "x": 1 })), String::new());
+        assert_eq!(confirmed, json!({ "ok": true, "session": "s1", "closed": true, "path": "a.docx", "ownership": "owned", "cleanup": { "x": 1 } }));
+        let unconfirmed = closed_record("s1".into(), "a.docx".into(), None, None, "gone".into());
+        assert_eq!(unconfirmed, json!({ "ok": true, "session": "s1", "closed": true, "path": "a.docx", "reaped": true, "warning": "gone" }));
+    }
 }

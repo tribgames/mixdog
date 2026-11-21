@@ -10,7 +10,6 @@
 //! that completes later answers through the `complete_*` methods; one that is done at once says
 //! so (`Settle::Now`) and its continuation is queued exactly where Node's microtask would be.
 
-// Private spelling of the existing admission callback; the ownership and call contract stay unchanged.
 type WriteGateCallback = dyn Fn(&mut dyn FnMut()) -> bool + Send + Sync;
 
 use std::collections::BTreeMap;
@@ -870,10 +869,6 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
         }
     }
 
-    /// Seals one control message FOR `carrier`'s lane and writes it there the moment the seal
-    /// resolves. A box sealed for a direct carrier that is gone by then is dropped, never moved to
-    /// the relay: acks are regenerated on the surviving carrier, repairs by the receiver's PTO,
-    /// pings by the keep-alive.
     fn send_control(&mut self, message: &Value, carrier: &Carrier) {
         if self.closed || (*carrier != Carrier::Relay && !self.carrier_present(carrier)) {
             return;
@@ -1059,7 +1054,7 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
 
     pub fn peer_message(&mut self, connection_id: &str, message: &[u8]) {
         if self.live(connection_id) {
-            self.receive_inner(&format!("direct:{connection_id}"), message);
+            self.receive(&format!("direct:{connection_id}"), message);
         }
     }
 
@@ -1219,14 +1214,10 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
             Signal::Close { reason, .. } => {
                 let at = self.host.now();
                 let named = self.retained_offer(&at_ref.connection_id, at_ref.generation, at);
-                // The backstop for a foreground flag stuck behind a full window: the leg stops
-                // counting as foreground first. It may name a connection already closed here.
                 if reason == CloseReason::Suspended && named != 0 {
                     self.host.suspended();
                 }
                 if reason == CloseReason::Restart {
-                    // Only the newest offer, live or closed; a stale or unknown reference is a
-                    // no-op. The next offer keeps the negotiation pacing.
                     if named != 1 {
                         return;
                     }
@@ -1274,19 +1265,11 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
         if self.closed {
             return;
         }
-        let (value, sequence, stale) = match opened {
-            ControlOpen::Stale { sequence } => (Value::Null, sequence, true),
-            ControlOpen::Fresh { sequence, value } => match serde_json::from_slice::<Value>(&value) {
-                Ok(value) => (value, sequence, false),
-                Err(_) => {
-                    self.forged += 1;
-                    return;
-                }
-            },
-        };
-        if stale {
+        let ControlOpen::Fresh { sequence, value } = opened else { return };
+        let Ok(value) = serde_json::from_slice::<Value>(&value) else {
+            self.forged += 1;
             return;
-        }
+        };
         let control = match read_control(&value, sequence, false).map_err(|_| ()).and_then(|control| match control {
             Some(Control::Signal(raw)) => parse_signal(&raw, Role::Client).map(|signal| Some(ReadControl::Signal(signal))).map_err(|_| ()),
             Some(Control::Ack(ack)) => Ok(Some(ReadControl::Ack(ack))),
@@ -1296,8 +1279,6 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
         }) {
             Ok(control) => control,
             Err(()) => {
-                // An authentic stream message the client could not have meant is the end of the
-                // session; a signal it could not express ends this attempt.
                 if is_control_tag(&value) {
                     self.fail(EndReason::ProtocolError);
                 } else if let Some(connection) = self.direct.as_ref().map(|direct| direct.connection_id.clone()) {
@@ -1313,53 +1294,52 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
         }
         self.host.authenticated();
         match control {
-            ReadControl::Ack(ack) => {
-                let released = match self.sender.acknowledge(&ack, at) {
-                    Ok(released) => released,
-                    Err(_) => {
-                        self.fail(EndReason::ProtocolError);
-                        return;
-                    }
-                };
-                if released > 0 {
-                    self.current_monitor().ack_advanced(at);
-                    let through = self.sender.stats().acked_through;
-                    self.call_ids.retain(|sequence, _| *sequence > through);
-                    self.relay_writers.retain(|sequence, _| *sequence > through);
-                }
-                self.note_outstanding(at);
-                self.wake();
-            }
+            ReadControl::Ack(ack) => self.handle_ack(&ack, at),
             ReadControl::Repair(repair) => {
                 if self.sender.repair(&repair) > 0 {
                     self.wake();
                 }
             }
-            ReadControl::Ping(ping) => {
-                let message = ping.message().clone();
-                if message.pong {
-                    self.match_pong(key, message.id, at);
-                    return;
-                }
-                let carrier = if key == RELAY_ID {
-                    Some(Carrier::Relay)
-                } else {
-                    self.direct.as_ref().filter(|direct| direct.id() == key).map(|direct| Carrier::Direct(direct.connection_id.clone()))
-                };
-                if let Some(carrier) = carrier {
-                    let pong = parse_text(&pong_json(message.id));
-                    self.send_control(&pong, &carrier);
-                }
-                if let Some(sent) = message.sent {
-                    self.receiver.probe(sent, at);
-                }
-            }
+            ReadControl::Ping(ping) => self.handle_ping(key, ping.message().clone(), at),
             ReadControl::Signal(signal) => {
-                // Signaling travels on the relay lane only.
                 if key == RELAY_ID {
                     self.handle_signal(signal);
                 }
             }
+        }
+    }
+
+    fn handle_ack(&mut self, ack: &super::control::Authenticated<super::control::Ack>, at: u64) {
+        let Ok(released) = self.sender.acknowledge(ack, at) else {
+            self.fail(EndReason::ProtocolError);
+            return;
+        };
+        if released > 0 {
+            self.current_monitor().ack_advanced(at);
+            let through = self.sender.stats().acked_through;
+            self.call_ids.retain(|sequence, _| *sequence > through);
+            self.relay_writers.retain(|sequence, _| *sequence > through);
+        }
+        self.note_outstanding(at);
+        self.wake();
+    }
+
+    fn handle_ping(&mut self, key: &str, message: super::control::Ping, at: u64) {
+        if message.pong {
+            self.match_pong(key, message.id, at);
+            return;
+        }
+        let carrier = if key == RELAY_ID {
+            Some(Carrier::Relay)
+        } else {
+            self.direct.as_ref().filter(|direct| direct.id() == key).map(|direct| Carrier::Direct(direct.connection_id.clone()))
+        };
+        if let Some(carrier) = carrier {
+            let pong = parse_text(&pong_json(message.id));
+            self.send_control(&pong, &carrier);
+        }
+        if let Some(sent) = message.sent {
+            self.receiver.probe(sent, at);
         }
     }
 
@@ -1447,7 +1427,6 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
                         continue;
                     }
                     if let Some(held) = self.held.take() {
-                        // `assemble` clears or re-arms `held` itself.
                         let Held { plaintext, bytes } = held;
                         self.assemble(plaintext, bytes);
                         return;
@@ -1468,8 +1447,6 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
                                 self.draining = false;
                                 return;
                             }
-                            // Failed authentication: that copy goes; a rival or the repair the
-                            // receiver asks for refills the slot.
                             self.receiver.discard(sequence);
                             input = DrainInput::WhileHead;
                             continue;
@@ -1514,11 +1491,7 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
     }
 
     /// One carrier message as received: `relay`, or `direct:<connectionId>`.
-    pub fn receive(&mut self, carrier: &str, raw: &[u8]) {
-        self.receive_inner(carrier, raw);
-    }
-
-    fn receive_inner(&mut self, key: &str, raw: &[u8]) {
+    pub fn receive(&mut self, key: &str, raw: &[u8]) {
         if self.closed || (key != RELAY_ID && self.direct.as_ref().map(Direct::id).as_deref() != Some(key)) {
             return;
         }
@@ -1612,12 +1585,6 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
         }
     }
 
-    /// The head message is asked about at its write (`SendOptions::gate`) and its next record was admitted. Each record enters in
-    /// one step under the gate. At the first, all its records are sealed in that step (the seal is synchronous here): their
-    /// sequences are taken then, so a phone whose permission ended gets no part of it and the stream has no hole. The sealed records
-    /// then enter as the window admits them, ahead of anything else (nothing else is sealed meanwhile), so a message larger than the
-    /// window still arrives whole; once the permission ended none enters, the message is abandoned and the session ends
-    /// ([`view_revoked`](Self::view_revoked)). False: the session ended.
     fn write_gated(&mut self, admission: &Admission<'_>) -> bool {
         let first = self.queue[0].sealed.is_empty();
         let Self { queue, channel, sender, .. } = self;
@@ -1651,7 +1618,6 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
                 self.fail(EndReason::Revoked);
                 false
             }
-            // A size refusal of the first record runs before its sequence is assigned: nothing was consumed.
             (true, Some(SealFault::Oversize), _) if self.queue[0].sealed.is_empty() => {
                 if let Some(item) = self.queue.pop_front() {
                     self.host.send_settled(item.ticket, Err(SendError::Range));
@@ -1836,12 +1802,32 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
 
     // ---- lifecycle ------------------------------------------------------------------------------
 
-    /// Timers: delayed acks, loss recovery, probes, keep-alive, path health.
-    pub fn tick(&mut self) {
-        self.tick_inner();
+    fn check_direct_health(&mut self, at: u64) {
+        let Some((connection, started_at, open)) = self.direct.as_ref().map(|direct| (direct.connection_id.clone(), direct.started_at, direct.open)) else {
+            return;
+        };
+        if !open {
+            if at - started_at >= NEGOTIATION_TIMEOUT_MS {
+                self.close_direct(&connection, CloseReason::NegotiationTimeout, true, None, None);
+            }
+        } else if self.current_direct {
+            let carrier = Carrier::Direct(connection.clone());
+            let buffered = self.buffered_of(&carrier);
+            let outstanding = self.sender.stats().outstanding_bytes;
+            let stall = self.direct.as_mut().and_then(|direct| {
+                direct.monitor.buffered(buffered, at);
+                direct.monitor.stalled(at, outstanding)
+            });
+            if let Some(stall) = stall {
+                self.close_direct(&connection, CloseReason::Stall, true, None, Some(stall_name(stall)));
+            }
+        } else if self.direct.as_mut().is_some_and(|direct| direct.monitor.stalled(at, 0).is_some()) {
+            self.close_direct(&connection, CloseReason::Stall, true, None, Some("silent"));
+        }
     }
 
-    fn tick_inner(&mut self) {
+    /// Timers: delayed acks, loss recovery, probes, keep-alive, path health.
+    pub fn tick(&mut self) {
         if self.closed {
             return;
         }
@@ -1854,27 +1840,7 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
             self.fail(EndReason::AssemblyStalled);
             return;
         }
-        if let Some((connection, started_at, open)) = self.direct.as_ref().map(|direct| (direct.connection_id.clone(), direct.started_at, direct.open)) {
-            if !open {
-                if at - started_at >= NEGOTIATION_TIMEOUT_MS {
-                    self.close_direct(&connection, CloseReason::NegotiationTimeout, true, None, None);
-                }
-            } else if self.current_direct {
-                let carrier = Carrier::Direct(connection.clone());
-                let buffered = self.buffered_of(&carrier);
-                let outstanding = self.sender.stats().outstanding_bytes;
-                let stall = self.direct.as_mut().and_then(|direct| {
-                    direct.monitor.buffered(buffered, at);
-                    direct.monitor.stalled(at, outstanding)
-                });
-                if let Some(stall) = stall {
-                    self.close_direct(&connection, CloseReason::Stall, true, None, Some(stall_name(stall)));
-                }
-            } else if self.direct.as_mut().is_some_and(|direct| direct.monitor.stalled(at, 0).is_some()) {
-                // Open but never validated, and silent for the idle timeout.
-                self.close_direct(&connection, CloseReason::Stall, true, None, Some("silent"));
-            }
-        }
+        self.check_direct_health(at);
         let in_flight = self.relay_in_flight;
         self.relay_monitor.buffered(in_flight, at);
         self.maybe_start_peer(at);

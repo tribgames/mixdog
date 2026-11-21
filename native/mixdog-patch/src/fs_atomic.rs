@@ -7,13 +7,6 @@ pub(crate) fn snapshot_from_metadata(metadata: &fs::Metadata) -> FileSnapshot {
     FileSnapshot { len: metadata.len(), modified: metadata.modified().ok() }
 }
 
-/// Within-operation consistency check, NOT hostile-race hardening: entries are
-/// read (and applied in memory, possibly on worker threads) during planning and
-/// written later, so a file that changed in between — an editor save, a build
-/// step, an earlier wave of the same request — would otherwise be overwritten
-/// with bytes computed from stale content, and `plan.original` (the rollback
-/// source) would no longer describe the file. Size+mtime is the cheapest check
-/// that keeps both truthful.
 pub(crate) fn snapshot_matches(path: &Path, snapshot: &FileSnapshot) -> Result<(), String> {
     let metadata = fs::metadata(path).map_err(|e| format!("stat {} before write: {e}", path.display()))?;
     if metadata.len() != snapshot.len {
@@ -140,11 +133,6 @@ pub(crate) fn atomic_write_replace(path: &Path, bytes: &[u8]) -> Result<(), Stri
     Err(format!("atomic write {}: unable to allocate temp file", path.display()))
 }
 
-/// Creation IS the atomic step: `create_new` (O_CREAT|O_EXCL) fails with
-/// AlreadyExists for an existing file, directory or symlink, so an Add File can
-/// never overwrite or follow an existing entry, and rollback stays a plain
-/// `remove_file`. A temp-file + hard-link dance buys nothing for those two
-/// guarantees (and fails on filesystems without hard links).
 pub(crate) fn atomic_write_create_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
     atomic_write_create_new_with(
         path,
@@ -157,9 +145,6 @@ pub(crate) fn atomic_write_create_new(path: &Path, bytes: &[u8]) -> Result<(), S
     )
 }
 
-/// `write` and `remove` are injected so the "persistence failed AND the
-/// half-written file could not be removed" report is reachable in a test
-/// without an adversarial filesystem. Production passes the real ones.
 pub(crate) fn atomic_write_create_new_with(
     path: &Path,
     bytes: &[u8],
@@ -175,9 +160,6 @@ pub(crate) fn atomic_write_create_new_with(
     };
     if let Err(err) = write(&mut file, bytes) {
         drop(file);
-        // The exclusive create already published the name, so a failed write
-        // leaves a partial file. If the cleanup removal ALSO fails the caller
-        // must hear it: reject_partial would otherwise imply nothing landed.
         if let Err(cleanup) = remove(path) {
             return Err(format!(
                 "atomic create {}: {err}; cleanup incomplete: partial file left on disk ({})",
@@ -206,10 +188,6 @@ pub(crate) fn persist_plan(plan: &PlannedWrite, canonical_base: &Path) -> Result
     }
     match plan.kind {
         EntryKind::Modify => {
-            // TOCTOU guard: between plan-time canonicalization and the write
-            // here, an intermediate parent could have been swapped to a
-            // symlink/junction pointing outside `canonical_base`. Re-validate
-            // the FINAL parent directory immediately before the write.
             verify_parent_within_base(&plan.path, canonical_base)?;
             let bytes = plan.next.as_ref().ok_or_else(|| "modify plan missing bytes".to_string())?;
             atomic_write_replace(&plan.path, bytes)
@@ -218,16 +196,11 @@ pub(crate) fn persist_plan(plan: &PlannedWrite, canonical_base: &Path) -> Result
             if let Some(parent) = plan.path.parent() {
                 fs::create_dir_all(parent).map_err(|e| format!("create parent {}: {e}", parent.display()))?;
             }
-            // TOCTOU guard: re-validate AFTER create_dir_all and BEFORE the
-            // exclusive create below, so a create_dir_all that resolved through
-            // a parent outside the base is refused before any bytes are written.
             verify_parent_within_base(&plan.path, canonical_base)?;
             let bytes = plan.next.as_ref().ok_or_else(|| "create plan missing bytes".to_string())?;
             atomic_write_create_new(&plan.path, bytes)
         }
         EntryKind::Delete => {
-            // TOCTOU guard: refuse to delete through a parent that now
-            // resolves outside the canonical base.
             verify_parent_within_base(&plan.path, canonical_base)?;
             fs::remove_file(&plan.path).map_err(|e| format!("delete {}: {e}", plan.path.display()))
         }
@@ -248,10 +221,6 @@ pub(crate) fn verify_parent_within_base(path: &Path, canonical_base: &Path) -> R
     Ok(())
 }
 
-/// Snapshot rollback: undo what this operation planned to write. A created
-/// file is removed, a modified/deleted file is restored from the bytes read
-/// before the write. No attempt is made to detect a hostile concurrent
-/// replacement of the path (out of scope).
 pub(crate) fn rollback_plan(plan: &PlannedWrite) -> Result<(), String> {
     match plan.kind {
         EntryKind::Create => match fs::remove_file(&plan.path) {

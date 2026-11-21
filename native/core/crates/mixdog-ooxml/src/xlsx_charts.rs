@@ -158,12 +158,7 @@ struct ChartData {
     values: Vec<String>,
 }
 
-fn read_chart_data(zip: &Package, xml: &str, sheet: &Sheet, op: &Value, block: &DataBlock) -> Result<ChartData, String> {
-    let area = &block.area;
-    let plot_by_rows = block.plot_by_rows;
-    let cells = SheetCellValues::new(zip, xml);
-    let labels = SheetCellLabels::new(zip, xml);
-    // The category labels along the header row (plotted by rows) or the first column.
+fn category_labels(labels: &SheetCellLabels, area: &Area, plot_by_rows: bool) -> Result<Vec<String>, String> {
     let mut categories = Vec::new();
     if plot_by_rows {
         let mut column = area.start_col + 1.0;
@@ -178,29 +173,75 @@ fn read_chart_data(zip: &Package, xml: &str, sheet: &Sheet, op: &Value, block: &
             row += 1.0;
         }
     }
-    // A column of dated categories in one format is written as dates in that format.
-    let mut category_dates = None;
-    if !plot_by_rows {
-        let mut dates = Vec::new();
-        let mut row = area.start_row + 1.0;
-        while row <= area.end_row {
-            dates.push(labels.dated(area.start_col, row)?);
-            row += 1.0;
-        }
-        if let Some(Some(first)) = dates.first()
-            && dates.iter().all(|date| date.as_ref().is_some_and(|date| date.format == first.format))
-        {
-            category_dates =
-                Some(DatedCategories { values: dates.iter().flatten().map(|date| json_number(date.serial)).collect(), format: first.format.clone() });
-        }
+    Ok(categories)
+}
+
+/// A column of dated categories in one format is written as dates in that format.
+fn dated_categories(labels: &SheetCellLabels, area: &Area) -> Result<Option<DatedCategories>, String> {
+    let mut dates = Vec::new();
+    let mut row = area.start_row + 1.0;
+    while row <= area.end_row {
+        dates.push(labels.dated(area.start_col, row)?);
+        row += 1.0;
     }
+    if let Some(Some(first)) = dates.first()
+        && dates.iter().all(|date| date.as_ref().is_some_and(|date| date.format == first.format))
+    {
+        return Ok(Some(DatedCategories { values: dates.iter().flatten().map(|date| json_number(date.serial)).collect(), format: first.format.clone() }));
+    }
+    Ok(None)
+}
+
+/// The sheet references one series cites: its name cell and its value cells.
+fn series_references(sheet_reference: &str, area: &Area, plot_by_rows: bool, lane: f64) -> (String, String) {
+    if plot_by_rows {
+        (
+            format!("{sheet_reference}!${}${}", column_label(area.start_col), number_to_string(lane)),
+            format!(
+                "{sheet_reference}!${}${}:${}${}",
+                column_label(area.start_col + 1.0),
+                number_to_string(lane),
+                column_label(area.end_col),
+                number_to_string(lane)
+            ),
+        )
+    } else {
+        let label = column_label(lane);
+        (
+            format!("{sheet_reference}!${label}${}", number_to_string(area.start_row)),
+            format!("{sheet_reference}!${label}${}:${label}${}", number_to_string(area.start_row + 1.0), number_to_string(area.end_row)),
+        )
+    }
+}
+
+fn category_reference(sheet_reference: &str, area: &Area, plot_by_rows: bool) -> String {
+    if plot_by_rows {
+        format!(
+            "{sheet_reference}!${}${}:${}${}",
+            column_label(area.start_col + 1.0),
+            number_to_string(area.start_row),
+            column_label(area.end_col),
+            number_to_string(area.start_row)
+        )
+    } else {
+        let label = column_label(area.start_col);
+        format!("{sheet_reference}!${label}${}:${label}${}", number_to_string(area.start_row + 1.0), number_to_string(area.end_row))
+    }
+}
+
+fn read_chart_data(zip: &Package, xml: &str, sheet: &Sheet, op: &Value, block: &DataBlock) -> Result<ChartData, String> {
+    let area = &block.area;
+    let plot_by_rows = block.plot_by_rows;
+    let cells = SheetCellValues::new(zip, xml);
+    let labels = SheetCellLabels::new(zip, xml);
+    let categories = category_labels(&labels, area, plot_by_rows)?;
+    let category_dates = if plot_by_rows { None } else { dated_categories(&labels, area)? };
     let palette: &[Value] = op.get("seriesColors").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     let slices = matches!(js_to_lowercase(&text_of(op.get("chartType"))).as_str(), "pie" | "doughnut" | "donut");
     let point_colors = slices && !palette.is_empty();
     let sheet_reference = quote_sheet_name(&sheet.name);
     let (mut series, mut names, mut values) = (Vec::new(), Vec::new(), Vec::new());
     for (index, &lane) in block.lanes.iter().enumerate() {
-        let label = column_label(if plot_by_rows { area.start_col } else { lane });
         let named = if plot_by_rows { cells.value(area.start_col, lane) } else { cells.value(lane, area.start_row) };
         let mut entry = Map::new();
         entry.insert(
@@ -218,35 +259,13 @@ fn read_chart_data(zip: &Package, xml: &str, sheet: &Sheet, op: &Value, block: &
             entry.insert("pointColors".to_owned(), Value::Array((0..categories.len()).map(|point| palette[point % palette.len()].clone()).collect()));
         }
         series.push(Value::Object(entry));
-        if plot_by_rows {
-            names.push(format!("{sheet_reference}!${label}${}", number_to_string(lane)));
-            values.push(format!(
-                "{sheet_reference}!${}${}:${}${}",
-                column_label(area.start_col + 1.0),
-                number_to_string(lane),
-                column_label(area.end_col),
-                number_to_string(lane)
-            ));
-        } else {
-            names.push(format!("{sheet_reference}!${label}${}", number_to_string(area.start_row)));
-            values.push(format!("{sheet_reference}!${label}${}:${label}${}", number_to_string(area.start_row + 1.0), number_to_string(area.end_row)));
-        }
+        let (name, lane_range) = series_references(&sheet_reference, area, plot_by_rows, lane);
+        names.push(name);
+        values.push(lane_range);
     }
-    let category_label = column_label(area.start_col);
-    let category = if plot_by_rows {
-        format!(
-            "{sheet_reference}!${}${}:${}${}",
-            column_label(area.start_col + 1.0),
-            number_to_string(area.start_row),
-            column_label(area.end_col),
-            number_to_string(area.start_row)
-        )
-    } else {
-        format!("{sheet_reference}!${category_label}${}:${category_label}${}", number_to_string(area.start_row + 1.0), number_to_string(area.end_row))
-    };
+    let category = category_reference(&sheet_reference, area, plot_by_rows);
     Ok(ChartData { categories, category_dates, series, sheet_reference, category, names, values })
 }
-
 /// What one sheet's cells show: the values a number cache takes and the labels a text cache takes.
 struct SheetReader {
     path: String,
@@ -420,6 +439,19 @@ fn workbook_font_name(zip: &Package) -> String {
     xml_decode(FONT_NAME.captures(first).and_then(|found| found.get(1).map(str::to_owned)).as_deref().unwrap_or(""))
 }
 
+fn highlight_single_series(op: &Value, categories: &[String], series: &mut [Value]) {
+    let lit = chart_highlight_index(op.get("highlight"), categories);
+    if lit < 0.0 || series.len() != 1 {
+        return;
+    }
+    let accent = series[0].get("color").filter(|color| truthy(color)).cloned().unwrap_or_else(|| Value::from(DEFAULT_SERIES_COLORS[0]));
+    let muted = op.get("mutedColor").filter(|color| truthy(color)).cloned().unwrap_or_else(|| Value::from(HIGHLIGHT_MUTED));
+    let colors: Vec<Value> = (0..categories.len()).map(|point| if point as f64 == lit { accent.clone() } else { muted.clone() }).collect();
+    if let Value::Object(entry) = &mut series[0] {
+        entry.insert("pointColors".to_owned(), Value::Array(colors));
+    }
+}
+
 /// `addWorksheetChart(zip, sheet, xml, op, sheets)`: a chart part, its drawing anchor, and the series read out of the sheet.
 pub fn add_worksheet_chart<P: ReadProof>(
     measurer: &TextMeasurer<'_, P>,
@@ -433,15 +465,7 @@ pub fn add_worksheet_chart<P: ReadProof>(
     let (source_sheet, source_xml) = chart_source_sheet(zip, sheet, xml, sheets, &block.source_sheet)?;
     let ChartData { categories, category_dates, mut series, sheet_reference, category, names, values } =
         read_chart_data(zip, &source_xml, source_sheet, op, &block)?;
-    let lit = chart_highlight_index(op.get("highlight"), &categories);
-    if lit >= 0.0 && series.len() == 1 {
-        let accent = series[0].get("color").filter(|color| truthy(color)).cloned().unwrap_or_else(|| Value::from(DEFAULT_SERIES_COLORS[0]));
-        let muted = op.get("mutedColor").filter(|color| truthy(color)).cloned().unwrap_or_else(|| Value::from(HIGHLIGHT_MUTED));
-        let colors: Vec<Value> = (0..categories.len()).map(|point| if point as f64 == lit { accent.clone() } else { muted.clone() }).collect();
-        if let Value::Object(entry) = &mut series[0] {
-            entry.insert("pointColors".to_owned(), Value::Array(colors));
-        }
-    }
+    highlight_single_series(op, &categories, &mut series);
     let chart_part = next_chart_part(zip);
     let category_values: Vec<Value> = categories.iter().cloned().map(Value::String).collect();
     let dates = category_dates.as_ref().map(|dates| CategoryDates { values: &dates.values, format: &dates.format });

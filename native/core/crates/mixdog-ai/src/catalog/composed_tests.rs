@@ -1,8 +1,5 @@
-//! The catalog as the daemon composes it (`CatalogService::composed`): the LiteLLM table is a layer beside
-//! models.dev, cached in `litellm-catalog.json`, fetched at the first refresh whatever the disk holds (a disk warm
-//! does not count as fetched, `createCatalogSource`), then not again inside six hours, and a failed fetch keeps the
-//! disk copy and waits a minute. The merge order of the layers is the lookup's, replayed against Node's recordings by
-//! the lookup goldens and the model-list recordings (`model_list_node_tests`), which run on this composition.
+//! Node: `createCatalogSource` (a disk warm does not count as fetched). The merge order of the layers is replayed by the
+//! lookup goldens and `model_list_node_tests`.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

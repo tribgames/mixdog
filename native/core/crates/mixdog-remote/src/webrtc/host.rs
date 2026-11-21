@@ -6,8 +6,7 @@
 //! replacing the waiting one, the delivered one sent again to a connection that comes up (see
 //! [`HostEnv::push_picture`]). Where Node's sender window turned them into one track, the core
 //! gives every connection an encoder of its own over the source's shared latest picture, so a
-//! connection that comes up starts from the last picture handed over. The measurement line
-//! (`measure`) is a diagnostic and is not ported.
+//! connection that comes up starts from the last picture handed over.
 //!
 //! The host is runtime-free: everything it runs later (the input lanes, signal delivery, resize
 //! calls) goes through [`HostEnv::spawn`], so a test drives it by polling.
@@ -527,8 +526,6 @@ impl LiveHost {
             if let Some(entry) = &existing
                 && *viewer_attempt > *lock(&entry.viewer_attempt)
             {
-                // A late sender failure must not move the replacement into the old peer's cooldown.
-                // Keep the screen feed; only equal-attempt retries reuse its viewer.
                 self.finish_viewer(entry);
                 existing = None;
             }
@@ -538,32 +535,46 @@ impl LiveHost {
         let entry = match existing {
             Some(entry) => entry,
             None => {
-                let entry = self.create_viewer(client, &source_key, source_ref, source.clone());
-                {
-                    let mut state = lock(&self.shared.state);
-                    state.viewers.insert(key.clone(), entry.clone());
-                    state.feeds.entry(source_key.clone()).or_insert_with(|| Feed {
-                        source: source.clone(),
-                        latest: None,
-                        delivered: None,
-                        in_flight: None,
-                        serial: 0,
-                        current_key: String::new(),
-                        frames_since_current: 0,
-                    });
-                }
-                // The locked geometry goes to every new viewer first.
+                let entry = self.register_viewer(client, &key, &source_key, source_ref, &source);
                 let first = entry.viewer.geometry_changed();
                 self.shared.kick(&entry);
                 first?;
                 entry
             }
         };
-        let outcome = match signal {
+        let outcome = self.dispatch_signal(&entry, signal, source, &key, &source_key, ice_servers);
+        self.shared.kick(&entry);
+        outcome
+    }
+
+    fn register_viewer(&self, client: &str, key: &str, source_key: &str, source_ref: &Source, source: &Arc<dyn VideoSource>) -> Arc<Entry> {
+        let entry = self.create_viewer(client, source_key, source_ref, source.clone());
+        let mut state = lock(&self.shared.state);
+        state.viewers.insert(key.to_owned(), entry.clone());
+        state.feeds.entry(source_key.to_owned()).or_insert_with(|| Feed {
+            source: source.clone(),
+            latest: None,
+            delivered: None,
+            in_flight: None,
+            serial: 0,
+            current_key: String::new(),
+            frames_since_current: 0,
+        });
+        entry
+    }
+
+    fn dispatch_signal(
+        &self,
+        entry: &Arc<Entry>,
+        signal: &ClientSignal,
+        source: Arc<dyn VideoSource>,
+        key: &str,
+        source_key: &str,
+        ice_servers: &[IceServer],
+    ) -> Result<(), String> {
+        match signal {
             ClientSignal::Ready { receive_codecs, video_limit, viewer_attempt, .. } => {
                 *lock(&entry.viewer_attempt) = *viewer_attempt;
-                // A larger video limit than the stream's frame bound widens the capture before the
-                // offer, which then carries the new geometry.
                 if let Some(limit) = video_limit {
                     source.video_limit(*limit);
                 }
@@ -574,7 +585,7 @@ impl LiveHost {
                 Ok(())
             }
             ClientSignal::ResizeRequest { resize, .. } => {
-                let (env, resize, report_key) = (self.shared.env.clone(), resize.clone(), source_key.clone());
+                let (env, resize, report_key) = (self.shared.env.clone(), resize.clone(), source_key.to_owned());
                 self.shared.env.spawn(Box::pin(async move {
                     if let Err(error) = source.resize(&resize).await {
                         env.report("resize-failed", json!({ "source": report_key, "error": error }));
@@ -582,18 +593,14 @@ impl LiveHost {
                 }));
                 Ok(())
             }
-            // The phone's viewer left: closed, not demoted (the channel's held buttons are still
-            // released), and forgotten — its next `ready` is a new viewer.
             ClientSignal::Close { connection, reason: CloseReason::ViewerLeft, .. } => {
                 if lock(&entry.viewer_attempt).is_none() && entry.viewer.view().connection_id.as_deref() == Some(connection.connection_id.as_str()) {
-                    self.stop_viewer(&key);
+                    self.stop_viewer(key);
                 }
                 Ok(())
             }
             other => entry.viewer.signal(other),
-        };
-        self.shared.kick(&entry);
-        outcome
+        }
     }
 
     fn create_viewer(&self, client: &str, source_key: &str, source_ref: &Source, source: Arc<dyn VideoSource>) -> Arc<Entry> {
@@ -826,7 +833,6 @@ impl LiveHost {
         let routed = |id: &str| lock(&self.shared.state).connections.get(id).cloned();
         let outcome = match event {
             SenderEvent::Gone => {
-                // The pictures in flight went with the sender.
                 for feed in lock(&self.shared.state).feeds.values_mut() {
                     feed.in_flight = None;
                 }

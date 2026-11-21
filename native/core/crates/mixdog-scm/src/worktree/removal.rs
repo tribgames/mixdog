@@ -129,6 +129,11 @@ pub enum Auto {
 
 /// A status that must not rewrite the index: the checkout token compares the index file's stamp
 /// across the checks, so the checks themselves may not change it.
+fn split_status(status: &str) -> (Vec<String>, Vec<String>) {
+    let (ignored, changed): (Vec<_>, Vec<_>) = parse_status_entries(status).into_iter().partition(|(code, _)| code == "!!");
+    (changed.into_iter().map(|(_, path)| path).collect(), ignored.into_iter().map(|(_, path)| path).collect())
+}
+
 fn no_index_refresh() -> crate::git::RunOptions {
     crate::git::RunOptions { extra_env: vec![("GIT_OPTIONAL_LOCKS".into(), "0".into())], ..crate::git::RunOptions::default() }
 }
@@ -187,7 +192,7 @@ impl Worktrees {
     pub(crate) async fn remove_owner_lease(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<(), ScmFailure> {
         let path = lease_path(self.data_dir(), record);
         on_lane(self.scm().lane, cancel, move || match std::fs::remove_file(path) {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(ScmFailure::from(error)),
+            Err(error) if !matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => Err(ScmFailure::from(error)),
             _ => Ok(()),
         })
         .await?
@@ -494,29 +499,44 @@ impl Worktrees {
             self.put_record(cancel, record.clone()).await?;
             return Ok(Deletion::pending(remaining, false));
         }
-        let cwd = repo_cwd(record);
-        // The folder-only removal promises the branch stays, as does an automatic cleanup with
-        // deleteBranch off. Only a record that says Mixdog created the branch deletes it.
+        let branch = self.settle_branch(record, cancel).await?;
+        let recovery_refs = self.keep_unreachable_commits(record, branch.head.clone(), cancel).await?;
+        self.delete_record(record, cancel).await?;
+        self.prune_empty_repo_root(&record.repo_common_dir, cancel).await?;
+        Ok(Deletion { removed: true, branch_deleted: branch.deleted, preserved_branch: branch.preserved, recovery_refs, ..Deletion::default() })
+    }
+
+    /// The folder-only removal promises the branch stays, as does an automatic cleanup with
+    /// deleteBranch off. Only a record that says Mixdog created the branch deletes it.
+    async fn settle_branch(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<BranchFate, ScmFailure> {
         let existing = record.extra.get("existingBranch").and_then(Value::as_bool);
-        let branch = match &record.branch {
+        Ok(match &record.branch {
             Some(_) if deleting_flag(record, "safeOnly") || deleting_flag(record, "preserveBranch") || existing == Some(true) => BranchFate::default(),
             Some(name) if existing == Some(false) => self.delete_created_branch(record, name, cancel).await?,
-            Some(name) => self.keep_branch(&cwd, name, cancel).await?,
+            Some(name) => self.keep_branch(&repo_cwd(record), name, cancel).await?,
             None => BranchFate::default(),
-        };
-        let mut recovery_refs = Vec::new();
+        })
+    }
+
+    /// A recovery ref for each of the deletion's head commit and the deleted branch's tip that no ref reaches.
+    async fn keep_unreachable_commits(
+        &self,
+        record: &WorktreeRecord,
+        branch_head: Option<String>,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<String>, ScmFailure> {
+        let cwd = repo_cwd(record);
         let head_commit = record.extra.get("deleting").and_then(|d| d.get("headCommit")).and_then(Value::as_str).map(str::to_owned);
-        let mut commits: Vec<String> = head_commit.into_iter().chain(branch.head.clone()).collect();
+        let mut commits: Vec<String> = head_commit.into_iter().chain(branch_head).collect();
         commits.dedup();
+        let mut recovery_refs = Vec::new();
         for commit in commits {
             if self.any_ref_contains(&cwd, &commit, cancel).await? {
                 continue;
             }
             recovery_refs.push(self.keep_commit(record, &commit, cancel).await?);
         }
-        self.delete_record(record, cancel).await?;
-        self.prune_empty_repo_root(&record.repo_common_dir, cancel).await?;
-        Ok(Deletion { removed: true, branch_deleted: branch.deleted, preserved_branch: branch.preserved, recovery_refs, ..Deletion::default() })
+        Ok(recovery_refs)
     }
 
     /// A branch a removal leaves, reported `preserved` unless it is gone or checked out.
@@ -787,10 +807,7 @@ impl Worktrees {
             self.scm().git.text(cancel, &path, &["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching"], &options),
             dependency_artefacts(self.scm(), cancel, &path),
         )?;
-        let (mut changed, mut ignored) = (Vec::new(), Vec::new());
-        for (code, entry) in parse_status_entries(&status) {
-            if code == "!!" { ignored.push(entry) } else { changed.push(entry) }
-        }
+        let (changed, ignored) = split_status(&status);
         let roots = self.include_roots(record);
         let mut dirty = Self::user_status_paths(record, changed, &roots);
         dirty.extend(self.modified_include_copies(record, cancel).await?);
@@ -813,27 +830,10 @@ impl Worktrees {
             return Ok(None);
         }
         let started = std::time::Instant::now();
-        let child = cancel.child_token();
-        let status = mixdog_rt::time::timeout(
-            timeout,
-            self.scm().git.outcome(&child, &path, &["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching"], &no_index_refresh()),
-        )
-        .await;
-        let status = match status {
-            Err(_) => {
-                // The timed-out git is killed before this returns, so none keeps running in the folder.
-                child.cancel();
-                return Ok(Some(kept("busy")));
-            }
-            Ok(Err(ScmFailure::Cancelled)) => return Err(ScmFailure::Cancelled),
-            Ok(Err(_)) => return Ok(Some(kept("busy"))),
-            Ok(Ok(out)) if !out.success() => return Ok(Some(kept("busy"))),
-            Ok(Ok(out)) => out.stdout_text(),
+        let Some(status) = self.bounded_status(&path, timeout, cancel).await? else {
+            return Ok(Some(kept("busy")));
         };
-        let (mut changed, mut ignored) = (Vec::new(), Vec::new());
-        for (code, entry) in parse_status_entries(&status) {
-            if code == "!!" { ignored.push(entry) } else { changed.push(entry) }
-        }
+        let (changed, ignored) = split_status(&status);
         let roots = self.include_roots(record);
         if !Self::user_status_paths(record, changed, &roots).is_empty() {
             return Ok(Some(kept("dirty")));
@@ -856,10 +856,27 @@ impl Worktrees {
         }
     }
 
-    /// The slow checks of `record`, always run afresh (`checkoutVerdict` and `verdictKeep`, `manager.mjs`): the full
-    /// status with untracked and ignored files, the commit walk and, with nothing else found, an operation in
-    /// progress. Answers the keep reason, `None` when the checkout is clean and merged, and the artefact roots the
-    /// final check reads again.
+    /// The full status of `path`, `None` when git failed or did not answer within `timeout`.
+    async fn bounded_status(&self, path: &Path, timeout: Duration, cancel: &CancellationToken) -> Result<Option<String>, ScmFailure> {
+        let child = cancel.child_token();
+        let status = mixdog_rt::time::timeout(
+            timeout,
+            self.scm().git.outcome(&child, path, &["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching"], &no_index_refresh()),
+        )
+        .await;
+        match status {
+            Err(_) => {
+                // The timed-out git is killed before this returns, so none keeps running in the folder.
+                child.cancel();
+                Ok(None)
+            }
+            Ok(Err(ScmFailure::Cancelled)) => Err(ScmFailure::Cancelled),
+            Ok(Err(_)) => Ok(None),
+            Ok(Ok(out)) if !out.success() => Ok(None),
+            Ok(Ok(out)) => Ok(Some(out.stdout_text())),
+        }
+    }
+
     async fn checkout_keep(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<(Option<Value>, Vec<String>), ScmFailure> {
         let (dirty, ignored, artefacts) = self.automatic_keep_paths(record, cancel).await?;
         let unmerged = self.checkout_unmerged_count(record, cancel).await?;
@@ -1068,11 +1085,6 @@ impl Worktrees {
         // decided from the locked read below.
         let Some(found) = self.record(cancel, &request.entry_id).await? else { return missing() };
         let opened = self.scm().open(&repo_cwd(&found), cancel).await?;
-        // The one routing decision, made once under the repository lock. A deleted session's leftover (`automatic`)
-        // that is ready takes the verified automatic path, never a forced or recursive one: its record is handed out
-        // and `remove_automatically` runs the slow checks after the lock is released, taking the lock again for the
-        // removal alone and keeping the worktree if the record changed meanwhile. Every other removal (force,
-        // snapshot, creating, recovery) finishes under this lock.
         let mut automatic = {
             let _lock = opened.lock_repository().await?;
             let Some(mut current) = self.record(cancel, &request.entry_id).await? else { return missing() };

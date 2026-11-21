@@ -172,10 +172,6 @@ fn is_image_stream(stream: &PdfStream) -> bool {
         .is_some_and(|filter| matches!(filter.name.as_str(), "DCT" | "DCTDecode" | "JPX" | "JPXDecode" | "CCF" | "CCITTFaxDecode" | "JBIG2Decode"))
 }
 
-/// `getInheritableProperty` with `stopWhenFound: false` followed by the page's choice (`#getInheritableProperty`):
-/// the values `key` has along the `/Parent` chain, nearest first; the first one is the result, unless it is a
-/// dictionary and there are several, when the dictionaries are merged. With `get_array` the references among an
-/// array's elements are fetched.
 fn inheritable(xref: &Xref, dict: &Arc<Dict>, key: &str, get_array: bool) -> Result<Option<Obj>> {
     let mut values: Vec<Obj> = Vec::new();
     let mut visited: HashSet<String> = HashSet::new();

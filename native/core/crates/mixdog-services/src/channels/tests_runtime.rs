@@ -458,7 +458,18 @@ async fn every_parser_signs_in_its_own_format_and_failures_carry_a_code() {
     assert_eq!(probe_headers(&sent)["sentry-hook-signature"], hmac_hex("k", sent.2.as_bytes()));
     let sent = send("ge", "generic").await;
     assert_eq!(probe_headers(&sent)["x-signature-256"], format!("sha256={}", hmac_hex("k", sent.2.as_bytes())));
+}
 
+async fn env_with_generic_hook() -> Env {
+    let e = env().await;
+    *e.base.0.lock().unwrap() = Some("https://hooks.example".into());
+    e.admin.save_webhook(&json!({"name": "ge", "instructions": "x", "parser": "generic", "secret": "k"})).await.unwrap();
+    e
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_test_request_carries_a_code_and_the_english_detail() {
+    let e = env_with_generic_hook().await;
     *e.probe.reply.lock().unwrap() = Some(Ok(ProbeResponse { status: 403, body: json!({"error": "invalid signature"}).to_string() }));
     assert_eq!(
         e.admin.test_webhook("ge").await.unwrap(),
@@ -475,7 +486,11 @@ async fn every_parser_signs_in_its_own_format_and_failures_carry_a_code() {
     *e.probe.reply.lock().unwrap() = Some(Err(ProbeError::Network("connection refused".into())));
     let refused = e.admin.test_webhook("ge").await.unwrap();
     assert_eq!((refused["code"].as_str(), refused["error"].as_str()), (Some("network"), Some("connection refused")));
+}
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_test_request_without_a_public_url_sends_nothing_and_an_unknown_endpoint_is_refused() {
+    let e = env_with_generic_hook().await;
     let calls = e.probe.sent.lock().unwrap().len();
     *e.base.0.lock().unwrap() = None;
     let none = e.admin.test_webhook("ge").await.unwrap();
@@ -548,12 +563,18 @@ async fn the_bridge_tools_start_and_stop_the_runtime_and_count_as_running_work()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_webhook_settings_patch_and_the_setup_view() {
+async fn the_webhook_settings_patch_is_normalized_and_stored() {
     let e = env().await;
-    *e.base.0.lock().unwrap() = Some("https://hooks.example".into());
     let patched = e.admin.set_webhook_config(&json!({"enabled": false, "port": "4000", "domain": " d.example "})).await.unwrap();
     assert_eq!(patched, json!({"webhook": {"enabled": false, "port": 4000, "domain": "d.example"}}));
     assert_eq!(*e.settings.webhook.lock().unwrap(), WebhookSettings { enabled: Some(false), port: json!(4000), domain: Some("d.example".into()) });
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_setup_view_shows_the_webhook_settings_and_the_public_url() {
+    let e = env().await;
+    *e.base.0.lock().unwrap() = Some("https://hooks.example".into());
+    *e.settings.webhook.lock().unwrap() = WebhookSettings { enabled: Some(false), port: json!(4000), domain: Some("d.example".into()) };
     let setup = e.admin.get_channel_setup().await.unwrap();
     assert_eq!(setup["webhook"], json!({"enabled": false, "port": 4000, "domain": "d.example", "publicUrl": "https://hooks.example"}));
     assert_eq!((setup["schedules"].clone(), setup["webhooks"].clone()), (json!([]), json!([])));
@@ -753,10 +774,6 @@ async fn enabling_a_webhook_returns_before_the_start_and_the_start_follows() {
     e.runtime.stop_owned_runtime("test").await.unwrap();
 }
 
-/// Node's `saveSchedule` readback (`channel-admin.mjs:324`, `scheduler.mjs:310-312`): `nextFireAt`
-/// is the row's own (`whenAt` for a one-shot, none for a cron) until the deferred start arms the
-/// scheduler, which stamps the cron's next fire only afterwards. A save that returned while the
-/// start still waits in the provider init reads back without it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_schedule_read_back_before_the_deferred_start_has_no_scheduler_stamped_next_fire() {
     let e = env().await;
@@ -845,11 +862,6 @@ impl WebhookListener for LoopbackServer {
     }
 }
 
-/// The runtime's schedule records with the save's background reload (`reload_soon`) made as late as
-/// a busy machine may run it: a read made before the provider init is released is the reload's
-/// (the start reads after the init), and it goes on only once the test waits for that reload, as
-/// Node's recorder awaits `lastReload` (`record-schedule-save-start.mjs:176`, `:203`), or else once
-/// the start's receiver has bound, where the reload finds the runtime up and its receiver listening.
 struct LateReloads {
     inner: Arc<StateScheduleStore>,
     init_released: std::sync::atomic::AtomicBool,
@@ -950,11 +962,6 @@ impl PublicBase for IdentityFileBase {
     }
 }
 
-/// The saved webhook's public URL: the relay identity is created lazily by the tunnel start
-/// (`startHookTunnel` → `loadOrCreateHookIdentity`), which runs after the save has returned, so
-/// the URL shows once that start has finished (the desktop shows `publicUrl` as the endpoint
-/// URL). Real receiver, relay tunnel and data directory; the relay is a loopback port nobody
-/// listens on, so the leg only logs and retries.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn saving_a_webhook_leaves_the_hook_identity_and_the_setup_shows_the_public_url() {
     let e = env().await;
@@ -1131,15 +1138,11 @@ async fn a_shutdown_ends_a_deferred_start_stuck_in_the_provider_init() {
     assert!(!e.runtime.automation_running());
     assert!(e.services.log.lock().unwrap().is_empty(), "nothing synced after the shutdown");
 }
-/// `channel-start.mjs:50-56`: a save's deferred start parks while a turn runs or a session is being
-/// created, and runs once the busy state clears and wakes it; the boot autostart
-/// (`channel-start.mjs:75-95`) does not look at the busy state.
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_busy_runtime_parks_the_saved_schedules_start_until_it_is_woken_idle() {
     let e = env().await;
     let busy = Arc::new(std::sync::atomic::AtomicBool::new(true));
-    // The start asks the busy state before every attempt: each answer is a signal, so "the start has
-    // looked and parked" is an ordering the test waits on, not a time.
     let asked = Arc::new(tokio::sync::Notify::new());
     e.admin.bind_busy({
         let (busy, asked) = (busy.clone(), asked.clone());
@@ -1160,8 +1163,10 @@ async fn a_busy_runtime_parks_the_saved_schedules_start_until_it_is_woken_idle()
     assert_eq!(e.agent.inits.load(Ordering::SeqCst), 1, "started once idle");
     assert!(e.runtime.automation_running());
     e.runtime.stop_owned_runtime("test").await.unwrap();
+}
 
-    // A real running turn (the session runtime's liveness map, as the daemon's `busy_reason` reads it).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_in_flight_in_the_session_runtime_parks_the_saved_schedules_start() {
     let live = crate::task_reports::runtime_state::RuntimeLiveness::new();
     let real = env().await;
     let real_asked = Arc::new(tokio::sync::Notify::new());
@@ -1181,7 +1186,10 @@ async fn a_busy_runtime_parks_the_saved_schedules_start_until_it_is_woken_idle()
     real.runtime.scheduled_start_settled().await;
     assert_eq!(real.agent.inits.load(Ordering::SeqCst), 1, "the turn ended: the start ran");
     real.runtime.stop_owned_runtime("test").await.unwrap();
+}
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_boot_autostart_ignores_the_busy_state() {
     let autostart = env().await;
     autostart.admin.bind_busy(Arc::new(|| Some("session-create")));
     autostart.schedules.upsert(&sched("a")).await.unwrap();
@@ -1206,30 +1214,6 @@ async fn the_runtime_is_running_as_soon_as_the_sync_is_launched() {
     start.await.unwrap().unwrap();
     e.runtime.stop_owned_runtime("test").await.unwrap();
 }
-
-/// Waits for a signal a test double gives; the bound only turns a missing signal into a failure.
-
-/// `config-reload.mjs`: a reload is gated only until its load completed. A second edit arriving while the first
-/// reload's service sync is still running re-arms the scheduler with its rows at once and syncs, not after it.
-
-/// Waits for a notification registered before the action that gives it.
-
-/// `onChannelStartTimer` asks `hasActiveAutomation` when the deferred callback runs, not when
-/// the save scheduled it: a row disabled in between starts nothing. Reverting to an answer
-/// taken at save time (or no question) starts the service here.
-
-/// A shutdown while the deferred start waits on `hasActiveAutomation` (a stuck read) ends it and
-/// waits for it: the start is neither left running nor made after the teardown.
-
-/// The same for a start stuck in the provider init, which `stop_owned_runtime` alone would leave
-/// (nothing is running yet, so it returns early): the shutdown cancels and joins it.
-
-/// `channel-start.mjs:50-56`: a save's deferred start parks while a turn runs or a session is being
-/// created, and runs once the busy state clears and wakes it; the boot autostart
-/// (`channel-start.mjs:75-95`) does not look at the busy state.
-
-/// `automation-start.mjs:30-42`: the runtime counts as running as soon as the webhook sync is launched
-/// (Node's `syncWebhookAndEventRuntime()` is synchronous), not when the listener has bound.
 
 /// The event rules as the pipeline holds them: a stored change reaches it only through `reload_events`.
 struct RuleSettings {

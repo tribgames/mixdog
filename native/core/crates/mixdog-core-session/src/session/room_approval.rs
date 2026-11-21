@@ -137,7 +137,19 @@ fn human_request_fields(input: &Obj) -> Obj {
             fields.insert("grantAction".into(), json!(grant));
         }
     }
-    if kind == "outbound" && is_record(input.get("outbound")) {
+    match kind {
+        "outbound" => add_outbound_fields(input, &mut fields),
+        "secret" => add_secret_fields(input, &mut fields),
+        "takeover" => add_takeover_fields(input, &mut fields),
+        "permission" => add_permission_fields(input, &mut fields),
+        "connector" => add_connector_fields(input, &mut fields),
+        _ => {}
+    }
+    fields
+}
+
+fn add_outbound_fields(input: &Obj, fields: &mut Obj) {
+    if is_record(input.get("outbound")) {
         let outbound = &input["outbound"];
         let details = outbound.get("details").filter(|d| d.is_object());
         let mut shown = Obj::new();
@@ -165,131 +177,134 @@ fn human_request_fields(input: &Obj) -> Obj {
             }),
         );
     }
-    if kind == "secret" {
-        let secret = input.get("secret").filter(|s| s.is_object()).cloned().unwrap_or_else(|| json!({}));
-        let origin = match secret.get("origin") {
-            Some(Value::String(url)) => login_page_url(url).map(|page| page.origin).unwrap_or_default(),
-            _ => String::new(),
-        };
-        let form = secret.get("form").and_then(Value::as_str).filter(|f| SECRET_FORMS.contains(f)).unwrap_or_default().to_owned();
-        let length = secret.get("length").and_then(Value::as_u64).filter(|n| *n > 0);
-        let surface = if secret.get("surface").and_then(Value::as_str) == Some("computer") { "computer" } else { "browser" };
-        let (target, field) = (text(secret.get("target"), TEXT_LIMIT), text(secret.get("field"), TEXT_LIMIT));
-        let mut shown = Obj::new();
-        shown.insert("requestId".into(), json!(text(secret.get("requestId"), TEXT_LIMIT)));
-        shown.insert("surface".into(), json!(surface));
+}
+
+fn add_secret_fields(input: &Obj, fields: &mut Obj) {
+    let secret = input.get("secret").filter(|s| s.is_object()).cloned().unwrap_or_else(|| json!({}));
+    let origin = match secret.get("origin") {
+        Some(Value::String(url)) => login_page_url(url).map(|page| page.origin).unwrap_or_default(),
+        _ => String::new(),
+    };
+    let form = secret.get("form").and_then(Value::as_str).filter(|f| SECRET_FORMS.contains(f)).unwrap_or_default().to_owned();
+    let length = secret.get("length").and_then(Value::as_u64).filter(|n| *n > 0);
+    let surface = if secret.get("surface").and_then(Value::as_str) == Some("computer") { "computer" } else { "browser" };
+    let (target, field) = (text(secret.get("target"), TEXT_LIMIT), text(secret.get("field"), TEXT_LIMIT));
+    let mut shown = Obj::new();
+    shown.insert("requestId".into(), json!(text(secret.get("requestId"), TEXT_LIMIT)));
+    shown.insert("surface".into(), json!(surface));
+    shown.insert("target".into(), json!(target));
+    shown.insert("field".into(), json!(field));
+    if !origin.is_empty() {
+        shown.insert("origin".into(), json!(origin));
+    }
+    if !form.is_empty() {
+        shown.insert("form".into(), json!(form));
+    }
+    if let (Some(length), true) = (length, form == "otp") {
+        shown.insert("length".into(), json!(length));
+    }
+    fields.insert("secret".into(), Value::Object(shown));
+    fields.insert("args".into(), json!({ "surface": surface, "target": target, "field": field }));
+}
+
+fn add_takeover_fields(input: &Obj, fields: &mut Obj) {
+    let takeover = input.get("takeover").filter(|t| t.is_object()).cloned().unwrap_or_else(|| json!({}));
+    let surface = if takeover.get("surface").and_then(Value::as_str) == Some("computer") { "computer" } else { "browser" };
+    let mut shown = Obj::new();
+    shown.insert("surface".into(), json!(surface));
+    shown.insert("instructions".into(), json!(text(takeover.get("instructions"), 2_000)));
+    let target = text(takeover.get("target"), TEXT_LIMIT);
+    if !target.is_empty() {
         shown.insert("target".into(), json!(target));
-        shown.insert("field".into(), json!(field));
-        if !origin.is_empty() {
-            shown.insert("origin".into(), json!(origin));
-        }
-        if !form.is_empty() {
-            shown.insert("form".into(), json!(form));
-        }
-        if let (Some(length), true) = (length, form == "otp") {
-            shown.insert("length".into(), json!(length));
-        }
-        fields.insert("secret".into(), Value::Object(shown));
-        fields.insert("args".into(), json!({ "surface": surface, "target": target, "field": field }));
     }
-    if kind == "takeover" {
-        let takeover = input.get("takeover").filter(|t| t.is_object()).cloned().unwrap_or_else(|| json!({}));
-        let surface = if takeover.get("surface").and_then(Value::as_str) == Some("computer") { "computer" } else { "browser" };
-        let mut shown = Obj::new();
-        shown.insert("surface".into(), json!(surface));
-        shown.insert("instructions".into(), json!(text(takeover.get("instructions"), 2_000)));
-        let target = text(takeover.get("target"), TEXT_LIMIT);
-        if !target.is_empty() {
-            shown.insert("target".into(), json!(target));
+    if surface == "browser" {
+        let tab = token(takeover.get("tab"), 64);
+        if !tab.is_empty() {
+            shown.insert("tab".into(), json!(tab));
         }
-        if surface == "browser" {
-            let tab = token(takeover.get("tab"), 64);
-            if !tab.is_empty() {
-                shown.insert("tab".into(), json!(tab));
-            }
-        } else {
-            let window = token(takeover.get("windowId"), 128);
-            if !window.is_empty() {
-                shown.insert("windowId".into(), json!(window));
-            }
-            let app = text(takeover.get("app"), 120);
-            if !app.is_empty() {
-                shown.insert("app".into(), json!(app));
-            }
+    } else {
+        let window = token(takeover.get("windowId"), 128);
+        if !window.is_empty() {
+            shown.insert("windowId".into(), json!(window));
         }
-        let login = match (surface, takeover.get("purpose").and_then(Value::as_str), takeover.get("url")) {
-            ("browser", Some("login"), Some(Value::String(url))) => login_page_url(url),
-            _ => None,
-        };
-        let accounts: Vec<Value> = match &login {
-            Some(_) => takeover
-                .get("accounts")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter(|a| a.is_object() && !token(a.get("id"), 128).is_empty() && !text(a.get("label"), 120).is_empty())
-                .map(|a| json!({ "id": token(a.get("id"), 128), "label": text(a.get("label"), 120) }))
-                .collect(),
-            None => Vec::new(),
-        };
-        let fill = text(takeover.get("fillId"), 100);
-        let fill_ok =
-            fill.strip_prefix("secret_").is_some_and(|rest| (8..=80).contains(&rest.len()) && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
-        if let Some(page) = login {
-            shown.insert("purpose".into(), json!("login"));
-            shown.insert("url".into(), json!(page.url));
-            shown.insert("origin".into(), json!(page.origin));
+        let app = text(takeover.get("app"), 120);
+        if !app.is_empty() {
+            shown.insert("app".into(), json!(app));
         }
-        if !accounts.is_empty() && fill_ok {
-            shown.insert("accounts".into(), Value::Array(accounts));
-            shown.insert("fillId".into(), json!(fill));
-        }
-        fields.insert("takeover".into(), Value::Object(shown));
     }
-    if kind == "permission" {
-        let scopes: Vec<Value> = input
-            .get("permission")
-            .and_then(|p| p.get("scopes"))
+    let login = match (surface, takeover.get("purpose").and_then(Value::as_str), takeover.get("url")) {
+        ("browser", Some("login"), Some(Value::String(url))) => login_page_url(url),
+        _ => None,
+    };
+    let accounts: Vec<Value> = match &login {
+        Some(_) => takeover
+            .get("accounts")
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
-            .filter(|s| s.is_object() && !text(s.get("id"), TEXT_LIMIT).is_empty())
-            .map(|s| {
-                let id = text(s.get("id"), TEXT_LIMIT);
-                let label = text(s.get("label"), TEXT_LIMIT);
-                let mut scope = json!({ "id": id, "label": if label.is_empty() { id.clone() } else { label } });
-                let kind = text(s.get("kind"), TEXT_LIMIT);
-                if !kind.is_empty() {
-                    scope["kind"] = json!(kind);
-                }
-                scope
-            })
-            .collect();
-        fields.insert("permission".into(), json!({ "scopes": scopes }));
+            .filter(|a| a.is_object() && !token(a.get("id"), 128).is_empty() && !text(a.get("label"), 120).is_empty())
+            .map(|a| json!({ "id": token(a.get("id"), 128), "label": text(a.get("label"), 120) }))
+            .collect(),
+        None => Vec::new(),
+    };
+    let fill = text(takeover.get("fillId"), 100);
+    let fill_ok =
+        fill.strip_prefix("secret_").is_some_and(|rest| (8..=80).contains(&rest.len()) && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+    if let Some(page) = login {
+        shown.insert("purpose".into(), json!("login"));
+        shown.insert("url".into(), json!(page.url));
+        shown.insert("origin".into(), json!(page.origin));
     }
-    if kind == "connector" {
-        let connector = input.get("connector").filter(|c| c.is_object()).cloned().unwrap_or_else(|| json!({}));
-        let level = |key: &str| connector.get(key).and_then(Value::as_str).filter(|v| CONNECTOR_LEVELS.contains(v)).unwrap_or_default().to_owned();
-        let choices: Vec<Value> = connector
-            .get("choices")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter(|c| c.as_str().is_some_and(|c| CONNECTOR_WIDEN_LEVELS.contains(&c)))
-            .cloned()
-            .collect();
-        fields.insert(
-            "connector".into(),
-            json!({
-                "server": text(connector.get("server"), TEXT_LIMIT),
-                "tool": text(connector.get("tool"), TEXT_LIMIT),
-                "from": level("from"),
-                "requested": level("requested"),
-                "choices": choices,
-            }),
-        );
+    if !accounts.is_empty() && fill_ok {
+        shown.insert("accounts".into(), Value::Array(accounts));
+        shown.insert("fillId".into(), json!(fill));
     }
-    fields
+    fields.insert("takeover".into(), Value::Object(shown));
+}
+
+fn add_permission_fields(input: &Obj, fields: &mut Obj) {
+    let scopes: Vec<Value> = input
+        .get("permission")
+        .and_then(|p| p.get("scopes"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|s| s.is_object() && !text(s.get("id"), TEXT_LIMIT).is_empty())
+        .map(|s| {
+            let id = text(s.get("id"), TEXT_LIMIT);
+            let label = text(s.get("label"), TEXT_LIMIT);
+            let mut scope = json!({ "id": id, "label": if label.is_empty() { id.clone() } else { label } });
+            let kind = text(s.get("kind"), TEXT_LIMIT);
+            if !kind.is_empty() {
+                scope["kind"] = json!(kind);
+            }
+            scope
+        })
+        .collect();
+    fields.insert("permission".into(), json!({ "scopes": scopes }));
+}
+
+fn add_connector_fields(input: &Obj, fields: &mut Obj) {
+    let connector = input.get("connector").filter(|c| c.is_object()).cloned().unwrap_or_else(|| json!({}));
+    let level = |key: &str| connector.get(key).and_then(Value::as_str).filter(|v| CONNECTOR_LEVELS.contains(v)).unwrap_or_default().to_owned();
+    let choices: Vec<Value> = connector
+        .get("choices")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|c| c.as_str().is_some_and(|c| CONNECTOR_WIDEN_LEVELS.contains(&c)))
+        .cloned()
+        .collect();
+    fields.insert(
+        "connector".into(),
+        json!({
+            "server": text(connector.get("server"), TEXT_LIMIT),
+            "tool": text(connector.get("tool"), TEXT_LIMIT),
+            "from": level("from"),
+            "requested": level("requested"),
+            "choices": choices,
+        }),
+    );
 }
 
 /// `normalizeToolApprovalRequest(input, id, null)` at `now` (the queue's default wait limit is

@@ -109,6 +109,68 @@ fn split_on<'a>(words: &[String], text: &'a str) -> Vec<&'a str> {
     out
 }
 
+fn parse_normalizers(spec: &Value) -> Result<Vec<Normalizer>> {
+    let steps: Vec<&Value> = match spec {
+        Value::Null => Vec::new(),
+        spec if spec["type"] == "Sequence" => spec["normalizers"].as_array().map_or_else(Vec::new, |a| a.iter().collect()),
+        spec => vec![spec],
+    };
+    let mut normalizers = Vec::new();
+    for step in steps {
+        let content = step["content"].as_str().unwrap_or_default().to_owned();
+        normalizers.push(match step["type"].as_str() {
+            Some("Precompiled") => Normalizer::Precompiled,
+            Some("Replace") if step["pattern"]["Regex"].is_string() => Normalizer::ReplaceRegex(
+                JsRegex::new(step["pattern"]["Regex"].as_str().unwrap_or_default(), "gu").map_err(|error| unsupported(format!("normalizer regex: {error}")))?,
+                content,
+            ),
+            Some("Replace") if step["pattern"]["String"].is_string() => {
+                Normalizer::ReplaceString(step["pattern"]["String"].as_str().unwrap_or_default().to_owned(), content)
+            }
+            _ => return Err(unsupported_layout("normalizer", step.get("type"))),
+        });
+    }
+    Ok(normalizers)
+}
+
+struct UnigramVocab {
+    index: HashMap<Box<str>, u32>,
+    scores: Vec<f64>,
+    max_chars: usize,
+    unk_id: u32,
+    unk_score: f64,
+}
+
+fn parse_unigram_vocab(model: &Value) -> Result<UnigramVocab> {
+    let vocab = model["vocab"].as_array().ok_or_else(|| unsupported("vocab".into()))?;
+    let mut index = HashMap::with_capacity(vocab.len());
+    let mut scores = Vec::with_capacity(vocab.len());
+    let (mut max_chars, mut min_score) = (1usize, f64::INFINITY);
+    for (id, entry) in vocab.iter().enumerate() {
+        let piece = entry[0].as_str().ok_or_else(|| unsupported("vocab piece".into()))?;
+        let score = entry[1].as_f64().ok_or_else(|| unsupported("vocab score".into()))?;
+        min_score = min_score.min(score);
+        max_chars = max_chars.max(piece.chars().count());
+        scores.push(score);
+        index.insert(Box::<str>::from(piece), id as u32);
+    }
+    let unk_id = model["unk_id"].as_u64().ok_or_else(|| unsupported("unk_id".into()))? as u32;
+    let unk_score = min_score - 10.0;
+    scores[unk_id as usize] = unk_score;
+    Ok(UnigramVocab { index, scores, max_chars, unk_id, unk_score })
+}
+
+/// The special-token ids of the template's `single` sequence before and after its `Sequence` slot.
+fn template_special_ids(template: &Value) -> Result<(Vec<u32>, Vec<u32>)> {
+    let special_ids = |entry: &Value| -> Vec<u32> {
+        let name = entry["SpecialToken"]["id"].as_str().unwrap_or_default();
+        template["special_tokens"][name]["ids"].as_array().into_iter().flatten().filter_map(|id| id.as_u64().map(|id| id as u32)).collect()
+    };
+    let single = template["single"].as_array().ok_or_else(|| unsupported("template".into()))?;
+    let at = single.iter().position(|entry| entry.get("Sequence").is_some()).ok_or_else(|| unsupported("template".into()))?;
+    Ok((single[..at].iter().flat_map(special_ids).collect(), single[at + 1..].iter().flat_map(special_ids).collect()))
+}
+
 impl UnigramTokenizer {
     /// Loads `tokenizer.json`; any other layout is an error.
     #[allow(clippy::disallowed_methods, reason = "a lane-job body: the model load runs it on the lane")]
@@ -129,52 +191,16 @@ impl UnigramTokenizer {
         if template["type"] != "TemplateProcessing" {
             return Err(unsupported_layout("post-processor", template.get("type")));
         }
-        let steps: Vec<&Value> = match &json["normalizer"] {
-            Value::Null => Vec::new(),
-            spec if spec["type"] == "Sequence" => spec["normalizers"].as_array().map_or_else(Vec::new, |a| a.iter().collect()),
-            spec => vec![spec],
-        };
-        let mut normalizers = Vec::new();
-        for step in steps {
-            let content = step["content"].as_str().unwrap_or_default().to_owned();
-            normalizers.push(match step["type"].as_str() {
-                Some("Precompiled") => Normalizer::Precompiled,
-                Some("Replace") if step["pattern"]["Regex"].is_string() => Normalizer::ReplaceRegex(
-                    JsRegex::new(step["pattern"]["Regex"].as_str().unwrap_or_default(), "gu")
-                        .map_err(|error| unsupported(format!("normalizer regex: {error}")))?,
-                    content,
-                ),
-                Some("Replace") if step["pattern"]["String"].is_string() => {
-                    Normalizer::ReplaceString(step["pattern"]["String"].as_str().unwrap_or_default().to_owned(), content)
-                }
-                _ => return Err(unsupported_layout("normalizer", step.get("type"))),
-            });
-        }
-
-        let vocab = model["vocab"].as_array().ok_or_else(|| unsupported("vocab".into()))?;
-        let mut index = HashMap::with_capacity(vocab.len());
-        let mut scores = Vec::with_capacity(vocab.len());
-        let (mut max_chars, mut min_score) = (1usize, f64::INFINITY);
-        for (id, entry) in vocab.iter().enumerate() {
-            let piece = entry[0].as_str().ok_or_else(|| unsupported("vocab piece".into()))?;
-            let score = entry[1].as_f64().ok_or_else(|| unsupported("vocab score".into()))?;
-            min_score = min_score.min(score);
-            max_chars = max_chars.max(piece.chars().count());
-            scores.push(score);
-            // A duplicated piece resolves to its last id.
-            index.insert(Box::<str>::from(piece), id as u32);
-        }
-        let unk_id = model["unk_id"].as_u64().ok_or_else(|| unsupported("unk_id".into()))? as u32;
-        let unk_score = min_score - 10.0;
-        scores[unk_id as usize] = unk_score;
+        let normalizers = parse_normalizers(&json["normalizer"])?;
+        let vocab = parse_unigram_vocab(model)?;
 
         let mut tokenizer = Self {
             normalizers,
-            index,
-            scores,
-            max_chars,
-            unk_id,
-            unk_score,
+            index: vocab.index,
+            scores: vocab.scores,
+            max_chars: vocab.max_chars,
+            unk_id: vocab.unk_id,
+            unk_score: vocab.unk_score,
             added: HashMap::new(),
             raw_added: Vec::new(),
             normalized_added: Vec::new(),
@@ -185,31 +211,28 @@ impl UnigramTokenizer {
             suffix: Vec::new(),
             max_length,
         };
-        for token in json["added_tokens"].as_array().into_iter().flatten() {
+        tokenizer.register_added_tokens(&json["added_tokens"]);
+        (tokenizer.prefix, tokenizer.suffix) = template_special_ids(template)?;
+        Ok(tokenizer)
+    }
+
+    fn register_added_tokens(&mut self, added_tokens: &Value) {
+        for token in added_tokens.as_array().into_iter().flatten() {
             let content = token["content"].as_str().unwrap_or_default().to_owned();
             let entry = AddedToken {
                 id: token["id"].as_u64().unwrap_or_default() as u32,
                 lstrip: token["lstrip"].as_bool().unwrap_or(false),
                 rstrip: token["rstrip"].as_bool().unwrap_or(false),
             };
-            tokenizer.added.insert(content.clone(), entry.clone());
+            self.added.insert(content.clone(), entry.clone());
             if token["normalized"].as_bool().unwrap_or(false) {
-                let normalized = tokenizer.normalize(&content);
-                tokenizer.normalized_added.push(normalized.clone());
-                tokenizer.added.insert(normalized, entry);
+                let normalized = self.normalize(&content);
+                self.normalized_added.push(normalized.clone());
+                self.added.insert(normalized, entry);
             } else {
-                tokenizer.raw_added.push(content);
+                self.raw_added.push(content);
             }
         }
-        let special_ids = |entry: &Value| -> Vec<u32> {
-            let name = entry["SpecialToken"]["id"].as_str().unwrap_or_default();
-            template["special_tokens"][name]["ids"].as_array().into_iter().flatten().filter_map(|id| id.as_u64().map(|id| id as u32)).collect()
-        };
-        let single = template["single"].as_array().ok_or_else(|| unsupported("template".into()))?;
-        let at = single.iter().position(|entry| entry.get("Sequence").is_some()).ok_or_else(|| unsupported("template".into()))?;
-        tokenizer.prefix = single[..at].iter().flat_map(special_ids).collect();
-        tokenizer.suffix = single[at + 1..].iter().flat_map(special_ids).collect();
-        Ok(tokenizer)
     }
 
     fn normalize(&self, text: &str) -> String {
@@ -467,6 +490,47 @@ fn expand_case_groups(pattern: &str) -> String {
     out
 }
 
+/// The regex `Split` and the `ByteLevel` step of the pre-tokenizer: the split pattern and `add_prefix_space`.
+fn parse_byte_level_pre_tokenizer(pre: &Value, steps: Vec<&Value>) -> Result<(JsRegex, bool)> {
+    let (mut split, mut add_prefix_space, mut byte_level) = (None, false, false);
+    for step in steps {
+        match step["type"].as_str() {
+            Some("Split") if step["behavior"] == "Isolated" && step["invert"] != true && step["pattern"]["Regex"].is_string() => {
+                let pattern = white_space_classes(&expand_case_groups(step["pattern"]["Regex"].as_str().unwrap_or_default()));
+                split = Some(JsRegex::new(&pattern, "gu").map_err(|error| unsupported(format!("split regex: {error}")))?);
+            }
+            Some("ByteLevel") if step["use_regex"] != true => {
+                byte_level = true;
+                add_prefix_space = step["add_prefix_space"].as_bool().unwrap_or(false);
+            }
+            _ => return Err(unsupported_layout("pre-tokenizer", step.get("type"))),
+        }
+    }
+    let (Some(split), true) = (split, byte_level) else {
+        return Err(unsupported_layout("pre-tokenizer", pre.get("type")));
+    };
+    Ok((split, add_prefix_space))
+}
+
+fn parse_merges(merges: &Value, vocab: &HashMap<String, u32>) -> Result<HashMap<(u32, u32), (usize, u32)>> {
+    let mut ranked = HashMap::new();
+    for (rank, merge) in merges.as_array().ok_or_else(|| unsupported("merges".into()))?.iter().enumerate() {
+        let pair = match merge {
+            Value::String(joined) => joined.split_once(' ').map(|(a, b)| (a.to_owned(), b.to_owned())),
+            Value::Array(parts) => match (parts.first().and_then(Value::as_str), parts.get(1).and_then(Value::as_str)) {
+                (Some(a), Some(b)) => Some((a.to_owned(), b.to_owned())),
+                _ => None,
+            },
+            _ => None,
+        };
+        let (a, b) = pair.ok_or_else(|| unsupported("merge".into()))?;
+        if let (Some(&ia), Some(&ib), Some(&out)) = (vocab.get(&a), vocab.get(&b), vocab.get(&format!("{a}{b}"))) {
+            ranked.entry((ia, ib)).or_insert((rank, out));
+        }
+    }
+    Ok(ranked)
+}
+
 /// Byte-level BPE (`model.type` BPE, a regex `Split` then `ByteLevel`): a pre-token found whole in the vocabulary is one
 /// token (`ignore_merges`), else the lowest-ranked adjacent pair merges until none is left.
 pub struct ByteLevelBpe {
@@ -494,23 +558,7 @@ impl ByteLevelBpe {
         }
         let steps: Vec<&Value> =
             if pre["type"] == "Sequence" { pre["pretokenizers"].as_array().map_or_else(Vec::new, |a| a.iter().collect()) } else { vec![pre] };
-        let (mut split, mut add_prefix_space, mut byte_level) = (None, false, false);
-        for step in steps {
-            match step["type"].as_str() {
-                Some("Split") if step["behavior"] == "Isolated" && step["invert"] != true && step["pattern"]["Regex"].is_string() => {
-                    let pattern = white_space_classes(&expand_case_groups(step["pattern"]["Regex"].as_str().unwrap_or_default()));
-                    split = Some(JsRegex::new(&pattern, "gu").map_err(|error| unsupported(format!("split regex: {error}")))?);
-                }
-                Some("ByteLevel") if step["use_regex"] != true => {
-                    byte_level = true;
-                    add_prefix_space = step["add_prefix_space"].as_bool().unwrap_or(false);
-                }
-                _ => return Err(unsupported_layout("pre-tokenizer", step.get("type"))),
-            }
-        }
-        let (Some(split), true) = (split, byte_level) else {
-            return Err(unsupported_layout("pre-tokenizer", pre.get("type")));
-        };
+        let (split, add_prefix_space) = parse_byte_level_pre_tokenizer(pre, steps)?;
         if json["normalizer"] != Value::Null {
             return Err(unsupported_layout("normalizer", json["normalizer"].get("type")));
         }
@@ -519,21 +567,7 @@ impl ByteLevelBpe {
         for (piece, id) in model["vocab"].as_object().ok_or_else(|| unsupported("vocab".into()))? {
             vocab.insert(piece.clone(), id.as_u64().ok_or_else(|| unsupported("vocab id".into()))? as u32);
         }
-        let mut merges = HashMap::new();
-        for (rank, merge) in model["merges"].as_array().ok_or_else(|| unsupported("merges".into()))?.iter().enumerate() {
-            let pair = match merge {
-                Value::String(joined) => joined.split_once(' ').map(|(a, b)| (a.to_owned(), b.to_owned())),
-                Value::Array(parts) => match (parts.first().and_then(Value::as_str), parts.get(1).and_then(Value::as_str)) {
-                    (Some(a), Some(b)) => Some((a.to_owned(), b.to_owned())),
-                    _ => None,
-                },
-                _ => None,
-            };
-            let (a, b) = pair.ok_or_else(|| unsupported("merge".into()))?;
-            if let (Some(&ia), Some(&ib), Some(&out)) = (vocab.get(&a), vocab.get(&b), vocab.get(&format!("{a}{b}"))) {
-                merges.entry((ia, ib)).or_insert((rank, out));
-            }
-        }
+        let merges = parse_merges(&model["merges"], &vocab)?;
         let mut added = HashMap::new();
         let mut added_words = Vec::new();
         for token in json["added_tokens"].as_array().into_iter().flatten() {
@@ -541,12 +575,7 @@ impl ByteLevelBpe {
             added.insert(content.clone(), token["id"].as_u64().unwrap_or_default() as u32);
             added_words.push(content);
         }
-        let special_ids = |entry: &Value| -> Vec<u32> {
-            let name = entry["SpecialToken"]["id"].as_str().unwrap_or_default();
-            template["special_tokens"][name]["ids"].as_array().into_iter().flatten().filter_map(|id| id.as_u64().map(|id| id as u32)).collect()
-        };
-        let single = template["single"].as_array().ok_or_else(|| unsupported("template".into()))?;
-        let at = single.iter().position(|entry| entry.get("Sequence").is_some()).ok_or_else(|| unsupported("template".into()))?;
+        let (prefix, suffix) = template_special_ids(template)?;
         Ok(Self {
             vocab,
             merges,
@@ -556,8 +585,8 @@ impl ByteLevelBpe {
             byte_char: byte_chars(),
             added,
             added_words,
-            prefix: single[..at].iter().flat_map(special_ids).collect(),
-            suffix: single[at + 1..].iter().flat_map(special_ids).collect(),
+            prefix,
+            suffix,
             max_length,
         })
     }
@@ -697,5 +726,54 @@ mod bpe_tests {
         assert_eq!(&body[1..body.len() - 1], ids(&golden["bom"]).as_slice());
         // A four-id window is cut after the template, so it ends on the last body token.
         assert_eq!(Tokenizer::load(&path, 4).unwrap().encode(text("window4")), ids(&golden["window4"]));
+    }
+}
+
+#[cfg(test)]
+mod unigram_tests {
+    use super::*;
+
+    fn tokenizer() -> Tokenizer {
+        let json = serde_json::json!({
+            "model": {"type": "Unigram", "unk_id": 0, "vocab": [["<unk>", 0.0], ["\u{2581}a", -1.0], ["\u{2581}b", -1.5], ["a", -2.0], ["b", -2.0], ["\u{2581}", -3.0]]},
+            "pre_tokenizer": {"type": "Metaspace", "replacement": "\u{2581}", "prepend_scheme": "always"},
+            "normalizer": {"type": "Sequence", "normalizers": [{"type": "Replace", "pattern": {"String": "x"}, "content": "a"}]},
+            "post_processor": {
+                "type": "TemplateProcessing",
+                "single": [{"SpecialToken": {"id": "<s>", "type_id": 0}}, {"Sequence": {"id": "A", "type_id": 0}}, {"SpecialToken": {"id": "</s>", "type_id": 0}}],
+                "special_tokens": {"<s>": {"id": "<s>", "ids": [7], "tokens": ["<s>"]}, "</s>": {"id": "</s>", "ids": [8], "tokens": ["</s>"]}}
+            },
+            "added_tokens": [{"id": 9, "content": "<mask>", "lstrip": true, "rstrip": false, "normalized": false}]
+        });
+        let path = std::env::temp_dir().join(format!("unigram-{}.json", std::process::id()));
+        std::fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
+        let loaded = Tokenizer::load(&path, 5);
+        std::fs::remove_file(&path).unwrap();
+        loaded.unwrap()
+    }
+
+    #[test]
+    fn encodes_with_the_template_normalizer_and_best_segmentation() {
+        let tokenizer = tokenizer();
+        assert_eq!(tokenizer.encode("a b"), vec![7, 1, 2, 8]);
+        assert_eq!(tokenizer.encode("x"), vec![7, 1, 8]);
+    }
+
+    #[test]
+    fn an_unknown_piece_is_the_unk_id_and_an_added_token_is_split_out() {
+        let tokenizer = tokenizer();
+        assert_eq!(tokenizer.encode("z"), vec![7, 5, 0, 8]);
+        assert_eq!(tokenizer.encode("a<mask> b"), vec![7, 1, 9, 2, 8]);
+    }
+
+    #[test]
+    fn the_window_cuts_after_the_template() {
+        assert_eq!(tokenizer().encode("a b a b"), vec![7, 1, 2, 1, 2]);
+    }
+
+    #[test]
+    fn a_layout_other_than_unigram_is_refused() {
+        let json = serde_json::json!({"model": {"type": "WordPiece"}});
+        assert!(matches!(UnigramTokenizer::from_json(&json, 8), Err(MemoryError::Embedding(text)) if text == "unsupported model WordPiece"));
     }
 }

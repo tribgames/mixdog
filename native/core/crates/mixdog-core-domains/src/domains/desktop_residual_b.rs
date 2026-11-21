@@ -1,28 +1,18 @@
-//! The logic of the second batch of desktop main-process files that handle no Electron object, in the core (owner direction 14).
-//!
 //! Methods (all of the PC the core runs on, so Local origin only):
-//! - `desktop/localLink/open` (`local-file-links.ts`): the decision for a chat link to a file or folder under a project: the link is
-//!   validated, resolved against the project, checked twice against the project boundary (lexically and through the real paths, so a
-//!   junction or symlink cannot escape) and answered as `{result: "editor"}` (hand the file to Mixdog's editor), `{result: "file" | "folder",
-//!   path}` (the OS opens `path`; the OS hand-off itself is Electron's `shell.openPath`, which the caller performs) or
-//!   `{confirmationPath}` (an executable target, which needs the user's confirmation first; asking again with `confirmedPath` equal to it
-//!   proceeds). The allowlists are `shared/local-files.ts` and `shared/file-preview.ts`.
-//! - `desktop/attachment/write` (`attachment-files.ts`): a `data:` attachment written under `<temp>/mixdog-attachments` with a stem and an
-//!   extension that cannot launch code; answers its path.
-//! - `desktop/attachment/thumbnail` (`attachment-thumbnail.ts`): the thumbnail data URL of a stored attachment image.
-//! - `desktop/launchVersion/record` and `desktop/launchVersion/acknowledge` (`launch-version.ts`): the launch/update record of the profile.
-//! - `desktop/modelBootstrap/read` (`model-bootstrap.ts`): the persisted model route for the first snapshot, read from the config file.
-//! - `desktop/nativeToolCache/gc` (`native-runtime-cache-gc.mjs`): the caches of native tools a bundled copy superseded.
-//! - `desktop/userFile/write` (`user-file-write.ts`): a user-owned file written so that a crash cannot leave it NUL-filled.
-//! - `desktop/computer/inputAccess/request` (`linux-input-access.ts`): the `/dev/uinput` access rule of Computer Use on Linux.
+//! - `desktop/localLink/open`: the decision for a chat link to a file or folder under a project: the link is validated,
+//!   resolved against the project, checked twice against the project boundary (lexically and through the real paths, so a
+//!   junction or symlink cannot escape) and answered as `{result: "editor"}`, `{result: "file" | "folder", path}` (the caller
+//!   hands `path` to the OS) or `{confirmationPath}` (an executable target; asking again with `confirmedPath` equal to it proceeds).
+//! - `desktop/attachment/write`: a `data:` attachment written under `<temp>/mixdog-attachments` with a stem and an extension
+//!   that cannot launch code; answers its path.
+//! - `desktop/attachment/thumbnail`: the thumbnail data URL of a stored attachment image.
+//! - `desktop/launchVersion/record` and `desktop/launchVersion/acknowledge`: the launch/update record of the profile.
+//! - `desktop/modelBootstrap/read`: the persisted model route for the first snapshot, read from the config file.
+//! - `desktop/nativeToolCache/gc`: the caches of native tools a bundled copy superseded.
+//! - `desktop/userFile/write`: a user-owned file written so that a crash cannot leave it NUL-filled.
+//! - `desktop/computer/inputAccess/request`: the `/dev/uinput` access rule of Computer Use on Linux.
 //!
-//! Library parts with no method: [`ImportProgress`] (`conversation-import-progress.ts`), [`NetworkWatcher`] (`network-watch.ts`) and the
-//! login shell environment read (`login-shell-environment.ts`, which runs before the core exists).
-//!
-//! The other rows of the verdict table's batch are already in Rust and are not repeated here: `agent-memory.ts` (`agent/memory/*`),
-//! `approval-grant-change.ts` (the approval answer announces `permissions`), `child-environment.ts` (`mixdog-tools` exec env),
-//! `feedback-client.ts` (`feedback/upload`), `git-contract.mjs` and `ipc-control-chars.ts` (the boundary validators), `mixy-first.ts`
-//! (`lead_service`, `greetings`) and `session-sidebar-actions.ts` (the session settings of `mixdog-core-session`).
+//! Library parts with no method: [`ImportProgress`], [`NetworkWatcher`] and the login shell environment read.
 
 #![allow(clippy::disallowed_methods, reason = "file work runs as the body of a durability-io lane job; helpers wait on child processes and time")]
 
@@ -1078,9 +1068,7 @@ impl ImportJobSource for ServiceImportJobs {
 
 /// The `import/*` service with the progress of its jobs announced: the result of each `import/startConversationImport`,
 /// `import/cancelConversationImport` and `import/getConversationImportJobs` call reaches [`ImportProgress::observe`], which publishes each
-/// changed job snapshot and, while a job runs, follows it by asking the same service for its job list. This is the call site of
-/// `conversation-import-progress.ts` (it watched the capability calls of the desktop's main process); the service is a decorator, so every
-/// caller of the methods, a phone included, is seen.
+/// changed job snapshot and, while a job runs, follows it by asking the same service for its job list.
 pub struct ImportProgressService {
     inner: Arc<dyn DomainService>,
     progress: Arc<ImportProgress>,
@@ -1174,48 +1162,50 @@ fn interface_addresses() -> Vec<(String, String, bool)> {
     found
 }
 
+/// The adapter records in one buffer of 8-byte words (their alignment); a list that grew since the size was asked for is read
+/// again with the size the call gave back.
+#[cfg(windows)]
+fn adapter_buffer() -> Option<Vec<u64>> {
+    use windows_sys::Win32::Foundation::ERROR_BUFFER_OVERFLOW;
+    use windows_sys::Win32::NetworkManagement::IpHelper::GAA_FLAG_SKIP_ANYCAST;
+    use windows_sys::Win32::NetworkManagement::IpHelper::GAA_FLAG_SKIP_DNS_SERVER;
+    use windows_sys::Win32::NetworkManagement::IpHelper::GAA_FLAG_SKIP_MULTICAST;
+    use windows_sys::Win32::NetworkManagement::IpHelper::GetAdaptersAddresses;
+    use windows_sys::Win32::Networking::WinSock::AF_UNSPEC;
+    let flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+    let mut size: u32 = 16 * 1024;
+    for _ in 0..4 {
+        let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
+        // SAFETY: `buffer` holds at least `size` bytes and stays alive for the call; the family and flags are the documented values.
+        let status = unsafe { GetAdaptersAddresses(u32::from(AF_UNSPEC), flags, std::ptr::null(), buffer.as_mut_ptr().cast(), &mut size) };
+        if status == 0 {
+            return Some(buffer);
+        }
+        if status != ERROR_BUFFER_OVERFLOW {
+            return None;
+        }
+    }
+    None
+}
+
 #[cfg(windows)]
 fn interface_addresses() -> Vec<(String, String, bool)> {
     use std::ffi::CStr;
     use std::net::Ipv4Addr;
     use std::net::Ipv6Addr;
 
-    use windows_sys::Win32::Foundation::ERROR_BUFFER_OVERFLOW;
-    use windows_sys::Win32::NetworkManagement::IpHelper::GAA_FLAG_SKIP_ANYCAST;
-    use windows_sys::Win32::NetworkManagement::IpHelper::GAA_FLAG_SKIP_DNS_SERVER;
-    use windows_sys::Win32::NetworkManagement::IpHelper::GAA_FLAG_SKIP_MULTICAST;
-    use windows_sys::Win32::NetworkManagement::IpHelper::GetAdaptersAddresses;
     use windows_sys::Win32::NetworkManagement::IpHelper::IP_ADAPTER_ADDRESSES_LH;
     use windows_sys::Win32::NetworkManagement::Ndis::IfOperStatusUp;
     use windows_sys::Win32::Networking::WinSock::AF_INET;
     use windows_sys::Win32::Networking::WinSock::AF_INET6;
-    use windows_sys::Win32::Networking::WinSock::AF_UNSPEC;
     use windows_sys::Win32::Networking::WinSock::SOCKADDR_IN;
     use windows_sys::Win32::Networking::WinSock::SOCKADDR_IN6;
     /// `IF_TYPE_SOFTWARE_LOOPBACK`.
     const LOOPBACK_TYPE: u32 = 24;
-    let flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
-    let mut size: u32 = 16 * 1024;
-    // The adapter records live in one buffer of 8-byte words (their alignment); a list that grew since the size was asked for is read
-    // again with the size the call gave back.
-    let mut buffer: Vec<u64> = Vec::new();
-    let mut listed = false;
-    for _ in 0..4 {
-        buffer = vec![0u64; (size as usize).div_ceil(8)];
-        // SAFETY: `buffer` holds at least `size` bytes and stays alive for the call; the family and flags are the documented values.
-        let status = unsafe { GetAdaptersAddresses(u32::from(AF_UNSPEC), flags, std::ptr::null(), buffer.as_mut_ptr().cast(), &mut size) };
-        if status == 0 {
-            listed = true;
-            break;
-        }
-        if status != ERROR_BUFFER_OVERFLOW {
-            break;
-        }
-    }
     let mut found = Vec::new();
-    if !listed {
+    let Some(buffer) = adapter_buffer() else {
         return found;
-    }
+    };
     let mut adapter = buffer.as_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
     // SAFETY: every pointer below belongs to the list the successful call wrote into `buffer`, which outlives the loop; a socket address
     // is read as the family its `sa_family` names.
@@ -1320,12 +1310,9 @@ impl NetworkWatcher {
     }
 }
 
-// Login shell environment (login-shell-environment.ts)
-//
-// A Dock/Finder (macOS) or desktop-entry (Linux) launch inherits only the session manager's environment: the PATH additions and keys a user
-// exports from ~/.zprofile or ~/.zshrc are missing, so the daemon it spawns, and every terminal and tool call under it, cannot find what a
-// terminal launch finds. One interactive login shell prints its environment once, before the daemon starts; this runs before the core
-// exists, so it is a library function of the launcher. Windows GUI launches already carry the registry environment and skip the read.
+// Login shell environment: a Dock/Finder (macOS) or desktop-entry (Linux) launch inherits only the session manager's environment,
+// without the PATH additions and keys a user exports from ~/.zprofile or ~/.zshrc. One interactive login shell prints its environment
+// once, before the daemon starts. Windows GUI launches already carry the registry environment and skip the read.
 
 const LOGIN_ENV_MARK: &str = "__MIXDOG_LOGIN_ENV__";
 const FALLBACK_SHELLS: [&str; 3] = ["/bin/zsh", "/bin/bash", "/bin/sh"];
@@ -1437,9 +1424,8 @@ fn read_shell(shell: &str, timeout: Duration) -> Result<BTreeMap<String, String>
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
-    // A session of its own, not just a group: the shell then has no controlling terminal, so an rc file that opens `/dev/tty` or runs a
-    // job-control `stty` fails instead of stopping the read on the terminal the launcher was started from. The shell stays the leader of
-    // its group, so the timeout below still ends the whole tree.
+    // A session of its own, so with no controlling terminal an rc file that opens `/dev/tty` or runs a job-control `stty` fails instead
+    // of stopping the read; the shell stays its group's leader, so the timeout still ends the whole tree.
     // SAFETY: the closure only calls the async-signal-safe `setsid`.
     unsafe {
         command.pre_exec(|| if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) });
@@ -1658,6 +1644,34 @@ impl DesktopResidualBService {
             LocalLinkOutcome::Open { kind, path } => json!({ "result": kind, "path": path }),
         })
     }
+
+    async fn native_tool_cache_gc(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
+        let params: CacheGcParams = decode(req)?;
+        let (mut removed, mut errors): (Vec<String>, Vec<Value>) = (Vec::new(), Vec::new());
+        let mut seen: Vec<String> = Vec::new();
+        for kind in params.bundled_kinds {
+            let Some(directory) = cache_directory(&kind) else { continue };
+            if seen.contains(&kind) {
+                continue;
+            }
+            seen.push(kind.clone());
+            let path = self.data_dir.join(directory);
+            let mut outcome = Ok(());
+            for attempt in 0..=GC_RETRIES {
+                let target = path.clone();
+                outcome = self.on_lane(req, move |_| remove_tree(&target)).await?;
+                if outcome.is_ok() || attempt == GC_RETRIES {
+                    break;
+                }
+                mixdog_rt::time::sleep(GC_RETRY_DELAY).await;
+            }
+            match outcome {
+                Ok(()) => removed.push(kind),
+                Err(error) => errors.push(json!({ "kind": kind, "error": format!("{}: {error}", path.display()) })),
+            }
+        }
+        reply(json!({ "removed": removed, "failed": errors }))
+    }
 }
 
 fn reply(value: Value) -> Result<Reply, CoreError> {
@@ -1709,33 +1723,7 @@ impl DomainService for DesktopResidualBService {
                 let snapshot = self.on_lane(&req, move |_| read_model_bootstrap(&path)).await?;
                 reply(json!({ "snapshot": snapshot }))
             }
-            "desktop/nativeToolCache/gc" => {
-                let params: CacheGcParams = decode(&req)?;
-                let (mut removed, mut errors): (Vec<String>, Vec<Value>) = (Vec::new(), Vec::new());
-                let mut seen: Vec<String> = Vec::new();
-                for kind in params.bundled_kinds {
-                    let Some(directory) = cache_directory(&kind) else { continue };
-                    if seen.contains(&kind) {
-                        continue;
-                    }
-                    seen.push(kind.clone());
-                    let path = self.data_dir.join(directory);
-                    let mut outcome = Ok(());
-                    for attempt in 0..=GC_RETRIES {
-                        let target = path.clone();
-                        outcome = self.on_lane(&req, move |_| remove_tree(&target)).await?;
-                        if outcome.is_ok() || attempt == GC_RETRIES {
-                            break;
-                        }
-                        mixdog_rt::time::sleep(GC_RETRY_DELAY).await;
-                    }
-                    match outcome {
-                        Ok(()) => removed.push(kind),
-                        Err(error) => errors.push(json!({ "kind": kind, "error": format!("{}: {error}", path.display()) })),
-                    }
-                }
-                reply(json!({ "removed": removed, "failed": errors }))
-            }
+            "desktop/nativeToolCache/gc" => self.native_tool_cache_gc(&req).await,
             "desktop/userFile/write" => {
                 let params: UserFileParams = decode(&req)?;
                 let data = match (params.text, params.data_base64) {

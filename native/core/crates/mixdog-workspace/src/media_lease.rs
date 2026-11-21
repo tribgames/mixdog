@@ -3,14 +3,12 @@
     clippy::disallowed_types,
     reason = "blocking file bodies run only as lane jobs (lanes::run); the service never calls them on an async thread"
 )]
-//! The media leases of a paired device's project-file previews (Node `main/media-leases.ts`, minted by `authorizedMediaFile` of
-//! `remote-file-preview.ts`, served by the relay media lane): an unguessable id for a file that is no gallery asset, so a phone
-//! streams a preview's image, audio or video by ranged requests instead of reading the whole file.
+//! Media leases of a paired device's project-file previews: an unguessable id for a file that is no gallery asset, so a phone
+//! streams a preview's image, audio or video by ranged requests.
 //!
-//! The authorization stays where it was decided: a lease records the folder its file was authorized within and the identity of
-//! that file, and every request opens the path again through [`open_authorized_ro`] and serves only the very file that was
-//! authorized, at a location still inside the folder. A lease lasts [`LEASE_TTL_MS`], the oldest of more than [`MAX_LEASES`] is
-//! dropped, and, beyond Node, it answers only the paired device it was minted for.
+//! A lease records the folder its file was authorized within and the file's identity; every request opens the path again through
+//! [`open_authorized_ro`] and serves only that file, still inside the folder. A lease lasts [`LEASE_TTL_MS`], the oldest of more
+//! than [`MAX_LEASES`] is dropped, and it answers only the paired device it was minted for.
 
 use std::fs::File;
 use std::future::Future;
@@ -512,40 +510,64 @@ mod tests {
         assert!(not_found(open_first.read(0, 2).await), "a lease dropped for the cap");
     }
 
-    /// The permission to deliver is the lease's own state at the commit: allowed while it holds, refused (running nothing) after an
-    /// unpair, the hour, or the cap's eviction; a gallery file has no lease and is always allowed. A revoke that races a commit in
-    /// progress waits for it (commit first is allowed), and one that came first refuses it.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_commit_is_allowed_only_while_the_lease_holds_and_is_ordered_against_a_revoke() {
-        let (_dir, root) = project();
+    struct CommitFixture {
+        _dir: tempfile::TempDir,
+        root: PathBuf,
+        clock: Arc<AtomicU64>,
+        leases: Arc<ProjectFileLeases>,
+    }
+
+    fn commit_fixture() -> CommitFixture {
+        let (dir, root) = project();
         std::fs::write(root.join("a.mp4"), b"0123456789").unwrap();
         let clock = Arc::new(AtomicU64::new(1_000));
         let leases = ProjectFileLeases::with_clock(lanes(), {
             let clock = clock.clone();
             Arc::new(move || clock.load(Ordering::SeqCst))
         });
-        let committer = |id: &str, device: &str| {
-            let (leases, id, device) = (leases.clone(), id.to_owned(), device.to_owned());
-            async move { leases.open(&id, &device).await.unwrap().lease().unwrap().commit }
-        };
+        CommitFixture { _dir: dir, root, clock, leases }
+    }
+
+    impl CommitFixture {
+        async fn commit_of(&self, id: &str, device: &str) -> Commit {
+            self.leases.open(id, device).await.unwrap().lease().unwrap().commit
+        }
+    }
+
+    /// The permission to deliver is the lease's own state at the commit: allowed while it holds, refused (running nothing) after the hour.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_commit_is_refused_once_the_lease_expires() {
+        let f = commit_fixture();
         let mut ran = 0;
-        // Expiry.
-        let expiring = leases.mint(&root, "a.mp4", "video/mp4", "phone-1").unwrap();
-        let commit = committer(&expiring, "phone-1").await;
+        let expiring = f.leases.mint(&f.root, "a.mp4", "video/mp4", "phone-1").unwrap();
+        let commit = f.commit_of(&expiring, "phone-1").await;
         assert!(commit(&mut || ran += 1));
-        clock.store(1_000 + LEASE_TTL_MS, Ordering::SeqCst);
+        f.clock.store(1_000 + LEASE_TTL_MS, Ordering::SeqCst);
         assert!(!commit(&mut || ran += 1), "the hour is over");
-        // Cap eviction.
-        clock.store(1_000, Ordering::SeqCst);
-        let evicted = leases.mint(&root, "a.mp4", "video/mp4", "phone-3").unwrap();
-        let commit = committer(&evicted, "phone-3").await;
+        assert_eq!(ran, 1, "a refused commit runs nothing");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_commit_is_refused_once_the_cap_evicts_the_lease() {
+        let f = commit_fixture();
+        let mut ran = 0;
+        let evicted = f.leases.mint(&f.root, "a.mp4", "video/mp4", "phone-3").unwrap();
+        let commit = f.commit_of(&evicted, "phone-3").await;
         for _ in 0..MAX_LEASES {
-            leases.mint(&root, "a.mp4", "video/mp4", "phone-4").unwrap();
+            f.leases.mint(&f.root, "a.mp4", "video/mp4", "phone-4").unwrap();
         }
         assert!(!commit(&mut || ran += 1), "evicted for the cap");
-        // Unpair, and the race of the two in both orders.
-        let mine = leases.mint(&root, "a.mp4", "video/mp4", "phone-1").unwrap();
-        let commit = committer(&mine, "phone-1").await;
+        assert_eq!(ran, 0, "a refused commit runs nothing");
+    }
+
+    /// A revoke that races a commit in progress waits for it (commit first is allowed), and one that came first refuses it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_revoke_is_ordered_against_a_commit_in_progress() {
+        let f = commit_fixture();
+        let leases = f.leases.clone();
+        let mut ran = 0;
+        let mine = leases.mint(&f.root, "a.mp4", "video/mp4", "phone-1").unwrap();
+        let commit = f.commit_of(&mine, "phone-1").await;
         let (entered, inside) = std::sync::mpsc::channel();
         let (release, held) = std::sync::mpsc::channel::<()>();
         let committing = std::thread::spawn({
@@ -575,10 +597,14 @@ mod tests {
         assert_eq!(committing.join().unwrap(), (true, true), "commit first is allowed");
         revoking.join().unwrap();
         assert!(!commit(&mut || ran += 1), "revoke first is refused");
-        assert_eq!(ran, 1, "a refused commit runs nothing");
-        // A gallery file has no lease.
-        std::fs::write(root.join("g.png"), b"x").unwrap();
-        assert!(open_within(lanes(), root.join("g.png"), root.clone(), "image/png".into()).await.unwrap().lease().is_none(), "a gallery file has no lease");
+        assert_eq!(ran, 0, "a refused commit runs nothing");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_gallery_file_has_no_lease() {
+        let f = commit_fixture();
+        std::fs::write(f.root.join("g.png"), b"x").unwrap();
+        assert!(open_within(lanes(), f.root.join("g.png"), f.root.clone(), "image/png".into()).await.unwrap().lease().is_none());
     }
 
     /// A clock the test moves, whose sleep moves with it: the scheduler's wait ends when the test advances past it, and `sleeps`

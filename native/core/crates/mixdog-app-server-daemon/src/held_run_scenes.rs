@@ -712,8 +712,8 @@ impl mixdog_core_api::CoreHandle for RealCore {
     fn connection_closed(&self, connection: mixdog_core_api::ids::ConnectionId) {
         self.mock.connection_closed(connection);
     }
-    fn connection_opened(&self, connection: mixdog_core_api::ids::ConnectionId, origin: mixdog_protocol::Origin, device: &str, kind: ConnectionKind) {
-        self.mock.connection_opened(connection, origin, device, kind);
+    fn connection_opened(&self, connection: mixdog_core_api::ids::ConnectionId, origin: mixdog_protocol::Origin, device: &str, kind: ConnectionKind) -> String {
+        self.mock.connection_opened(connection, origin, device, kind)
     }
     fn request_started(&self, method: &str, params: &serde_json::Value) -> mixdog_core_api::handle::RequestGuard {
         self.mock.request_started(method, params)
@@ -772,128 +772,42 @@ async fn connect(server: &mixdog_app_server::AppServer, id: u64, thread: &str) -
     client
 }
 
-/// A client turn whose clients leave, on the real path: the gate of the turn is the thread's own, a `RunPort` that sends its ask to the
-/// session actor, which publishes it to the app server's connections; the clients are real connections of the real server, dropped as a
-/// transport drops them, and the answer is the client's response frame routed by the server to the actor. The card stays pending across
-/// a hundred years, is sent again to the client that returns, and the answer settles the call.
 #[tokio::test(start_paused = true)]
 async fn a_card_pending_on_the_real_thread_gate_survives_its_clients() {
-    use mixdog_core_api::call::CallContext;
-    use mixdog_core_api::call::CoreRequest;
-    use mixdog_core_api::ids::Method;
-    use mixdog_core_api::ids::OpId;
-    use mixdog_core_api::mock::MockCore;
-    use mixdog_core_api::mock::MockLimits;
-    use mixdog_core_session::session::RunOutcome;
-    use mixdog_core_session::session::SessionDirectory;
-    use mixdog_core_session::session::approval_surfaces::ThreadApprovalSurfaces;
-    use mixdog_core_session::session::testing::Rig;
-
     let now = 1_800_000_000_000_i64;
-    let member = "sess_member".to_owned();
-    let outgoing = mixdog_app_server::Outgoing::new();
-    let rig = Rig::new();
-    let published = Arc::new(Published {
-        outgoing: outgoing.clone(),
-        arrived: tokio::sync::Semaphore::new(0),
-        frames: Mutex::default(),
-        resolved_frames: Mutex::default(),
-        resolved_arrived: tokio::sync::Semaphore::new(0),
-    });
-    let mut parts = rig.deps_parts(rig.store.clone());
-    parts.server_requests = published.clone();
-    // Who answered is the composition's own device layer over the registry the transport fills, and the resolution's time is read
-    // from the test's virtual clock.
     let registry = Arc::new(mixdog_remote::registry::DeviceRegistry::default());
-    parts.devices = Arc::new(mixdog_core_base::approvals::devices::RegistryDevices::new(registry.clone()));
-    let virtual_now = Arc::new(std::sync::atomic::AtomicI64::new(now));
-    parts.clock = Arc::new(VirtualClock(virtual_now.clone()));
-    let directory = Arc::new(SessionDirectory::new(Arc::new(parts)));
-    let core = Arc::new(RealCore { mock: Arc::new(MockCore::new(&[], MockLimits::default())), directory: directory.clone() });
-    let server = mixdog_app_server::AppServer::new(
-        core,
-        outgoing.clone(),
-        Arc::new(|_| Some(mixdog_protocol::Origin::Local)),
-        crate::server::server_config(mixdog_app_protocol::limits::Limits::default(), Default::default()),
-    )
-    .expect("the default limits are valid");
-    let surfaces = Arc::new(ThreadApprovalSurfaces::new(directory.clone(), outgoing.clone()));
-    let scene = Scene::over(now, Arc::new(AtomicBool::new(false)), surfaces);
-    *scene.hook.lock().unwrap() = Some(HookDecision { action: HookAction::Ask, reason: Some("needs approval".into()), name: None, args: None });
+    let mut turn = real_turn_over(now, registry.clone()).await;
+    assert_eq!(turn.shown["method"], "item/tool/requestApproval");
+    assert_eq!(turn.shown["params"]["name"], "shell");
 
-    // The turn: its gate is assembled when the run starts, over the run's own port, and then serves the calls the test sends it.
-    let kit = scene.kit();
-    let (calls, wanted) = mpsc::unbounded_channel::<(String, GateCall)>();
-    let (settled, mut results) = mpsc::unbounded_channel::<Value>();
-    let (ready, mut started) = mpsc::unbounded_channel::<()>();
-    let wanted = Arc::new(Mutex::new(Some(wanted)));
-    rig.set_script(Arc::new(move |run| {
-        let (kit, wanted, settled, ready) = (kit.clone(), wanted.clone(), settled.clone(), ready.clone());
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let gate = kit.gate_over(run.thread.as_str(), Arc::new(run.port.clone()));
-            let mut wanted = wanted.lock().unwrap().take().expect("one run");
-            ready.send(()).expect("the test waits");
-            while let Some((id, call)) = wanted.recv().await {
-                let outcome = present(&call, gate.check_call(&id, &call).await);
-                settled.send(outcome).expect("the test waits");
-            }
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    directory.create_with_id(ThreadId::from(member.as_str()), serde_json::Map::new(), json!({})).await.expect("the thread");
-
-    // A client starts the turn, then the model asks for a tool that needs approval.
-    let client = connect(&server, 1, &member).await;
-    let handle = directory.handle(&ThreadId::from(member.as_str())).expect("loaded");
-    use mixdog_core_api::ThreadHandle;
-    handle
-        .request(CoreRequest {
-            method: Method("turn/start"),
-            params: json!({ "threadId": member, "opId": "op-1", "input": { "prompt": "go" } }),
-            op: Some(OpId::from("op-1")),
-            ctx: CallContext::internal("test"),
-        })
-        .await
-        .expect("turn/start");
-    started.recv().await.expect("the run started");
-    calls.send(("call_1".to_owned(), GateCall::new("shell".to_owned(), json!({ "command": "echo hi" })))).expect("the run waits");
-    published.arrived.acquire().await.expect("the card").forget();
-    let shown = published.frames.lock().unwrap().last().cloned().expect("the published card");
-    assert_eq!(shown["method"], "item/tool/requestApproval");
-    assert_eq!(shown["params"]["name"], "shell");
-
-    // Every client leaves, a hundred years pass: the card is still pending and the call still waits.
-    drop(client);
+    drop(turn.client);
     let hundred_years = 100 * 365 * 24 * 3600 * 1000_u64;
-    scene.now.fetch_add(hundred_years as i64, Ordering::SeqCst);
-    virtual_now.fetch_add(hundred_years as i64, Ordering::SeqCst);
+    turn.scene.now.fetch_add(hundred_years as i64, Ordering::SeqCst);
+    turn.virtual_now.fetch_add(hundred_years as i64, Ordering::SeqCst);
     tokio::time::advance(Duration::from_millis(hundred_years)).await;
-    assert!(results.try_recv().is_err(), "the call still waits for its answer");
+    assert!(turn.results.try_recv().is_err(), "the call still waits for its answer");
 
-    // A phone paired as "Pixel" returns: it is sent the very pending request, and answers it over the wire.
     registry.connect_relay(2, "peer-pixel");
     registry.attach_peer("peer-pixel", "cred-pixel", "Pixel", "Safari");
-    let client = connect(&server, 2, &member).await;
-    client.request(2, "thread/resume", json!({ "threadId": member, "window": { "lastItems": 10 } }));
-    client.response(2).await;
-    let frame = client.approval_request_seen().expect("the returning client is sent the pending card");
-    assert_eq!(frame, shown, "the redelivered request is the one published");
-    client.handle.on_message(
+    turn.client = connect(&turn.server, 2, &turn.member).await;
+    turn.client.request(2, "thread/resume", json!({ "threadId": turn.member, "window": { "lastItems": 10 } }));
+    turn.client.response(2).await;
+    let frame = turn.client.approval_request_seen().expect("the returning client is sent the pending card");
+    assert_eq!(frame, turn.shown, "the redelivered request is the one published");
+    turn.client.handle.on_message(
         serde_json::from_value(json!({ "id": frame["id"], "result": { "approved": true, "response": "approve", "reason": null } })).expect("a response"),
     );
-    let outcome = results.recv().await.expect("the call settles");
+    let outcome = turn.results.recv().await.expect("the call settles");
     assert_eq!(outcome["allowed"], true, "{outcome}");
-    mixdog_rt::time::timeout(Duration::from_secs(1), published.resolved_arrived.acquire())
+    mixdog_rt::time::timeout(Duration::from_secs(1), turn.published.resolved_arrived.acquire())
         .await
         .expect("the actor published the resolution")
         .expect("the sink")
         .forget();
-    let resolution = published.resolved_frames.lock().unwrap().last().cloned().expect("a resolved frame")["params"]["resolution"].clone();
+    let resolution = turn.published.resolved_frames.lock().unwrap().last().cloned().expect("a resolved frame")["params"]["resolution"].clone();
     assert_eq!(resolution["kind"], "decided");
     assert_eq!(resolution["decision"]["approved"], true);
     assert_eq!(resolution["device"], "Pixel", "who answered is the paired device");
-    drop(calls);
 }
 
 /// The real path of a client turn, up to its card: a client connected and shown the card of a `shell` call that needs approval.
@@ -905,11 +819,19 @@ struct RealTurn {
     member: String,
     shown: Value,
     client: Client,
+    scene: Scene,
     // Held so the run's gate and the card's surface outlive the test body.
-    _keep: (Scene, mpsc::UnboundedSender<(String, GateCall)>, Arc<mixdog_core_session::session::SessionDirectory>),
+    _keep: (mpsc::UnboundedSender<(String, GateCall)>, Arc<mixdog_core_session::session::SessionDirectory>),
 }
 
 async fn real_turn_with_card(now: i64) -> RealTurn {
+    let registry = Arc::new(mixdog_remote::registry::DeviceRegistry::default());
+    registry.connect_relay(1, "peer-pixel");
+    registry.attach_peer("peer-pixel", "cred-pixel", "Pixel", "Safari");
+    real_turn_over(now, registry).await
+}
+
+async fn real_turn_over(now: i64, registry: Arc<mixdog_remote::registry::DeviceRegistry>) -> RealTurn {
     use mixdog_core_api::ThreadHandle;
     use mixdog_core_api::call::CallContext;
     use mixdog_core_api::call::CoreRequest;
@@ -934,9 +856,6 @@ async fn real_turn_with_card(now: i64) -> RealTurn {
     });
     let mut parts = rig.deps_parts(rig.store.clone());
     parts.server_requests = published.clone();
-    let registry = Arc::new(mixdog_remote::registry::DeviceRegistry::default());
-    registry.connect_relay(1, "peer-pixel");
-    registry.attach_peer("peer-pixel", "cred-pixel", "Pixel", "Safari");
     parts.devices = Arc::new(mixdog_core_base::approvals::devices::RegistryDevices::new(registry));
     let virtual_now = Arc::new(std::sync::atomic::AtomicI64::new(now));
     parts.clock = Arc::new(VirtualClock(virtual_now.clone()));
@@ -987,7 +906,7 @@ async fn real_turn_with_card(now: i64) -> RealTurn {
     calls.send(("call_1".to_owned(), GateCall::new("shell".to_owned(), json!({ "command": "echo hi" })))).expect("the run waits");
     published.arrived.acquire().await.expect("the card").forget();
     let shown = published.frames.lock().unwrap().last().cloned().expect("the published card");
-    RealTurn { server, published, results, virtual_now, member, shown, client, _keep: (scene, calls, directory) }
+    RealTurn { server, published, results, virtual_now, member, shown, client, scene, _keep: (calls, directory) }
 }
 
 impl RealTurn {

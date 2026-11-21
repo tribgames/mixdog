@@ -252,6 +252,48 @@ fn make_parent<P: WriteProof, H: OfficeHost>(env: &SessionEnv<'_, P, H>, target:
     mixdog_fsio::create_dir_all(env.design.lane, dirname(target)).map_err(|error| error.to_string())
 }
 
+fn blocks_with_full_paths(blocks: &[Value], cwd: &str) -> Result<Vec<Value>, String> {
+    let mut resolved = Vec::with_capacity(blocks.len());
+    for block in blocks {
+        let path = block.get("path").filter(|path| truthy(path));
+        let Some(path) = path else {
+            resolved.push(block.clone());
+            continue;
+        };
+        let mut block = block.clone();
+        if let Some(map) = block.as_object_mut() {
+            map.insert("path".to_owned(), Value::String(full_path(&value_to_string(path), cwd)?));
+        }
+        resolved.push(block);
+    }
+    Ok(resolved)
+}
+
+fn pdf_properties(designed: &Value, args: &Value, cwd: &str) -> Result<Map<String, Value>, String> {
+    let mut properties = Map::new();
+    spread_object(&mut properties, designed.get("properties"));
+    spread_object(&mut properties, args.get("properties"));
+    if let Some(font_path) = args.pointer("/properties/fontPath").filter(|path| truthy(path)) {
+        properties.insert("fontPath".to_owned(), Value::String(full_path(&value_to_string(font_path), cwd)?));
+    }
+    Ok(properties)
+}
+
+fn pdf_create_receipt(written: &Value, block_count: usize, field_count: usize) -> Map<String, Value> {
+    let mut receipt = Map::new();
+    for key in ["pageNumbers", "font"] {
+        if let Some(value) = written.get(key) {
+            receipt.insert(key.to_owned(), value.clone());
+        }
+    }
+    receipt.insert("blocks".to_owned(), Value::from(block_count));
+    receipt.insert("fields".to_owned(), Value::from(field_count));
+    if written.pointer("/form/issueCount").is_some_and(truthy) {
+        receipt.insert("formIssues".to_owned(), written.pointer("/form/issues").cloned().unwrap_or(Value::Null));
+    }
+    receipt
+}
+
 fn create_pdf_session<P: WriteProof, H: OfficeHost, C: SessionCloser>(
     env: &SessionEnv<'_, P, H>,
     tools: &CreateTools<'_, C>,
@@ -262,44 +304,15 @@ fn create_pdf_session<P: WriteProof, H: OfficeHost, C: SessionCloser>(
     make_parent(env, target)?;
     let blocks = first_listed(args.get("blocks"), args.pointer("/design/blocks"));
     let fields = first_listed(args.get("fields"), args.pointer("/design/fields"));
-    let mut resolved = Vec::with_capacity(blocks.len());
-    for block in &blocks {
-        let path = block.get("path").filter(|path| truthy(path));
-        let Some(path) = path else {
-            resolved.push(block.clone());
-            continue;
-        };
-        let mut block = block.clone();
-        if let Some(map) = block.as_object_mut() {
-            map.insert("path".to_owned(), Value::String(full_path(&value_to_string(path), env.cwd)?));
-        }
-        resolved.push(block);
-    }
+    let resolved = blocks_with_full_paths(&blocks, env.cwd)?;
     let context = &creation.design_context;
     let designed = apply_pdf_design(&resolved, &context.design_request, context.design_library.as_ref())?;
-    let mut properties = Map::new();
-    spread_object(&mut properties, designed.get("properties"));
-    spread_object(&mut properties, args.get("properties"));
-    if let Some(font_path) = args.pointer("/properties/fontPath").filter(|path| truthy(path)) {
-        properties.insert("fontPath".to_owned(), Value::String(full_path(&value_to_string(font_path), env.cwd)?));
-    }
     let designed_blocks = designed.get("blocks").cloned().unwrap_or_else(|| Value::Array(Vec::new()));
     let block_count = designed_blocks.as_array().map_or(0, Vec::len);
+    let properties = pdf_properties(&designed, args, env.cwd)?;
     let spec = json!({ "blocks": designed_blocks, "fields": fields, "properties": Value::Object(properties) });
     let written = create_pdf(env.design.lane, tools.fonts, tools.svg_fonts, target, &spec).map_err(|error| error.message().to_owned())?;
-    // What the writer decided (numbering, the font it embedded) rides on the create result so the caller need not re-open the file
-    // to learn it. What it actually flowed: a document with nothing in it is a result the caller has to see, not a silent success.
-    let mut receipt = Map::new();
-    for key in ["pageNumbers", "font"] {
-        if let Some(value) = written.get(key) {
-            receipt.insert(key.to_owned(), value.clone());
-        }
-    }
-    receipt.insert("blocks".to_owned(), Value::from(block_count));
-    receipt.insert("fields".to_owned(), Value::from(fields.len()));
-    if written.pointer("/form/issueCount").is_some_and(truthy) {
-        receipt.insert("formIssues".to_owned(), written.pointer("/form/issues").cloned().unwrap_or(Value::Null));
-    }
+    let receipt = pdf_create_receipt(&written, block_count, fields.len());
     Ok(register_created(env, creation, None, Mode::Portable, Backend::MixdogPdf, portable_create_design_state(), |session| {
         session.create_receipt = Some(Value::Object(receipt));
         mark_owned(session);
@@ -372,19 +385,14 @@ async fn create_microsoft_office_session<P: WriteProof, H: OfficeHost>(
     Ok(register_created(env, creation, Some(id), mode, Backend::MicrosoftOfficeCom, design_state, |session| session.apply_com_fields(&opened)))
 }
 
-/// `createSession(args, cwd, dataDir)`.
-pub async fn create_session<P: WriteProof, H: OfficeHost, C: SessionCloser>(
-    env: &SessionEnv<'_, P, H>,
-    tools: &CreateTools<'_, C>,
-    args: &Value,
-) -> Result<Created, String> {
-    let proof = env.design.lane;
+/// The file a create names, its kind, and its format, which must agree with the kind.
+fn requested_create_target(args: &Value, cwd: &str) -> Result<(String, String, &'static str), String> {
     let named = ["path", "output"].iter().find_map(|key| args.get(key).filter(|value| truthy(value))).map(value_to_string).unwrap_or_default();
     let requested = js_trim(&named);
     if requested.is_empty() {
         return Err("create requires path or output".to_owned());
     }
-    let target = full_path(requested, env.cwd)?;
+    let target = full_path(requested, cwd)?;
     let file_kind = document_file_kind(&target)?;
     let inferred = document_format(&target)?;
     let format = match args.get("format").filter(|format| truthy(format)) {
@@ -394,6 +402,17 @@ pub async fn create_session<P: WriteProof, H: OfficeHost, C: SessionCloser>(
     if format != inferred {
         return Err(format!("Office create format {} does not match target .{file_kind}", text_arg(args, "format")));
     }
+    Ok((target, file_kind, format))
+}
+
+/// `createSession(args, cwd, dataDir)`.
+pub async fn create_session<P: WriteProof, H: OfficeHost, C: SessionCloser>(
+    env: &SessionEnv<'_, P, H>,
+    tools: &CreateTools<'_, C>,
+    args: &Value,
+) -> Result<Created, String> {
+    let proof = env.design.lane;
+    let (target, file_kind, format) = requested_create_target(args, env.cwd)?;
     assert_create_content_fields(format, args)?;
     let mut operations = initial_office_operations(args);
     assert_office_operation_contracts(format, "", &mut operations)?;

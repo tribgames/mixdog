@@ -1,11 +1,4 @@
-//! The PowerPoint editor against real Microsoft PowerPoint and Excel. The test is `#[ignore]`d: it starts both, so it runs only on
-//! request (`cargo test -p mixdog-office-com --test ppt_edit_live -- --ignored`) on a Windows machine with Microsoft PowerPoint and
-//! Excel and `MIXDOG_TEST_LIVE_OFFICE=1`. Without that variable a test that was asked for ends at once and says it did nothing.
-//!
-//! Every scenario of `tests/scenarios/ppt-edit.json` runs through the Rust session lifecycle and actions in this process, in a
-//! directory of its own. Each answer must hold what its step expects (`expect.contains`), no window of the owned PowerPoint or of
-//! a chart's Excel may be visible at any moment of a background batch (a thread polls for it), and no POWERPNT or EXCEL process
-//! may be left that was not there before, whether a step failed or not (a failed chart creation included).
+//! Ignored: starts PowerPoint and Excel; run with `-- --ignored` on Windows with it and `MIXDOG_TEST_LIVE_OFFICE=1`, else a requested test ends at once.
 #![cfg(windows)]
 
 use std::collections::BTreeMap;
@@ -29,6 +22,7 @@ use mixdog_office_com::office::Env;
 use mixdog_office_com::office::LiveApplications;
 use mixdog_office_com::platform::Platform;
 use mixdog_office_com::platform::WindowsPlatform;
+use mixdog_office_com::ps::Value;
 use mixdog_office_com::ps::json::emit_json;
 use mixdog_office_com::ps::payload;
 use mixdog_office_com::state::SessionState;
@@ -80,6 +74,43 @@ fn copy_input(step: &Json, work: &Path) {
     mixdog_fsio::write(&Unlaned, &work.join(name), &bytes).expect("the input is copied");
 }
 
+fn send_request(env: &Env<'_>, states: &mut BTreeMap<String, SessionState>, action: &str, id: &str, parsed: &Value) -> Json {
+    match action {
+        "open_session" => {
+            let mut out = Emitter::stdio();
+            match open_session_state(&Unlaned, env, &mut out, parsed) {
+                Ok(mut state) => {
+                    let opened = open_session_response(&mut state, env).map(|value| emit_json(&value));
+                    states.insert(id.to_owned(), state);
+                    opened.map_or_else(
+                        |message| serde_json::json!({"ok": false, "error": message}),
+                        |text| serde_json::from_str(&text).expect("the answer is JSON"),
+                    )
+                }
+                Err(message) => serde_json::json!({"ok": false, "error": message}),
+            }
+        }
+        "close_session" => {
+            let state = states.get_mut(id).unwrap_or_else(|| panic!("no session {id}"));
+            let closed = close_session(state, env, parsed).expect("the close answers");
+            let answer: Json = serde_json::from_str(&emit_json(&closed.result)).expect("the answer is JSON");
+            if closed.closed {
+                states.remove(id);
+            }
+            answer
+        }
+        _ => {
+            let state = states.get_mut(id).unwrap_or_else(|| panic!("no session {id}"));
+            let actions = Actions { env: *env, proof: &Unlaned, drivers: Drivers::registered() };
+            let mut out = Emitter::stdio();
+            match invoke_session_action(&actions, &mut out, state, parsed) {
+                Ok(value) => serde_json::from_str(&emit_json(&value)).expect("the answer is JSON"),
+                Err(message) => serde_json::json!({"ok": false, "error": message}),
+            }
+        }
+    }
+}
+
 fn run_in_process(env: &Env<'_>, scenario: &Json, work: PathBuf, watching: &AtomicBool) -> Run {
     let work_text = work.to_string_lossy().into_owned();
     let mut states: BTreeMap<String, SessionState> = BTreeMap::new();
@@ -95,40 +126,7 @@ fn run_in_process(env: &Env<'_>, scenario: &Json, work: PathBuf, watching: &Atom
         let id = request["session"].as_str().unwrap_or_default().to_owned();
         let background_batch = action == "batch" && states.get(&id).is_some_and(|state| state.mode.as_str() == "background");
         watching.store(background_batch, Ordering::SeqCst);
-        let answer = match action.as_str() {
-            "open_session" => {
-                let mut out = Emitter::stdio();
-                match open_session_state(&Unlaned, env, &mut out, &parsed) {
-                    Ok(mut state) => {
-                        let opened = open_session_response(&mut state, env).map(|value| emit_json(&value));
-                        states.insert(id.clone(), state);
-                        opened.map_or_else(
-                            |message| serde_json::json!({"ok": false, "error": message}),
-                            |text| serde_json::from_str(&text).expect("the answer is JSON"),
-                        )
-                    }
-                    Err(message) => serde_json::json!({"ok": false, "error": message}),
-                }
-            }
-            "close_session" => {
-                let state = states.get_mut(&id).unwrap_or_else(|| panic!("no session {id}"));
-                let closed = close_session(state, env, &parsed).expect("the close answers");
-                let answer: Json = serde_json::from_str(&emit_json(&closed.result)).expect("the answer is JSON");
-                if closed.closed {
-                    states.remove(&id);
-                }
-                answer
-            }
-            _ => {
-                let state = states.get_mut(&id).unwrap_or_else(|| panic!("no session {id}"));
-                let actions = Actions { env: *env, proof: &Unlaned, drivers: Drivers::registered() };
-                let mut out = Emitter::stdio();
-                match invoke_session_action(&actions, &mut out, state, &parsed) {
-                    Ok(value) => serde_json::from_str(&emit_json(&value)).expect("the answer is JSON"),
-                    Err(message) => serde_json::json!({"ok": false, "error": message}),
-                }
-            }
-        };
+        let answer = send_request(env, &mut states, &action, &id, &parsed);
         watching.store(false, Ordering::SeqCst);
         if let Some(expected) = step.get("expect").and_then(|expect| expect.get("contains")).and_then(Json::as_str) {
             assert!(answer.to_string().contains(expected), "{}: the answer lacks {expected}: {answer}", scenario["id"]);
@@ -142,6 +140,49 @@ fn run_in_process(env: &Env<'_>, scenario: &Json, work: PathBuf, watching: &Atom
 
 fn office_processes(platform: &WindowsPlatform) -> BTreeSet<i32> {
     ["pptx", "xlsx"].iter().flat_map(|format| platform.office_process_ids(format)).collect()
+}
+
+/// While a background batch runs, no window of a process that was not there before may be visible.
+struct WindowWatch {
+    watching: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
+    violations: Arc<Mutex<Vec<String>>>,
+    poller: std::thread::JoinHandle<()>,
+}
+
+impl WindowWatch {
+    fn start(before: BTreeSet<i32>) -> WindowWatch {
+        let watching = Arc::new(AtomicBool::new(false));
+        let stop = Arc::new(AtomicBool::new(false));
+        let violations: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let poller = {
+            let (watching, stop, violations) = (Arc::clone(&watching), Arc::clone(&stop), Arc::clone(&violations));
+            std::thread::spawn(move || {
+                let platform = WindowsPlatform::new().expect("the Windows layer of the poll");
+                while !stop.load(Ordering::SeqCst) {
+                    if watching.load(Ordering::SeqCst) {
+                        for process in office_processes(&platform).difference(&before) {
+                            if platform.visible_window_count_for_process(*process) > 0 {
+                                violations.lock().expect("the list").extend(platform.visible_window_descriptions_for_process(*process));
+                            }
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            })
+        };
+        WindowWatch { watching, stop, violations, poller }
+    }
+
+    fn finish(self) {
+        self.stop.store(true, Ordering::SeqCst);
+        self.poller.join().expect("the poll ends");
+        assert!(
+            self.violations.lock().expect("the list").is_empty(),
+            "a window of the owned applications was visible during a background batch: {:?}",
+            self.violations.lock().expect("the list")
+        );
+    }
 }
 
 #[test]
@@ -158,39 +199,13 @@ fn the_editor_meets_what_every_scenario_expects_and_leaves_no_process() {
     let env = Env { platform: &platform, applications: &LiveApplications };
     let before = office_processes(&platform);
 
-    // The poll: while a background batch runs, no window of a process that was not there before may be visible.
-    let watching = Arc::new(AtomicBool::new(false));
-    let stop = Arc::new(AtomicBool::new(false));
-    let violations: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    let poller = {
-        let (watching, stop, violations, before) = (Arc::clone(&watching), Arc::clone(&stop), Arc::clone(&violations), before.clone());
-        std::thread::spawn(move || {
-            let platform = WindowsPlatform::new().expect("the Windows layer of the poll");
-            while !stop.load(Ordering::SeqCst) {
-                if watching.load(Ordering::SeqCst) {
-                    for process in office_processes(&platform).difference(&before) {
-                        if platform.visible_window_count_for_process(*process) > 0 {
-                            violations.lock().expect("the list").extend(platform.visible_window_descriptions_for_process(*process));
-                        }
-                    }
-                }
-                std::thread::sleep(Duration::from_millis(20));
-            }
-        })
-    };
-
+    let watch = WindowWatch::start(before.clone());
     for scenario in file["scenarios"].as_array().expect("scenarios") {
         let id = scenario["id"].as_str().expect("an id");
-        let rust = run_in_process(&env, scenario, scratch(id), &watching);
+        let rust = run_in_process(&env, scenario, scratch(id), &watch.watching);
         let _ = mixdog_fsio::remove_dir_all(&Unlaned, &rust.work);
     }
-    stop.store(true, Ordering::SeqCst);
-    poller.join().expect("the poll ends");
-    assert!(
-        violations.lock().expect("the list").is_empty(),
-        "a window of the owned applications was visible during a background batch: {:?}",
-        violations.lock().expect("the list")
-    );
+    watch.finish();
 
     // No process is left that was not there before (the applications quit on their own: the wait is bounded).
     let deadline = Instant::now() + Duration::from_secs(20);

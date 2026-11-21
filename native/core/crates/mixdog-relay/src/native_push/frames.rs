@@ -32,8 +32,8 @@ impl RevokeHook for DropBindings {
 /// Registers native push with the desktop leg: the platforms the relay can deliver to in `relay-capabilities` (`nativePush` and
 /// `nativePushPlatforms` are sent only when there is at least one), the three frame types, and the revocation hook.
 ///
-/// A send is answered when the platform has answered, not inline: it runs beside the leg's reader, so one slow push never holds back
-/// the frames behind it (Node did not wait for it either). The answer goes to the live leg of the device.
+/// A send is answered when the platform has answered, not inline, so one slow push never holds back the frames behind it; the
+/// answer goes to the live leg of the device.
 pub fn register(dispatch: &Dispatch, service: &Arc<NativePushService>) -> Result<(), Rejected> {
     let offered = Arc::clone(service);
     dispatch.register_capability(Arc::new(move || CapabilityOffer {

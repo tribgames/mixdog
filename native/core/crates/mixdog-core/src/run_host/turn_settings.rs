@@ -1,11 +1,3 @@
-//! The settings reconcile every turn starts with (Node `await reconcileTurnSettings()` of the turn
-//! preparation, `turn/turn-run/turn-prepare.mjs`): a gate that moved since the last turn reaches
-//! this one through the thread's header, before the request is assembled.
-//!
-//! The settings host reads the session directory, which is built over the run factory that
-//! calls it, so it is a late cell: bound once, after the directory exists. A turn that starts
-//! before the bind fails with a typed text instead of running on stale gates.
-
 use std::sync::Arc;
 use std::sync::OnceLock;
 

@@ -45,10 +45,6 @@ pub fn sleep_ms(ms: u64) {
     std::thread::sleep(Duration::from_millis(ms));
 }
 
-/// An input error the platform already coded passes through as it is (the
-/// worker threw the receipt's own text, MixNativeInput.Deliver); a bare one
-/// is named by `context`. A release never passes through as a retryable
-/// delivery failure.
 fn coded_or(error: String, context: &str) -> String {
     let cleanup = error.starts_with("input_cleanup_unconfirmed:");
     let delivery = error.starts_with("input_delivery_failed:");
@@ -78,12 +74,6 @@ struct Dispatch {
 }
 
 impl Dispatch {
-    /// DispatchAuthorization's foreground rule (input-guard.ps1:103-110): the
-    /// target holds it, or, while a pointer activation is pending, the window
-    /// that kept it (HoldsForActivation). Any third window stops the input.
-    /// Before the activation attempt nothing is demanded yet. A dialog or popup
-    /// the target owns (`owned`) counts as the target: an action may open one
-    /// and the keys that follow belong to it.
     fn holds(&self, foreground: Wid, owned: impl Fn(Wid) -> bool) -> bool {
         if foreground == self.target || (self.ready && owned(foreground)) {
             return true;
@@ -184,11 +174,6 @@ impl Host {
         }
     }
 
-    /// Answers each request line in turn until the input ends, a reply asked
-    /// this host to retire, or the scope is revoked (the command running then
-    /// is refused at its next primitive, and nothing queued behind it runs).
-    /// False when the scope was revoked and the input it held was not all
-    /// released.
     fn serve_lines(&self, requests: stdin::Router) -> bool {
         for line in requests {
             if self.authority.is_revoked() {
@@ -199,20 +184,11 @@ impl Host {
                 break;
             }
         }
-        // The input ended (the core died), this host retires or its scope is
-        // revoked: nothing it holds may outlive it, the way --screen-input
-        // lets go on EOF. After the revocation only the releases the ports
-        // hold receipts for go out: no focus is restored, the pointer is not
-        // moved, and the ports let go of whatever receipt is left.
         let released = self.release_on_exit();
         let drained = !self.authority.is_revoked() || self.authority.release_held();
         (released && drained) || !self.authority.is_revoked()
     }
 
-    /// Lets go of every key, button, no-activate hold, the cursor theme and
-    /// this process's own foreground lock, in every session; each step runs
-    /// whatever the earlier ones answered. True when every held input was
-    /// released.
     fn release_on_exit(&self) -> bool {
         let keys: Vec<String> = self.sessions.borrow().keys().cloned().collect();
         let previous = self.current.borrow().clone();
@@ -232,14 +208,7 @@ impl Host {
     }
 
     fn reply(&self, line: &str) -> Value {
-        let parsed: Result<Value, _> = serde_json::from_str(line);
-        let (id, req) = match parsed {
-            Ok(value @ Value::Object(_)) => {
-                let req = Req(value);
-                (req.int("id").unwrap_or(0), Some(req))
-            }
-            _ => (0, None),
-        };
+        let (id, req) = parse_request(line);
         let wants_feedback = req.as_ref().is_some_and(|req| req.bool_true("pointer_feedback"));
         {
             let mut feedback = self.feedback.borrow_mut();
@@ -262,6 +231,10 @@ impl Host {
             }
             None => Err("invalid request: expected one JSON object".to_string()),
         };
+        self.envelope(id, outcome, wants_feedback)
+    }
+
+    fn envelope(&self, id: i64, outcome: Res<Obj>, wants_feedback: bool) -> Value {
         let error_result = self.error_result.take();
         let mut envelope = obj! { "id" => id };
         match outcome {
@@ -691,11 +664,6 @@ impl Host {
 
     fn assert_drag_target(&self, target: Wid, x: i32, y: i32) -> Res<()> {
         let hit = self.desktop.window_at_point(x, y);
-        // A target the system refused to activate (the Windows foreground
-        // lock; macOS grants activation to the frontmost app only) is reached
-        // by the pointer gesture itself, and the press is what brings it
-        // forward: until then the window that kept the foreground may hold it,
-        // and no other (AssertDragTarget, MixWin32Foreground.cs:202-211).
         let foreground = self.desktop.foreground();
         let held = match self.dispatch.get() {
             Some(dispatch) => dispatch.holds(foreground, |window| self.owned_by_target(window, dispatch.target)),
@@ -731,11 +699,6 @@ impl Host {
         self.assert_cursor_at(x, y)
     }
 
-    /// Each press is announced, shown held, and shown released, so the overlay
-    /// plays the press and ripple at the point instead of keeping the travel
-    /// ring it last drew. Every press is guarded, a release never is
-    /// (MixWin32.mouse_event, MixWin32.cs:102-112); a release that failed
-    /// reports as cleanup, never as a delivery the caller may retry.
     fn fg_button(&self, button: Button, down: bool, x: i32, y: i32, clicks: u32) -> Res<()> {
         if down {
             self.assert_continue()?;
@@ -777,9 +740,6 @@ impl Host {
         self.desktop.key(key, down)
     }
 
-    /// SendText (MixWin32SendInput.cs:57-77): each glyph is its own guarded
-    /// dispatch, so typing stops at the next glyph once the person touches the
-    /// input, the target loses the foreground, or the grant expires.
     fn fg_text(&self, text: &str) -> Res<()> {
         let mut glyph = [0u8; 4];
         for character in text.chars() {
@@ -790,9 +750,6 @@ impl Host {
         Ok(())
     }
 
-    /// Get-ForegroundRefusal (input-guard.ps1:68-87): a window above this
-    /// host's integrity that holds the foreground can be neither displaced nor
-    /// typed into, so a foreground action refuses before anything moves.
     fn foreground_refusal(&self, action: &str, target: Wid) -> Option<Obj> {
         let holder = self.desktop.foreground();
         if holder == target || !self.is_window(holder) {
@@ -815,10 +772,6 @@ impl Host {
         ))
     }
 
-    /// The session's first foreground input records where an abort returns
-    /// the desktop (the recovery state of host/lifecycle-abort.ts:38-55): its
-    /// target, the focus the session started from, and the cursor before
-    /// anything moved. Answers the point only when this call recorded it.
     fn record_restore_point(&self, target: Wid, previous: Wid) -> Option<Value> {
         let original = self.session(|session| session.restore_point.is_none().then_some(session.original_focus))?;
         let restore = if self.is_window(original) { original } else { previous };
@@ -962,11 +915,6 @@ impl Host {
                 id,
             ));
         }
-        // Held to the foreground only once it has it. A pointer gesture that
-        // activates its own target (the Windows foreground lock and macOS
-        // refuse activation to a process that is not frontmost, so the click
-        // is the only way forward) may start while the window that kept the
-        // foreground still holds it (input-guard.ps1:147-150).
         self.dispatch.set(Some(Dispatch { target, ready: focused, holder: (!focused).then(|| self.desktop.foreground()) }));
         mark("activation_ms", &mut phases);
         self.assert_continue()?;
@@ -1014,6 +962,16 @@ impl Host {
         result.insert("cursor_feedback".into(), Value::Object(cursor_feedback));
         result.insert("foreground_phase_ms".into(), Value::Object(phases));
         Ok(result)
+    }
+}
+
+fn parse_request(line: &str) -> (i64, Option<Req>) {
+    match serde_json::from_str::<Value>(line) {
+        Ok(value @ Value::Object(_)) => {
+            let req = Req(value);
+            (req.int("id").unwrap_or(0), Some(req))
+        }
+        _ => (0, None),
     }
 }
 
@@ -1521,11 +1479,6 @@ mod tests {
             "observed_input_monitor_id": observed.generation,
             "observed_input_user_sequence": observed.sequence,
         }));
-        // Refused at admission (`Scope::begin_expected`), before
-        // `dispatch_action`, the only caller of every `sleep_ms` wait. Had the
-        // action started, the fake desktop would have failed the first input
-        // with `input_delivery_failed`, or the scope would have reported the
-        // mid-action "interrupted this action" message instead.
         let error = host.handle(&request).unwrap_err();
         assert_eq!(error, "user_input_active: observation was superseded by external input");
         assert!(log.borrow().is_empty());

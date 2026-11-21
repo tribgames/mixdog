@@ -1,11 +1,3 @@
-//! The `setup` tool's local-model actions, as `session-runtime/setup-tool/executor.mjs` runs them
-//! over `local-model-api.mjs` and `local-provider-settings.mjs`. Every argument is cleaned and
-//! checked the way the executor does before the provider sees it; the receipts carry the
-//! provider status (`getToolModuleSettings().localProvider`).
-//!
-//! The owner trait (`SetupActions`) lives in the config crate, which depends on this one, so the
-//! integration wraps [`LocalModelSetupActions::run`] and lists [`LocalModelSetupActions::ACTIONS`].
-
 use std::sync::Arc;
 
 use mixdog_tools::orch::util::PortError;

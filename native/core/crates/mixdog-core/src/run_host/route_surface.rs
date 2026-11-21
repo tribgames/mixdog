@@ -1,10 +1,3 @@
-//! The tool surface a route change rebuilds (Node `resetSessionForRouteChange`, after the
-//! provider reset: the prepared tools, the model's edit dialect in the deferred catalogs and name
-//! lists, then `applyAgentToolExposure(session, { existing: true })`).
-//!
-//! The session is its header with the freshly prepared tools; the result is the header diff.
-//! Rewriting the prompt's own messages (manifest block, rules variant) stays with the adapter.
-
 // Transparent callback/state names; existing ownership and call signatures are unchanged.
 type HiddenAgentLookup = dyn Fn(Option<&str>) -> bool + Send + Sync;
 
@@ -125,11 +118,6 @@ pub fn is_first_route(previous: &Route) -> bool {
     ["provider", "model"].iter().all(|key| clean(previous.get(*key)).is_empty())
 }
 
-/// The header change of a route change's tool surface: `header` already names the new route. A thread seated on its
-/// first route (`previous` names none) has no surface to rebuild: `thread/start` seeded it for that route, as
-/// `createSession` resolves it with the route already on the session. Preparing the tools again would store the whole
-/// resolved list over the deferred surface (a Lead is no agent, so `applyAgentToolExposure` does not select again),
-/// and nothing rebuilds it before the first request.
 pub fn route_surface_change(
     surface: &ToolSurface,
     clock: &dyn Clock,
@@ -142,27 +130,32 @@ pub fn route_surface_change(
         return HeaderChange { set: Map::new(), unset: Vec::new() };
     }
     let mut session = Value::Object(header.clone());
-    let model = clean(header.get("model"));
     if let Some(prepared) = prepared {
         session["tools"] = prepared.tools;
         session["toolSpec"] = prepared.tool_spec;
     }
+    filter_model_edit_surface(&mut session, &clean(header.get("model")));
+    if is_agent_owner(&session) {
+        return exposure_change(surface, clock, header, session, hidden_agent);
+    }
+    lead_surface_change(surface, clock, header, session)
+}
+
+fn filter_model_edit_surface(session: &mut Value, model: &str) {
     for key in ["deferredToolCatalog", "deferredLateToolCatalog"] {
         if let Some(items) = session.get(key).and_then(Value::as_array) {
-            session[key] = Value::Array(filter_model_edit_tools(items, &model));
+            session[key] = Value::Array(filter_model_edit_tools(items, model));
         }
     }
     for key in ["deferredSelectedTools", "deferredCallableTools", "deferredDefaultTools", "deferredDiscoveredTools"] {
         if let Some(items) = session.get(key).and_then(Value::as_array) {
             let names: Vec<String> = items.iter().map(|v| clean(Some(v))).collect();
-            session[key] = Value::Array(filter_model_edit_tool_names(&names, &model).into_iter().map(Value::String).collect());
+            session[key] = Value::Array(filter_model_edit_tool_names(&names, model).into_iter().map(Value::String).collect());
         }
     }
-    if is_agent_owner(&session) {
-        return exposure_change(surface, clock, header, session, hidden_agent);
-    }
-    // The manager reset resolves the full catalog. Node's Lead route controller then
-    // reselects its deferred surface before the next request (set-route / route-fallback).
+}
+
+fn lead_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header, mut session: Value) -> HeaderChange {
     let blocks = mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(header);
     session["messages"] = Value::Array(blocks.node_messages());
     let provider = clean(session.get("provider"));
@@ -187,10 +180,6 @@ pub fn route_surface_change(
     header_diff(header, &after)
 }
 
-/// `_refreshResumedTools(session, sessionId, preset)` (`session-lifecycle.mjs:598-620`): the
-/// prepared tools and spec, then `applyAgentToolExposure(session, { existing: true })`, as the
-/// header change of a resumed session. The tools the stored list had that the new surface does not
-/// offer (its catalog included) are logged, as Node warns.
 pub fn resumed_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header, prepared: PreparedTools, hidden_agent: bool) -> HeaderChange {
     resumed_surface_change_with_skills_gate(surface, clock, header, prepared, hidden_agent, mixdog_mcp::skill_catalog::skills_disabled_by_env())
 }
@@ -257,11 +246,6 @@ fn remove_disabled_skill_loader(session: &mut Value) {
     }
 }
 
-/// The header a resume's manager step resolves the thread's tools from: `resume(id)` reopens it through
-/// `mgr.resumeSession(id, toolSpecForMode(getMode()))` (`session-switch/resume.mjs:146`), and `_prepareResumeTools` takes
-/// that spec over the stored one (`preset || session.preset || 'full'`). `getMode()` is the thread's own tool mode, the one
-/// the restore after it reads: a readonly Lead resolves the readonly spec again, not the `full` of the `preset` its record
-/// names. An agent's session resolves `full` either way.
 pub fn resume_header(scoped: &Header) -> Header {
     let mut resuming = scoped.clone();
     resuming.insert("preset".to_owned(), tool_spec_for_mode(thread_mode(scoped)));
@@ -358,9 +342,6 @@ impl AiRouteFacts {
         (scoped, minted.then_some(scope))
     }
 
-    /// `resumeSession`'s manager step, then `restoreResumedToolSurface` (`session-switch/resume.mjs:146,168`): the
-    /// manager step's `change` over the thread in its scope (`scoped`), its deferred surface applied again, as the change
-    /// from `header`. `None`: the surface could not be restored (the cause logged), and the stored one stays.
     async fn restored_change(&self, header: &Header, scoped: &Header, change: HeaderChange) -> Option<HeaderChange> {
         let mut session = scoped.clone();
         for key in &change.unset {

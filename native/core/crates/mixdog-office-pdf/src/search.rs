@@ -1,8 +1,6 @@
-//! `pdf-search.mjs`: text search over a PDF layout. Where a phrase sits on the page, as a box in the layout's top-left
-//! coordinates. Pure functions; the layout comes from [`crate::analysis::layout::extract_pdf_text_layout`].
+//! `pdf-search.mjs`: text search over a PDF layout, as a box in the layout's top-left coordinates.
 //!
-//! Positions inside a line are UTF-16 code unit offsets, as JavaScript counts them: a word boundary tests the unit
-//! before and after a match, and the width a character takes of its run is read per unit.
+//! Positions inside a line are UTF-16 code unit offsets, as JavaScript counts them.
 
 use std::sync::LazyLock;
 

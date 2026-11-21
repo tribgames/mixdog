@@ -154,10 +154,6 @@ fn a_pending_hold_is_compensated_once_after_it_completes() {
     assert_eq!(ledger.cleanup(), Cleanup::Unconfirmed);
 }
 
-/// The Pending → Held transition is one critical section with the cleanup's drain: whichever runs first, the hold is let go
-/// of exactly once and the cleanup never finishes with it in neither state. Settled first: the drain takes it as held.
-/// Drained first: the completion compensates it. Between the two there is no state to stop at (one lock), so the cleanup
-/// cannot see the receipt missing.
 #[test]
 fn a_cleanup_never_sees_a_settling_hold_in_neither_state() {
     let held_first = Ledger::new(1);

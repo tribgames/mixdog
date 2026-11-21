@@ -2,8 +2,7 @@
 //!
 //! This crate holds the structure layer: the lexer, the parser, the object model, the cross-reference table with its
 //! reconstruction of broken files, and the stream and decryption seams ([`StreamFilters`], [`Decryptor`]) that the
-//! codec crate fills. The modules after them (`document`, `page`, `codec_glue`, `fonts`, `text`, `fontfile`,
-//! `inspect`) are declared here so later tasks each own their files and never share one.
+//! codec crate fills.
 
 pub mod annotations;
 pub mod author;

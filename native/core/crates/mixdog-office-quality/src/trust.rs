@@ -1,11 +1,4 @@
-//! The prompt-injection analysis of an external document and the gate it feeds. Ported from
-//! `src/runtime/office/quality/assurance-trust.mjs`: the strings of a structured snapshot or the visible text of a
-//! package's parts are read for instructions aimed at the agent (English and Korean, the Korean branches asking for an
-//! imperative verb ending), the findings are capped, and a high-risk document refuses a mutation until the caller
-//! acknowledges it. The patterns run through `JsRegex`, so Korean text and case folding behave as in V8.
-//!
-//! Where Node counts or cuts a string by `length`/`slice`, this reads UTF-16 units: a cut inside a surrogate pair
-//! leaves U+FFFD (a Rust string cannot hold the lone half).
+//! Where a string is counted or cut, this reads UTF-16 units as Node does: a cut inside a surrogate pair leaves U+FFFD.
 
 use std::collections::HashSet;
 use std::io;

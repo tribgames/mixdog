@@ -331,28 +331,10 @@ impl ScopeRuntime {
             }
             let budget = budgets.into_iter().flatten().max().unwrap_or(crate::config::DEFAULT_STARTUP_TIMEOUT);
             let settle = async {
-                if !follow_current {
+                if follow_current {
+                    self.follow_pending(&cell, pending).await;
+                } else {
                     Self::ready(&cell).await;
-                    return;
-                }
-                let _waiting = AtWaiting::enter(&cell);
-                loop {
-                    let count = *pending.borrow_and_update();
-                    if self.hub.is_released(&cell.scope) {
-                        return;
-                    }
-                    if count == 0 {
-                        let starting = self.hub.pending_starts(&cell.scope);
-                        if starting.is_empty() && !pending.has_changed().unwrap_or(false) {
-                            return;
-                        }
-                        tokio::select! {
-                            _ = pending.changed() => {},
-                            () = Self::started(starting) => {},
-                        }
-                    } else {
-                        let _ = pending.changed().await;
-                    }
                 }
             };
             let _ = mixdog_rt::time::timeout(budget, settle).await;
@@ -361,6 +343,28 @@ impl ScopeRuntime {
             wait.await;
         } else {
             let _ = mixdog_rt::time::timeout(cap, wait).await;
+        }
+    }
+
+    async fn follow_pending(&self, cell: &Cell, mut pending: watch::Receiver<usize>) {
+        let _waiting = AtWaiting::enter(cell);
+        loop {
+            let count = *pending.borrow_and_update();
+            if self.hub.is_released(&cell.scope) {
+                return;
+            }
+            if count == 0 {
+                let starting = self.hub.pending_starts(&cell.scope);
+                if starting.is_empty() && !pending.has_changed().unwrap_or(false) {
+                    return;
+                }
+                tokio::select! {
+                    _ = pending.changed() => {},
+                    () = Self::started(starting) => {},
+                }
+            } else {
+                let _ = pending.changed().await;
+            }
         }
     }
 
@@ -386,20 +390,7 @@ impl ScopeRuntime {
                     // connect, so the task starting late can neither void it nor be voided by it unless
                     // the request is itself a newer full connect.
                     let generation = self.hub.next_generation(&key)?;
-                    let (ready, _) = watch::channel(false);
-                    let (waiting, _) = watch::channel(0);
-                    let cell = Arc::new(Cell {
-                        scope: key.clone(),
-                        // The runtime scope is the daemon's whoever asks for it (a control thread resuming in it).
-                        owner: Mutex::new(if key == self.hub.runtime_scope() { RUNTIME_OWNER.to_owned() } else { owner.to_owned() }),
-                        cwd: Mutex::new(cwd.to_owned()),
-                        turns: SerialChain::new(),
-                        ready,
-                        pending: watch::channel(0).0,
-                        waiting,
-                        waiting_all: self.waiting_all.clone(),
-                        failure: Mutex::new(None),
-                    });
+                    let cell = self.new_cell(&key, owner, cwd);
                     table.cells.insert(key.clone(), cell.clone());
                     let pending = PendingConnect::begin(&cell);
                     (cell, Some((generation, pending)))
@@ -415,6 +406,23 @@ impl ScopeRuntime {
             }));
         }
         Ok(cell)
+    }
+
+    fn new_cell(&self, key: &str, owner: &str, cwd: &str) -> Arc<Cell> {
+        let (ready, _) = watch::channel(false);
+        let (waiting, _) = watch::channel(0);
+        Arc::new(Cell {
+            scope: key.to_owned(),
+            // The runtime scope is the daemon's whoever asks for it (a control thread resuming in it).
+            owner: Mutex::new(if key == self.hub.runtime_scope() { RUNTIME_OWNER.to_owned() } else { owner.to_owned() }),
+            cwd: Mutex::new(cwd.to_owned()),
+            turns: SerialChain::new(),
+            ready,
+            pending: watch::channel(0).0,
+            waiting,
+            waiting_all: self.waiting_all.clone(),
+            failure: Mutex::new(None),
+        })
     }
 
     /// The scope's first connect: a full connect (`connectAll`, `connect.mjs:98`). The readiness

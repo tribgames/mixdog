@@ -1,8 +1,3 @@
-//! A model-proxy run answers on the socket its request arrived on, or not at all. The relay is driven by hand (its events are handed
-//! to it one at a time, so the order is the test's) over the real client engine on the mock transport, and a gate stands at the effect:
-//! between the relay's last look at its run and the client's send. The first socket ends and a second attaches while a send waits
-//! at the gate, and the request id is reused on the second; what the second socket's wire sees is the assertion.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

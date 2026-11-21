@@ -1,12 +1,3 @@
-//! Tool input schemas on the Gemini wire.
-//!
-//! A tool's JSON Schema takes one of two exclusive forms. When the legacy
-//! OpenAPI-subset `parameters` can express it exactly, it is projected onto
-//! that subset ([`convert`]). Otherwise the original schema travels as
-//! `parametersJsonSchema` with only vendor/annotation keys removed. A
-//! conjunction (`allOf`) that cannot be merged becomes an explicit conflict
-//! schema instead of silently widening what the tool accepts.
-
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -52,6 +43,7 @@ const TYPE_KEYWORDS: &[(&str, &[&str])] = &[
     ("integer", &["minimum", "maximum"]),
 ];
 const LEGACY_TYPES: &[&str] = &["string", "number", "integer", "boolean", "array", "object"];
+const SIZE_BOUNDS: [(&str, &str); 3] = [("minLength", "maxLength"), ("minItems", "maxItems"), ("minProperties", "maxProperties")];
 const CONFLICT_ENUM: &str = "__mixdog_unrepresentable_schema_conjunction__";
 
 fn conflict(reason: &str) -> Value {
@@ -148,19 +140,36 @@ fn flatten_all_of(input: &Value) -> Result<Value, String> {
 fn merge(left: &Value, right: &Value) -> Result<Value, String> {
     let a = flatten_all_of(left)?;
     let b = flatten_all_of(right)?;
+    reject_unmergeable_keywords(&a, &b)?;
+    let mut merged = obj(&a).cloned().unwrap_or_default();
+    merge_type(&mut merged, &a, &b)?;
+    merge_enum(&mut merged, &a, &b)?;
+    merge_numeric_range(&mut merged, &a, &b)?;
+    merge_size_bounds(&mut merged, &a, &b)?;
+    merge_format_and_annotations(&mut merged, &a, &b)?;
+    merge_properties(&mut merged, &a, &b)?;
+    merge_required(&mut merged, &a, &b);
+    merge_items(&mut merged, &a, &b)?;
+    Ok(Value::Object(merged))
+}
+
+fn reject_unmergeable_keywords(a: &Value, b: &Value) -> Result<(), String> {
     for key in ["anyOf", "oneOf", "not"] {
         if b.get(key).is_some() {
             return Err(format!("{key} inside allOf"));
         }
     }
-    for source in [&a, &b] {
+    for source in [a, b] {
         if let Some(key) = obj(source).and_then(|m| m.keys().find(|k| !FIELDS.contains(&k.as_str()))) {
             return Err(format!("unsupported allOf keyword {key}"));
         }
     }
-    let mut merged = obj(&a).cloned().unwrap_or_default();
-    let (ta, na) = type_info(&a)?;
-    let (tb, nb) = type_info(&b)?;
+    Ok(())
+}
+
+fn merge_type(merged: &mut Map<String, Value>, a: &Value, b: &Value) -> Result<(), String> {
+    let (ta, na) = type_info(a)?;
+    let (tb, nb) = type_info(b)?;
     let ty = match (ta, tb) {
         (Some(x), Some(y)) if x != y => {
             if matches!((x.as_str(), y.as_str()), ("integer", "number") | ("number", "integer")) {
@@ -179,23 +188,26 @@ fn merge(left: &Value, right: &Value) -> Result<Value, String> {
             merged.insert("nullable".into(), json!(true));
         }
     }
-    match (enum_values(&a)?, enum_values(&b)?) {
-        (None, None) => {}
-        (x, y) => {
-            let values: Vec<Value> = match (x, y) {
-                (Some(x), Some(y)) => x.into_iter().filter(|v| y.contains(v)).collect(),
-                (Some(v), None) | (None, Some(v)) => v,
-                (None, None) => Vec::new(),
-            };
-            if values.is_empty() {
-                return Err("empty enum intersection".into());
-            }
-            merged.insert("enum".into(), Value::Array(values));
-            merged.shift_remove("const");
-        }
+    Ok(())
+}
+
+fn merge_enum(merged: &mut Map<String, Value>, a: &Value, b: &Value) -> Result<(), String> {
+    let values: Vec<Value> = match (enum_values(a)?, enum_values(b)?) {
+        (None, None) => return Ok(()),
+        (Some(x), Some(y)) => x.into_iter().filter(|v| y.contains(v)).collect(),
+        (Some(v), None) | (None, Some(v)) => v,
+    };
+    if values.is_empty() {
+        return Err("empty enum intersection".into());
     }
-    let lower = stronger(raw_bound(&a, true), raw_bound(&b, true), true);
-    let upper = stronger(raw_bound(&a, false), raw_bound(&b, false), false);
+    merged.insert("enum".into(), Value::Array(values));
+    merged.shift_remove("const");
+    Ok(())
+}
+
+fn merge_numeric_range(merged: &mut Map<String, Value>, a: &Value, b: &Value) -> Result<(), String> {
+    let lower = stronger(raw_bound(a, true), raw_bound(b, true), true);
+    let upper = stronger(raw_bound(a, false), raw_bound(b, false), false);
     for key in ["minimum", "exclusiveMinimum", "maximum", "exclusiveMaximum"] {
         merged.shift_remove(key);
     }
@@ -210,20 +222,28 @@ fn merge(left: &Value, right: &Value) -> Result<Value, String> {
     {
         return Err("empty numeric range".into());
     }
-    for (min_key, max_key) in [("minLength", "maxLength"), ("minItems", "maxItems"), ("minProperties", "maxProperties")] {
+    Ok(())
+}
+
+fn merge_size_bounds(merged: &mut Map<String, Value>, a: &Value, b: &Value) -> Result<(), String> {
+    for (min_key, max_key) in SIZE_BOUNDS {
         let num = |s: &Value, k: &str| s.get(k).and_then(Value::as_f64);
-        let min = [num(&a, min_key), num(&b, min_key)].into_iter().flatten().fold(0.0, f64::max);
-        let max = [num(&a, max_key), num(&b, max_key)].into_iter().flatten().reduce(f64::min);
+        let min = [num(a, min_key), num(b, min_key)].into_iter().flatten().fold(0.0, f64::max);
+        let max = [num(a, max_key), num(b, max_key)].into_iter().flatten().reduce(f64::min);
         if max.is_some_and(|m| min > m) {
             return Err(format!("{min_key}/{max_key}"));
         }
-        if min > 0.0 || num(&a, min_key) == Some(0.0) || num(&b, min_key) == Some(0.0) {
+        if min > 0.0 || num(a, min_key) == Some(0.0) || num(b, min_key) == Some(0.0) {
             merged.insert(min_key.into(), json!(min as u64));
         }
         if let Some(m) = max {
             merged.insert(max_key.into(), json!(m as u64));
         }
     }
+    Ok(())
+}
+
+fn merge_format_and_annotations(merged: &mut Map<String, Value>, a: &Value, b: &Value) -> Result<(), String> {
     for key in ["pattern", "format"] {
         match (a.get(key), b.get(key)) {
             (Some(x), Some(y)) if x != y => return Err(format!("incompatible {key}")),
@@ -258,6 +278,10 @@ fn merge(left: &Value, right: &Value) -> Result<Value, String> {
             merged.insert(key.into(), v.clone());
         }
     }
+    Ok(())
+}
+
+fn merge_properties(merged: &mut Map<String, Value>, a: &Value, b: &Value) -> Result<(), String> {
     let mut properties = a.get("properties").and_then(Value::as_object).cloned().unwrap_or_default();
     for (name, schema) in b.get("properties").and_then(Value::as_object).into_iter().flatten() {
         let next = match properties.get(name) {
@@ -269,6 +293,10 @@ fn merge(left: &Value, right: &Value) -> Result<Value, String> {
     if !properties.is_empty() {
         merged.insert("properties".into(), Value::Object(properties));
     }
+    Ok(())
+}
+
+fn merge_required(merged: &mut Map<String, Value>, a: &Value, b: &Value) {
     let mut required: Vec<Value> = Vec::new();
     for list in [a.get("required"), b.get("required")] {
         for name in list.and_then(Value::as_array).into_iter().flatten() {
@@ -280,6 +308,9 @@ fn merge(left: &Value, right: &Value) -> Result<Value, String> {
     if !required.is_empty() {
         merged.insert("required".into(), Value::Array(required));
     }
+}
+
+fn merge_items(merged: &mut Map<String, Value>, a: &Value, b: &Value) -> Result<(), String> {
     match (a.get("items"), b.get("items")) {
         (Some(x), Some(y)) => {
             merged.insert("items".into(), merge(x, y).map_err(|why| format!("items: {why}"))?);
@@ -289,9 +320,8 @@ fn merge(left: &Value, right: &Value) -> Result<Value, String> {
         }
         _ => {}
     }
-    Ok(Value::Object(merged))
+    Ok(())
 }
-
 fn int_bound(v: f64, up: bool) -> Value {
     json!(if up { v.floor() + 1.0 } else { v.ceil() - 1.0 } as i64)
 }
@@ -335,19 +365,8 @@ pub fn convert(schema: &Value) -> Value {
     if let Err(why) = enum_values(&probe) {
         return conflict(&why);
     }
-    let scalar = matches!(raw_type.as_deref(), Some("integer" | "number" | "boolean"));
-    if let Some(c) = result.shift_remove("const") {
-        if scalar {
-            return conflict(&format!("Gemini does not support {} const", raw_type.as_deref().unwrap_or("")));
-        }
-        let text = match &c {
-            Value::String(s) => s.clone(),
-            other => other.to_string(),
-        };
-        result.insert("enum".into(), json!([text]));
-    }
-    if scalar && result.get("enum").and_then(Value::as_array).is_some_and(|e| e.iter().any(|v| !v.is_string())) {
-        return conflict(&format!("Gemini does not support {} enum conjunction", raw_type.as_deref().unwrap_or("")));
+    if let Err(bad) = project_const_and_enum(&mut result, raw_type.as_deref()) {
+        return bad;
     }
     if raw_type.as_deref() == Some("array") && !result.get("items").is_some_and(Value::is_object) {
         result.insert("items".into(), json!({"type": "string"}));
@@ -356,13 +375,45 @@ pub fn convert(schema: &Value) -> Value {
         let mapped = if LEGACY_TYPES.contains(&t.as_str()) { t.clone() } else { "string".into() };
         result.insert("type".into(), json!(mapped));
     }
-    let lower = raw_bound(&probe, true);
-    let upper = raw_bound(&probe, false);
+    if let Err(bad) = project_numeric_bounds(&mut result, &probe, raw_type.as_deref()) {
+        return bad;
+    }
+    convert_children(&mut result);
+    project_unions(&mut result);
+    result.shift_remove("allOf");
+    result.shift_remove("not");
+    if let Some(bad) = prune(&mut result, raw_type.as_deref()) {
+        return bad;
+    }
+    Value::Object(result)
+}
+
+fn project_const_and_enum(result: &mut Map<String, Value>, raw_type: Option<&str>) -> Result<(), Value> {
+    let scalar = matches!(raw_type, Some("integer" | "number" | "boolean"));
+    if let Some(c) = result.shift_remove("const") {
+        if scalar {
+            return Err(conflict(&format!("Gemini does not support {} const", raw_type.unwrap_or(""))));
+        }
+        let text = match &c {
+            Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+        result.insert("enum".into(), json!([text]));
+    }
+    if scalar && result.get("enum").and_then(Value::as_array).is_some_and(|e| e.iter().any(|v| !v.is_string())) {
+        return Err(conflict(&format!("Gemini does not support {} enum conjunction", raw_type.unwrap_or(""))));
+    }
+    Ok(())
+}
+
+fn project_numeric_bounds(result: &mut Map<String, Value>, probe: &Value, raw_type: Option<&str>) -> Result<(), Value> {
+    let lower = raw_bound(probe, true);
+    let upper = raw_bound(probe, false);
     result.shift_remove("exclusiveMinimum");
     result.shift_remove("exclusiveMaximum");
-    let integer = raw_type.as_deref() == Some("integer");
+    let integer = raw_type == Some("integer");
     if (lower.is_some_and(|b| b.1) || upper.is_some_and(|b| b.1)) && !integer {
-        return conflict("exclusive numeric bound is not supported by Gemini Schema");
+        return Err(conflict("exclusive numeric bound is not supported by Gemini Schema"));
     }
     if integer {
         if let Some((v, true)) = lower {
@@ -375,16 +426,9 @@ pub fn convert(schema: &Value) -> Value {
     if let (Some(min), Some(max)) = (result.get("minimum").and_then(Value::as_f64), result.get("maximum").and_then(Value::as_f64))
         && min > max
     {
-        return conflict("empty numeric range");
+        return Err(conflict("empty numeric range"));
     }
-    convert_children(&mut result);
-    project_unions(&mut result);
-    result.shift_remove("allOf");
-    result.shift_remove("not");
-    if let Some(bad) = prune(&mut result, raw_type.as_deref()) {
-        return bad;
-    }
-    Value::Object(result)
+    Ok(())
 }
 
 fn convert_children(result: &mut Map<String, Value>) {
@@ -466,7 +510,7 @@ fn prune(result: &mut Map<String, Value>, raw_type: Option<&str>) -> Option<Valu
     for key in foreign {
         result.shift_remove(&key);
     }
-    for (min_key, max_key) in [("minLength", "maxLength"), ("minItems", "maxItems"), ("minProperties", "maxProperties")] {
+    for (min_key, max_key) in SIZE_BOUNDS {
         for key in [min_key, max_key] {
             if let Some(value) = result.get_mut(key) {
                 if let Some(n) = size_bound(value) {
@@ -502,6 +546,16 @@ fn legacy_representable(input: &Value, root: bool) -> bool {
     let Some(map) = obj(&schema) else {
         return false;
     };
+    if !legacy_keywords_representable(map) {
+        return false;
+    }
+    let Some(ty) = legacy_type(map) else {
+        return false;
+    };
+    legacy_values_representable(map, &schema, ty) && legacy_children_representable(map, ty, root)
+}
+
+fn legacy_keywords_representable(map: &Map<String, Value>) -> bool {
     if !map.keys().any(|k| !NON_CONSTRAINTS.contains(&k.as_str())) {
         return false;
     }
@@ -514,9 +568,11 @@ fn legacy_representable(input: &Value, root: bool) -> bool {
         }
         return false;
     }
-    if map.contains_key("oneOf") || map.contains_key("not") {
-        return false;
-    }
+    !(map.contains_key("oneOf") || map.contains_key("not"))
+}
+
+/// The resolved type (`None` inside `Some` when undeclared), or `None` when the legacy subset has no such type.
+fn legacy_type(map: &Map<String, Value>) -> Option<Option<&str>> {
     let declared: Vec<&str> = match map.get("type") {
         Some(Value::Array(items)) => items.iter().filter_map(Value::as_str).collect(),
         Some(Value::String(s)) => vec![s.as_str()],
@@ -524,10 +580,10 @@ fn legacy_representable(input: &Value, root: bool) -> bool {
     };
     let non_null: Vec<&str> = declared.iter().copied().filter(|t| *t != "null").collect();
     if !declared.is_empty() && non_null.is_empty() {
-        return false;
+        return None;
     }
     if non_null.len() > 1 || non_null.iter().any(|t| !LEGACY_TYPES.contains(t)) {
-        return false;
+        return None;
     }
     let mut ty = non_null.first().copied();
     if ty.is_none() && (map.contains_key("properties") || map.contains_key("required")) {
@@ -536,6 +592,10 @@ fn legacy_representable(input: &Value, root: bool) -> bool {
     if ty.is_none() && map.contains_key("items") {
         ty = Some("array");
     }
+    Some(ty)
+}
+
+fn legacy_values_representable(map: &Map<String, Value>, schema: &Value, ty: Option<&str>) -> bool {
     if let Some(e) = map.get("enum")
         && !e.as_array().is_some_and(|a| a.iter().all(Value::is_string))
     {
@@ -555,7 +615,7 @@ fn legacy_representable(input: &Value, root: bool) -> bool {
     if ty.is_none() && map.keys().any(|k| is_type_keyword(k)) {
         return false;
     }
-    let (lower, upper) = (raw_bound(&schema, true), raw_bound(&schema, false));
+    let (lower, upper) = (raw_bound(schema, true), raw_bound(schema, false));
     if (lower.is_some_and(|b| b.1) || upper.is_some_and(|b| b.1)) && ty != Some("integer") {
         return false;
     }
@@ -564,7 +624,7 @@ fn legacy_representable(input: &Value, root: bool) -> bool {
     {
         return false;
     }
-    for (min_key, max_key) in [("minLength", "maxLength"), ("minItems", "maxItems"), ("minProperties", "maxProperties")] {
+    for (min_key, max_key) in SIZE_BOUNDS {
         let min = map.get(min_key);
         let max = map.get(max_key);
         let bounds = (min.and_then(size_bound), max.and_then(size_bound));
@@ -572,6 +632,10 @@ fn legacy_representable(input: &Value, root: bool) -> bool {
             return false;
         }
     }
+    true
+}
+
+fn legacy_children_representable(map: &Map<String, Value>, ty: Option<&str>, root: bool) -> bool {
     if ty == Some("array") {
         match map.get("items") {
             Some(items) if items.is_object() && legacy_representable(items, false) => {}

@@ -1,4 +1,4 @@
-//! `<data>/channels/status-snapshot.json` (`status-snapshot.mjs`): written every 10 seconds while
+//! `<data>/channels/status-snapshot.json`: written every 10 seconds while
 //! the automation runtime is up, so another process can read the cron next fire, the deferred
 //! count and the relay hook URL without asking this one. The file is renamed into place, so a
 //! reader never sees half of it, and it is removed when the runtime stops.

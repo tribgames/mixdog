@@ -10,10 +10,6 @@
 //! Sessions live in the engine of this process, so the thread that owns one keeps coming back to this worker: the answer pins the
 //! thread while it owns a live session. The worker's end gives every Microsoft Office session host its cleanup (closing its
 //! document and quitting the application it owns) and waits for it, so no application is left running with its file open.
-//!
-//! The platform below is what this process supplies to the engine: the lanes, the Office transport, the system fonts, the design
-//! library's folders and network, the schema validator, the shared render browser ([`super::office_browser`]) and the machine of a
-//! batch (the PDF operation set, a Word chart drawn as a picture, the brief readings).
 
 use std::future::Future;
 use std::path::Path;

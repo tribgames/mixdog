@@ -1,16 +1,3 @@
-//! The real `WriteHost` of the `tidy` tool: what Node's `runtime/tidy/apply.mjs` does around a
-//! formatted file.
-//!
-//! - `atomic_write`: `atomicWrite(fullPath, content)` is the file service's atomic replace on the
-//!   durability lane; a failure reads as the failing step's `err.message`.
-//! - `note_written`: the post-write invalidation the edit adapters run (`noteWrittenFile`): the
-//!   cached answers about the path are dropped and the session's read snapshot becomes
-//!   `source: 'tidy'`, the whole file, replacing any existing one. Node also calls
-//!   `markCodeGraphDirtyPaths`; the Rust `code_graph` tool keeps no cache of the tree, so there
-//!   is nothing to mark.
-//! - `record_changes`: `recordToolFileChanges({ sessionId, basePath: cwd, changes })`; a side
-//!   over `PATCH_EDIT_MAX_BYTES` is an omitted marker (`reviewFileContent`).
-
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;

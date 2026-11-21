@@ -1,11 +1,3 @@
-//! The workbook editor (`Apply-ExcelOperation`) against a scripted workbook: a tree of COM objects that log every access and
-//! answer what a test tells them, in place of Excel.
-//!
-//! These tests pin what needs no Office: the registry
-//! of operation names, every refusal text, the order and the VARIANT types of the calls of the operations whose contract is in
-//! them (typed text kept as text, one array for a block, Single widths, Double zoom, the colour names of a Korean Excel, page
-//! setup held off, freeze panes zoomed out, charts), and the records answered.
-
 use std::any::Any;
 use std::cell::Cell;
 use std::cell::RefCell;

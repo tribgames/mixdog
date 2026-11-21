@@ -185,13 +185,6 @@ impl Host {
         foreground == restore || !held.iter().any(|window| self.is_window(*window)) || in_held(&*self.desktop, foreground, held)
     }
 
-    /// Ends a session: returns focus when nothing else moved it, then
-    /// releases every button and key the session still holds
-    /// (Release-SessionState; the focus restore is the host's in PowerShell).
-    /// `restore_focus: false` leaves the focus to the last session still using
-    /// the desktop, and `handed_window_ids` are windows earlier sessions held
-    /// that this one may take focus from (handedWindowIds). The reply names the
-    /// windows this session held, for the next one to take over.
     pub(in crate::host) fn release_session(&self, req: &Req) -> Res<Obj> {
         let current = self.desktop.foreground();
         let observed = self.observer.read();
@@ -237,10 +230,6 @@ impl Host {
         self.release_all_held()
     }
 
-    /// Release-HeldInput (runtime.ps1:5-20): pointer buttons, keys and sequence
-    /// holds are all let go even when one fails, then a release a busy target
-    /// never acknowledged is sent again; only its acknowledgement confirms the
-    /// cleanup.
     fn release_all_held(&self) -> Res<Obj> {
         let pointer = self.release_held_pointer();
         let keys = self.release_held_keys();
@@ -272,8 +261,6 @@ impl Host {
         Err("input_cleanup_unconfirmed: a held pointer button could not be released".into())
     }
 
-    /// RetryPendingReleases: the failure text while a release stays
-    /// unacknowledged, None when every one landed.
     fn retry_pending_releases(&self) -> Option<String> {
         let pending = self.session(|session| std::mem::take(&mut session.pending_releases));
         if pending.is_empty() {
@@ -321,10 +308,6 @@ fn in_held(desktop: &dyn Desktop, window: Wid, held: &[Wid]) -> bool {
     window != 0 && held.iter().any(|held| *held != 0 && (window == *held || desktop.is_owned_by(window, *held)))
 }
 
-/// Release-HeldPointerButtons (input-pointer.ps1:167-204): every held button is
-/// released and the no-activate hold of its press ended, each one even when
-/// another fails. A release the target never acknowledged is kept in `pending`
-/// to be sent again. True when everything was let go.
 fn release_buttons(
     background: &dyn Background,
     held: BTreeMap<String, (i32, i32)>,
@@ -351,10 +334,6 @@ fn release_buttons(
     released
 }
 
-/// RetryPendingReleases (MixWin32Message.cs:147-168): every unacknowledged
-/// release is sent once more. Returns those still unacknowledged and how many
-/// targets closed first; a closed target holds nothing, so it is reported once
-/// and not retried again.
 fn retry_pending(background: &dyn Background, pending: BTreeMap<String, (i32, i32)>, is_window: impl Fn(Wid) -> bool) -> (BTreeMap<String, (i32, i32)>, usize) {
     let mut remaining = BTreeMap::new();
     let mut gone = 0;

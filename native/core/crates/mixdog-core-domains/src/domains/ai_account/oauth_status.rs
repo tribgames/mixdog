@@ -1,11 +1,3 @@
-//! What an OAuth provider says of its own credential: the `describe*OAuthCredentials` functions
-//! (`agent/orchestrator/providers/*-oauth-tokens.mjs`, `cursor-auth.mjs`, `devin-auth.mjs`) and the
-//! helpers they share (`lib/oauth-token-utils.mjs`), over the credential document the provider's
-//! `loadTokens()` returned. Reading the credential files is not here: the builders take the loaded
-//! document and the clock, so they are pure.
-//!
-//! All ten providers. The files they read are in oauth_credentials.
-
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;

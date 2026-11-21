@@ -301,13 +301,13 @@ const STREAM_EVENT_VARIANTS: [&str; 29] = [
     "Completed",
 ];
 
-/// The proxy carries a provider stream to a consumer that runs the same loop, so every `StreamEvent` crosses the wire
-/// unchanged, and the new progress, final-content, returned-call and thinking-block events keep their wire form.
-#[test]
-fn every_stream_event_survives_the_wire() {
-    let call = |id: &str| p::ToolCall { id: id.into(), name: "read".into(), arguments: json!({ "path": id }), native_type: None };
+fn call(id: &str) -> p::ToolCall {
+    p::ToolCall { id: id.into(), name: "read".into(), arguments: json!({ "path": id }), native_type: None }
+}
+
+fn stream_event_samples() -> Vec<p::StreamEvent> {
     let state = provider_state();
-    let events = [
+    vec![
         p::StreamEvent::ItemStart { kind: p::ItemKind::Tool, phase: None },
         p::StreamEvent::ItemStart { kind: p::ItemKind::Text, phase: Some(p::Phase::Commentary) },
         p::StreamEvent::TextDelta("a".into()),
@@ -344,7 +344,12 @@ fn every_stream_event_survives_the_wire() {
         p::StreamEvent::OutputStarted,
         p::StreamEvent::ContentSummary { has_thinking: true, block_types: vec!["thinking_delta".into(), "text_delta".into()] },
         p::StreamEvent::Completed { stop: Some(p::StopReason::ToolUse), pricing_model: None, request_ms: None },
-    ];
+    ]
+}
+
+#[test]
+fn every_stream_event_survives_the_wire() {
+    let events = stream_event_samples();
     let mut seen: Vec<&str> = events.iter().map(variant_name).collect();
     seen.sort_unstable();
     seen.dedup();
@@ -363,6 +368,10 @@ fn every_stream_event_survives_the_wire() {
         };
         assert_eq!(event_in(serde_json::from_str(&text).unwrap()).unwrap(), Incoming::Event(arrives), "{text}");
     }
+}
+
+#[test]
+fn the_progress_final_content_returned_call_and_thinking_block_events_keep_their_wire_form() {
     let wire = |event: p::StreamEvent| serde_json::to_value(event_out(&event)).unwrap();
     assert_eq!(wire(p::StreamEvent::Progress(p::ProgressKind::Tool)), json!({ "type": "progress", "kind": "tool" }));
     assert_eq!(wire(p::StreamEvent::ChunkProgress(None)), json!({ "type": "chunkProgress", "kind": null }));

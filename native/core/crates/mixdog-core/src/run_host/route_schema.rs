@@ -1,15 +1,3 @@
-//! `routeToolExclusionReason(session, tool)`'s schema rule (Node `session/loop/provider-tool-
-//! exclusions.mjs`): whether the route's wire would leave a tool out of every request because it
-//! cannot accept its input schema, decided from the schema alone, before the tool was ever sent.
-//!
-//! The rule of each wire family is the one its adapter applies when it builds a request, so the
-//! answer here and the tools a request leaves out are the same decision, worded as Node words it
-//! (Ajv's text, V8's for a bad `pattern`, see `mixdog_ai::providers::compat::ajv_meta`):
-//! `openai` (Responses, Codex and every OpenAI-compatible chat route) is
-//! `compat::schema::wire_input_schema`, `gemini` is `geminiToolExclusion`, `anthropic` is
-//! `anthropicToolExclusion` and `antigravity-claude` is the Claude bridge's rule
-//! (`claudeBridgeInputSchema` over `actionInputUnionFor`).
-
 use mixdog_ai::providers::anthropic::anthropic_tool_exclusion;
 use mixdog_ai::providers::compat::schema::Rule;
 use mixdog_ai::providers::compat::schema::wire_input_schema;

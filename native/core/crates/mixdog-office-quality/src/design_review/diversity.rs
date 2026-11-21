@@ -33,13 +33,20 @@ fn number_at(value: Option<&Value>) -> f64 {
 fn deck_shape_issues(reads: &dyn AuthorReads, slides: &[Value]) -> Vec<Value> {
     let receipts: Vec<Value> = slides.iter().map(|slide| reads.slide_receipt(slide)).collect();
     let grammar: Vec<&str> = receipts.iter().map(|receipt| field(receipt, "grammar").and_then(Value::as_str).unwrap_or("")).collect();
+    let mut issues = Vec::new();
+    issues.extend(beat_share_issue(&receipts, &grammar));
+    issues.extend(consecutive_beats_issue(slides, &grammar));
+    issues.extend(page_underfill_issues(slides, &receipts, &grammar));
+    issues
+}
+
+fn beat_share_issue(receipts: &[Value], grammar: &[&str]) -> Option<Value> {
     // The cover and the closing are beats by their job; the share is read over the pages between them.
     let inner: &[&str] = if grammar.len() >= 2 { &grammar[1..grammar.len() - 1] } else { &[] };
     let beats = inner.iter().filter(|value| **value == "beat").count();
     let dark = receipts.iter().filter(|receipt| field(receipt, "background").and_then(Value::as_str) == Some("dark")).count();
-    let mut issues = Vec::new();
-    if slides.len() >= 8 && beats as f64 / inner.len() as f64 > 0.25 && (dark as f64 / slides.len() as f64) < 0.6 {
-        issues.push(issue(
+    if receipts.len() >= 8 && beats as f64 / inner.len() as f64 > 0.25 && (dark as f64 / receipts.len() as f64) < 0.6 {
+        return Some(issue(
             "beat_share_high",
             &format!(
                 "{beats} of the {} slides between the cover and the closing are beats (dark or field pages); the reference decks run one in eight. Give the body pages their evidence and keep the field for the section marks.",
@@ -47,13 +54,17 @@ fn deck_shape_issues(reads: &dyn AuthorReads, slides: &[Value]) -> Vec<Value> {
             ),
         ));
     }
+    None
+}
+
+fn consecutive_beats_issue(slides: &[Value], grammar: &[&str]) -> Option<Value> {
     let mut run = 0;
     for (index, kind) in grammar.iter().enumerate() {
         run = if *kind == "beat" { run + 1 } else { 0 };
         // The first three slides may be front matter (cover, disclaimer, agenda); a run that ends inside them is not read.
         if run == 3 && index >= 3 {
             let first = index_or(slides.get(index - 2), index as f64 - 1.0);
-            issues.push(issue(
+            return Some(issue(
                 "consecutive_beats",
                 &format!(
                     "Slides {}-{} are three beats in a row (dark or field pages with no evidence); a beat opens or closes a run of content pages, it never replaces them.",
@@ -61,12 +72,16 @@ fn deck_shape_issues(reads: &dyn AuthorReads, slides: &[Value]) -> Vec<Value> {
                     number_to_string(first + 2.0)
                 ),
             ));
-            break;
         }
     }
-    // A body page that carries one sentence and nothing else (no chart, table, picture, or structure) is a page the
-    // reader turns without learning anything (the reference body pages carry 330-900). The cover, the closing, and the
-    // beats are statements by their job.
+    None
+}
+
+/// A body page that carries one sentence and nothing else (no chart, table, picture, or structure) is a page the reader
+/// turns without learning anything (the reference body pages carry 330-900). The cover, the closing, and the beats are
+/// statements by their job.
+fn page_underfill_issues(slides: &[Value], receipts: &[Value], grammar: &[&str]) -> Vec<Value> {
+    let mut issues = Vec::new();
     for (index, receipt) in receipts.iter().enumerate() {
         if index == 0 || index == receipts.len() - 1 || grammar[index] == "beat" {
             continue;
@@ -95,7 +110,6 @@ fn deck_shape_issues(reads: &dyn AuthorReads, slides: &[Value]) -> Vec<Value> {
     }
     issues
 }
-
 fn shape_role(shape: &Value) -> &'static str {
     if is_truthy(field(shape, "chart")) {
         return "chart";
@@ -232,10 +246,8 @@ fn inferred_visual_type(slide: &Value) -> String {
     "typography".into()
 }
 
-/// The decoration a page carries, read from the description the kit writes on its device ("rings motif"). A style runs a
-/// set of devices, not one, and an anchor that names no kind takes the next of the set, so two pages in a row drawing
-/// the same device are one page twice however their type differs. A page with no device reads as its own kind and never
-/// joins a run. `/^([a-z]+) motif$/i`.
+/// The device kind the kit names in a shape's description: /^([a-z]+) motif$/i.
+
 fn decoration_kind(slide: &Value) -> String {
     for shape in shapes_of(slide) {
         let alt = trimmed(field(shape, "altText"));

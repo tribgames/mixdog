@@ -7,7 +7,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 
-const HELPER: &str = env!("CARGO_BIN_EXE_mixdog-askpass");
+fn helper_bin() -> String {
+    std::env::var("CARGO_BIN_EXE_mixdog-askpass").unwrap_or_else(|_| env!("CARGO_BIN_EXE_mixdog-askpass").to_owned())
+}
 
 static NEXT: AtomicU32 = AtomicU32::new(0);
 
@@ -120,7 +122,7 @@ fn run(args: &[&str], reply: Option<&str>) -> Run {
             endpoint::hang_up(stream);
         }
     });
-    let output = Command::new(HELPER)
+    let output = Command::new(helper_bin())
         .args(args)
         .env("MIXDOG_ASKPASS_ENDPOINT", &name)
         .env("MIXDOG_ASKPASS_TOKEN", "tok\"en")
@@ -173,7 +175,7 @@ fn request_stays_within_64_kib() {
 #[test]
 fn exit_2_without_env() {
     let status = |endpoint: Option<&str>, token: Option<&str>| {
-        let mut command = Command::new(HELPER);
+        let mut command = Command::new(helper_bin());
         command.env_remove("MIXDOG_ASKPASS_ENDPOINT").env_remove("MIXDOG_ASKPASS_TOKEN").stdin(Stdio::null());
         if let Some(endpoint) = endpoint {
             command.env("MIXDOG_ASKPASS_ENDPOINT", endpoint);

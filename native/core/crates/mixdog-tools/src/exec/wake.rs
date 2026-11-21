@@ -1,8 +1,3 @@
-//! Per-thread wake control for `task wait` and the foreground shell hold
-//! (`session/task-wait-control.mjs`). New user input, or a deliverable notification queued for the
-//! thread, releases only a passive wait: the tool returns a running snapshot and the background
-//! task keeps running. A wake is an event the session reports (`interrupt`); nothing polls.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;

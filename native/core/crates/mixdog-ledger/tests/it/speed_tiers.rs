@@ -64,8 +64,19 @@ async fn the_dispatched_tier_groups_calls_and_a_reported_default_still_downgrade
     assert_eq!(stats["providers"][0]["costUsd"], 4.0);
 }
 
-#[tokio::test]
-async fn model_speed_tiers_reconcile_to_stats_and_subscription_totals() {
+const API_MODELS: [ExpectedModel; 3] = [("standard", 4, 148, 0.75), ("fast", 2, 134, 1.0), ("ultrafast", 1, 82, 2.0)];
+const OAUTH_MODELS: [ExpectedModel; 3] = [("standard", 1, 22, 0.125), ("fast", 1, 32, 0.25), ("ultrafast", 1, 42, 0.5)];
+
+struct TierLedger {
+    _dir: tempfile::TempDir,
+    writer: std::sync::Arc<UsageWriter>,
+    reader: std::sync::Arc<UsageReader>,
+    ts: i64,
+    now: i64,
+}
+
+/// All calls share one time so quota must split even a single time/model group.
+async fn ledger_with_tiered_calls() -> TierLedger {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ledger.sqlite");
     let tokens = mixdog_rt::testing::tokens();
@@ -73,7 +84,6 @@ async fn model_speed_tiers_reconcile_to_stats_and_subscription_totals() {
     writer.sums_built().await.unwrap();
     let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
 
-    // Keep all calls at the same time so quota must split even a single time/model group.
     let ts = mixdog_js::time::local_to_utc_ms(2026, 11, 4, 12, 0, 0, 0) as i64;
     let now = ts + 30 * 60_000;
     let calls = [
@@ -104,16 +114,20 @@ async fn model_speed_tiers_reconcile_to_stats_and_subscription_totals() {
         writer.record_queued(record).await.unwrap();
     }
 
-    let api_models = [("standard", 4, 148, 0.75), ("fast", 2, 134, 1.0), ("ultrafast", 1, 82, 2.0)];
-    let oauth_models = [("standard", 1, 22, 0.125), ("fast", 1, 32, 0.25), ("ultrafast", 1, 42, 0.5)];
+    TierLedger { _dir: dir, writer, reader, ts, now }
+}
+
+#[tokio::test]
+async fn model_speed_tiers_reconcile_to_stats_totals() {
+    let TierLedger { reader, now, .. } = ledger_with_tiered_calls().await;
     let stats = reader.usage_stats(serde_json::from_value(json!({"days": 7})).unwrap(), now).await.unwrap();
     let providers = stats["providers"].as_array().unwrap();
     assert_eq!(providers.len(), 2);
     let (api, oauth) = (&providers[0], &providers[1]);
     assert_eq!(api["provider"], "openai");
     assert_eq!(oauth["provider"], "openai-oauth");
-    assert_models(&api["models"], &api_models);
-    assert_models(&oauth["models"], &oauth_models);
+    assert_models(&api["models"], &API_MODELS);
+    assert_models(&oauth["models"], &OAUTH_MODELS);
     assert_eq!((&api["turns"], &api["tokens"], &api["costUsd"]), (&json!(7), &json!(364), &json!(3.75)));
     assert_eq!((&oauth["turns"], &oauth["tokens"], &oauth["costUsd"]), (&json!(3), &json!(96), &json!(0.875)));
     assert_eq!(api["sessions"], 7);
@@ -121,7 +135,11 @@ async fn model_speed_tiers_reconcile_to_stats_and_subscription_totals() {
         assert_eq!(row["sessions"], sessions);
         assert_eq!(row["outputTokensPerSecond"], speed);
     }
+}
 
+#[tokio::test]
+async fn model_speed_tiers_reconcile_to_subscription_totals() {
+    let TierLedger { writer, reader, ts, now, .. } = ledger_with_tiered_calls().await;
     writer
         .record_quota_queued(vec![QuotaReading {
             provider: "openai-oauth".into(),
@@ -135,7 +153,7 @@ async fn model_speed_tiers_reconcile_to_stats_and_subscription_totals() {
         .quota_history(serde_json::from_value(json!({"provider": "openai-oauth", "account": "acct", "window": "5H"})).unwrap(), BTreeMap::new(), now)
         .await
         .unwrap();
-    assert_models(&quota["models"], &oauth_models);
+    assert_models(&quota["models"], &OAUTH_MODELS);
     let totals = &quota["totals"];
     assert_eq!((&totals["turns"], &totals["tokens"], &totals["costUsd"], &totals["consumed"]), (&json!(3), &json!(96), &json!(0.875), &json!(70)));
     let series = quota["modelSeries"].as_array().unwrap();

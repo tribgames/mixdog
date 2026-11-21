@@ -1,7 +1,4 @@
 //! `components/status-line/boot-schedule.mjs`: the footer's timings and the detection of active work that sets them.
-//!
-//! Node also loaded `ui/statusline.mjs` lazily and retried a failed import with a doubling backoff; the render here is
-//! compiled in, so there is no import to prewarm, to fail or to retry, and the first full render keeps only the boot delay.
 
 use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;

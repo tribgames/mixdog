@@ -222,9 +222,94 @@ fn collapse_spaces(text: &str) -> String {
     out
 }
 
+/// The 1-based pages a snapshot reads: the numbers asked for, else the window at `offset`/`limit`. A locked file whose pages
+/// could not be counted selects none.
+fn selected_pages(options: &SnapshotOptions, page_count: Option<u64>, offset: f64, limit: f64) -> Result<Vec<f64>, AnalysisError> {
+    let Some(count) = page_count else { return Ok(Vec::new()) };
+    let selected: Vec<f64> = match &options.pages {
+        Some(pages) => pages.clone(),
+        None => {
+            let length = limit.min(count as f64 - offset).max(0.0).floor() as usize;
+            (0..length).map(|index| offset + index as f64 + 1.0).collect()
+        }
+    };
+    for index in &selected {
+        if index.fract() != 0.0 || !index.is_finite() || *index < 1.0 || *index > count as f64 {
+            return Err(AnalysisError::plain(format!("PDF page out of range: {}", mixdog_js::number_to_string(*index))));
+        }
+    }
+    Ok(selected)
+}
+
+/// The outline is a convenience view; an unreadable one leaves it empty rather than failing the snapshot of a readable document.
+fn outline_rows<P: ReadProof>(proof: &P, path: &Path) -> Vec<Value> {
+    let Ok(read) = extract_pdf_outline(proof, PdfSource::Path(path), DEFAULT_MAX_OUTLINE_ENTRIES) else { return Vec::new() };
+    read.entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let mut row = Map::new();
+            row.insert("path".to_owned(), json!(format!("/outline[{}]", index + 1)));
+            if let Value::Object(fields) = entry.to_json() {
+                row.extend(fields);
+            }
+            Value::Object(row)
+        })
+        .collect()
+}
+
+struct TextLayer {
+    joined: String,
+    truncated: bool,
+    password_required: bool,
+}
+
+/// The text of pages `from..=to`; a user password blocks the text layer unless the caller supplied it (an owner-only
+/// password does not).
+fn read_text_layer(buffer: &[u8], options: &SnapshotOptions, encrypted: bool, known_pages: f64, from: f64, to: f64) -> Result<TextLayer, AnalysisError> {
+    let inspected = inspect_pdf_buffer(
+        buffer,
+        &InspectOptions {
+            extract_text: true,
+            max_pages: Some(known_pages.max(500.0) as u64),
+            max_output_bytes: number_or(options.max_chars, 30_000.0).max(1_000.0),
+            page_range: Some(PageRange { from, to }),
+            password: Some(options.password.clone()),
+            ..InspectOptions::default()
+        },
+    );
+    match inspected {
+        Ok(inspection) => Ok(match inspection.detail {
+            Detail::Text { text, truncated, .. } => TextLayer { joined: text, truncated, password_required: false },
+            _ => TextLayer { joined: String::new(), truncated: false, password_required: false },
+        }),
+        Err(error) if encrypted && is_password_failure(&error) => Ok(TextLayer { joined: String::new(), truncated: false, password_required: true }),
+        Err(error) => Err(inspection_error(error)),
+    }
+}
+
+fn page_entries(structure: &PdfDocument, has_page_tree: bool, selected: &[f64], joined: &str, password_required: bool) -> Result<Vec<Value>, AnalysisError> {
+    let texts = split_page_texts(joined);
+    let mut pages = Vec::new();
+    for index in selected {
+        let number = *index as u64;
+        if !(password_required || texts.contains_key(&number)) {
+            continue;
+        }
+        let mut page = Map::new();
+        page.insert("path".to_owned(), json!(format!("/page[{number}]")));
+        page.insert("index".to_owned(), json!(number));
+        page.insert("text".to_owned(), json!(collapse_spaces(texts.get(&number).map_or("", String::as_str))));
+        if has_page_tree {
+            page.extend(page_geometry(structure, number as usize)?);
+        }
+        pages.push(Value::Object(page));
+    }
+    Ok(pages)
+}
+
 /// `snapshotPdf(path, options)`.
 pub fn snapshot_pdf<P: ReadProof>(proof: &P, path: &Path, options: &SnapshotOptions, forms: &dyn FormView) -> Result<Value, AnalysisError> {
-    let max_chars = number_or(options.max_chars, 30_000.0).max(1_000.0);
     let buffer = read_file(proof, path)?;
     let structure = load_pdf(&buffer, true)?;
     let encrypted = structure.is_encrypted();
@@ -236,89 +321,17 @@ pub fn snapshot_pdf<P: ReadProof>(proof: &P, path: &Path, options: &SnapshotOpti
     let known_pages = page_count.unwrap_or(0) as f64;
     let offset = if options.paged { number_or(options.offset, 0.0).max(0.0) } else { 0.0 };
     let limit = if options.paged { number_or(options.limit, 20.0).max(1.0) } else { known_pages };
-    // A locked file whose pages could not be counted selects none.
-    let mut selected: Vec<f64> = Vec::new();
-    if let Some(count) = page_count {
-        if let Some(pages) = &options.pages {
-            selected = pages.clone();
-        } else {
-            let length = limit.min(count as f64 - offset).max(0.0).floor() as usize;
-            selected = (0..length).map(|index| offset + index as f64 + 1.0).collect();
-        }
-    }
-    for index in &selected {
-        if index.fract() != 0.0 || !index.is_finite() || *index < 1.0 || *index > known_pages {
-            return Err(AnalysisError::plain(format!("PDF page out of range: {}", mixdog_js::number_to_string(*index))));
-        }
-    }
+    let selected = selected_pages(options, page_count, offset, limit)?;
     let from = selected.iter().copied().reduce(f64::min).unwrap_or(1.0);
     let to = selected.iter().copied().reduce(f64::max).unwrap_or(1.0);
-    let inspected = inspect_pdf_buffer(
-        &buffer,
-        &InspectOptions {
-            extract_text: true,
-            max_pages: Some(known_pages.max(500.0) as u64),
-            max_output_bytes: max_chars,
-            page_range: Some(PageRange { from, to }),
-            password: Some(options.password.clone()),
-            ..InspectOptions::default()
-        },
-    );
-    let mut password_required = false;
-    let (joined, truncated) = match inspected {
-        Ok(inspection) => match inspection.detail {
-            Detail::Text { text, truncated, .. } => (text, truncated),
-            _ => (String::new(), false),
-        },
-        // A user password blocks the text layer (unless the caller supplied it); an owner-only password does not.
-        Err(error) if encrypted && is_password_failure(&error) => {
-            password_required = true;
-            (String::new(), false)
-        }
-        Err(error) => return Err(inspection_error(error)),
-    };
-    let texts = split_page_texts(&joined);
-    let mut pages = Vec::new();
-    for index in &selected {
-        let number = *index as u64;
-        if !(password_required || texts.contains_key(&number)) {
-            continue;
-        }
-        let mut page = Map::new();
-        page.insert("path".to_owned(), json!(format!("/page[{number}]")));
-        page.insert("index".to_owned(), json!(number));
-        page.insert("text".to_owned(), json!(collapse_spaces(texts.get(&number).map_or("", String::as_str))));
-        // A ciphered page tree has no page boxes to read.
-        if structure_count.is_some() {
-            page.extend(page_geometry(&structure, number as usize)?);
-        }
-        pages.push(Value::Object(page));
-    }
+    let TextLayer { joined, truncated, password_required } = read_text_layer(&buffer, options, encrypted, known_pages, from, to)?;
+    let pages = page_entries(&structure, structure_count.is_some(), &selected, &joined, password_required)?;
     // Strings and streams stay ciphered under ignoreEncryption, so the form and attachment views of an encrypted file
     // would be noise rather than data.
     let fields = if encrypted { Vec::new() } else { forms.describe_fields(&structure) };
     let attachments = if encrypted { Vec::new() } else { pdf_attachments(&structure) };
-    let mut outline: Vec<Value> = Vec::new();
     // The outline costs a second parse; a caller that only wants issues skips it.
-    if !encrypted && options.outline {
-        // The outline is a convenience view; an unreadable one leaves it empty rather than failing the snapshot of a
-        // readable document.
-        if let Ok(read) = extract_pdf_outline(proof, PdfSource::Path(path), DEFAULT_MAX_OUTLINE_ENTRIES) {
-            outline = read
-                .entries
-                .iter()
-                .enumerate()
-                .map(|(index, entry)| {
-                    let mut row = Map::new();
-                    row.insert("path".to_owned(), json!(format!("/outline[{}]", index + 1)));
-                    if let Value::Object(fields) = entry.to_json() {
-                        row.extend(fields);
-                    }
-                    Value::Object(row)
-                })
-                .collect();
-        }
-    }
+    let outline = if !encrypted && options.outline { outline_rows(proof, path) } else { Vec::new() };
     let likely_scanned: Vec<Value> = if password_required {
         Vec::new()
     } else {
@@ -347,21 +360,21 @@ pub fn snapshot_pdf<P: ReadProof>(proof: &P, path: &Path, options: &SnapshotOpti
         result.insert("hint".to_owned(), json!(PDF_ENCRYPTED_HINT));
     }
     if options.paged {
-        // A page range asked for by number has no next page to offer.
-        let next_offset = if options.pages.is_none() && offset + (returned as f64) < known_pages { json_number(offset + returned as f64) } else { Value::Null };
-        result.insert(
-            "pagination".to_owned(),
-            json!({
-                "unit": "page",
-                "offset": json_number(offset),
-                "limit": json_number(limit),
-                "returned": returned,
-                "total": json_number(known_pages),
-                "nextOffset": next_offset,
-            }),
-        );
+        result.insert("pagination".to_owned(), pagination_of(options, offset, limit, returned, known_pages));
     }
     Ok(Value::Object(result))
+}
+
+fn pagination_of(options: &SnapshotOptions, offset: f64, limit: f64, returned: usize, total: f64) -> Value {
+    let next_offset = if options.pages.is_none() && offset + (returned as f64) < total { json_number(offset + returned as f64) } else { Value::Null };
+    json!({
+        "unit": "page",
+        "offset": json_number(offset),
+        "limit": json_number(limit),
+        "returned": returned,
+        "total": json_number(total),
+        "nextOffset": next_offset,
+    })
 }
 
 /// `validatePdf(path)`.
@@ -475,7 +488,12 @@ fn form_field_issues(fields: &[Value], forms: &dyn FormView) -> Vec<Value> {
             ));
         }
     }
-    // Each widget with the name and path of its field.
+    issues.extend(overlapping_field_issues(fields, forms));
+    issues
+}
+
+fn overlapping_field_issues(fields: &[Value], forms: &dyn FormView) -> Vec<Value> {
+    let mut issues = Vec::new();
     let mut widgets: Vec<(Value, String, String)> = Vec::new();
     for field in fields {
         let name = js_string(field.get("name"));
@@ -530,6 +548,28 @@ pub trait OperationSet<P: WriteProof> {
     fn run(&self, state: &mut BatchState<'_, P>, operation: &Value) -> Result<Value, AnalysisError>;
 }
 
+fn describe_compressions(results: &mut [Value], source_len: usize, bytes_len: usize, compression_only: bool, grew: bool) {
+    for entry in results.iter_mut() {
+        if entry["op"] != "compress" {
+            continue;
+        }
+        let Value::Object(row) = entry else {
+            continue;
+        };
+        row.insert("bytesAfter".to_owned(), json!(bytes_len));
+        row.insert("changed".to_owned(), json!(bytes_len != source_len));
+        let note_text = if compression_only && grew {
+            "Object streams cost more than they saved here, so the file was left as it was; images are not resampled. Pass allowNoChange to accept that outcome."
+        } else if grew {
+            row.insert("grew".to_owned(), json!(true));
+            "The batch's other edits grew the file; object streams did not shrink it. Images are not resampled."
+        } else {
+            "Re-serialized with object streams; images are not resampled, so savings are usually small."
+        };
+        row.insert("note".to_owned(), json!(note_text));
+    }
+}
+
 /// `applyPdfBatch(path, operations, context)`: the operations in order on one document in memory, one save, the file
 /// rewritten in place. Every file written (the document, a split, an extracted attachment) is reported to `note` first.
 pub fn apply_pdf_batch<P: WriteProof>(
@@ -571,25 +611,7 @@ pub fn apply_pdf_batch<P: WriteProof>(
     }
     note.note_write(path);
     mixdog_fsio::write(proof, path, &bytes).map_err(|error| AnalysisError::plain(error.to_string()))?;
-    for entry in results.iter_mut() {
-        if entry["op"] != "compress" {
-            continue;
-        }
-        let Value::Object(row) = entry else {
-            continue;
-        };
-        row.insert("bytesAfter".to_owned(), json!(bytes.len()));
-        row.insert("changed".to_owned(), json!(bytes.len() != source.len()));
-        let note_text = if compression_only && grew {
-            "Object streams cost more than they saved here, so the file was left as it was; images are not resampled. Pass allowNoChange to accept that outcome."
-        } else if grew {
-            row.insert("grew".to_owned(), json!(true));
-            "The batch's other edits grew the file; object streams did not shrink it. Images are not resampled."
-        } else {
-            "Re-serialized with object streams; images are not resampled, so savings are usually small."
-        };
-        row.insert("note".to_owned(), json!(note_text));
-    }
+    describe_compressions(&mut results, source.len(), bytes.len(), compression_only, grew);
     Ok(results)
 }
 

@@ -1,7 +1,3 @@
-//! The turn review over a real directory and the real service, in the flows a user meets: a turn's edits reviewed while it runs and
-//! after it is sealed (also after the process restarted), undone and reapplied by file and whole, refused when other edits overlap,
-//! workers joining their lead's review, and change history cleared. The directory is not a git repository, so the review is
-//! of tool edits (`snapshotKind: "tool"` while the turn runs, `"scoped"` once it is recorded).
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: real directories")]
 
 use std::path::PathBuf;
@@ -94,12 +90,8 @@ fn states(reply: &serde_json::Map<String, Value>) -> Vec<(String, String)> {
 
 const A_PATCH: &str = "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+2\n three\n+four\n";
 
-/// An edit, a created, a deleted and a renamed file are one review with its line counts and patch; the summary read leaves the
-/// patch out; a file patch is that file's; an unchanged read says so by etag; the card diff of a call is handed out once; once
-/// sealed the same review survives a restart as a recorded one, and its changes are listed with their state.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_turns_edits_are_reviewed_while_it_runs_and_after_it_is_recorded() {
-    let mut rig = Rig::new();
+/// Begins `cp1` over `a.txt`, `c.txt` and `d.txt` and makes an edit (call `call-1`), a created, a deleted and a renamed file.
+async fn begin_edited_turn(rig: &Rig) {
     rig.write("a.txt", "one\ntwo\nthree\n");
     rig.write("c.txt", "gone\n");
     rig.write("d.txt", "moves\n");
@@ -122,6 +114,15 @@ async fn a_turns_edits_are_reviewed_while_it_runs_and_after_it_is_recorded() {
     };
     std::fs::rename(rig.ws.join("d.txt"), rig.ws.join("e.txt")).unwrap();
     rig.review.record_tool_changes("s1", &rig.ws_text, vec![moved]).await;
+}
+
+/// The review of an edit, a created, a deleted and a renamed file while the turn runs: one review with its line counts and patch,
+/// from the tool edits; the summary read leaves the patch out, a file patch is that file's, an unchanged read says so by etag,
+/// and the card diff of a call is handed out once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_running_turns_edits_are_one_review_with_counts_and_patch() {
+    let rig = Rig::new();
+    begin_edited_turn(&rig).await;
 
     assert_eq!(rig.review.take_call_diff("call-1").as_deref(), Some(A_PATCH));
     assert_eq!(rig.review.take_call_diff("call-1"), None, "a card's diff is handed out once");
@@ -154,6 +155,15 @@ async fn a_turns_edits_are_reviewed_while_it_runs_and_after_it_is_recorded() {
 
     assert_eq!(rig.review.turn_review_file_patch(&rig.ws_text, "s1", "a.txt").await["patch"], A_PATCH);
     assert_eq!(rig.review.turn_review_file_patch(&rig.ws_text, "s1", "zzz.txt").await["patch"], "", "a file the turn did not touch has no patch");
+}
+
+/// Once sealed the review survives a restart as a recorded one (`snapshotKind: "scoped"`), and its changes are listed with their
+/// state, as a file's patch or refused for a file the turn did not touch.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sealed_turns_review_is_recorded_and_survives_a_restart() {
+    let mut rig = Rig::new();
+    begin_edited_turn(&rig).await;
+    let live = rig.review().await;
 
     rig.seal(1, "cp1").await;
     let listed = rig.changes("cp1").await;

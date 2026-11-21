@@ -509,6 +509,59 @@ impl Packets<'_, '_> {
         all.extend(rewritten.into_iter().map(|c| Parsed { idx_list: c.idx_list.iter().map(|&n| positions[n as usize - 1]).collect(), ..c }));
         Ok(all)
     }
+
+    /// Rows over the source budget go out as consecutive packets, each generated on its own.
+    async fn partitioned(&mut self, rows: &[Row], source_budget: f64) -> Step<Vec<Parsed>> {
+        let indexes: HashMap<i64, i64> = rows.iter().enumerate().map(|(i, r)| (r.id, i as i64 + 1)).collect();
+        let mut chunks = Vec::new();
+        for packet in partition_cycle1_rows(rows, source_budget, 50) {
+            let generated = match generate_cycle1_chunks(&packet, self.ctx).await {
+                Ok(generated) => generated,
+                Err(MemoryError::Cancelled) => return Err(Stop::Aborted),
+                Err(error) => return Err(Stop::Failed(error.message())),
+            };
+            self.stats.add(&generated.stats);
+            self.failures.extend(generated.invalid_chunks);
+            chunks.extend(generated.chunks.into_iter().map(|c| Parsed {
+                idx_list: c.members.iter().map(|m| indexes[&m.id]).collect(),
+                parse_error: None,
+                element: c.element,
+                category: c.category,
+                summary: c.summary,
+            }));
+        }
+        Ok(chunks)
+    }
+
+    /// One row over the source budget is cut into fragments, each summarised, and the summaries joined back into one chunk of the complete row.
+    async fn fragmented(&mut self, rows: &[Row], source_budget: f64) -> Step<Vec<Parsed>> {
+        let fragments = split_cycle1_row(&rows[0], source_budget).map_err(Stop::Failed)?;
+        self.stats.fragments = fragments.len() as i64;
+        let mut parts: Vec<Parsed> = Vec::new();
+        for fragment in fragments {
+            let (found, _) = self.packet(std::slice::from_ref(&fragment), false).await?;
+            if found.is_empty() && !self.failures.is_empty() {
+                return Ok(Vec::new());
+            }
+            parts.push(found.into_iter().next().unwrap_or(Parsed {
+                element: String::new(),
+                category: "fact".into(),
+                summary: fragment.content.clone(),
+                ..Parsed::default()
+            }));
+        }
+        let summary: String = parts
+            .iter()
+            .enumerate()
+            .map(|(i, part)| format!("{}{}", if i > 0 && (!part.element.is_empty() || !parts[i - 1].element.is_empty()) { "\n" } else { "" }, part.summary))
+            .collect();
+        if chunk_compression(&summary, rows).2
+            && let Some(metadata) = parts.iter().find(|p| !p.element.is_empty())
+        {
+            return Ok(vec![Parsed { idx_list: vec![1], summary, ..metadata.clone() }]);
+        }
+        Ok(Vec::new())
+    }
 }
 
 /// `generateCycle1Chunks`.
@@ -522,63 +575,14 @@ pub fn generate_cycle1_chunks<'a>(rows: &'a [Row], ctx: &'a Generation<'a>) -> B
         if rows.is_empty() || is_below_min_source(rows) {
             return Ok(finish(Vec::new(), stats, failures));
         }
-        let step: Step<Vec<Parsed>> = async {
-            let mut chunks = Vec::new();
-            if !fits(rows, source_budget, false) {
-                if rows.len() != 1 {
-                    let indexes: HashMap<i64, i64> = rows.iter().enumerate().map(|(i, r)| (r.id, i as i64 + 1)).collect();
-                    for packet in partition_cycle1_rows(rows, source_budget, 50) {
-                        let generated = match generate_cycle1_chunks(&packet, ctx).await {
-                            Ok(generated) => generated,
-                            Err(MemoryError::Cancelled) => return Err(Stop::Aborted),
-                            Err(error) => return Err(Stop::Failed(error.message())),
-                        };
-                        stats.add(&generated.stats);
-                        failures.extend(generated.invalid_chunks);
-                        chunks.extend(generated.chunks.into_iter().map(|c| Parsed {
-                            idx_list: c.members.iter().map(|m| indexes[&m.id]).collect(),
-                            parse_error: None,
-                            element: c.element,
-                            category: c.category,
-                            summary: c.summary,
-                        }));
-                    }
-                    return Ok(chunks);
-                }
-                let fragments = split_cycle1_row(&rows[0], source_budget).map_err(Stop::Failed)?;
-                stats.fragments = fragments.len() as i64;
-                let mut parts: Vec<Parsed> = Vec::new();
-                for fragment in fragments {
-                    let (found, _) = Packets { ctx, stats: &mut stats, failures: &mut failures }.packet(std::slice::from_ref(&fragment), false).await?;
-                    // Uncompressible fragments stay verbatim inside the complete row; none disappears.
-                    if found.is_empty() && !failures.is_empty() {
-                        return Ok(Vec::new());
-                    }
-                    parts.push(found.into_iter().next().unwrap_or(Parsed {
-                        element: String::new(),
-                        category: "fact".into(),
-                        summary: fragment.content.clone(),
-                        ..Parsed::default()
-                    }));
-                }
-                let summary: String = parts
-                    .iter()
-                    .enumerate()
-                    .map(|(i, part)| {
-                        format!("{}{}", if i > 0 && (!part.element.is_empty() || !parts[i - 1].element.is_empty()) { "\n" } else { "" }, part.summary)
-                    })
-                    .collect();
-                if chunk_compression(&summary, rows).2
-                    && let Some(metadata) = parts.iter().find(|p| !p.element.is_empty())
-                {
-                    chunks = vec![Parsed { idx_list: vec![1], summary, ..metadata.clone() }];
-                }
-                Ok(chunks)
-            } else {
-                Packets { ctx, stats: &mut stats, failures: &mut failures }.with_rewrite(rows).await
-            }
-        }
-        .await;
+        let mut packets = Packets { ctx, stats: &mut stats, failures: &mut failures };
+        let step: Step<Vec<Parsed>> = if fits(rows, source_budget, false) {
+            packets.with_rewrite(rows).await
+        } else if rows.len() != 1 {
+            packets.partitioned(rows, source_budget).await
+        } else {
+            packets.fragmented(rows, source_budget).await
+        };
         let candidates = match step {
             Ok(chunks) => chunks,
             Err(Stop::Aborted) => return Err(MemoryError::Cancelled),

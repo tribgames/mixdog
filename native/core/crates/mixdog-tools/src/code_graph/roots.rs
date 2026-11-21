@@ -192,18 +192,6 @@ pub(super) fn federation_cap() -> usize {
     static CAP: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     *CAP.get_or_init(|| federation_cap_of(std::env::var("MIXDOG_CODE_GRAPH_FEDERATION_CAP").ok().as_deref()))
 }
-/// The identity of a file or directory: its link-resolved absolute filesystem path (symlinks and junctions followed), then
-/// [`path_key`]'s spelling normalisation. Notifications, graph roots (and so cache keys) and inventory entries all take
-/// their identity here, so two spellings of one place (an alias and its target) are one key; presentation paths keep the
-/// caller's spelling. The shared SCM lock key is not changed.
-///
-/// A missing tail is resolved through the nearest surviving ancestor (a deleted file, a directory not made yet) with the
-/// missing names appended. A dangling link, a permission error, a link loop, or no surviving ancestor is an unresolved
-/// identity: `Err`, never a lexical fallback to the alias. Nothing is cached: every call asks the filesystem, so an
-/// identity stored by a caller is never re-resolved later.
-///
-/// Known boundary (decided): a link retargeted between a write and its notification is not detected; the identity is the
-/// one at resolution time, which is when the notification is ingested, not when the file was written.
 pub(super) fn identity_key(path: &Path) -> Result<String, String> {
     let mut at = if path.is_absolute() {
         path.to_path_buf()

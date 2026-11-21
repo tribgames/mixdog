@@ -3,10 +3,8 @@
     clippy::disallowed_types,
     reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
 )]
-//! User-facing workspace text search and replace (port of
-//! `workspace-search.ts`). Patterns run on `regress`, an ECMAScript-syntax
-//! engine, so syntax, flags and match results are those of the Node product.
-//! Columns count UTF-16 code units, as JavaScript string indexes do.
+//! User-facing workspace text search and replace. Patterns run on `regress`, an ECMAScript-syntax engine, and columns count
+//! UTF-16 code units, as JavaScript string indexes do.
 
 use std::fs;
 use std::path::Path;
@@ -79,13 +77,7 @@ fn escape_literal(text: &str) -> String {
 }
 
 impl Pattern {
-    /// A pattern is checked by `mixdog_js::js_regex_error` (V8's message, byte for byte; the flags
-    /// shown are the ones Node's search builds) and then compiled by `regress`, whose
-    /// ECMAScript syntax keeps the matching semantics.
-    ///
-    /// A plain-text query that held a lone surrogate matches nothing: Node's is a `u` RegExp of the lone code point, which text
-    /// decoded from UTF-8 never holds (workspace-search.ts:107), while the core's U+FFFD would match every real one. A regex
-    /// query keeps U+FFFD (decisions.md "frame-lone-surrogate").
+    /// A plain-text query that held a lone surrogate matches nothing; a regex query keeps U+FFFD.
     pub fn compile(query: &TextQuery) -> WsResult<Self> {
         if query.lone && !query.regex {
             return Ok(Self(regress::Regex::with_flags("[]", "u").expect("the empty class compiles")));

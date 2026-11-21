@@ -1,10 +1,3 @@
-//! The terminal chrome of the application (`src/tui/app/use-terminal-chrome.mjs`, `use-tui-ready.mjs`): the debounced resize
-//! (the first event of a burst updates at once, the rest are coalesced into one settle update, and an update that finds the
-//! size unchanged does nothing), the extended-keyboard enable that is written once, and the one-tick input gate after the
-//! mount.
-//!
-//! Everything here is a state value stepped with the clock the run loop reads; nothing reads the terminal or the time.
-
 use mixdog_term::modes::ModeEnv;
 
 use super::format::terminal_size;

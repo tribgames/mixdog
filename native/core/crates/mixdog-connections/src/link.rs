@@ -169,6 +169,21 @@ fn describe_link_failure(error: &SessionError, target: &SshTarget, platform: Pla
     }
 }
 
+/// The server's turn ran on this PC's sign-in: says which one failed.
+fn forward_sign_in_failures(mut settled: broadcast::Receiver<ProxyCallSettled>, notices: broadcast::Sender<ConnectionNotice>) -> JoinHandle<()> {
+    mixdog_rt::spawn("link-sign-in", TaskClass::Control, async move {
+        loop {
+            match settled.recv().await {
+                Ok(call) if is_sign_in_failure(&call) => {
+                    let _ = notices.send(ConnectionNotice::ModelSignIn { provider: call.provider });
+                }
+                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Closed) => return,
+            }
+        }
+    })
+}
+
 /// This PC's model sign-in was refused (expired or revoked).
 fn is_sign_in_failure(settled: &ProxyCallSettled) -> bool {
     settled.outcome == CallOutcome::Failed && settled.failure.as_ref().is_some_and(|failure| failure.reauth_required || failure.status == Some(401))
@@ -715,20 +730,7 @@ impl ServerLink {
         // Subscribed before the status is read, so no change after it is missed.
         let events = client.events();
         let mut tasks = vec![relay.serve()];
-        let mut settled = relay.settled();
-        let sign_in = notices.clone();
-        tasks.push(mixdog_rt::spawn("link-sign-in", TaskClass::Control, async move {
-            loop {
-                match settled.recv().await {
-                    Ok(call) if is_sign_in_failure(&call) => {
-                        // The server's turn ran on this PC's sign-in: say which one failed.
-                        let _ = sign_in.send(ConnectionNotice::ModelSignIn { provider: call.provider });
-                    }
-                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
-                    Err(broadcast::error::RecvError::Closed) => return,
-                }
-            }
-        }));
+        tasks.push(forward_sign_in_failures(relay.settled(), notices.clone()));
         let status = client.status();
         machine.start();
         if matches!(status, ConnectionStatus::Ready { .. }) {
@@ -1128,7 +1130,7 @@ impl LinkPool {
         }
         let name = spec.name.clone();
         let id = spec.id.clone();
-        let (mut result, ownership) = {
+        let (result, ownership) = {
             let mut state = locked(&self.inner.state);
             if let Some((_, link)) = state.links.iter().find(|(_, link)| link.id == spec.id) {
                 return Ok((link.clone(), LinkOpen::Reused));
@@ -1155,10 +1157,22 @@ impl LinkPool {
                 }
             }
         };
+        self.await_flight(result, ownership, &id, &name, cancel).await
+    }
+
+    /// Waits for the shared attempt; a cancel gives up the wait and, for the caller that started it, rolls the attempt back.
+    async fn await_flight(
+        &self,
+        mut result: watch::Receiver<Opened>,
+        ownership: LinkOpen,
+        id: &str,
+        name: &str,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<(Arc<ServerLink>, LinkOpen), ConnectError> {
         let wait = async {
             match result.wait_for(Option::is_some).await {
-                Ok(opened) => opened.clone().unwrap_or_else(|| Err(closed_error(&name))),
-                Err(_) => Err(closed_error(&name)),
+                Ok(opened) => opened.clone().unwrap_or_else(|| Err(closed_error(name))),
+                Err(_) => Err(closed_error(name)),
             }
         };
         let opened = if let Some(cancel) = cancel {
@@ -1166,9 +1180,9 @@ impl LinkPool {
                 biased;
                 () = cancel.cancelled() => {
                     if let LinkOpen::Owned(token) = ownership {
-                        self.remove(&id, Some(token)).await;
+                        self.remove(id, Some(token)).await;
                     }
-                    return Err(closed_error(&name));
+                    return Err(closed_error(name));
                 }
                 opened = wait => opened,
             }

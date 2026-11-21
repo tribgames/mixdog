@@ -1,10 +1,9 @@
 //! `SessionSource` over the session runtime: the thread's model messages and cwd for the
-//! current-session recall rows, its cwd, and the configured profile identity, as Node's
-//! `createRecallResourceApi` reads them (`resource-recall-api.mjs`).
+//! current-session recall rows, its cwd, and the configured profile identity.
 //!
 //! The messages come from `thread/messages/read` (`{ messages: [...] }`), which the session
 //! actor must serve; until it does the thread has no readable session and recall falls
-//! through to memory, as it does for Node with no session.
+//! through to memory.
 
 use std::sync::Arc;
 

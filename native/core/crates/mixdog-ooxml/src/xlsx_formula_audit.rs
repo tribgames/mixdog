@@ -104,8 +104,7 @@ pub fn inline_constants(formula: &str) -> Vec<String> {
 
 /// `unguardedDivision(formula)`: a divisor that is a reference, a name, a function, or a bracketed expression can be zero; a
 /// literal cannot. Any IF-family wrapper counts as a guard. A compounding base, `(1+rate)` raised to a power or not, is zero
-/// only at a rate of -100%: the discount factor 1/(1+r)^n was reported, and the IFERROR the finding asks for would only hide
-/// a real error there.
+/// only at a rate of -100%.
 pub fn unguarded_division(formula: &str) -> bool {
     let text = formula_body_of(formula);
     if IF_FAMILY.is_match(&text) {
@@ -490,12 +489,6 @@ fn collect_formula_lines<'a>(list: &mut IssueList, sheet: &Value, cells: &'a [Va
     lines
 }
 
-/// A hardcode that breaks a formula pattern. Down a column: a schedule whose periods run down the page keeps its formulas in
-/// one column, and a pasted result between them stops recalculating exactly as it does across a row. Only a constant the
-/// formulas bracket is read this way: a number under the last formula is as likely to be the next block of the sheet as a
-/// pasted total. The column must be a pattern before a cell can break it: the formula above and the formula below the
-/// constant compute the same thing, one row apart, which is a schedule. A column of assumptions (a ratio here, a cross-sheet
-/// reference there) holds formulas and inputs side by side by design.
 fn audit_hardcode_interruption(list: &mut IssueList, path: &str, at: Position, lines: &FormulaLines<'_>) {
     let mut column_entries: Vec<&LineEntry<'_>> = lines.by_column.get(key(at.column)).map(|entries| entries.iter().collect()).unwrap_or_default();
     column_entries.sort_by(|left, right| left.index.total_cmp(&right.index));
@@ -643,21 +636,9 @@ fn sheet_owner(path: &str) -> Option<&str> {
     OWNER.find(path).map(|range| &path[range])
 }
 
-/// `mergeXlsxFormulaAudit(result, document, { auditProfile, sheet })`: folds the shared audit into a backend's own issues
-/// result (Excel's issues come from its host, which reports a subset of these codes); a finding the host already made is not
-/// repeated, and a sheet-scoped request stays scoped.
-pub fn merge_xlsx_formula_audit(result: &Value, document: &Value, audit_profile: &str, sheet: &str) -> Value {
-    let sheets = list(document.get("sheets"));
-    let scope = if sheet.is_empty() { String::new() } else { format!("/sheet[{}]", js_to_lowercase(sheet)) };
-    let names: Vec<String> = sheets.iter().map(|entry| js_text(entry.get("name"))).collect();
-    let findings: Vec<Issue> =
-        audit_xlsx_formulas(sheets, &AuditOptions { audit_profile, sheet_names: &names, defined_names: list(document.get("definedNames")) })
-            .into_iter()
-            .filter(|finding| scope.is_empty() || finding.path == "/" || js_to_lowercase(&finding.path).starts_with(&scope))
-            .collect();
-    // Only what came back was read: Excel's full snapshot carries no cells for a sheet past 500 cells and a truncated one for a
-    // sheet whose used range runs past its window, so the host's verdict stays for any cell the shared audit never saw: a
-    // sheet read whole, or the cells a truncated read reached.
+/// The sheets the snapshot carries whole and the cells of the truncated ones it carries in part: the host's verdict stands
+/// for any cell outside both.
+fn audited_scope(sheets: &[Value]) -> (HashSet<String>, HashSet<String>) {
     let mut read_sheets: HashSet<String> = HashSet::new();
     let mut read_cells: HashSet<String> = HashSet::new();
     for entry in sheets {
@@ -675,6 +656,22 @@ pub fn merge_xlsx_formula_audit(result: &Value, document: &Value, audit_profile:
             }
         }
     }
+    (read_sheets, read_cells)
+}
+
+/// `mergeXlsxFormulaAudit(result, document, { auditProfile, sheet })`: folds the shared audit into a backend's own issues
+/// result (Excel's issues come from its host, which reports a subset of these codes); a finding the host already made is not
+/// repeated, and a sheet-scoped request stays scoped.
+pub fn merge_xlsx_formula_audit(result: &Value, document: &Value, audit_profile: &str, sheet: &str) -> Value {
+    let sheets = list(document.get("sheets"));
+    let scope = if sheet.is_empty() { String::new() } else { format!("/sheet[{}]", js_to_lowercase(sheet)) };
+    let names: Vec<String> = sheets.iter().map(|entry| js_text(entry.get("name"))).collect();
+    let findings: Vec<Issue> =
+        audit_xlsx_formulas(sheets, &AuditOptions { audit_profile, sheet_names: &names, defined_names: list(document.get("definedNames")) })
+            .into_iter()
+            .filter(|finding| scope.is_empty() || finding.path == "/" || js_to_lowercase(&finding.path).starts_with(&scope))
+            .collect();
+    let (read_sheets, read_cells) = audited_scope(sheets);
     let mut issues: Vec<Value> = list(result.get("issues"))
         .iter()
         .filter(|entry| {

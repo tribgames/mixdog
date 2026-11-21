@@ -1,9 +1,3 @@
-//! Early results at the show point (`SessionActor::release`, `early_result`): a call's card and any result retained for it
-//! are folded before the card's notification is built, so the feed never tells a card open after it told it closed, and the
-//! committed result is the call's final one. Node installed a batch's cards, then applied the results it had retained
-//! (`turn-tool-cards.mjs`). Every check reads the feed as a client reduces it (`item/completed` replaces the item by id) and
-//! compares it with the actor's own snapshot, with the disk held so that no write of the turn has been acknowledged.
-
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::Mutex;

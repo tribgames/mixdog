@@ -371,6 +371,17 @@ impl RedliningAudit {
     }
 }
 
+fn foreign_authors_of<'a>(expected: &str, fresh: impl Iterator<Item = &'a RevisionSpan>) -> Vec<ForeignAuthor> {
+    if expected.is_empty() {
+        return Vec::new();
+    }
+    fresh
+        .filter(|span| span.author != expected)
+        .take(REPORTED_AUTHORS)
+        .map(|span| ForeignAuthor { kind: if span.tag == "ins" { "insertion" } else { "deletion" }, author: span.author.clone(), text: excerpt(&span.text) })
+        .collect()
+}
+
 /// Compares the current body with the source after undoing only the tracked changes that are new relative to the source:
 /// whatever text still differs was edited without being tracked. With `author`, every new change must carry that author.
 /// Only the document body is compared.
@@ -386,21 +397,7 @@ pub fn audit_docx_redlining(current_xml: &str, original_xml: &str, author: &str)
     let after = paragraph_lines(&undone);
     let untracked_edits = if before.join("\n") == after.join("\n") { None } else { Some(line_diff(&before, &after)) };
     let expected = js_trim(author).to_owned();
-    let foreign_authors: Vec<ForeignAuthor> = if expected.is_empty() {
-        Vec::new()
-    } else {
-        fresh
-            .iter()
-            .map(|&at| modified_spans[at])
-            .filter(|span| span.author != expected)
-            .take(REPORTED_AUTHORS)
-            .map(|span| ForeignAuthor {
-                kind: if span.tag == "ins" { "insertion" } else { "deletion" },
-                author: span.author.clone(),
-                text: excerpt(&span.text),
-            })
-            .collect()
-    };
+    let foreign_authors = foreign_authors_of(&expected, fresh.iter().map(|&at| modified_spans[at]));
     let mut reasons: Vec<String> = Vec::new();
     if let Some(diff) = &untracked_edits {
         // A paragraph rewritten in place is one line out and one in: the larger side counts the paragraphs, not the sum.
@@ -577,7 +574,7 @@ fn marker_ids(source: &str, pattern: &str) -> Vec<String> {
     compiled(pattern, "g").captures_iter(source).map(|found| found.get(1).unwrap_or("").to_owned()).collect()
 }
 
-fn lint_story_revisions(part: &str, source: &str, findings: &mut Vec<LintFinding>) -> [Vec<String>; 3] {
+fn revision_text_faults(source: &str) -> (usize, usize, usize) {
     let mut text_in_deletion = 0;
     let mut instr_in_deletion = 0;
     let mut deleted_in_insertion = 0;
@@ -597,6 +594,20 @@ fn lint_story_revisions(part: &str, source: &str, findings: &mut Vec<LintFinding
         }
         deleted_in_insertion += count(&masked, r"<w:delText\b");
     }
+    (text_in_deletion, instr_in_deletion, deleted_in_insertion)
+}
+
+fn unpreserved_edge_space(source: &str) -> usize {
+    let edge_space = compiled(r"^[ \t\r\n]|[ \t\r\n]$", "");
+    let preserved = compiled(r#"\bxml:space="preserve""#, "");
+    compiled(r"<w:t\b([^>]*)>([\s\S]*?)<\/w:t>", "g")
+        .captures_iter(source)
+        .filter(|node| edge_space.is_match(&xml_decode(node.get(2).unwrap_or(""))) && !preserved.is_match(node.get(1).unwrap_or("")))
+        .count()
+}
+
+fn lint_story_revisions(part: &str, source: &str, findings: &mut Vec<LintFinding>) -> [Vec<String>; 3] {
+    let (text_in_deletion, instr_in_deletion, deleted_in_insertion) = revision_text_faults(source);
     let mut add = |severity: &'static str, code: &'static str, message: String, number: usize| {
         findings.push(LintFinding { severity, code, message, extra: vec![("count", json!(number)), ("part", json!(part))] });
     };
@@ -626,14 +637,7 @@ fn lint_story_revisions(part: &str, source: &str, findings: &mut Vec<LintFinding
             deleted_in_insertion,
         );
     }
-    let edge_space = compiled(r"^[ \t\r\n]|[ \t\r\n]$", "");
-    let preserved = compiled(r#"\bxml:space="preserve""#, "");
-    let mut unpreserved = 0;
-    for node in compiled(r"<w:t\b([^>]*)>([\s\S]*?)<\/w:t>", "g").captures_iter(source) {
-        if edge_space.is_match(&xml_decode(node.get(2).unwrap_or(""))) && !preserved.is_match(node.get(1).unwrap_or("")) {
-            unpreserved += 1;
-        }
-    }
+    let unpreserved = unpreserved_edge_space(source);
     if unpreserved > 0 {
         add(
             "warning",
@@ -663,6 +667,11 @@ pub fn lint_docx_revisions(stories: &[Story<'_>], comments_xml: &str) -> Vec<Lin
         story_ends.into_iter().for_each(|id| ends.insert(id));
         story_references.into_iter().for_each(|id| references.insert(id));
     }
+    lint_comment_markers(&starts, &ends, &references, comments_xml, &mut findings);
+    findings
+}
+
+fn lint_comment_markers(starts: &OrderedSet, ends: &OrderedSet, references: &OrderedSet, comments_xml: &str, findings: &mut Vec<LintFinding>) {
     let mut mismatches: Vec<String> = Vec::new();
     for id in &ends.order {
         if !starts.contains(id) {
@@ -706,7 +715,6 @@ pub fn lint_docx_revisions(stories: &[Story<'_>], comments_xml: &str) -> Vec<Lin
             extra: vec![("count", json!(mismatches.len()))],
         });
     }
-    findings
 }
 
 /// Which wrappers `resolve_docx_revisions` accepts or rejects.
@@ -797,10 +805,7 @@ pub fn resolve_docx_revisions(document_xml: &str, options: &ResolveOptions<'_>) 
 
 const PROPERTY_CHANGE: &str = r"<w:(rPr|pPr|tblPr|trPr|tcPr|sectPr|tblGrid)Change\b";
 
-/// Puts back the previous properties a change record carries, for one kind of properties element. The change record is
-/// the last child of its properties element and holds the previous properties; rejecting means the previous ones come
-/// back. The head never crosses the element's own closing tag, so a properties element without a change record is not
-/// stitched to the next one that has one.
+/// A change record is the last child of its properties element and holds the previous properties.
 fn restore_properties(xml: &str, tag: &str, owner: &str) -> String {
     let pattern = format!(
         r"<w:{tag}(\s[^>]*)?>((?:(?!<\/w:{tag}>)[\s\S])*?)<w:{tag}Change\b{owner}[^>]*>\s*(?:<w:{tag}\/>|<w:{tag}(?:\s[^>]*)?>([\s\S]*?)<\/w:{tag}>)\s*<\/w:{tag}Change>\s*<\/w:{tag}>"

@@ -399,7 +399,21 @@ impl ResponseWriter {
         push_latin1(&mut head, &message);
         head.extend_from_slice(b"\r\n");
 
-        let (mut connection, mut content_length, mut transfer_encoding, mut date, mut trailer) = (false, false, false, false, false);
+        let seen = self.write_header_lines(&mut head);
+        self.write_implied_headers(&mut head, seen);
+        head.extend_from_slice(b"\r\n");
+
+        self.head_written = true;
+        let mut out = self.shared.lock();
+        out.head_sent = true;
+        out.last = self.last;
+        drop(out);
+        self.push(Bytes::from(head));
+    }
+
+    /// Writes the headers the handler set, noting which of the framing headers it set and what they say of the connection.
+    fn write_header_lines(&mut self, head: &mut Vec<u8>) -> SeenHeaders {
+        let mut seen = SeenHeaders::default();
         let headers = std::mem::take(&mut self.headers);
         for header in &headers {
             let joined;
@@ -410,13 +424,13 @@ impl ResponseWriter {
                 &header.values
             };
             for value in values {
-                push_latin1(&mut head, &header.name);
+                push_latin1(head, &header.name);
                 head.extend_from_slice(b": ");
-                push_latin1(&mut head, value);
+                push_latin1(head, value);
                 head.extend_from_slice(b"\r\n");
                 match header.lower.as_str() {
                     "connection" => {
-                        connection = true;
+                        seen.connection = true;
                         self.removed_connection = false;
                         if has_word(value, "close") {
                             self.last = true;
@@ -425,25 +439,30 @@ impl ResponseWriter {
                         }
                     }
                     "content-length" => {
-                        content_length = true;
+                        seen.content_length = true;
                         self.removed_content_length = false;
                     }
                     "transfer-encoding" => {
-                        transfer_encoding = true;
+                        seen.transfer_encoding = true;
                         self.removed_transfer_encoding = false;
                         if has_word(value, "chunked") {
                             self.chunked = true;
                         }
                     }
-                    "date" => date = true,
-                    "trailer" => trailer = true,
+                    "date" => seen.date = true,
+                    "trailer" => seen.trailer = true,
                     "keep-alive" => self.default_keep_alive = false,
                     _ => {}
                 }
             }
         }
         self.headers = headers;
+        seen
+    }
 
+    /// Adds the headers the handler left to the relay: `Date`, `Connection` and `Keep-Alive`, and the body framing.
+    fn write_implied_headers(&mut self, head: &mut Vec<u8>, seen: SeenHeaders) {
+        let SeenHeaders { connection, content_length, transfer_encoding, date, trailer } = seen;
         if self.send_date && !date {
             head.extend_from_slice(b"Date: ");
             head.extend_from_slice(http_date_now().as_bytes());
@@ -483,15 +502,16 @@ impl ResponseWriter {
                 self.last = true;
             }
         }
-        head.extend_from_slice(b"\r\n");
-
-        self.head_written = true;
-        let mut out = self.shared.lock();
-        out.head_sent = true;
-        out.last = self.last;
-        drop(out);
-        self.push(Bytes::from(head));
     }
+}
+
+#[derive(Default)]
+struct SeenHeaders {
+    connection: bool,
+    content_length: bool,
+    transfer_encoding: bool,
+    date: bool,
+    trailer: bool,
 }
 
 impl Drop for ResponseWriter {

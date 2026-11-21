@@ -2,7 +2,8 @@
 //! `loadWorkflowPack` on a lane, `workflowSummary(pack, { hasAgents })` and
 //! `workflowContextBlockFromPack(pack)`.
 
-use mixdog_core_base::support::on_lane;
+use mixdog_agent::compact::blob_reads::turn_cancel;
+use mixdog_core_base::support::on_lane_wait;
 use mixdog_core_config::workflow::WorkflowPaths;
 use mixdog_core_config::workflow::pack::Pack;
 use mixdog_core_config::workflow::pack::load_pack;
@@ -10,7 +11,6 @@ use mixdog_core_config::workflow::pack::workflow_summary;
 use mixdog_core_session::session::thread_switches::SurfaceFailure;
 use mixdog_js::js_trim;
 use mixdog_js::js_trim_start;
-use mixdog_rt::CancellationToken;
 use mixdog_rt::InteractiveIo;
 use serde_json::Value;
 
@@ -57,7 +57,7 @@ impl WorkflowPacks {
     /// a typed failure, not a missing pack.
     pub async fn load(&self, workflow_id: &str) -> Result<Option<Pack>, SurfaceFailure> {
         let (paths, id) = (self.paths.clone(), workflow_id.to_owned());
-        on_lane(self.lane, &CancellationToken::new(), move |_| load_pack(&paths, &id))
+        on_lane_wait(self.lane, &turn_cancel(), move |_| load_pack(&paths, &id))
             .await
             .map_err(|error| SurfaceFailure(format!("the workflow pack \"{workflow_id}\" could not be read: {error:?}")))
     }

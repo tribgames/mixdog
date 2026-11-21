@@ -381,6 +381,12 @@ impl Lexer {
             }
             _ => {}
         }
+        self.get_command(ch)
+    }
+
+    /// The keyword or operator that starts with `ch`: the longest run of regular characters, cut where the known
+    /// commands stop matching. `true`, `false` and `null` come back as values.
+    fn get_command(&mut self, mut ch: i32) -> Result<Obj> {
         let mut token = String::new();
         token.push(char_of(ch));
         if !(0x20..=0x7f).contains(&ch) {

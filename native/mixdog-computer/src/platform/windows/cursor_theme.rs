@@ -1,8 +1,3 @@
-//! The transparent system-cursor theme kept by the watchdog child while the
-//! overlay draws the agent's arrow (CursorTheme.cs). The helper never touches
-//! the cursors itself: it starts `--cursor-watchdog`, which saves, replaces
-//! and restores them, and restores them on its own when the helper is gone.
-
 mod client;
 mod lease;
 pub(super) mod watchdog;
@@ -68,8 +63,7 @@ impl Drop for ChildWire {
 }
 
 /// Starts a watchdog outside this process's job, so a kill of the helper (the
-/// core's timeout retires it) does not take the watchdog with it
-/// (LaunchDetachedWatchdog, which used WMI for the same independence). A job
+/// core's timeout retires it) does not take the watchdog with it. A job
 /// that forbids breakaway refuses the start, and the action with it: a theme
 /// that nothing would restore is never applied.
 fn launch() -> Result<ChildWire, String> {

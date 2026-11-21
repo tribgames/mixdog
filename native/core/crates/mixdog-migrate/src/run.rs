@@ -497,12 +497,6 @@ impl Migrator {
         Ok(Front::Pending(back))
     }
 
-    /// The profile a completed migration still has to migrate: one is named now and the
-    /// migration was completed with none (the core or CLI ran standalone first). A migration that
-    /// completed with a profile never takes another, so a different one named later is ignored
-    /// and its files are never read, moved or deleted; the migrated `remote/*` is never
-    /// overwritten. Once the late manifest is published every resume continues with its recorded
-    /// profile, whatever the run names (even none).
     fn late_profile(&self, complete: &Complete) -> Result<Option<PathBuf>> {
         let data = &self.roots.data;
         let late = durable::read_optional(&data.join(LATE_MANIFEST_PATH))?;
@@ -898,7 +892,10 @@ impl Migrator {
             }
             shared.record(&format!("disposed:{k}"), JournalRecord::Disposed(KeyEntry { key: key(item) }))?;
         }
-        // A shared file goes once every consumer is disposed, unless one keeps it.
+        self.dispose_shared_files(shared, &cx)
+    }
+
+    fn dispose_shared_files(&self, shared: &Shared<'_>, cx: &ItemContext<'_>) -> Result<()> {
         let by_key: BTreeMap<&str, &ManifestItem> = shared.manifest.items.iter().map(|i| (i.key.as_str(), i)).collect();
         for file in &shared.manifest.shared {
             let mut keep = false;

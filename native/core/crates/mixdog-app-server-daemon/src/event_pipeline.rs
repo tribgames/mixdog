@@ -1,17 +1,3 @@
-//! The parser-only webhook event pipeline (Node `channels/lib/event-pipeline.mjs`,
-//! `event-queue.mjs`, and the parsers of `executor.mjs`).
-//!
-//! A webhook whose endpoint has no table row goes to the rule of `config.events.rules` with its
-//! name: the body is parsed (`github`, `sentry`, `generic`, else the raw JSON), filtered, and the
-//! rule's template, every value fenced as untrusted, becomes a prompt that is queued on disk
-//! under `<data>/events/queue`. A tick claims each queued event (a rename into `in-progress`),
-//! hands it to the Lead as a `webhook` channel injection and moves it to `processed`; a failed
-//! injection puts it back, and the fifth failure dead-letters it. Low-priority events are held
-//! and injected as one batch per rule name every `batchInterval` minutes.
-//!
-//! Not ported: the multi-process owner gate (`ownerTickAllowed`). One daemon owns the data
-//! directory here, so no second process can tick the same queue.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -623,10 +609,6 @@ impl EventPipeline {
         }
     }
 
-    /// `start()`: directories, stranded events, then the ticks until `stop`: the first tick after
-    /// three seconds and each `tickInterval` seconds after, the batch every `batchInterval`
-    /// minutes. Needs the proof that startup finished (the ownership lock, the claim barrier and
-    /// the migration): the queue directories are not touched before then.
     pub async fn run(self: Arc<Self>, _started: crate::startup::Started, stop: CancellationToken) {
         if let Err(error) = self.ensure_dirs().await {
             tracing::warn!("{error}");

@@ -1,10 +1,3 @@
-//! Explicit `cachedContents` for the Gemini API (`_ensureGeminiCache`,
-//! `_joinOrCreateGeminiCache`, `_createGeminiCache`, `_scheduleGeminiCacheDelete`
-//! of `gemini.mjs`): attach a session's live cache, reuse one another session
-//! made, or create or refresh one; a request forked from a shared prefix only
-//! reads the session's live cache. No timer lives here: the runtime seam
-//! ([`CacheRuntime`]) runs the detached create and the delayed delete.
-
 use crate::transport::deadlines::CACHE_CREATE;
 use crate::transport::deadlines::CACHE_DELETE;
 use std::sync::Arc;
@@ -312,11 +305,6 @@ impl Drop for FlightGuard {
 }
 
 impl CreateJob {
-    /// `_createGeminiCache`: never fails; a failure resolves `None` so every
-    /// waiter proceeds uncached and the next turn tries again.
-    ///
-    /// Bounded by `PROVIDER_CACHE_CREATE_TOTAL_TIMEOUT_MS`: at the deadline the
-    /// request is dropped and the flight resolves `None` for every joiner.
     async fn run(mut self, done: oneshot::Sender<Option<CacheEntry>>) {
         let deadline = self.runtime.deadline(self.tuning.create_total_ms as u64);
         let entry = match select(Box::pin(self.create()), deadline).await {
@@ -330,10 +318,6 @@ impl CreateJob {
         self.guard.disarm();
     }
 
-    /// `withRetry` around the POST (`_postGeminiCacheCreate`): the shared
-    /// verdict decides retry and delay from the typed error; each attempt is
-    /// bounded by `PROVIDER_CACHE_CREATE_TIMEOUT_MS`. A spent or surfaced
-    /// failure resolves `None`, as Node's catch does.
     async fn create(&self) -> Option<CacheEntry> {
         let policy = create_retry_policy(&self.tuning);
         let mut state = RetryState::new(RetryClass::Request, self.model.clone());

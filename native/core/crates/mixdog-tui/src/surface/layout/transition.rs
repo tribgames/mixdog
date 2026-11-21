@@ -1,6 +1,4 @@
-//! `shell-layout/panel-transition.mjs` and `app/use-panel-transition.mjs`: one-commit handling of a bottom-cluster layout
-//! change (which reclaimed rows get masked blank, which borrow a transitional guard row, and the transition record the next
-//! commit reads back) and the bookkeeping after every layout commit.
+//! One-commit handling of a bottom-cluster layout change (which reclaimed rows get masked blank, which borrow a transitional guard row, and the transition record the next commit reads back) and the bookkeeping after every layout commit.
 
 use super::budgets::Budgets;
 use super::surfaces::LiveHints;
@@ -29,13 +27,6 @@ pub(super) struct Transition {
     pub panel_close_ink_mask_rows: usize,
 }
 
-/// Rows the same commit already backfills, so masking them blank for one commit would only bounce the transcript:
-/// - Turn-end spinner meta collapse: the 2-row live-spinner band disappears in the same commit the engine appends the
-///   turndone or statusdone tail. The done row must have been appended in this commit (the tail id changed): a command
-///   spinner can leave a stale done row at the tail and then clear without appending statusdone (`/recall`), collapsing the
-///   meta band with no backfill.
-/// - Queued-band promotion: draining removes the queued band and appends the promoted user transcript row in the same
-///   commit. Queue edits and removals without a tail append keep the mask.
 fn same_commit_backfill_rows(prev_signature: &str, next_signature: &str, latest: Option<&TranscriptTail>, previous_tail_id: Option<&str>) -> usize {
     let spinner_meta_collapse_rows = if mixdog_tui_widgets::spinner::is_completed_transcript_tail_appended_this_commit(
         latest.map(|item| mixdog_tui_widgets::spinner::TranscriptTail { kind: &item.kind, id: item.id.as_deref() }),
@@ -61,11 +52,6 @@ pub(super) fn resolve_panel_transition(input: &ShellLayoutInput, budgets: &Budge
     if panel_layout_changed {
         let shrink_rows = transition.reserve.saturating_sub(budgets.bottom_cluster_rows);
         let initial_project_entry_close = input.state.item_count == 0;
-        // Prompt-row-only churn (promptBoxRows, promptMetaRows or queuedRows shifting while no panel opened, closed or
-        // changed kind and floatingPanelRows itself is unchanged) must not fall into the clearRows and timer recommit
-        // path: that inserts a full extra blank row for one commit, which is the newline add and remove jolt while typing.
-        // A shrink goes through the same one-commit ink mask as an instant panel close so the stale row is masked in the
-        // very commit it disappears; growth needs no clearance (the shrink is 0 then).
         let prompt_rows_only_change = shrink_rows > 0 && panel_kind_signature(&transition.signature) == panel_kind_signature(signature);
         let instant_panel_close =
             shrink_rows > 0 && (prompt_rows_only_change || is_instant_panel_close_transition(&transition.signature, signature, initial_project_entry_close));

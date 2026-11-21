@@ -1,8 +1,3 @@
-//! Randomized model test of the catalog's message state. Operation sequences (append,
-//! amend, rewind, fork at any position, compaction, header change, a base projected late,
-//! a restart at any step) run against the real writer with tiny step budgets; after every
-//! settle the catalog rows must equal an oracle that recomputes each session naively from
-//! its log, with no incremental state. Seeds that ever failed stay in `REGRESSIONS`.
 #![allow(clippy::disallowed_types, reason = "test-only model over the sqlite projection")]
 
 use std::path::PathBuf;
@@ -464,6 +459,36 @@ fn describe(f: &F) -> String {
     }
 }
 
+fn dump(w: &World) {
+    let mut stmt =
+        w.w.conn
+            .prepare(
+                "SELECT session, valid_from, base, position, cut, state, scanning, hop_session, hop_time, hop_cut,
+             cur_ordinal, cur_idx FROM message_views",
+            )
+            .expect("views");
+    let rows = stmt.query_map([], |r| Ok(format!("view {:?}", (0..12).map(|i| format!("{:?}", r.get_ref(i).unwrap())).collect::<Vec<_>>()))).expect("rows");
+    for r in rows {
+        eprintln!("{}", r.expect("row"));
+    }
+    for (id, p) in
+        w.w.conn
+            .prepare("SELECT id, projected_ordinal FROM sessions")
+            .expect("sessions")
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .expect("rows")
+            .map(|r| r.expect("row"))
+    {
+        eprintln!("session {id} projected {p}");
+    }
+    for s in &w.model {
+        eprintln!("{} start={} submitted={}", s.id, s.start, s.submitted);
+        for (k, f) in s.frames.iter().enumerate() {
+            eprintln!("  {} {}", s.start + k as i64, describe(f));
+        }
+    }
+}
+
 fn run(seed: u64) {
     let world = std::cell::RefCell::new(None::<World>);
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -481,37 +506,7 @@ fn run(seed: u64) {
         && std::env::var("MIXDOG_MODEL_DUMP").is_ok()
         && let Ok(w) = world.try_borrow()
     {
-        {
-            let w = w.as_ref().expect("set");
-            let mut stmt =
-                w.w.conn
-                    .prepare(
-                        "SELECT session, valid_from, base, position, cut, state, scanning, hop_session, hop_time, hop_cut,
-                     cur_ordinal, cur_idx FROM message_views",
-                    )
-                    .expect("views");
-            let rows =
-                stmt.query_map([], |r| Ok(format!("view {:?}", (0..12).map(|i| format!("{:?}", r.get_ref(i).unwrap())).collect::<Vec<_>>()))).expect("rows");
-            for r in rows {
-                eprintln!("{}", r.expect("row"));
-            }
-            for (id, p) in
-                w.w.conn
-                    .prepare("SELECT id, projected_ordinal FROM sessions")
-                    .expect("sessions")
-                    .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
-                    .expect("rows")
-                    .map(|r| r.expect("row"))
-            {
-                eprintln!("session {id} projected {p}");
-            }
-            for s in &w.model {
-                eprintln!("{} start={} submitted={}", s.id, s.start, s.submitted);
-                for (k, f) in s.frames.iter().enumerate() {
-                    eprintln!("  {} {}", s.start + k as i64, describe(f));
-                }
-            }
-        }
+        dump(w.as_ref().expect("set"));
     }
     if let Err(e) = outcome {
         let message = e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| (*s).to_owned()));

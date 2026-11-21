@@ -1,8 +1,5 @@
 //! The command-settled hook: a finished shell, terminal or git command (and the end of a
-//! background shell task) is a boundary for the turn review of the worktree it ran in. Node
-//! `tool-exec.mjs` (`noteCommandToolSettled(effectiveToolCwd(...))`) and `background-tasks.mjs`
-//! (`completeBackgroundTask`) signal it; `runtime-review-api.mjs` turns it into
-//! `noteTurnWorktreeChange(cwd ? [cwd] : null)`.
+//! background shell task) is a boundary for the turn review of the worktree it ran in.
 
 use std::path::Component;
 use std::path::Path;
@@ -41,10 +38,9 @@ impl Drop for SettleGuard {
     }
 }
 
-/// `effectiveShellCwd(args, sessionCwd)`: the `cwd` argument (home-expanded, resolved against the
-/// session cwd), or the session cwd when it is not a non-blank string. Nothing is checked on disk.
-/// `None` when `requested` names the home folder (`~`, `~/x`) and none can be resolved (`homedir()` throws in Node): a
-/// caller that runs something there must refuse rather than use another folder.
+/// The `cwd` argument (home-expanded, resolved against the session cwd), or the session cwd when it is not a
+/// non-blank string. Nothing is checked on disk. `None` when `requested` names the home folder (`~`, `~/x`) and none
+/// can be resolved: a caller that runs something there must refuse rather than use another folder.
 pub(crate) fn resolved_shell_cwd(session_cwd: &Path, requested: Option<&str>) -> Option<String> {
     resolve_shell_cwd(session_cwd, requested, dirs::home_dir())
 }

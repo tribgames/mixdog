@@ -1,8 +1,3 @@
-//! The loop's send path into the side-question store (Node `captureSideQuestionRequest`): each logical send
-//! records the request it is sending as the session's latest, keeps it once the reply proceeds and puts
-//! the previous one back when the send fails. A compaction summary forks it through [`ForkSender`]; a `/btw`
-//! side question forks the request the store keeps.
-
 use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
@@ -74,10 +69,6 @@ impl SendTap for RunTap {
     }
 
     fn begin_shared(&self, shared: &Arc<ModelRequest>) -> Box<dyn SendTicket> {
-        // The store keeps the request the loop sent, shared with the loop (no copy), its tail reminder included: what it is
-        // used as is the request without the reminder (Node captures the messages before `sendWithRecovery` adds it), which
-        // a fork (`forked_request` starts from `kept_messages`), a warm and a request snapshot (`without_tail_reminder`)
-        // take when they read it, each adding the reminder of its own moment; the shared prefix counts the messages before it.
         let shared = shared.clone();
         let request = shared.as_ref();
         let side = &self.side;

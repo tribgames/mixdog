@@ -147,8 +147,9 @@ impl AskpassServer {
         result
     }
 
-    async fn start_in(&self, helper: &Path, folders: &mut Vec<PathBuf>) -> io::Result<AskpassSession> {
-        let script = if self.platform.is_windows() && !is_plain_path(helper) {
+    /// The path ssh runs as `SSH_ASKPASS`: the helper itself, or on Windows a copy in a plain-path folder when its own path is not plain.
+    async fn stage_helper(&self, helper: &Path, folders: &mut Vec<PathBuf>) -> io::Result<PathBuf> {
+        if self.platform.is_windows() && !is_plain_path(helper) {
             let base = self.plain_base.clone().ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidInput, "the askpass helper's path is not plain ASCII and no plain folder is available for a copy")
             })?;
@@ -163,10 +164,14 @@ impl AskpassServer {
             });
             let (from, to) = (helper.to_path_buf(), target.clone());
             on_lane(self.io, move |lane| mixdog_fsio::copy(lane, from, to)).await??;
-            target
+            Ok(target)
         } else {
-            helper.to_path_buf()
-        };
+            Ok(helper.to_path_buf())
+        }
+    }
+
+    async fn start_in(&self, helper: &Path, folders: &mut Vec<PathBuf>) -> io::Result<AskpassSession> {
+        let script = self.stage_helper(helper, folders).await?;
         let token = random_hex(24);
         let (endpoint, control_dir) = if cfg!(windows) {
             (format!(r"\\.\pipe\mixdog-askpass-{}", random_hex(12)), None)
@@ -287,6 +292,20 @@ struct Answers {
     handed: HashMap<(String, usize), Zeroizing<String>>,
 }
 
+impl Answers {
+    /// The slot of the authentication `asker` is making of `prompt`, and whether that process asked it before.
+    fn authentication(&mut self, asker: Asker, prompt: &str) -> (usize, bool) {
+        let seen = self.seen.entry((asker.child, prompt.to_owned())).or_default();
+        match seen.iter().position(|process| *process == asker.process) {
+            Some(slot) => (slot, true),
+            None => {
+                seen.push(asker.process);
+                (seen.len() - 1, false)
+            }
+        }
+    }
+}
+
 fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -303,17 +322,7 @@ impl Inner {
         }
         let kind = classify_prompt(prompt);
         let reusable = matches!(kind, AskpassKind::Passphrase | AskpassKind::Password);
-        let (slot, again) = {
-            let mut held = locked(&self.answers);
-            let seen = held.seen.entry((asker.child, prompt.to_owned())).or_default();
-            match seen.iter().position(|process| *process == asker.process) {
-                Some(slot) => (slot, true),
-                None => {
-                    seen.push(asker.process);
-                    (seen.len() - 1, false)
-                }
-            }
-        };
+        let (slot, again) = locked(&self.answers).authentication(asker, prompt);
         let key = (prompt.to_owned(), slot);
         let retry = reusable && again;
         let reused = {

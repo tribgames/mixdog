@@ -187,10 +187,8 @@ enum EntrySlot {
     Failed(FailedEntry),
 }
 
-// Task Manager groups its Processes rows by AppUserModelID, so a helper with no
-// identity of its own lists itself beside the app that spawned it rather than
-// inside it. Claim the desktop app's AUMID (electron-builder.yml `appId`); see
-// mixdog-graph/src/main.rs for the full account. Cosmetic and best-effort.
+// Task Manager groups Processes rows by AppUserModelID: claiming the desktop app's AUMID
+// (electron-builder.yml `appId`) lists this helper inside the app. Cosmetic, best-effort.
 #[cfg(windows)]
 fn adopt_desktop_app_identity() {
     use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
@@ -209,7 +207,14 @@ fn main() {
     }
 }
 
-fn run() -> Result<(), String> {
+enum Command {
+    Help,
+    Server,
+    Edit { path: PathBuf, old_len: usize, new_len: usize, replace_all: bool, dry_run: bool },
+    Patch { base: PathBuf, dry_run: bool, timing_json: bool, opts: ApplyOptions },
+}
+
+fn parse_cli() -> Result<Command, String> {
     let mut base = env::current_dir().map_err(|e| e.to_string())?;
     let mut dry_run = false;
     let mut timing_json = false;
@@ -275,32 +280,47 @@ fn run() -> Result<(), String> {
                      mixdog-patch --edit --path FILE --old-len N --new-len N \
                      [--replace-all 0|1] [--dry-run] < old+new-bytes"
                 );
-                return Ok(());
+                return Ok(Command::Help);
             }
             other => return Err(format!("unknown argument: {other}")),
         }
     }
 
     if server {
-        return run_server();
+        return Ok(Command::Server);
     }
-
     if let Some(path) = edit_path {
         let old_len = edit_old_len.ok_or_else(|| "--edit requires --old-len".to_string())?;
         let new_len = edit_new_len.ok_or_else(|| "--edit requires --new-len".to_string())?;
-        let total = old_len.checked_add(new_len).ok_or_else(|| "--edit payload length overflow".to_string())?;
-        let mut payload = vec![0u8; total];
-        io::stdin().read_exact(&mut payload).map_err(|e| format!("read edit payload: {e}"))?;
-        let new_bytes = payload.split_off(old_len);
-        let old_bytes = payload;
-        let (stats, tier) = apply_invariant_safe_edit_to_path(&path, &old_bytes, &new_bytes, edit_replace_all, dry_run)?;
-        println!("{}", stats.ok_line(tier));
-        return Ok(());
+        return Ok(Command::Edit { path, old_len, new_len, replace_all: edit_replace_all, dry_run });
     }
+    Ok(Command::Patch { base, dry_run, timing_json, opts })
+}
 
+fn run() -> Result<(), String> {
+    match parse_cli()? {
+        Command::Help => Ok(()),
+        Command::Server => run_server(),
+        Command::Edit { path, old_len, new_len, replace_all, dry_run } => run_edit(&path, old_len, new_len, replace_all, dry_run),
+        Command::Patch { base, dry_run, timing_json, opts } => run_patch(&base, dry_run, timing_json, &opts),
+    }
+}
+
+fn run_edit(path: &Path, old_len: usize, new_len: usize, replace_all: bool, dry_run: bool) -> Result<(), String> {
+    let total = old_len.checked_add(new_len).ok_or_else(|| "--edit payload length overflow".to_string())?;
+    let mut payload = vec![0u8; total];
+    io::stdin().read_exact(&mut payload).map_err(|e| format!("read edit payload: {e}"))?;
+    let new_bytes = payload.split_off(old_len);
+    let old_bytes = payload;
+    let (stats, tier) = apply_invariant_safe_edit_to_path(path, &old_bytes, &new_bytes, replace_all, dry_run)?;
+    println!("{}", stats.ok_line(tier));
+    Ok(())
+}
+
+fn run_patch(base: &Path, dry_run: bool, timing_json: bool, opts: &ApplyOptions) -> Result<(), String> {
     let mut patch = String::new();
     io::stdin().read_to_string(&mut patch).map_err(|e| format!("read stdin: {e}"))?;
-    let stats = apply_patch_to_base(&base, &patch, dry_run, &opts)?;
+    let stats = apply_patch_to_base(base, &patch, dry_run, opts)?;
     if timing_json {
         eprintln!(
             "{{\"files\":{},\"failed\":{},\"read_ms\":{:.3},\"apply_ms\":{:.3},\"hash_ms\":{:.3},\"write_ms\":{:.3},\"total_ms\":{:.3}}}",
@@ -331,50 +351,47 @@ pub fn apply_patch_to_base(base: &Path, patch: &str, dry_run: bool, opts: &Apply
     }
 
     let total_start = Instant::now();
+    let canonical_base = canonicalize_base(base)?;
+    let slots = plan_entries(&canonical_base, entries, opts)?;
+    let mut stats = if opts.reject_partial { apply_all_or_nothing(slots, &canonical_base, dry_run)? } else { apply_isolated(slots, &canonical_base, dry_run) };
+    stats.total_ms = total_start.elapsed().as_secs_f64() * 1000.0;
+    Ok(stats)
+}
+
+fn apply_all_or_nothing(slots: Vec<EntrySlot>, canonical_base: &Path, dry_run: bool) -> Result<ApplyStats, String> {
     let mut read_ms = 0.0f64;
     let mut apply_ms = 0.0f64;
     let mut write_ms = 0.0f64;
-
-    let canonical_base = canonicalize_base(base)?;
-    let slots = plan_entries(&canonical_base, entries, opts)?;
-
-    if opts.reject_partial {
-        if let Some(EntrySlot::Failed(f)) = slots.iter().find(|s| matches!(s, EntrySlot::Failed(_))) {
-            return Err(format!("{}: {}", f.descriptor, f.reason));
-        }
-        let mut plans: Vec<PlannedWrite> = Vec::with_capacity(slots.len());
-        for slot in slots {
-            if let EntrySlot::Planned(p) = slot {
-                read_ms += p.read_ms;
-                apply_ms += p.apply_ms;
-                plans.push(p.plan);
-            }
-        }
-        if !dry_run {
-            let mut applied_idx: Vec<usize> = Vec::new();
-            for (idx, plan) in plans.iter().enumerate() {
-                let t = Instant::now();
-                if let Err(err) = persist_plan(plan, &canonical_base) {
-                    let rollback_errors = rollback_applied(&plans, applied_idx);
-                    return Err(format_rollback_failure(&err, &rollback_errors));
-                }
-                write_ms += t.elapsed().as_secs_f64() * 1000.0;
-                applied_idx.push(idx);
-            }
-        }
-        return Ok(ApplyStats {
-            files: plans.len(),
-            failed: Vec::new(),
-            read_ms,
-            apply_ms,
-            hash_ms: 0.0,
-            write_ms,
-            total_ms: total_start.elapsed().as_secs_f64() * 1000.0,
-            content_hashes: content_hashes(&plans),
-        });
+    if let Some(EntrySlot::Failed(f)) = slots.iter().find(|s| matches!(s, EntrySlot::Failed(_))) {
+        return Err(format!("{}: {}", f.descriptor, f.reason));
     }
+    let mut plans: Vec<PlannedWrite> = Vec::with_capacity(slots.len());
+    for slot in slots {
+        if let EntrySlot::Planned(p) = slot {
+            read_ms += p.read_ms;
+            apply_ms += p.apply_ms;
+            plans.push(p.plan);
+        }
+    }
+    if !dry_run {
+        let mut applied_idx: Vec<usize> = Vec::new();
+        for (idx, plan) in plans.iter().enumerate() {
+            let t = Instant::now();
+            if let Err(err) = persist_plan(plan, canonical_base) {
+                let rollback_errors = rollback_applied(&plans, applied_idx);
+                return Err(format_rollback_failure(&err, &rollback_errors));
+            }
+            write_ms += t.elapsed().as_secs_f64() * 1000.0;
+            applied_idx.push(idx);
+        }
+    }
+    Ok(ApplyStats { files: plans.len(), failed: Vec::new(), read_ms, apply_ms, hash_ms: 0.0, write_ms, total_ms: 0.0, content_hashes: content_hashes(&plans) })
+}
 
-    // Isolation mode: per-entry independent application, no rollback of prior success.
+fn apply_isolated(slots: Vec<EntrySlot>, canonical_base: &Path, dry_run: bool) -> ApplyStats {
+    let mut read_ms = 0.0f64;
+    let mut apply_ms = 0.0f64;
+    let mut write_ms = 0.0f64;
     let mut applied_plans: Vec<PlannedWrite> = Vec::new();
     let mut failed: Vec<FailedEntry> = Vec::new();
     for slot in slots {
@@ -387,7 +404,7 @@ pub fn apply_patch_to_base(base: &Path, patch: &str, dry_run: bool, opts: &Apply
                     continue;
                 }
                 let t = Instant::now();
-                match persist_plan(&planned.plan, &canonical_base) {
+                match persist_plan(&planned.plan, canonical_base) {
                     Ok(()) => {
                         write_ms += t.elapsed().as_secs_f64() * 1000.0;
                         applied_plans.push(planned.plan);
@@ -398,16 +415,7 @@ pub fn apply_patch_to_base(base: &Path, patch: &str, dry_run: bool, opts: &Apply
             EntrySlot::Failed(f) => failed.push(f),
         }
     }
-    Ok(ApplyStats {
-        files: applied_plans.len(),
-        failed,
-        read_ms,
-        apply_ms,
-        hash_ms: 0.0,
-        write_ms,
-        total_ms: total_start.elapsed().as_secs_f64() * 1000.0,
-        content_hashes: content_hashes(&applied_plans),
-    })
+    ApplyStats { files: applied_plans.len(), failed, read_ms, apply_ms, hash_ms: 0.0, write_ms, total_ms: 0.0, content_hashes: content_hashes(&applied_plans) }
 }
 
 /// One content hash per written plan, `-` for a delete (which has none).
@@ -415,10 +423,6 @@ fn content_hashes(plans: &[PlannedWrite]) -> Vec<String> {
     plans.iter().map(|plan| plan.content_hash.clone().unwrap_or_else(|| "-".to_string())).collect()
 }
 
-/// Undo the entries already written by this batch, newest first, collecting
-/// every restore that could not be performed. The failing entry itself is NOT
-/// in `applied_idx`: `persist_plan` either wrote nothing or reports its own
-/// leftovers in its error, so the two together describe the whole disk state.
 fn rollback_applied(plans: &[PlannedWrite], applied_idx: Vec<usize>) -> Vec<String> {
     let mut errors = Vec::new();
     for done_idx in applied_idx.into_iter().rev() {
@@ -429,10 +433,6 @@ fn rollback_applied(plans: &[PlannedWrite], applied_idx: Vec<usize>) -> Vec<Stri
     errors
 }
 
-/// A failed all-or-nothing batch rolls back the files already written. Any
-/// path that could NOT be restored travels back with the error: the caller
-/// must never be told "nothing was written" while a file is left mid-patch.
-/// Bounded so a wide batch cannot produce an unbounded error line.
 fn format_rollback_failure(err: &str, rollback_errors: &[String]) -> String {
     if rollback_errors.is_empty() {
         return err.to_string();
@@ -522,12 +522,6 @@ fn plan_modify(base: &Path, entry: &Entry, fuzz_factor: usize, descriptor: Strin
     if entry.hunks.is_empty() {
         return Err(format!("{} has no hunks", entry.old_file));
     }
-    // Reject renames / path changes. A unified diff whose headers name
-    // different paths (e.g. `--- a/foo` / `+++ b/bar`) is a rename and
-    // mixdog patch does not support it. Without this guard the new_file
-    // is ignored and the hunks are silently written back to old_file,
-    // corrupting the wrong path. Compare the diff-prefix-stripped paths
-    // so cosmetic `a/`/`b/` differences are not treated as renames.
     if strip_diff_prefix(&entry.old_file) != strip_diff_prefix(&entry.new_file) {
         return Err(format!(
             "rename/path change not supported: header maps {} -> {}; \
@@ -604,10 +598,6 @@ fn plan_create(base: &Path, entry: &Entry, descriptor: String) -> Result<Planned
 fn plan_delete(base: &Path, entry: &Entry, fuzz_factor: usize, descriptor: String) -> Result<PlannedEntry, String> {
     let path = resolve_entry_path(base, &entry.old_file)?;
     let t = Instant::now();
-    // Hunkless-delete preflight (mirrors patch.mjs:407-412): a delete entry
-    // with zero hunks must only remove a file whose on-disk size is 0.
-    // Stat first; refuse if it cannot be statted or size != 0, so a
-    // non-empty file is never silently deleted by an empty-hunk patch.
     let metadata = fs::metadata(&path).map_err(|e| format!("stat {} for delete: {e}", path.display()))?;
     if entry.hunks.is_empty() && metadata.len() != 0 {
         return Err(format!(

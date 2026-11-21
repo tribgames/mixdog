@@ -1,13 +1,9 @@
-//! The script interpreter of the install, for the one thing the Office engine hands to it: a pptxgenjs authoring script.
-//!
-//! Node ran the script inside its own process (`runPptxAuthoringScript`). Here the same function runs in a process of the
-//! interpreter the install carries, started for the call: `<program> <package root>/src/runtime/office/authoring/pptx-script-entry.mjs`
-//! with the request on standard input, and the answer of the function comes back as one line of standard output after a marker.
-//! The process that hosts the engine names the interpreter once ([`install`]); where none was named the route says so.
+//! A pptxgenjs script runs in a process of the install's interpreter, `<program> <package root>/src/runtime/office/authoring/pptx-script-entry.mjs`:
+//! the request on standard input, the answer as one line of standard output after [`ANSWER_MARKER`].
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -80,6 +76,30 @@ fn read_all(pipe: Option<Box<dyn Read + Send>>) -> std::thread::JoinHandle<Vec<u
 
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs on the thread of the script run: starts the interpreter and blocks on its pipes")]
 fn run_blocking(runtime: &ScriptRuntime, request: &str, limit: Duration) -> Result<Value, String> {
+    let mut child = spawn_interpreter(runtime)?;
+    let stdin = child.stdin.take();
+    let out = read_all(child.stdout.take().map(|pipe| Box::new(pipe) as Box<dyn Read + Send>));
+    let err = read_all(child.stderr.take().map(|pipe| Box::new(pipe) as Box<dyn Read + Send>));
+    let request = request.to_owned();
+    let feeder = std::thread::spawn(move || {
+        if let Some(mut pipe) = stdin {
+            let _ = pipe.write_all(request.as_bytes());
+        }
+    });
+    let status = wait_for_exit(&mut child, limit)?;
+    let _ = feeder.join();
+    let out = String::from_utf8_lossy(&out.join().unwrap_or_default()).into_owned();
+    let err = String::from_utf8_lossy(&err.join().unwrap_or_default()).into_owned();
+    let Some(status) = status else {
+        return Ok(
+            json!({ "ok": false, "error": { "message": "Authoring script exceeded 90000 ms", "line": null, "excerpt": "" }, "logs": [], "elapsedMs": 90_000 }),
+        );
+    };
+    answer_of(&out, &err, status)
+}
+
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs on the thread of the script run: starts the interpreter")]
+fn spawn_interpreter(runtime: &ScriptRuntime) -> Result<Child, String> {
     let entry = runtime.package_root.join(ENTRY);
     let mut command = Command::new(&runtime.program);
     command.arg(&entry).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -94,7 +114,7 @@ fn run_blocking(runtime: &ScriptRuntime, request: &str, limit: Duration) -> Resu
         // CREATE_NO_WINDOW: the interpreter of a windowless core opens no console.
         command.creation_flags(0x0800_0000);
     }
-    let mut child = command.spawn().map_err(|error| {
+    command.spawn().map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             format!(
                 "A pptxgenjs script cannot run: the script interpreter {} is not there. Author the deck as HTML slides (a source that opens with <) instead.",
@@ -103,38 +123,29 @@ fn run_blocking(runtime: &ScriptRuntime, request: &str, limit: Duration) -> Resu
         } else {
             format!("The script interpreter {} could not start: {error}", runtime.program.display())
         }
-    })?;
-    let stdin = child.stdin.take();
-    let out = read_all(child.stdout.take().map(|pipe| Box::new(pipe) as Box<dyn Read + Send>));
-    let err = read_all(child.stderr.take().map(|pipe| Box::new(pipe) as Box<dyn Read + Send>));
-    let request = request.to_owned();
-    let feeder = std::thread::spawn(move || {
-        if let Some(mut pipe) = stdin {
-            let _ = pipe.write_all(request.as_bytes());
-        }
-    });
+    })
+}
+
+/// The exit status, or `None` when the interpreter outlived `limit` and was killed.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs on the thread of the script run: blocks on the interpreter's exit")]
+fn wait_for_exit(child: &mut Child, limit: Duration) -> Result<Option<ExitStatus>, String> {
     let started = Instant::now();
-    let status = loop {
+    loop {
         match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
+            Ok(Some(status)) => return Ok(Some(status)),
             Ok(None) if started.elapsed() >= limit => {
                 let _ = child.kill();
                 let _ = child.wait();
-                break None;
+                return Ok(None);
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(20)),
             Err(error) => return Err(format!("Waiting for the script interpreter failed: {error}")),
         }
-    };
-    let _ = feeder.join();
-    let out = String::from_utf8_lossy(&out.join().unwrap_or_default()).into_owned();
-    let err = String::from_utf8_lossy(&err.join().unwrap_or_default()).into_owned();
-    let Some(status) = status else {
-        // What the function answers for a script that outlives its limit.
-        return Ok(
-            json!({ "ok": false, "error": { "message": "Authoring script exceeded 90000 ms", "line": null, "excerpt": "" }, "logs": [], "elapsedMs": 90_000 }),
-        );
-    };
+    }
+}
+
+/// The function's answer after the marker on standard output; what it threw is an error.
+fn answer_of(out: &str, err: &str, status: ExitStatus) -> Result<Value, String> {
     let answer = out.rfind(ANSWER_MARKER).map(|at| out[at + ANSWER_MARKER.len()..].lines().next().unwrap_or_default());
     let Some(answer) = answer.and_then(|line| serde_json::from_str::<Value>(line).ok()) else {
         let said = err.trim();

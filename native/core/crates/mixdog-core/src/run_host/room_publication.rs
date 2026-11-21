@@ -1,8 +1,3 @@
-//! The wiring between the index writer, the app feed and the room service: a room call publishes the catalog as Node's
-//! `deps.republishCatalog` does (`session-host.ts:353-356`, called by `agent-rooms.ts:289,312,333,345,388`): inside the call once a
-//! listing has been answered, started and not awaited before that. The daemon's composition calls this; so do the tests that
-//! prove the order.
-
 use std::sync::Arc;
 
 use mixdog_core_base::state::SectionFeedState;
@@ -598,10 +593,6 @@ mod tests {
         assert!(ids.contains(&room.as_str()), "thread/list at the reply lists the room {room}: {ids:?}");
     }
 
-    /// The room log's write and the create's room pass both send the log's row: the pass waits until the write's own notification
-    /// is out, so the client is told `thread/started` of the log before any `thread/summary/updated` of it (Node sends one catalog,
-    /// `session-host-catalog.ts:217-238`). The index writes' notifications held at their lookup, a pass waits for them; let go, the
-    /// log's first frame is `thread/started`.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_room_pass_sends_the_log_row_only_after_its_write_is_announced() {
         let world = composed().await;
@@ -633,10 +624,6 @@ mod tests {
         assert_eq!(frames.first().map(String::as_str), Some("thread/started"), "the room log's frames: {frames:?}");
     }
 
-    /// Node's room rename (`fixtures/frame-order` on `writer-order`, scenario `room-rename`) reaches the phone as one roster frame
-    /// carrying the room's row: its relay skips a publication that changes nothing (`remote-relay-catalog.ts:79-91`). The core's
-    /// rename writes the log's title (an index edge), lists the whole catalog and republishes the rooms: the app feed carries the
-    /// room's row once, with the new title and room name, and no other row, the background edge included.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_room_rename_announces_the_room_row_once() {
         let world = composed().await;
@@ -656,11 +643,6 @@ mod tests {
         assert_eq!(rows[0]["id"], room.as_str());
         assert_eq!((rows[0]["title"].as_str(), rows[0]["agentRoom"]["name"].as_str()), (Some("Renamed"), Some("Renamed")));
     }
-    /// Node's room update that removes a member, before any listing, starts the background listing and then deletes the member's
-    /// session (`agent-rooms.ts:312-315`); the deletion first awaits `listSessions()` (`session-host-lifecycle.ts:527`), which joins
-    /// the listing in flight (`session-host.ts:789-790`), so the listing reads before the deletion and publishes before it, before
-    /// the answer. The core's update lets go of the listing there and waits for its end: stopped as the deletion begins, the room's
-    /// row has been sent, the update has not answered and its reply is not queued.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn before_any_listing_a_room_update_removing_a_member_publishes_its_listing_before_the_deletion() {
         let roster = [("gh", "GH"), ("rel", "Rel"), ("qa", "QA")].map(|(id, name)| (id.to_owned(), name.to_owned())).to_vec();
@@ -763,7 +745,6 @@ mod tests {
         }
     }
 
-    /// The core composed over the files in `data` (a new folder, or the one a core before it wrote).
     async fn composed_over(
         agents: Arc<Agents>,
         data: mixdog_core_session::session::testing::DataDir,

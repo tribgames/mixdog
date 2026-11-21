@@ -1,5 +1,4 @@
-//! Owner: s4-engine-refset
-//! Refs that went stale between the snapshot and the command (`reply-ref-recovery.ts`). A read-only operation or an
+//! Refs that went stale between the snapshot and the command. A read-only operation or an
 //! input preflight may retry once against a fresh snapshot when the same element can be found again: never across a
 //! navigation, and never for a mutation, whose replay could act twice. The reply says which refs were swapped so the swap
 //! is visible, not silent.

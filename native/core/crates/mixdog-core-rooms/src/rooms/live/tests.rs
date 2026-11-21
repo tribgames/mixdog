@@ -384,11 +384,6 @@ async fn a_member_approval_resolved_in_its_thread_leaves_the_room_at_once() {
     let (_, view, _) = rig.approvals.published.lock().unwrap().last().cloned().unwrap();
     assert_eq!(view.map(|view| view.approval), Some(None));
 }
-/// `memberQuestions` (`agent-rooms.ts:424-451`): the questions of the sessions the members handed
-/// work to show on the room log, each tagged with its member, whether or not an exchange runs.
-/// One of them is answered through that member's own session, even while another member speaks,
-/// and leaves the card list at once. A changed list is published again (`noteMemberRows`), and
-/// an answered id is forgotten once the member's list drops it.
 #[tokio::test]
 async fn a_handed_off_question_shows_on_the_room_and_is_answered_through_its_member() {
     let rig = rig(&["a", "b"]).await;
@@ -641,10 +636,6 @@ async fn a_restart_marks_a_cut_off_exchange_interrupted_and_stops_its_members() 
     assert_eq!(appended[0]["meta"]["room"], json!({ "kind": "interrupted" }));
     assert!(rooms.get("room01").await.unwrap().running.is_none());
 }
-/// A plain send after a finished exchange, every revision the log's clients can see: the user's row (no exchange, no band), the
-/// band as the exchange begins (deciding) and when each member starts typing, each member's words together with the end of its
-/// typing (the room deciding who is next, never "nobody"), and the band leaving only when the room finishes. No revision shows
-/// a speaker's words with that speaker still typing, or the band missing between two speakers.
 #[tokio::test]
 async fn a_sends_exchange_shows_the_band_and_the_rows_as_one_revision_each() {
     let rig = rig(&["a", "b"]).await;

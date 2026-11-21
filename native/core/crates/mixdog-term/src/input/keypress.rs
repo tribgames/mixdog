@@ -364,7 +364,16 @@ pub fn parse_keypress(s: &str) -> Keypress {
 /// The `(input, key)` pair a handler receives for one key sequence.
 pub fn decode_key(sequence: &str) -> (String, KeyFlags) {
     let keypress = parse_keypress(sequence);
-    let mut key = KeyFlags {
+    let mut key = key_flags(&keypress);
+    let input = key_input(&keypress);
+    if input.len() == 1 && input.as_bytes()[0].is_ascii_uppercase() {
+        key.shift = true;
+    }
+    (input, key)
+}
+
+fn key_flags(keypress: &Keypress) -> KeyFlags {
+    KeyFlags {
         up_arrow: keypress.name == "up",
         down_arrow: keypress.name == "down",
         left_arrow: keypress.name == "left",
@@ -386,8 +395,10 @@ pub fn decode_key(sequence: &str) -> (String, KeyFlags) {
         caps_lock: keypress.caps_lock,
         num_lock: keypress.num_lock,
         event_type: keypress.event_type,
-    };
+    }
+}
 
+fn key_input(keypress: &Keypress) -> String {
     let mut input = if keypress.is_kitty {
         // The text-as-codepoints field of printable keys (needed when every key is reported as an escape code); not
         // printable text is suppressed, except that Ctrl+letter keeps its letter so `input == "c" && key.ctrl` still works.
@@ -410,10 +421,7 @@ pub fn decode_key(sequence: &str) -> (String, KeyFlags) {
     if let Some(stripped) = input.strip_prefix('\x1b') {
         input = stripped.to_string();
     }
-    if input.len() == 1 && input.as_bytes()[0].is_ascii_uppercase() {
-        key.shift = true;
-    }
-    (input, key)
+    input
 }
 
 /// A terminal that volunteers a CSI private reply or a fragment of one (`ESC [ ? 7 u`, `[?1;0c`, with the ESC possibly

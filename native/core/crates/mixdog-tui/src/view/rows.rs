@@ -1,13 +1,3 @@
-//! The scrolled item column of the transcript viewport (`app-view/transcript-viewport/transcript-rows.jsx`) and the viewport
-//! around it (`app-view/transcript-viewport.jsx`).
-//!
-//! The viewport is a bounded box that clips: the explicit height is what lets older rows never overprint newer ones. The
-//! newest content is pinned to its bottom edge (`justify-content: flex-end`) and older content overflows the top and is
-//! clipped. The item column inside it is as tall as its items and the spacer that holds the scroll coordinate of the older
-//! history; a scroll offset of N pushes the whole column N rows down past the bottom edge (the negative bottom margin of the
-//! Node column), bringing older rows into view. The rows that trail the column (welcome hint, panel-close mask, overlay hint
-//! band, guard band) come after it, still inside the viewport.
-
 use std::sync::Arc;
 
 use mixdog_term::frame::{Rect, Style};
@@ -48,10 +38,6 @@ pub struct MountedRows {
     pub scroll_offset: usize,
 }
 
-/// `renderTranscriptRows` item by item: every mounted item with the kind of the row above it, the live tail cut to its window
-/// while the view is pinned to the tail, and the prompt hint overprinted on the last drawn item when the overlay hint
-/// attaches there. The lines of an item are kept by `heights` while nothing that shapes them changed; the item that carries
-/// the hint is rendered with it.
 pub fn mount_rows(heights: &mut ItemHeights, input: &MountInput<'_>) -> MountedRows {
     let params = HeightParams { columns: input.frame_columns, tool_output_expanded: input.tool_output_expanded };
     let end = input.window.end_index.min(input.items.len());

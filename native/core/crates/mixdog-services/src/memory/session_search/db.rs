@@ -1,10 +1,3 @@
-//! Postgres-backed session transcript search (schema `session_search`): the
-//! raw user/assistant text of every session under a full-text index, with no
-//! embeddings. Rows are append-only: compaction may drop old messages from a
-//! session, but their search rows stay, so earlier conversation remains
-//! findable until the session itself is deleted. The one rewrite: a value
-//! marked sensitive replaces the rows that hold it (`replace_messages`).
-
 use mixdog_js::{JsRegex, js_trim, js_words, utf16_len};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 

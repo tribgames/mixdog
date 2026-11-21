@@ -120,9 +120,8 @@ fn item_of(params: &Value) -> Result<ThreadItem, String> {
     serde_json::from_value(params.get("item").cloned().unwrap_or(Value::Null)).map_err(|err| format!("item: {err}"))
 }
 
-fn tool_started(item: &ThreadItem, params: &Value) -> Option<Obs> {
+fn tool_started(item: &ThreadItem) -> Option<Obs> {
     let ThreadItem::ToolCall { id, name, input, run, .. } = item else { return None };
-    let _ = params;
     Some(Obs::ToolObserved(ToolCall { id: run.call_id.clone().unwrap_or_else(|| id.to_string()), name: name.clone(), arguments: input.clone() }))
 }
 
@@ -192,7 +191,7 @@ pub fn observe(notification: &RpcNotification) -> Vec<Obs> {
     let fail = |err: String| vec![Obs::Malformed(format!("{}: {err}", notification.method))];
     match notification.method.as_str() {
         "item/started" => match item_of(&params) {
-            Ok(item) => tool_started(&item, &params).into_iter().collect(),
+            Ok(item) => tool_started(&item).into_iter().collect(),
             Err(err) => fail(err),
         },
         "item/completed" => match item_completed(&params) {

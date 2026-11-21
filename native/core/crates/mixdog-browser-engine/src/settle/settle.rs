@@ -1,14 +1,3 @@
-//! Owner: s4-engine-settle
-//! When a page is done moving (`settle.ts`, with the DOM observer of `dom-quiet.ts` run by the host as `page/domQuiet`). A gesture
-//! is followed by three independent quiet signals, load, DOM mutations and in-flight requests, and a postcondition is sampled the
-//! same way whether it was asked for before or after the action. Nothing here decides what to do next; it only reports that the
-//! page stopped changing.
-//!
-//! The engine reads the page through a [`PageProbe`] (the facts the host pushed and the page's network ledger), polled on
-//! `mixdog_rt` timers: the old engine's `did-stop-loading` listener became a [`LOAD_POLL`] poll of the page's `loading` fact, and
-//! the network observer keeps its 75 ms poll. The host is only asked for what the engine cannot see: a render checkpoint, a DOM
-//! quiet window, the page text and a stop.
-
 use std::fmt;
 use std::future::Future;
 use std::future::poll_fn;
@@ -378,39 +367,8 @@ async fn step_settle(page: &Page<'_>, cancel: &CancelView) -> Result<Step, Settl
             // pending work is unknown, so the caller must not treat an idle network as settled.
             Ok(checkpoint) => unconfirmed = !checkpoint.reached,
             Err(error) => {
-                if cancel.is_cancelled() || error == HostCallError::Cancelled {
-                    return Err(cancelled(cancel).into());
-                }
-                // The input went out before this checkpoint: a connection lost now leaves it possibly executed, typed, not a note.
-                if error == HostCallError::ConnectionLost {
-                    return Err(SettleError::ConnectionLost);
-                }
-                // The host refused because a dialog blocks the page: the sequence is blocked, even before the page's facts say so.
-                if let HostCallError::DialogBlocking { dialog } = &error {
-                    let text = format!("A {} dialog is blocking the sequence.", dialog.kind);
-                    return Ok(Step { result: StepResult { outcome: StepKind::Blocked, text }, unconfirmed: false });
-                }
-                // The old document has nothing left to render; the navigation the input started is what the caller's load settle
-                // and reply observe next.
-                let state = page.probe.state();
-                if state.dialog.is_none() {
-                    let message = error.to_string();
-                    let replaced =
-                        !state.destroyed && matches!(error, HostCallError::Failed { .. }) && DOCUMENT_REPLACED.iter().any(|marker| message.contains(marker));
-                    if replaced {
-                        return Ok(Step { result: StepResult::completed(), unconfirmed: false });
-                    }
-                    return Ok(Step {
-                        result: StepResult {
-                            outcome: StepKind::Inconclusive,
-                            // The page itself is loaded and the gesture landed; only this reading of it failed. Say so, or the
-                            // caller abandons a page that is fine.
-                            text: format!(
-                                "The browser input executed, but its rendering checkpoint failed; input was not replayed. The page is still there \u{2014} observe it again instead of repeating the action. {message}"
-                            ),
-                        },
-                        unconfirmed: false,
-                    });
+                if let Some(step) = checkpoint_failure(page, cancel, &error)? {
+                    return Ok(step);
                 }
             }
         }
@@ -421,6 +379,38 @@ async fn step_settle(page: &Page<'_>, cancel: &CancelView) -> Result<Step, Settl
         None => StepResult::completed(),
     };
     Ok(Step { result, unconfirmed })
+}
+
+/// What a failed render checkpoint means for the step: `Some` ends it with that result, `None` falls through to the dialog check.
+fn checkpoint_failure(page: &Page<'_>, cancel: &CancelView, error: &HostCallError) -> Result<Option<Step>, SettleError> {
+    if cancel.is_cancelled() || *error == HostCallError::Cancelled {
+        return Err(cancelled(cancel).into());
+    }
+    // The input went out before this checkpoint: a connection lost now leaves it possibly executed, typed, not a note.
+    if *error == HostCallError::ConnectionLost {
+        return Err(SettleError::ConnectionLost);
+    }
+    if let HostCallError::DialogBlocking { dialog } = error {
+        let text = format!("A {} dialog is blocking the sequence.", dialog.kind);
+        return Ok(Some(Step { result: StepResult { outcome: StepKind::Blocked, text }, unconfirmed: false }));
+    }
+    let state = page.probe.state();
+    if state.dialog.is_some() {
+        return Ok(None);
+    }
+    let message = error.to_string();
+    let replaced = !state.destroyed && matches!(error, HostCallError::Failed { .. }) && DOCUMENT_REPLACED.iter().any(|marker| message.contains(marker));
+    let result = if replaced {
+        StepResult::completed()
+    } else {
+        StepResult {
+            outcome: StepKind::Inconclusive,
+            text: format!(
+                "The browser input executed, but its rendering checkpoint failed; input was not replayed. The page is still there \u{2014} observe it again instead of repeating the action. {message}"
+            ),
+        }
+    };
+    Ok(Some(Step { result, unconfirmed: false }))
 }
 
 /// `stepSettleResult`: the settle between the steps of a sequence. A step whose frame never confirmed the checkpoint gets the same

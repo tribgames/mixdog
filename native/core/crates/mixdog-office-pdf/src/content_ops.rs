@@ -1,14 +1,6 @@
-//! `pdf/pdf-batch-content.mjs`: the batch operations that draw on or fill the document: text stamps and watermarks,
-//! marks (`highlight`, `add_link`), images, OCR, and the form operations (`fill_form`, `add_form_field`,
-//! `flatten_form`, `preview_fields`). The set implements [`OperationSet`] for the batch of [`crate::adapter`]; a mark
-//! keeps the measurement of the text it was placed on for the next one (see [`crate::marks`]).
-//!
-//! Drawing on an existing page is what pdf-lib's `page.drawText`, `drawRectangle` and `drawImage` do: the page's own
-//! content is wrapped in `q` ... `Q` the first time the batch draws on it (so an unbalanced stream cannot leak its
-//! state into the stamp), the stamp is a content stream of its own appended after it, and the fonts, images and
-//! graphics states it uses are named in the page's resources. A rotated page is stamped as the reader sees it: x and y
-//! are points on the displayed page, mapped back into user space, and the run is turned by the page's own rotation so
-//! the stamp reads with the page instead of lying sideways along an edge.
+//! `pdf/pdf-batch-content.mjs`. Drawing on a page follows pdf-lib: the page's own content is wrapped in `q` ... `Q` the first
+//! time the batch draws on it (so an unbalanced stream cannot leak its state into the stamp), and a rotated page is stamped as
+//! the reader sees it: x and y are points on the displayed page, and the run is turned by the page's own rotation.
 
 use std::any::Any;
 use std::collections::HashSet;
@@ -34,7 +26,7 @@ use crate::flatten::flatten_form;
 use crate::forms::{
     FormError, FormFont, PdfForm, add_form_field, clipped_form_values, field_text, field_widgets, fill_form_values, lint_pdf_form_fields, pdf_number,
 };
-use crate::marks::{MarkBox, Measure, display_point_to_user, report_boxes, target_boxes};
+use crate::marks::{MarkBox, Measure, TargetError, display_point_to_user, report_boxes, target_boxes};
 use crate::ocr::{OcrContext, ocr_pdf};
 
 /// The operations this module runs.
@@ -374,6 +366,37 @@ struct Stamp<'a> {
     y: Option<f64>,
 }
 
+impl Stamp<'_> {
+    /// Where the run starts on the page as displayed: the given `x` and `y` are where its centre or right end stands when
+    /// aligned so, and a watermark with no `y` sits with the middle of its glyphs on the page's centre.
+    fn origin(&self, span: (f64, f64), display: (f64, f64), angle: f64) -> (f64, f64) {
+        let default_x = match self.align {
+            "center" => (display.0 - span.0) / 2.0,
+            "right" => display.0 - 36.0 - span.0,
+            _ => 36.0,
+        };
+        let mut x = self.x.unwrap_or(default_x);
+        let mut y = self.y.unwrap_or(if self.watermark { (display.1 - span.1) / 2.0 } else { 36.0 });
+        if self.x.is_some() {
+            let share = match self.align {
+                "center" => 0.5,
+                "right" => 1.0,
+                _ => 0.0,
+            };
+            x -= share * span.0;
+            if self.y.is_some() {
+                y -= share * span.1;
+            }
+        } else if self.watermark && self.y.is_none() {
+            // Latin capitals and Hangul stand about 0.7 em; half of it puts their middle on the centre.
+            let lift = 0.35 * self.size;
+            x += lift * sin(angle);
+            y -= lift * cos(angle);
+        }
+        (x, y)
+    }
+}
+
 /// The set of content operations of a batch. `ocr` and `cancel` are what `ocr_pages` reads from the call (`context`
 /// of `applyPdfBatch`: the data folder and the signal); the fonts are what a document's font is chosen from.
 pub struct ContentOperations {
@@ -422,7 +445,7 @@ fn take_measure<P: WriteProof>(state: &mut BatchState<'_, P>) -> Option<Measure>
 }
 
 /// `measureTargets`: the boxes of a mark, and the measurement kept for the next one.
-fn measure_targets<P: WriteProof>(state: &mut BatchState<'_, P>, operation: &Value) -> Result<Vec<MarkBox>, AnalysisError> {
+fn measure_targets<P: WriteProof>(state: &mut BatchState<'_, P>, operation: &Value) -> Result<Vec<MarkBox>, TargetError> {
     let held = take_measure(state);
     let (boxes, measure) = target_boxes(state.proof, &state.document, operation, held)?;
     state.measure = measure.map(|measure| Box::new(measure) as Box<dyn Any + Send>);
@@ -462,32 +485,7 @@ impl ContentOperations {
         let angle = stamp.angle * PI / 180.0;
         let span_x = text_width * cos(angle);
         let span_y = text_width * sin(angle);
-        let default_x = match stamp.align {
-            "center" => (display_width - span_x) / 2.0,
-            "right" => display_width - 36.0 - span_x,
-            _ => 36.0,
-        };
-        let mut display_x = stamp.x.unwrap_or(default_x);
-        let mut display_y = stamp.y.unwrap_or(if stamp.watermark { (display_height - span_y) / 2.0 } else { 36.0 });
-        if stamp.x.is_some() {
-            // With x, align puts the run's centre or right end there: the start at x ignored the align asked for, and
-            // a footer centred at the page's middle ran off to the right by half its width.
-            let share = match stamp.align {
-                "center" => 0.5,
-                "right" => 1.0,
-                _ => 0.0,
-            };
-            display_x -= share * span_x;
-            if stamp.y.is_some() {
-                display_y -= share * span_y;
-            }
-        } else if stamp.watermark && stamp.y.is_none() {
-            // The glyphs' middle on the page's centre, not their baseline: a 45 degree mark sat a third of its size up
-            // and to the left. Latin capitals and Hangul stand about 0.7 em.
-            let lift = 0.35 * stamp.size;
-            display_x += lift * sin(angle);
-            display_y -= lift * cos(angle);
-        }
+        let (display_x, display_y) = stamp.origin((span_x, span_y), (display_width, display_height), angle);
         let (x, y) = display_point_to_user(spin, width, height, display_x, display_y);
         let color = colour_of(stamp.color, "")?;
         assert_opacity(stamp.opacity)?;
@@ -623,10 +621,10 @@ impl ContentOperations {
         };
         let boxes = match measure_targets(state, &request) {
             Ok(boxes) => boxes,
-            Err(error) if auto_urls && error.message.contains("found no text matching") => {
+            Err(TargetError::NoText(_)) if auto_urls => {
                 return Err(plain("add_link urls:true found no http(s) address in the selected pages; pass find or a box instead"));
             }
-            Err(error) => return Err(error),
+            Err(error) => return Err(error.into()),
         };
         let refs = state.document.pages();
         // The destination page is looked up after measuring, on the document the links go into.
@@ -640,21 +638,7 @@ impl ContentOperations {
         for mark in &boxes {
             let page = *refs.get(mark.index).ok_or_else(|| plain(format!("PDF page out of range: {}", mark.index + 1)))?;
             let href = link_url(mark);
-            let mut annotation = Dict::new();
-            annotation.set("Type", Obj::name("Annot"));
-            annotation.set("Subtype", Obj::name("Link"));
-            annotation
-                .set("Rect", Obj::Array(Arc::new(vec![Obj::Num(mark.x), Obj::Num(mark.y), Obj::Num(mark.x + mark.width), Obj::Num(mark.y + mark.height)])));
-            annotation.set("Border", Obj::Array(Arc::new(vec![Obj::Num(0.0), Obj::Num(0.0), Obj::Num(0.0)])));
-            if href.is_empty() {
-                annotation.set("Dest", destination.clone().unwrap_or(Obj::Null));
-            } else {
-                let mut action = Dict::new();
-                action.set("Type", Obj::name("Action"));
-                action.set("S", Obj::name("URI"));
-                action.set("URI", crate::forms::latin1_object(&href));
-                annotation.set("A", Obj::Dict(Arc::new(action)));
-            }
+            let annotation = link_annotation(mark, &href, destination.as_ref());
             let store = state.document.store_mut();
             let reference = store.register(Obj::Dict(Arc::new(annotation)));
             crate::forms::push_array(store, page, "Annots", Obj::Ref(reference));
@@ -884,6 +868,25 @@ impl ContentOperations {
     }
 }
 
+/// A link annotation over a mark: a URI action when it has an address, else the destination page.
+fn link_annotation(mark: &MarkBox, href: &str, destination: Option<&Obj>) -> Dict {
+    let mut annotation = Dict::new();
+    annotation.set("Type", Obj::name("Annot"));
+    annotation.set("Subtype", Obj::name("Link"));
+    annotation.set("Rect", Obj::Array(Arc::new(vec![Obj::Num(mark.x), Obj::Num(mark.y), Obj::Num(mark.x + mark.width), Obj::Num(mark.y + mark.height)])));
+    annotation.set("Border", Obj::Array(Arc::new(vec![Obj::Num(0.0), Obj::Num(0.0), Obj::Num(0.0)])));
+    if href.is_empty() {
+        annotation.set("Dest", destination.cloned().unwrap_or(Obj::Null));
+    } else {
+        let mut action = Dict::new();
+        action.set("Type", Obj::name("Action"));
+        action.set("S", Obj::name("URI"));
+        action.set("URI", crate::forms::latin1_object(href));
+        annotation.set("A", Obj::Dict(Arc::new(action)));
+    }
+    annotation
+}
+
 /// `/^(https?:\/\/|mailto:)/i`.
 fn has_link_scheme(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
@@ -1046,7 +1049,7 @@ mod tests {
     }
 
     #[test]
-    fn a_highlight_by_box_is_multiplied_and_a_link_by_box_is_an_annotation() {
+    fn a_highlight_by_box_is_multiplied() {
         let (document, result) = run(batch_document(), json!({ "op": "highlight", "page": 1, "x": 10, "y": 20, "width": 30, "height": 8, "color": "#ff0000" }));
         let row = result.expect("a highlight");
         assert_eq!(row["marks"], json!(1));
@@ -1054,8 +1057,12 @@ mod tests {
         assert_eq!(row["boxes"][0]["page"], json!(1));
         let content = page_content(&document, document.pages()[0]);
         assert!(content.contains("1 0 0 rg") && content.contains("9 19") && content.contains("32 10"), "{content}");
+    }
+
+    #[test]
+    fn a_link_by_box_is_an_annotation() {
         let (document, result) =
-            run(document, json!({ "op": "add_link", "url": "https://example.test/x", "page": 1, "x": 1, "y": 2, "width": 3, "height": 4 }));
+            run(batch_document(), json!({ "op": "add_link", "url": "https://example.test/x", "page": 1, "x": 1, "y": 2, "width": 3, "height": 4 }));
         let row = result.expect("a link");
         assert_eq!(row["links"], json!(1));
         assert_eq!(row["url"], json!("https://example.test/x"));

@@ -19,7 +19,7 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 use super::body::{Pump, Step};
-use super::head::{self, HeadError, Parse, ParsedHead};
+use super::head::{self, HeadError, Headers, Parse, ParsedHead};
 use super::response::{ResponseMeta, ResponseWriter, has_word, status_message};
 use super::{Handler, RawIo, Request, UpgradeRequest, refusal_bytes};
 use crate::logline;
@@ -281,6 +281,12 @@ enum Next {
     Close,
 }
 
+enum Gate {
+    Pass,
+    Refuse(u16, &'static [(&'static str, &'static str)]),
+    Destroy,
+}
+
 enum Flow {
     /// Serve the next request.
     Next,
@@ -464,33 +470,17 @@ where
         let (pump, body) = Pump::new(framing);
         let epoch = self.shared.begin_response();
 
-        // HTTP/1.1 requires Host.
-        if minor == 1 && !headers.contains("host") {
-            drop(body);
-            return self
-                .answer(pump, started, epoch, meta, |response| {
-                    let _ = response.write_head(400, &[("Connection", "close")]);
-                    response.end(None);
-                })
-                .await;
-        }
-        if minor == 1 {
-            if let Some(expect) = headers.get("expect") {
-                if has_word(expect, "100-continue") {
-                    if let Some(wr) = self.wr.as_mut() {
-                        if wr.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").await.is_err() || wr.flush().await.is_err() {
-                            return Flow::Destroy;
-                        }
-                    }
-                } else {
-                    drop(body);
-                    return self
-                        .answer(pump, started, epoch, meta, |response| {
-                            let _ = response.write_head(417, &[]);
-                            response.end(None);
-                        })
-                        .await;
-                }
+        match self.gate(minor, &headers).await {
+            Gate::Pass => {}
+            Gate::Destroy => return Flow::Destroy,
+            Gate::Refuse(status, extra) => {
+                drop(body);
+                return self
+                    .answer(pump, started, epoch, meta, |response| {
+                        let _ = response.write_head(status, extra);
+                        response.end(None);
+                    })
+                    .await;
             }
         }
         let request = Request {
@@ -507,6 +497,28 @@ where
         let handler = self.handler.clone();
         let join = tokio::spawn(async move { handler.request(request, response).await });
         self.drive(pump, Some(join), started, epoch, &meta).await
+    }
+
+    /// What an HTTP/1.1 head must satisfy before the handler runs: a `Host`, and an `Expect` that is `100-continue` (acknowledged here).
+    async fn gate(&mut self, minor: u8, headers: &Headers) -> Gate {
+        if minor != 1 {
+            return Gate::Pass;
+        }
+        if !headers.contains("host") {
+            return Gate::Refuse(400, &[("Connection", "close")]);
+        }
+        match headers.get("expect") {
+            None => Gate::Pass,
+            Some(expect) if !has_word(expect, "100-continue") => Gate::Refuse(417, &[]),
+            Some(_) => {
+                if let Some(wr) = self.wr.as_mut() {
+                    if wr.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").await.is_err() || wr.flush().await.is_err() {
+                        return Gate::Destroy;
+                    }
+                }
+                Gate::Pass
+            }
+        }
     }
 
     /// Answers a request without the handler.

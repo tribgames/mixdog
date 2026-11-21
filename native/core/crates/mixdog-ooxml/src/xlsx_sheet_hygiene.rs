@@ -1,8 +1,3 @@
-//! `portable/xlsx-sheet-hygiene.mjs`: the workbook hygiene every profile checks (an unquoted sheet name, a link to
-//! another workbook, a percentage stored as a whole number, a year under a thousands separator, a figure stored as
-//! text) and the reading ergonomics reported as information (a long sheet whose header scrolls away, a table column of
-//! numbers left under the General format). Sheets and cells are the snapshot JSON of [`crate::xlsx_audit_support`].
-
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
@@ -133,10 +128,6 @@ fn column_format_key(column: f64, format: &str) -> String {
     format!("{}|{format}", number_to_string(column))
 }
 
-/// A quantity that happens to land between 1900 and 2100 is not a year, and a column of figures under `#,##0` will hold
-/// one sooner or later (2,096 건). The column tells them apart: the numbers beside it under the same format. Every one
-/// of them in the year range is a year column; one outside it is a quantity column that happens to pass through those
-/// four digits.
 fn numbers_by_column_format(cells: &[Value]) -> HashMap<String, Vec<f64>> {
     let mut by_column_format: HashMap<String, Vec<f64>> = HashMap::new();
     for cell in cells {
@@ -311,6 +302,27 @@ fn table_column_formats(located: &[Located<'_>], area: &Area) -> TableFormats {
     formats
 }
 
+fn audit_unfrozen_header(list: &mut IssueList, sheet: &Value, located: &[Located<'_>]) {
+    // The Office reader cuts a sheet to its first 500 cells but still names the sheet's last row.
+    let read_last = located.iter().fold(f64::NEG_INFINITY, |last, entry| last.max(entry.at.row));
+    let named_last = to_number_of(sheet.get("lastRow"));
+    let last_row = if truthy(sheet.get("truncated")) && named_last > read_last { named_last } else { read_last };
+    let header_row = located.iter().fold(f64::INFINITY, |first, entry| first.min(entry.at.row));
+    let headers = located.iter().filter(|entry| entry.at.row == header_row && entry.cell.get("dataType").and_then(Value::as_str) == Some("text")).count();
+    if last_row - header_row >= LONG_SHEET_ROWS && headers >= 2 {
+        list.push(
+            "info",
+            "header_not_frozen",
+            sheet_path(sheet),
+            format!(
+                "{} rows scroll under an unfrozen header row; freeze_panes row:{} keeps the headers in view.",
+                number_to_string(last_row - header_row),
+                number_to_string(header_row + 1.0)
+            ),
+        );
+    }
+}
+
 /// `auditSheetLayout(list, sheet, cells)`.
 pub fn audit_sheet_layout(list: &mut IssueList, sheet: &Value, cells: &[Value]) {
     let located = locate(cells);
@@ -320,25 +332,7 @@ pub fn audit_sheet_layout(list: &mut IssueList, sheet: &Value, cells: &[Value]) 
     if let Some(freeze) = sheet.get("freezePanes").filter(|freeze| freeze.is_object())
         && freeze.get("frozen") == Some(&Value::Bool(false))
     {
-        // A reading cut to its first page (the Office reader's 500 cells) still names the sheet's last row: counted from the
-        // page, a 60-row sheet read as 32 rows scrolling.
-        let read_last = located.iter().fold(f64::NEG_INFINITY, |last, entry| last.max(entry.at.row));
-        let named_last = to_number_of(sheet.get("lastRow"));
-        let last_row = if truthy(sheet.get("truncated")) && named_last > read_last { named_last } else { read_last };
-        let header_row = located.iter().fold(f64::INFINITY, |first, entry| first.min(entry.at.row));
-        let headers = located.iter().filter(|entry| entry.at.row == header_row && entry.cell.get("dataType").and_then(Value::as_str) == Some("text")).count();
-        if last_row - header_row >= LONG_SHEET_ROWS && headers >= 2 {
-            list.push(
-                "info",
-                "header_not_frozen",
-                sheet_path(sheet),
-                format!(
-                    "{} rows scroll under an unfrozen header row; freeze_panes row:{} keeps the headers in view.",
-                    number_to_string(last_row - header_row),
-                    number_to_string(header_row + 1.0)
-                ),
-            );
-        }
+        audit_unfrozen_header(list, sheet, &located);
     }
     for (index, table_area) in table_areas(sheet).iter().enumerate() {
         let formats = table_column_formats(&located, &table_area.area);

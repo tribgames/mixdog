@@ -528,18 +528,7 @@ impl Warmer {
         if !self.enabled_now() {
             return 0;
         }
-        let mut candidates = Vec::new();
-        for id in self.touches.ids() {
-            if self.state().chains.contains_key(&id) {
-                continue;
-            }
-            let Some(touch) = self.touches.get(&id) else { continue };
-            if self.deps.now() >= touch.touch_at + touch.ttl_ms - LEAD_MS {
-                self.touches.forget(&id);
-                continue;
-            }
-            candidates.push((id, touch));
-        }
+        let candidates = self.restart_candidates();
         if candidates.is_empty() {
             return 0;
         }
@@ -577,6 +566,23 @@ impl Warmer {
             armed += 1;
         }
         armed
+    }
+
+    /// The durable touches of sessions with no chain that still have more than the lead left; an expired one is dropped.
+    fn restart_candidates(&self) -> Vec<(String, Touch)> {
+        let mut candidates = Vec::new();
+        for id in self.touches.ids() {
+            if self.state().chains.contains_key(&id) {
+                continue;
+            }
+            let Some(touch) = self.touches.get(&id) else { continue };
+            if self.deps.now() >= touch.touch_at + touch.ttl_ms - LEAD_MS {
+                self.touches.forget(&id);
+                continue;
+            }
+            candidates.push((id, touch));
+        }
+        candidates
     }
 
     /// The plan of `chain` at its refresh point `at`, from the session's own idle history.

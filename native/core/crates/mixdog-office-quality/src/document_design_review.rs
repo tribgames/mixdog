@@ -1,5 +1,4 @@
-//! The design review of a natively authored Word document, workbook or PDF. Ported from
-//! `src/runtime/office/quality/document-design-review.mjs`: the structural diagnostics of the document wrapped with the
+//! The design review of a natively authored Word document, workbook or PDF: the structural diagnostics of the document wrapped with the
 //! reading guidance of its format, marked as diagnostics only (a pass is not a design approval and not the user's
 //! acceptance).
 //!

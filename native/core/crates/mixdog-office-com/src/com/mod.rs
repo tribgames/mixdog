@@ -2,15 +2,6 @@
 //! name, with the argument, result and error behaviour of Windows PowerShell 5.1's COM binder (the layer the
 //! PowerShell hosts relied on), and no knowledge of Office.
 //!
-//! * [`value`]: the [`Value`] a call takes and answers (a VARIANT kept at its exact type) and `Value::Missing`.
-//! * [`safearray`]: 1-D and 2-D SAFEARRAYs of VARIANT with their lower bounds.
-//! * [`obj`]: the [`Obj`] handle (`get`, `put`, `put_ref`, `call`, `call_named`, `enumerate`) and the binder's rules for
-//!   a null receiver and a member that does not exist.
-//! * [`errtext`]: a failed Invoke turned into the text and HRESULTs PowerShell's exception shows.
-//! * [`retry`]: `Invoke-ExcelComRetry` and `Invoke-PowerPointComRetry`.
-//! * [`calllog`]: the recording format; `live` (Windows) is the backend over `IDispatch`; `fake` (tests) is a backend
-//!   that replays a recording.
-//!
 //! The handle is `!Send`: a COM object stays on the apartment thread that made it.
 
 pub mod calllog;

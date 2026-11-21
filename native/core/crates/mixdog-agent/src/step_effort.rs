@@ -8,8 +8,8 @@
 //! hitting. A missing or failing judge leaves the step at the effort in force.
 //!
 //! The judge is local inference. It runs beside the next iteration's pre-send
-//! work, and the next request waits for it up to [`STEP_EFFORT_GRACE`] (Node
-//! `step-auto-effort.mjs`); a slower judgment lands on the request after.
+//! work, and the next request waits for it up to [`STEP_EFFORT_GRACE`]; a
+//! slower judgment lands on the request after.
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -68,8 +68,7 @@ pub trait StepEffortJudge: Send + Sync {
     async fn judge(&self, input: StepInput) -> Option<StepResult>;
 }
 
-/// How long a request waits for its step judgment (Node `STEP_EFFORT_GRACE_MS`;
-/// measured judge p90 ≈ 284 ms).
+/// How long a request waits for its step judgment (measured judge p90 ≈ 284 ms).
 pub const STEP_EFFORT_GRACE: Duration = Duration::from_millis(300);
 
 type Slot = Arc<Mutex<Option<StepResult>>>;
@@ -176,6 +175,43 @@ impl Run {
         true
     }
 
+    fn retire_previous_step(&mut self, last: &str) -> Option<Judging> {
+        let previous = self.step_effort.take()?;
+        if previous.task.0.is_finished() {
+            let result = previous.slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+            if let Some(result) = result.filter(|_| !previous.applied) {
+                self.apply_result(last, &result);
+            }
+            return None;
+        }
+        previous.superseded.store(true, Ordering::SeqCst);
+        Some(previous.task)
+    }
+
+    fn step_input(&mut self, request: String, calls: &[ToolCall], results: &[(String, String)]) -> StepInput {
+        self.auto_effort_steps += 1;
+        let plan = self
+            .messages
+            .iter()
+            .rev()
+            .find(|m| m.role() == Role::Assistant && m.tool_calls().iter().any(|c| calls.iter().any(|x| x.id == c.id)))
+            .map(|m| m.text())
+            .unwrap_or_default();
+        StepInput {
+            request,
+            step: self.auto_effort_steps,
+            plan,
+            calls: calls
+                .iter()
+                .map(|call| StepCall {
+                    name: call.name.clone(),
+                    args: args_text(call),
+                    result: results.iter().find(|(id, _)| id == &call.id).map(|(_, text)| text.clone()).unwrap_or_default(),
+                })
+                .collect(),
+        }
+    }
+
     /// After a tool batch: starts judging the next step (not awaited here).
     pub(crate) fn mark_step_effort(&mut self, calls: &[ToolCall], results_from: usize) {
         let (Some(auto), Some(judge)) = (self.config.step_auto_effort.clone(), self.env.step_judge.clone()) else {
@@ -193,43 +229,8 @@ impl Run {
         let Some(last) = results.last().map(|(id, _)| id.clone()) else {
             return;
         };
-        // A judgment that resolved after its request went out: this batch carries
-        // it. One still running is superseded: this step's judgment queues behind
-        // it and any judgment waiting in between is skipped (latest wins), so the
-        // judge never has more than one running and one queued.
-        let mut behind = None;
-        if let Some(previous) = self.step_effort.take() {
-            if previous.task.0.is_finished() {
-                let result = previous.slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
-                if let Some(result) = result.filter(|_| !previous.applied) {
-                    self.apply_result(&last, &result);
-                }
-            } else {
-                previous.superseded.store(true, Ordering::SeqCst);
-                behind = Some(previous.task);
-            }
-        }
-        self.auto_effort_steps += 1;
-        let plan = self
-            .messages
-            .iter()
-            .rev()
-            .find(|m| m.role() == Role::Assistant && m.tool_calls().iter().any(|c| calls.iter().any(|x| x.id == c.id)))
-            .map(|m| m.text())
-            .unwrap_or_default();
-        let input = StepInput {
-            request: auto.request,
-            step: self.auto_effort_steps,
-            plan,
-            calls: calls
-                .iter()
-                .map(|call| StepCall {
-                    name: call.name.clone(),
-                    args: args_text(call),
-                    result: results.iter().find(|(id, _)| id == &call.id).map(|(_, text)| text.clone()).unwrap_or_default(),
-                })
-                .collect(),
-        };
+        let behind = self.retire_previous_step(&last);
+        let input = self.step_input(auto.request, calls, &results);
         let slot: Slot = Arc::new(Mutex::new(None));
         let writer = Arc::clone(&slot);
         let superseded = Arc::new(AtomicBool::new(false));

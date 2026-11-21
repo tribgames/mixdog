@@ -1,10 +1,5 @@
-//! `repl.mjs` and `repl/runtime-handle.mjs`: the loop of the plain REPL. Banner, a prompt read through the line editor, a
-//! `/command` or a turn, and again; the turn streams the reply, prints tool cards, re-renders the text as markdown on a
-//! terminal and ends with the statusline.
-//!
-//! Node owned its runtime in process and created it on first use. The session here is a core's: it is connected before the
-//! banner (the launch of the core is the caller's), and [`Session::dispose`] is the close of the runtime handle (idempotent,
-//! so the signal path and the loop's own end may both ask for it).
+//! The loop of the plain REPL: banner, a prompt read through the line editor, a `/command` or a turn, and again. The session is
+//! connected before the banner; [`Session::dispose`] is idempotent, so the signal path and the loop's own end may both ask for it.
 
 use std::collections::VecDeque;
 use std::io;

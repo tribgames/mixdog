@@ -1,8 +1,6 @@
-//! The setup tool's `status providers` answer (`setup-tool/executor.mjs` `SETUP_STATUS_READERS.providers`
-//! with `publicProviderRows`, `configuredProviderRows` and `publicAccounts`) over the provider
-//! setup snapshot, the account roster and the quota auto-resume switch, and the roster read
-//! itself ([`ProviderRoster`], Node's `listProviderAccounts`) that `set_media_default` checks an
-//! account id against. The `StatusReader` registration is a thin adapter in `mixdog-core`.
+//! The setup tool's `status providers` answer over the provider setup snapshot, the account roster and
+//! the quota auto-resume switch, and the roster read itself ([`ProviderRoster`]) that `set_media_default`
+//! checks an account id against.
 
 use std::sync::Arc;
 

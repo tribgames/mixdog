@@ -1,6 +1,5 @@
-//! `mixdog-relay verify-release`: the non-mutating post-deploy probe (`deploy/verify-release.mjs`). No device is registered and
-//! no pairing credential is read: the WebSocket checks exercise the public upgrade route and require its origin and pairing
-//! gates to stay shut.
+//! `mixdog-relay verify-release`: the non-mutating post-deploy probe. No device is registered and no pairing credential is read:
+//! the WebSocket checks exercise the public upgrade route and require its origin and pairing gates to stay shut.
 //!
 //! Flags (`--name=value` only): `--origin`, `--expected-index`, `--expected-release`, `--address`. One JSON line on stdout and
 //! exit 0 when the release verifies; `[deploy] verification failed: <reason>` on stderr and exit 1 otherwise.
@@ -365,9 +364,18 @@ pub async fn verify_release(options: &Options) -> Result<Verified, ProbeError> {
     } else {
         return Err(ProbeError::new("Only loopback may override deployment DNS."));
     };
+    wait_for_liveness(&base, options, address).await?;
+    let ready = read_json(&base, "/readyz", options, address).await?;
+    let releases = check_readiness(&ready, options)?;
+    check_websocket(&base, options, address, false).await?;
+    check_websocket(&base, options, address, true).await?;
+    Ok(Verified { index_sha256: options.expected_index.clone(), assets: ready.get("assets").cloned().unwrap_or(Value::Null), releases })
+}
+
+async fn wait_for_liveness(base: &Url, options: &Options, address: Option<Ipv4Addr>) -> Result<(), ProbeError> {
     let deadline = Instant::now() + options.startup;
     let health = loop {
-        match read_json(&base, "/healthz", options, address).await {
+        match read_json(base, "/healthz", options, address).await {
             Ok(health) => break health,
             // Only an unbound listener is a startup race. TLS, HTTP and content failures are real failures and must reach
             // rollback immediately.
@@ -381,7 +389,11 @@ pub async fn verify_release(options: &Options) -> Result<Verified, ProbeError> {
     if health.get("status").and_then(Value::as_str) != Some("ok") {
         return Err(ProbeError::new("Relay liveness check failed."));
     }
-    let ready = read_json(&base, "/readyz", options, address).await?;
+    Ok(())
+}
+
+/// Checks the `/readyz` body against the expected digests; returns how many releases the relay serves.
+fn check_readiness(ready: &Value, options: &Options) -> Result<usize, ProbeError> {
     let index = ready.get("indexSha256").and_then(Value::as_str);
     let version = ready.get("version").and_then(Value::as_str);
     if ready.get("status").and_then(Value::as_str) != Some("ready")
@@ -392,7 +404,6 @@ pub async fn verify_release(options: &Options) -> Result<Verified, ProbeError> {
         return Err(ProbeError::new("Renderer readiness or deployed release identity does not match."));
     }
     let releases = ready.get("releases").and_then(Value::as_array);
-    // /readyz inspects every retained release; the one this deploy added must be among them with the digest that was uploaded.
     if !options.expected_release.is_empty()
         && !releases.is_some_and(|list| {
             list.iter().any(|release| {
@@ -403,13 +414,7 @@ pub async fn verify_release(options: &Options) -> Result<Verified, ProbeError> {
     {
         return Err(ProbeError::new("Added renderer release is not served side by side."));
     }
-    check_websocket(&base, options, address, false).await?;
-    check_websocket(&base, options, address, true).await?;
-    Ok(Verified {
-        index_sha256: options.expected_index.clone(),
-        assets: ready.get("assets").cloned().unwrap_or(Value::Null),
-        releases: releases.map_or(0, Vec::len),
-    })
+    Ok(releases.map_or(0, Vec::len))
 }
 /// The subcommand: the arguments after `verify-release`.
 pub fn main(args: &[String]) -> ExitCode {

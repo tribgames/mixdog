@@ -108,7 +108,6 @@ pub fn replace(text: &str, pattern: &str, replacement: &str, case_sensitive: boo
 }
 
 fn expand_replacement(template: &str, regex: &Regex, captures: &Captures<'_>, text: &str, out: &mut String) {
-    let whole = captures.get(0).expect("group 0 always matches");
     let chars: Vec<char> = template.chars().collect();
     let mut at = 0;
     while at < chars.len() {
@@ -118,94 +117,79 @@ fn expand_replacement(template: &str, regex: &Regex, captures: &Captures<'_>, te
             out.push(c);
             continue;
         }
-        let start = at;
-        let mut angled = false;
-        let mut cursor = at;
-        if cursor + 1 < chars.len() && chars[cursor] == '{' {
-            angled = true;
-            cursor += 1;
+        match substitution(&chars, at, regex, captures, text, out) {
+            Some(next) => at = next,
+            None => out.push('$'),
         }
-        let first = chars.get(cursor).copied();
-        match first {
-            Some(d) if d.is_ascii_digit() => {
-                let mut number: usize = 0;
-                let mut overflow = false;
-                while cursor < chars.len() && chars[cursor].is_ascii_digit() {
-                    match number.checked_mul(10).and_then(|n| n.checked_add(chars[cursor] as usize - '0' as usize)) {
-                        Some(n) => number = n,
-                        None => overflow = true,
-                    }
-                    cursor += 1;
-                }
-                let closed = !angled || (cursor < chars.len() && chars[cursor] == '}');
-                if closed && !overflow && number < captures.len() {
-                    if let Some(group) = captures.get(number) {
-                        out.push_str(group.as_str());
-                    }
-                    at = if angled { cursor + 1 } else { cursor };
-                    continue;
-                }
-            }
-            Some(w) if angled && (w.is_alphanumeric() || w == '_') => {
-                let mut name = String::new();
-                while cursor < chars.len() && (chars[cursor].is_alphanumeric() || chars[cursor] == '_') {
-                    name.push(chars[cursor]);
-                    cursor += 1;
-                }
-                if cursor < chars.len() && chars[cursor] == '}' {
-                    if let Some(found) = captures.name(&name) {
-                        out.push_str(found.as_str());
-                        at = cursor + 1;
-                        continue;
-                    }
-                    if regex.capture_names().flatten().any(|known| known == name) {
-                        at = cursor + 1;
-                        continue;
-                    }
-                }
-            }
-            Some(symbol) if !angled => {
-                let handled = match symbol {
-                    '$' => {
-                        out.push('$');
-                        true
-                    }
-                    '&' => {
-                        out.push_str(whole.as_str());
-                        true
-                    }
-                    '`' => {
-                        out.push_str(&text[..whole.start()]);
-                        true
-                    }
-                    '\'' => {
-                        out.push_str(&text[whole.end()..]);
-                        true
-                    }
-                    '+' => {
-                        let last = (0..captures.len()).rev().find_map(|index| captures.get(index));
-                        if let Some(group) = last {
-                            out.push_str(group.as_str());
-                        }
-                        true
-                    }
-                    '_' => {
-                        out.push_str(text);
-                        true
-                    }
-                    _ => false,
-                };
-                if handled {
-                    at = cursor + 1;
-                    continue;
-                }
-            }
-            _ => {}
-        }
-        // Not a substitution: the dollar is literal and what follows is read again.
-        out.push('$');
-        at = start;
     }
+}
+
+/// The substitution after a `$` at `start`: the index to go on from, or `None` when the dollar is literal and what follows
+/// is read again.
+fn substitution(chars: &[char], start: usize, regex: &Regex, captures: &Captures<'_>, text: &str, out: &mut String) -> Option<usize> {
+    let angled = start + 1 < chars.len() && chars[start] == '{';
+    let cursor = if angled { start + 1 } else { start };
+    match chars.get(cursor).copied()? {
+        d if d.is_ascii_digit() => numbered_group(chars, cursor, angled, captures, out),
+        w if angled && (w.is_alphanumeric() || w == '_') => named_group(chars, cursor, regex, captures, out),
+        symbol if !angled => special_substitution(symbol, captures, text, out).then_some(cursor + 1),
+        _ => None,
+    }
+}
+
+fn numbered_group(chars: &[char], mut cursor: usize, angled: bool, captures: &Captures<'_>, out: &mut String) -> Option<usize> {
+    let mut number: usize = 0;
+    let mut overflow = false;
+    while cursor < chars.len() && chars[cursor].is_ascii_digit() {
+        match number.checked_mul(10).and_then(|n| n.checked_add(chars[cursor] as usize - '0' as usize)) {
+            Some(n) => number = n,
+            None => overflow = true,
+        }
+        cursor += 1;
+    }
+    let closed = !angled || (cursor < chars.len() && chars[cursor] == '}');
+    if !closed || overflow || number >= captures.len() {
+        return None;
+    }
+    if let Some(group) = captures.get(number) {
+        out.push_str(group.as_str());
+    }
+    Some(if angled { cursor + 1 } else { cursor })
+}
+
+fn named_group(chars: &[char], mut cursor: usize, regex: &Regex, captures: &Captures<'_>, out: &mut String) -> Option<usize> {
+    let mut name = String::new();
+    while cursor < chars.len() && (chars[cursor].is_alphanumeric() || chars[cursor] == '_') {
+        name.push(chars[cursor]);
+        cursor += 1;
+    }
+    if cursor >= chars.len() || chars[cursor] != '}' {
+        return None;
+    }
+    if let Some(found) = captures.name(&name) {
+        out.push_str(found.as_str());
+        return Some(cursor + 1);
+    }
+    regex.capture_names().flatten().any(|known| known == name).then_some(cursor + 1)
+}
+
+/// `$$`, `$&`, `` $` ``, `$'`, `$+` and `$_`; false for any other symbol.
+fn special_substitution(symbol: char, captures: &Captures<'_>, text: &str, out: &mut String) -> bool {
+    let whole = captures.get(0).expect("group 0 always matches");
+    match symbol {
+        '$' => out.push('$'),
+        '&' => out.push_str(whole.as_str()),
+        '`' => out.push_str(&text[..whole.start()]),
+        '\'' => out.push_str(&text[whole.end()..]),
+        '+' => {
+            if let Some(group) = (0..captures.len()).rev().find_map(|index| captures.get(index)) {
+                out.push_str(group.as_str());
+            }
+        }
+        '_' => out.push_str(text),
+        _ => return false,
+    }
+    true
 }
 
 /// `$text -split $pattern` (`-csplit` when `case_sensitive`): the pieces between matches, with the text of every capture
@@ -248,36 +232,15 @@ pub fn like(text: &str, pattern: &str) -> bool {
                     expression.push_str(&regex::escape("`"));
                 }
             }
-            '[' => {
-                let mut class = String::new();
-                let mut closed = false;
-                let mut cursor = at;
-                while cursor < chars.len() {
-                    let member = chars[cursor];
-                    cursor += 1;
-                    if member == ']' && !class.is_empty() {
-                        closed = true;
-                        break;
-                    }
-                    if member == '`' && cursor < chars.len() {
-                        class.push_str(&regex::escape(&chars[cursor].to_string()));
-                        cursor += 1;
-                    } else if member == '\\' || member == '[' || member == '^' || member == '&' || member == '~' {
-                        class.push('\\');
-                        class.push(member);
-                    } else {
-                        class.push(member);
-                    }
-                }
-                if closed {
+            '[' => match wildcard_class(&chars, at) {
+                Some((class, next)) => {
                     expression.push('[');
                     expression.push_str(&class);
                     expression.push(']');
-                    at = cursor;
-                } else {
-                    expression.push_str("\\[");
+                    at = next;
                 }
-            }
+                None => expression.push_str("\\["),
+            },
             other => expression.push_str(&regex::escape(&other.to_string())),
         }
     }
@@ -288,6 +251,29 @@ pub fn like(text: &str, pattern: &str) -> bool {
     }
 }
 
+/// The members of a `[...]` wildcard class opening before `chars[at]`, as the `regex` crate reads them, and the index after
+/// the closing `]`; `None` when the class is never closed.
+fn wildcard_class(chars: &[char], at: usize) -> Option<(String, usize)> {
+    let mut class = String::new();
+    let mut cursor = at;
+    while cursor < chars.len() {
+        let member = chars[cursor];
+        cursor += 1;
+        if member == ']' && !class.is_empty() {
+            return Some((class, cursor));
+        }
+        if member == '`' && cursor < chars.len() {
+            class.push_str(&regex::escape(&chars[cursor].to_string()));
+            cursor += 1;
+        } else if member == '\\' || member == '[' || member == '^' || member == '&' || member == '~' {
+            class.push('\\');
+            class.push(member);
+        } else {
+            class.push(member);
+        }
+    }
+    None
+}
 /// `[regex]::Escape($text)`: backslash before `\ * + ? | { [ ( ) ^ $ . #`, a space as `\ ` and the control characters
 /// tab, line feed, carriage return and form feed as `\t \n \r \f`.
 pub fn regex_escape(text: &str) -> String {

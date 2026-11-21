@@ -1,8 +1,3 @@
-//! The tools a session is denied: `featureDisallowedToolsFor` (`runtime-core/builtin-features.mjs`,
-//! the settings gates, desktop bridge presence and the headless `load_tool` rule),
-//! `reactionDisabled` (`session/manager/session-tool-surface.mjs`) and `liveDeniedTools`
-//! (`tool-policy/policy-stage.mjs`).
-
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::thread::ToolProfile;
 use mixdog_core_base::rooms::ids::agent_id_of_home_session;
@@ -135,10 +130,6 @@ fn caller_denials(session: &Header) -> Result<Vec<String>, SurfaceFailure> {
     }
 }
 
-/// `liveDeniedTools(session, workflow)`: the caller's denials, the feature gates as they stand,
-/// `agent` for an agent-mode Lead whose workflow delegates to no one, and `react` outside a bot's
-/// chat with the user. Names that are empty once made text are dropped. A session record without
-/// an iterable `callerDisallowedTools` is a typed failure, where Node throws.
 pub fn live_denied_tools(session: &Header, workflow: &Value, features: &[String]) -> Result<Vec<String>, SurfaceFailure> {
     let mut names = caller_denials(session)?;
     names.extend(features.iter().cloned());

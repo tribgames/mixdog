@@ -1,10 +1,3 @@
-//! The files of a shell call: its job's output logs, hoisted scripts, tee files, launchers.
-//! Every filesystem call runs as a lane job, never on an async worker: a call's start on io-spawn,
-//! a job's log appends on its own io-pty thread ([`LogWriter`]), a result's reads on io-interactive.
-//! No call's path runs on io-maintenance, whose two threads serve minutes-long background loops.
-//! Only the two whole-folder passes beside the calls do, on the lane their caller hands them: the
-//! expired-log sweep ([`sweep_expired`]) and the start-up read of every record
-//! ([`read_records`] from `ExecRuntime::reconcile_lost_jobs`); either may wait behind those loops.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "lane job bodies are the sanctioned home of blocking file I/O (clippy.toml)")]
 
 use std::io::Write;
@@ -522,10 +515,6 @@ impl LogWriter {
         self.start_drain().await;
     }
 
-    /// Starts a drain (`draining` is already set), waiting for an io-pty thread when the lane is
-    /// at its live cap, for at most [`LOG_STALL`] (then the writer is given up); the job's token
-    /// also ends that wait when the writer is given up. A drain that cannot be started ends
-    /// through its [`DrainExit`].
     async fn start_drain(&self) {
         let exit = DrainExit { shared: Some(self.shared.clone()) };
         let shared = self.shared.clone();

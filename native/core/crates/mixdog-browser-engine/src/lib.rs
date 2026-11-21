@@ -1,10 +1,9 @@
 //! The Browser Use engine in the core: it drives the desktop's guest pages through the typed `host/browser/*` lane
-//! ([`port::BrowserHost`]) and keeps everything the TypeScript engine of `apps/desktop/src/main/browser/` decided
-//! itself: the per-page ledgers, the command queue, refs and snapshots, settling, replies, approvals and the runner.
+//! ([`port::BrowserHost`]) and decides itself: the per-page ledgers, the command queue, refs and snapshots, settling,
+//! replies, approvals and the runner.
 //!
-//! This crate is the skeleton: the ports (`port`), the wire-facing types the ports share (`types`), the limits every
-//! module shares (`limits`), the failure type mapped from JSON-RPC `data.code` (`error`), a scripted host for tests
-//! (`fake`), and the module tree whose submodules later tasks fill. Each module file names its owner on its first line.
+//! Shared by every module: the ports (`port`), the wire-facing types the ports share (`types`), the limits (`limits`),
+//! the failure type mapped from JSON-RPC `data.code` (`error`) and a scripted host for tests (`fake`).
 
 pub mod actions;
 pub mod approval;

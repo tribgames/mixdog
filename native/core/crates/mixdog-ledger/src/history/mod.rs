@@ -1,16 +1,3 @@
-//! The usage history the earlier daemon left, imported into the ledger when statistics are read
-//! (`usage-ledger-import.mjs`, `ensureHistoryImported` of `usage-stats-api.mjs`).
-//!
-//! The surviving originals are the rotated agent trace, the gateway usage store, the legacy
-//! rollup document and the earlier daemon's read-only database. They are read, never rewritten.
-//! Request rows outrank overlapping turn and day summaries; incomplete historical coverage stays
-//! explicit rather than inventing a missing balance. Only what is older than `liveSince` (the
-//! first live record, or now when there is none yet) is imported, so a live send's diagnostic
-//! copy cannot enter as history. The import is marked by `importedThrough`.
-//!
-//! The files are read on the maintenance lane, the rows are priced on `cpu-bulk`, and the write
-//! commits each original batch in order; it never holds the writer while it reads or prices.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;

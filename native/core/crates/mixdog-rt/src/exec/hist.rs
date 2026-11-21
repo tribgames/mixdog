@@ -1,8 +1,6 @@
-//! Lock-free latency histogram (RL §13: poll time per task, queue wait and service per lane).
-//!
-//! Log-linear buckets over microseconds: values below 8 µs have one bucket each, every power of
-//! two above is split in 8, so a reported quantile is within 12.5 % of the true value. Recording
-//! is a handful of relaxed atomic adds and never allocates or locks.
+//! Lock-free latency histogram. Log-linear buckets over microseconds: values below 8 µs have one bucket each, every power of two
+//! above is split in 8, so a reported quantile is within 12.5 % of the true value. Recording is a handful of relaxed atomic adds
+//! and never allocates or locks.
 
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::Relaxed;

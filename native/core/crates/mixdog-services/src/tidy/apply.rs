@@ -200,6 +200,60 @@ fn read_write_target(root: &Path, path: &Path) -> std::io::Result<Vec<u8>> {
     std::fs::read(path)
 }
 
+fn fixes_of(matches: &[Value]) -> Vec<Value> {
+    matches
+        .iter()
+        .filter_map(|m| {
+            let mut fix = m.get("fix").filter(|f| !f.is_null())?.clone();
+            fix["ruleId"] = m.get("ruleId").cloned().unwrap_or(Value::Null);
+            Some(fix)
+        })
+        .collect()
+}
+
+/// Why a file's plan must not be applied, if it must not.
+fn plan_rejection(file: &str, plan: &Plan) -> Option<Value> {
+    if !plan.overlaps.is_empty() {
+        let mut rules: Vec<String> = plan.overlaps.iter().flat_map(|(a, b)| [a.rule_id.clone(), b.rule_id.clone()]).filter(|r| !r.is_empty()).collect();
+        let mut seen = std::collections::HashSet::new();
+        rules.retain(|r| seen.insert(r.clone()));
+        let named = if rules.is_empty() { "structural rules".to_owned() } else { rules.join(", ") };
+        return Some(json!({"file": file, "reason": format!("overlapping fixes from {named}"), "overlaps": plan.overlaps.len()}));
+    }
+    if plan.invalid > 0 {
+        return Some(json!({"file": file, "reason": format!("{} fix(es) carried an unusable byte range", plan.invalid)}));
+    }
+    plan.unverifiable
+        .first()
+        .map(|why| json!({"file": file, "reason": format!("{} fix(es) cannot be checked against the file the scanner read: {why}", plan.unverifiable.len())}))
+}
+
+/// Applies the plan to the file's current bytes and writes the result; the bytes before and after.
+async fn write_planned(
+    lane: DurabilityIo,
+    host: &dyn WriteHost,
+    cwd: &Path,
+    full: &Path,
+    plan: &Plan,
+    session_id: Option<&str>,
+    cancel: Option<&CancellationToken>,
+) -> Result<(Vec<u8>, Vec<u8>), String> {
+    let current = io_on_lane(lane, {
+        let (root, full) = (cwd.to_owned(), full.to_owned());
+        move || read_write_target(&root, &full)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    // The offsets are the scanner's: they hold only in the bytes it matched.
+    if plan.scanned.as_deref() != Some(sha256_hex(&current).as_str()) {
+        return Err("the file changed since the scan: it no longer holds the bytes the rules matched".to_owned());
+    }
+    let next = apply_replacements(&current, &plan.replacements)?;
+    host.atomic_write(full, &next, session_id, cancel).await?;
+    host.note_written(std::slice::from_ref(&full.to_owned()), session_id).await;
+    Ok((current, next))
+}
+
 /// Applies structural byte-range fixes, grouped per file. `matches_by_file` maps a repo-relative
 /// path to its matches; only matches carrying a `fix` participate.
 pub async fn apply_structural_fixes(
@@ -212,14 +266,7 @@ pub async fn apply_structural_fixes(
 ) -> StructuralResult {
     let (mut applied, mut rejected, mut written) = (Vec::new(), Vec::new(), Vec::new());
     for (file, matches) in matches_by_file {
-        let fixes: Vec<Value> = matches
-            .iter()
-            .filter_map(|m| {
-                let mut fix = m.get("fix").filter(|f| !f.is_null())?.clone();
-                fix["ruleId"] = m.get("ruleId").cloned().unwrap_or(Value::Null);
-                Some(fix)
-            })
-            .collect();
+        let fixes = fixes_of(matches);
         if fixes.is_empty() {
             continue;
         }
@@ -229,43 +276,11 @@ pub async fn apply_structural_fixes(
             continue;
         }
         let plan = plan_replacements(&fixes);
-        if !plan.overlaps.is_empty() {
-            let mut rules: Vec<String> = plan.overlaps.iter().flat_map(|(a, b)| [a.rule_id.clone(), b.rule_id.clone()]).filter(|r| !r.is_empty()).collect();
-            rules.dedup();
-            let mut seen = std::collections::HashSet::new();
-            rules.retain(|r| seen.insert(r.clone()));
-            let named = if rules.is_empty() { "structural rules".to_owned() } else { rules.join(", ") };
-            rejected.push(json!({"file": file, "reason": format!("overlapping fixes from {named}"), "overlaps": plan.overlaps.len()}));
+        if let Some(rejection) = plan_rejection(file, &plan) {
+            rejected.push(rejection);
             continue;
         }
-        if plan.invalid > 0 {
-            rejected.push(json!({"file": file, "reason": format!("{} fix(es) carried an unusable byte range", plan.invalid)}));
-            continue;
-        }
-        if let Some(why) = plan.unverifiable.first() {
-            rejected.push(
-                json!({"file": file, "reason": format!("{} fix(es) cannot be checked against the file the scanner read: {why}", plan.unverifiable.len())}),
-            );
-            continue;
-        }
-        let outcome = async {
-            let current = io_on_lane(lane, {
-                let (root, full) = (cwd.to_owned(), full.clone());
-                move || read_write_target(&root, &full)
-            })
-            .await
-            .map_err(|e| e.to_string())?;
-            // The offsets are the scanner's: they hold only in the bytes it matched.
-            if plan.scanned.as_deref() != Some(sha256_hex(&current).as_str()) {
-                return Err("the file changed since the scan: it no longer holds the bytes the rules matched".to_owned());
-            }
-            let next = apply_replacements(&current, &plan.replacements)?;
-            host.atomic_write(&full, &next, session_id, cancel).await?;
-            host.note_written(std::slice::from_ref(&full), session_id).await;
-            Ok::<_, String>((current, next))
-        }
-        .await;
-        match outcome {
+        match write_planned(lane, host, cwd, &full, &plan, session_id, cancel).await {
             Ok((before, after)) => {
                 written.push(FileChange { full_path: full, before, after });
                 applied.push(json!({"file": file, "fixes": plan.replacements.len()}));

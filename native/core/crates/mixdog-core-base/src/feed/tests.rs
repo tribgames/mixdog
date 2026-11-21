@@ -1,10 +1,4 @@
 //! The attach conformance scenarios, P §14.4–14.7 and RL G5 with a scripted actor.
-//!
-//! The scripted actor's state is `key → value`; event `seq` sets key `seq % keys` to `seq`
-//! (frame `e <seq> <key> <value>`), so the state at any position is known
-//! ([`Model::at`]). A snapshot frame is `s <seq> k=v,…`. A client folds its lane's frames
-//! and asserts that every event follows the previous position: no gap without a snapshot,
-//! no duplicate.
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;

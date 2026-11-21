@@ -1,5 +1,3 @@
-//! Hourly and daily rollups across daylight-saving changes, in a fixed zone through
-//! `mixdog_js::time`'s test override (the one local-time implementation the ledger uses).
 //! Expected values come from the calendar: a spring-forward day has 23 hours, a fall-back day
 //! 25, and wall-clock times map to instants by `Date`'s rules.
 #![allow(clippy::disallowed_methods, reason = "test fixture: a temporary ledger file")]

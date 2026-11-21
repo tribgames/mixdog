@@ -1,7 +1,5 @@
-//! Extraction of the runtime archive with the system `tar` (`runtime-fetcher.mjs`
-//! `probeTar`, `_validateRuntimeTarEntries`, `_extractRuntimeTarGz`). Like Node, the archive is
-//! listed and validated before anything is extracted. No `tar` crate is used: bsdtar ships with
-//! Windows 10 1803+.
+//! Extraction of the runtime archive with the system `tar`: the archive is listed and validated
+//! before anything is extracted. No `tar` crate is used: bsdtar ships with Windows 10 1803+.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

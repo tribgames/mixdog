@@ -1,16 +1,9 @@
-//! The prompt rules builder (Node `lib/rules-builder.cjs`: `buildSharedToolContent`,
-//! `buildRouteRulesContent`, `buildLeadRoleContent`, `buildAgentModeContent`,
-//! `buildAgentRoleContent`, `omitToolRoutes`, with the BP1 composition `_buildBaseRules` of
-//! `session/manager/rules-cache.mjs`) and the rules variant a route change re-renders
-//! (`_refreshSessionRuleVariantsForModel`).
-//!
-//! `plugin_root` is Node's `PLUGIN_ROOT` (the directory holding `rules/`). Nothing is memoised:
-//! Node's source-revision cache returns exactly what a fresh build would.
-
-use std::fs;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::LazyLock;
 
+use mixdog_core_prompt::prompt::source_files::LiveFiles;
+use mixdog_core_prompt::prompt::source_files::PromptFiles;
 use mixdog_js::{JsRegex, js_trim};
 use serde_json::Value;
 
@@ -37,24 +30,52 @@ static LEAD_REPORT_PASSAGE: LazyLock<JsRegex> =
 const AGENT_MODE_PROGRESS: &str = "- Just answer conversation. Quick tool use (checking memory, a lookup,\n  leaving a reaction) needs no announcement. When starting longer work\n  (research, delegation, multi-step tasks), say in one line what you are\n  doing, stay quiet between tool calls, and share the result when it\n  finishes.";
 const AGENT_MODE_REPORT: &str = "- Relay agent reports faithfully. Code: one fresh Reviewer per non-trivial\n  feature after its last worker, any author (Lead if none); docs/copy/style:\n  read the diff. Recheck only concrete fixes, never rerun passing checks\n  without new evidence; at request end check feature seams.";
 
-#[allow(clippy::disallowed_methods, reason = "runs inside the composition's io-interactive lane job (HostRunParts::compose_prompt), like RealSources")]
 /// `readOptional`: the trimmed file, `""` when it cannot be read.
-pub(super) fn read_optional(path: &Path) -> String {
-    fs::read(path).map(|bytes| js_trim(&String::from_utf8_lossy(&bytes)).to_owned()).unwrap_or_default()
+pub(super) fn read_optional(files: &dyn PromptFiles, path: &Path) -> String {
+    files.read(path).map(|bytes| js_trim(&String::from_utf8_lossy(&bytes)).to_owned()).unwrap_or_default()
 }
 
-#[allow(clippy::disallowed_methods, reason = "runs inside the composition's io-interactive lane job (HostRunParts::compose_prompt), like RealSources")]
+/// The file names of `dir` that are valid UTF-8, in listing order; `None` when the directory is unreadable.
+pub(super) fn file_names(files: &dyn PromptFiles, dir: &Path) -> Option<Vec<String>> {
+    Some(files.entries(dir)?.into_iter().filter_map(|e| e.name.into_string().ok()).collect())
+}
+
 /// The `.md` file names of `dir`, sorted; `None` when the directory is unreadable.
-fn markdown_names(dir: &Path) -> Option<Vec<String>> {
-    let mut names: Vec<String> = fs::read_dir(dir).ok()?.filter_map(|e| e.ok()?.file_name().into_string().ok()).filter(|n| n.ends_with(".md")).collect();
+fn markdown_names(files: &dyn PromptFiles, dir: &Path) -> Option<Vec<String>> {
+    let mut names: Vec<String> = file_names(files, dir)?.into_iter().filter(|n| n.ends_with(".md")).collect();
     names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
     Some(names)
 }
 
 /// `readMarkdownDirectory`.
-fn read_markdown_directory(dir: &Path) -> String {
-    let Some(names) = markdown_names(dir) else { return String::new() };
-    names.iter().map(|n| read_optional(&dir.join(n))).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n\n")
+fn read_markdown_directory(files: &dyn PromptFiles, dir: &Path) -> String {
+    let Some(names) = markdown_names(files, dir) else { return String::new() };
+    names.iter().map(|n| read_optional(files, &dir.join(n))).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n\n")
+}
+
+/// Reads, through `files`, the rule files [`build_base_rules`] asks for.
+pub fn read_base_rule_files(files: &dyn PromptFiles, plugin_root: &Path) {
+    let rules = plugin_root.join("rules");
+    for dir in [rules.join("shared"), rules.join("routes")] {
+        for name in markdown_names(files, &dir).unwrap_or_default() {
+            files.read(&dir.join(name));
+        }
+    }
+}
+
+/// The file [`build_lead_role_content`] reads.
+pub fn lead_role_file(plugin_root: &Path) -> PathBuf {
+    plugin_root.join("rules").join("lead").join("LEAD.md")
+}
+
+/// The file [`build_agent_mode_content`] reads for `part`; an unknown name reads as `conduct`.
+pub fn agent_mode_file(plugin_root: &Path, part: &str) -> PathBuf {
+    plugin_root.join("rules").join("agent-mode").join(if part == "mixy" { "MIXY.md" } else { "AGENT_MODE.md" })
+}
+
+/// The file [`build_agent_role_content`] reads.
+pub fn agent_role_file(plugin_root: &Path) -> PathBuf {
+    plugin_root.join("rules").join("agent").join("AGENT.md")
 }
 
 /// `stripFrontmatter`.
@@ -150,8 +171,14 @@ pub fn omit_tool_routes(text: &str, omit_tools: &[String], allow_tools: Option<&
 }
 
 /// `buildSharedToolContent`.
-pub fn build_shared_tool_content(plugin_root: &Path, omit_tools: &[String], allow_tools: Option<&[String]>, owner_is_agent: bool) -> String {
-    omit_tool_routes(&read_markdown_directory(&plugin_root.join("rules").join("shared")), omit_tools, allow_tools, owner_is_agent)
+pub fn build_shared_tool_content(
+    files: &dyn PromptFiles,
+    plugin_root: &Path,
+    omit_tools: &[String],
+    allow_tools: Option<&[String]>,
+    owner_is_agent: bool,
+) -> String {
+    omit_tool_routes(&read_markdown_directory(files, &plugin_root.join("rules").join("shared")), omit_tools, allow_tools, owner_is_agent)
 }
 
 /// `parseRouteFrontmatter`: lower-cased keys to raw values.
@@ -213,11 +240,18 @@ fn route_rules_apply(meta: &[(String, String)], provider: &str, model: &str) -> 
 }
 
 /// `buildRouteRulesContent`: the `rules/routes/*.md` files bound to this provider and model.
-pub fn build_route_rules_content(plugin_root: &Path, provider: &str, model: &str, omit_tools: &[String], allow_tools: Option<&[String]>) -> String {
+pub fn build_route_rules_content(
+    files: &dyn PromptFiles,
+    plugin_root: &Path,
+    provider: &str,
+    model: &str,
+    omit_tools: &[String],
+    allow_tools: Option<&[String]>,
+) -> String {
     let dir = plugin_root.join("rules").join("routes");
     let mut parts = Vec::new();
-    for name in markdown_names(&dir).unwrap_or_default() {
-        let raw = read_optional(&dir.join(&name));
+    for name in markdown_names(files, &dir).unwrap_or_default() {
+        let raw = read_optional(files, &dir.join(&name));
         if raw.is_empty() || !route_rules_apply(&parse_route_frontmatter(&raw), provider, model) {
             continue;
         }
@@ -231,6 +265,7 @@ pub fn build_route_rules_content(plugin_root: &Path, provider: &str, model: &str
 
 /// `_buildBaseRules` (BP1): the shared tool policy, then this route's rules.
 pub fn build_base_rules(
+    files: &dyn PromptFiles,
     plugin_root: &Path,
     provider: &str,
     model: &str,
@@ -239,8 +274,8 @@ pub fn build_base_rules(
     owner_is_agent: bool,
 ) -> String {
     [
-        build_shared_tool_content(plugin_root, omit_tools, allow_tools, owner_is_agent),
-        build_route_rules_content(plugin_root, provider, model, omit_tools, allow_tools),
+        build_shared_tool_content(files, plugin_root, omit_tools, allow_tools, owner_is_agent),
+        build_route_rules_content(files, plugin_root, provider, model, omit_tools, allow_tools),
     ]
     .into_iter()
     .filter(|s| !s.is_empty())
@@ -258,8 +293,8 @@ pub enum LeadPart {
 }
 
 /// `buildLeadRoleContent`: LEAD.md split for BP3 prefix sharing.
-pub fn build_lead_role_content(plugin_root: &Path, include_lead_brief: bool, part: LeadPart) -> String {
-    let raw = read_optional(&plugin_root.join("rules").join("lead").join("LEAD.md"));
+pub fn build_lead_role_content(files: &dyn PromptFiles, plugin_root: &Path, include_lead_brief: bool, part: LeadPart) -> String {
+    let raw = read_optional(files, &lead_role_file(plugin_root));
     if raw.is_empty() {
         return String::new();
     }
@@ -292,15 +327,15 @@ pub fn build_lead_role_content(plugin_root: &Path, include_lead_brief: bool, par
 }
 
 /// `buildAgentModeContent`'s `part`; an unknown name reads as `conduct`.
-pub fn build_agent_mode_content(plugin_root: &Path, part: &str) -> String {
-    let (file, heading) = if part == "mixy" { ("MIXY.md", "# Your Role\n\n") } else { ("AGENT_MODE.md", "") };
-    let body = read_optional(&plugin_root.join("rules").join("agent-mode").join(file));
+pub fn build_agent_mode_content(files: &dyn PromptFiles, plugin_root: &Path, part: &str) -> String {
+    let heading = if part == "mixy" { "# Your Role\n\n" } else { "" };
+    let body = read_optional(files, &agent_mode_file(plugin_root, part));
     if body.is_empty() { String::new() } else { format!("{heading}{body}") }
 }
 
 /// `buildAgentRoleContent`.
-pub fn build_agent_role_content(plugin_root: &Path) -> String {
-    read_optional(&plugin_root.join("rules").join("agent").join("AGENT.md"))
+pub fn build_agent_role_content(files: &dyn PromptFiles, plugin_root: &Path) -> String {
+    read_optional(files, &agent_role_file(plugin_root))
 }
 
 // ---- the rules variant -----------------------------------------------------------------------------
@@ -364,8 +399,8 @@ pub fn refresh_rule_variants(session: &mut Value, plugin_root: &Path, previous_m
     let (provider, model) = (text("provider"), text("model"));
     let previous_provider = previous_provider.map_or_else(|| provider.clone(), str::to_owned);
     let omit = |model: &str| -> Vec<String> { deny.iter().cloned().chain(std::iter::once(unused_model_edit_tool_name(model).to_owned())).collect() };
-    let previous = build_base_rules(plugin_root, &previous_provider, previous_model, &omit(previous_model), allow.as_deref(), owner_is_agent);
-    let next = build_base_rules(plugin_root, &provider, &model, &omit(&model), allow.as_deref(), owner_is_agent);
+    let previous = build_base_rules(&LiveFiles, plugin_root, &previous_provider, previous_model, &omit(previous_model), allow.as_deref(), owner_is_agent);
+    let next = build_base_rules(&LiveFiles, plugin_root, &provider, &model, &omit(&model), allow.as_deref(), owner_is_agent);
     if previous.is_empty() || previous == next {
         return false;
     }

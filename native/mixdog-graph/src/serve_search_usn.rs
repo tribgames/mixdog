@@ -58,6 +58,24 @@ mod platform {
         use super::*;
 
         #[test]
+        fn usn_record_collection_reads_v2_references_and_rejects_bad_lengths() {
+            let mut record: USN_RECORD_V2 = unsafe { zeroed() };
+            record.RecordLength = size_of::<USN_RECORD_V2>() as u32;
+            record.MajorVersion = 2;
+            record.FileReferenceNumber = 41;
+            record.ParentFileReferenceNumber = 42;
+            let mut buffer = vec![0u8; size_of::<i64>()];
+            buffer.extend_from_slice(unsafe { std::slice::from_raw_parts(&record as *const _ as *const u8, size_of::<USN_RECORD_V2>()) });
+            let (mut changed, mut parents) = (HashSet::new(), HashSet::new());
+            assert!(collect_usn_records(&buffer, &mut changed, &mut parents).is_some());
+            assert_eq!((changed, parents), (HashSet::from([41]), HashSet::from([42])));
+
+            let mut truncated = buffer.clone();
+            truncated.truncate(buffer.len() - 1);
+            assert!(collect_usn_records(&truncated, &mut HashSet::new(), &mut HashSet::new()).is_none());
+        }
+
+        #[test]
         fn restored_last_sync_is_never_after_now_and_survives_an_early_clock() {
             let now = Instant::now();
             assert!(restored_last_sync(now) <= now);
@@ -151,6 +169,26 @@ mod platform {
         (ok != 0).then_some(serial)
     }
 
+    /// Reads the V2 records after the leading next-USN of one journal read;
+    /// `None` when a record length is malformed.
+    fn collect_usn_records(output: &[u8], changed: &mut HashSet<u64>, parents: &mut HashSet<u64>) -> Option<()> {
+        let mut offset = size_of::<i64>();
+        while offset + 8 <= output.len() {
+            let record_length = unsafe { std::ptr::read_unaligned(output.as_ptr().add(offset) as *const u32) } as usize;
+            if record_length == 0 || offset + record_length > output.len() {
+                return None;
+            }
+            let major = unsafe { std::ptr::read_unaligned(output.as_ptr().add(offset + 4) as *const u16) };
+            if major == 2 && record_length >= size_of::<USN_RECORD_V2>() {
+                let record = unsafe { std::ptr::read_unaligned(output.as_ptr().add(offset) as *const USN_RECORD_V2) };
+                changed.insert(record.FileReferenceNumber);
+                parents.insert(record.ParentFileReferenceNumber);
+            }
+            offset += record_length;
+        }
+        Some(())
+    }
+
     fn read_changes(handle: HANDLE, start_usn: i64, end_usn: i64, journal_id: u64) -> Option<(i64, HashSet<u64>, HashSet<u64>)> {
         let mut cursor = start_usn;
         let mut changed = HashSet::new();
@@ -186,20 +224,7 @@ mod platform {
                 return None;
             }
             let next = unsafe { std::ptr::read_unaligned(output.as_ptr() as *const i64) };
-            let mut offset = size_of::<i64>();
-            while offset + 8 <= returned as usize {
-                let record_length = unsafe { std::ptr::read_unaligned(output.as_ptr().add(offset) as *const u32) } as usize;
-                if record_length == 0 || offset + record_length > returned as usize {
-                    return None;
-                }
-                let major = unsafe { std::ptr::read_unaligned(output.as_ptr().add(offset + 4) as *const u16) };
-                if major == 2 && record_length >= size_of::<USN_RECORD_V2>() {
-                    let record = unsafe { std::ptr::read_unaligned(output.as_ptr().add(offset) as *const USN_RECORD_V2) };
-                    changed.insert(record.FileReferenceNumber);
-                    parents.insert(record.ParentFileReferenceNumber);
-                }
-                offset += record_length;
-            }
+            collect_usn_records(&output[..returned as usize], &mut changed, &mut parents)?;
             if next <= cursor {
                 return None;
             }

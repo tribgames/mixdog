@@ -393,6 +393,33 @@ fn sends_of(value: &Value) -> Vec<Value> {
     sends
 }
 
+fn union_sends(row_sends: &[Value], item_sends: &[Value]) -> Vec<Value> {
+    let mut send_ids: Vec<Value> = Vec::new();
+    for id in row_sends.iter().chain(item_sends) {
+        if !send_ids.contains(id) {
+            send_ids.push(id.clone());
+        }
+    }
+    send_ids
+}
+
+/// The files of `row`, then those of `item` with a path not listed yet (without their ids).
+fn union_files(row: &Value, item: &Value) -> Vec<Value> {
+    let files_of = |value: &Value| value.get("files").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut files = files_of(row);
+    let mut paths: HashSet<String> = files.iter().map(|file| identity(file.get("path"))).collect();
+    for file in files_of(item) {
+        if paths.insert(identity(file.get("path"))) {
+            let mut copy = file;
+            if let Some(map) = copy.as_object_mut() {
+                map.shift_remove("id");
+            }
+            files.push(copy);
+        }
+    }
+    files
+}
+
 /// `doc` with task report `item` folded into the row of the same run id still queued for `home`:
 /// it names every send and lists the files each produced. `None` when no such row is queued or
 /// nothing changes.
@@ -409,24 +436,8 @@ fn with_folded_report(doc: &Doc, home: &str, item: &Value) -> Option<Doc> {
     if !item_sends.is_empty() && item_sends.iter().all(|id| row_sends.contains(id)) {
         return None;
     }
-    let mut send_ids: Vec<Value> = Vec::new();
-    for id in row_sends.iter().chain(item_sends.iter()) {
-        if !send_ids.contains(id) {
-            send_ids.push(id.clone());
-        }
-    }
-    let files_of = |value: &Value| value.get("files").and_then(Value::as_array).cloned().unwrap_or_default();
-    let mut files = files_of(row);
-    let mut paths: HashSet<String> = files.iter().map(|file| identity(file.get("path"))).collect();
-    for file in files_of(item) {
-        if paths.insert(identity(file.get("path"))) {
-            let mut copy = file;
-            if let Some(map) = copy.as_object_mut() {
-                map.shift_remove("id");
-            }
-            files.push(copy);
-        }
-    }
+    let send_ids = union_sends(&row_sends, &item_sends);
+    let mut files = union_files(row, item);
     let omitted = count_of(row.get("omitted")) + count_of(item.get("omitted")) + files.len().saturating_sub(HANDOFF_FILE_LIMIT) as f64;
     let mut folded = row.clone();
     if let Some(map) = folded.as_object_mut() {
@@ -450,6 +461,50 @@ fn with_folded_report(doc: &Doc, home: &str, item: &Value) -> Option<Doc> {
     let mut out = doc.clone();
     out.homes.insert(home.into(), Value::Array(next));
     Some(out)
+}
+
+/// The watch marks of one `add`: the progressed turn noted, the `unwatch` runs dropped. Whether any changed.
+fn update_watches(base: &mut Doc, options: &AddOptions) -> bool {
+    let mut changed = false;
+    if let Some((run_id, turn_id)) = options.progressed.as_ref().filter(|(_, turn)| !turn.is_empty())
+        && let Some(marked) = base.watches.get(run_id).filter(|w| truthy(w)).cloned()
+        && marked.get("progressed").and_then(Value::as_str) != Some(turn_id.as_str())
+    {
+        let mut updated = marked;
+        if let Some(map) = updated.as_object_mut() {
+            map.insert("progressed".into(), json!(turn_id));
+        }
+        base.watches.insert(run_id.clone(), updated);
+        changed = true;
+    }
+    for run_id in &options.unwatch {
+        if base.watches.get(run_id).is_some_and(truthy) {
+            base.watches.shift_remove(run_id);
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// A task turn's end counts one round trip, once per run id, per home and target: the user's next
+/// message in that home starts over (`reset_rounds`), and so does a count idle past `ROUND_TTL_MS`.
+/// Only a send made in a bot-descended turn counts.
+fn counted_round_trip(doc: &Doc, home: &str, item: &Value, limit: usize, round_targets: usize, now: f64) -> Result<Option<Doc>, String> {
+    let own = fresh_round_counts(doc.rounds.get(home), now, round_targets);
+    let counts = send_depth(Some(item)) > 0.0;
+    let target = super::rows::js_str(item.get("taskSessionId"));
+    let round = if counts { count_of(own.get(&target).and_then(|c| c.get("n"))) + 1.0 } else { 0.0 };
+    let mut counted_item = item.clone();
+    if let Some(map) = counted_item.as_object_mut() {
+        map.insert("round".into(), json_num(round));
+    }
+    let mut next = appended_items(doc, home, &[counted_item], limit, 0.0)?;
+    if let (Some(next), true) = (next.as_mut(), counts) {
+        let mut counted = own;
+        counted.insert(target, json!({ "n": json_num(round), "at": json_num(now) }));
+        next.rounds.insert(home.to_owned(), Value::Object(counted));
+    }
+    Ok(next)
 }
 
 /// Options of one `add`.
@@ -715,45 +770,11 @@ impl RoutineResultQueue {
             } else if item.get("roundTrip") != Some(&Value::Bool(true)) {
                 appended_items(&doc, &home, std::slice::from_ref(&item), limit, 0.0)?
             } else {
-                // A task turn's end counts one round trip, once per run id, per home and target:
-                // the user's next message in that home starts over (`reset_rounds`), and so does a
-                // count idle past `ROUND_TTL_MS`. Only a send made in a bot-descended turn counts.
-                let own = fresh_round_counts(doc.rounds.get(&home), now, round_targets);
-                let counts = send_depth(Some(&item)) > 0.0;
-                let target = super::rows::js_str(item.get("taskSessionId"));
-                let round = if counts { count_of(own.get(&target).and_then(|c| c.get("n"))) + 1.0 } else { 0.0 };
-                let mut counted_item = item.clone();
-                if let Some(map) = counted_item.as_object_mut() {
-                    map.insert("round".into(), json_num(round));
-                }
-                let mut next = appended_items(&doc, &home, &[counted_item], limit, 0.0)?;
-                if let (Some(next), true) = (next.as_mut(), counts) {
-                    let mut counted = own;
-                    counted.insert(target, json!({ "n": json_num(round), "at": json_num(now) }));
-                    next.rounds.insert(home.clone(), Value::Object(counted));
-                }
-                next
+                counted_round_trip(&doc, &home, &item, limit, round_targets, now)?
             };
             let base_changed = next.is_some() || doc_changed;
             let mut base = next.unwrap_or(doc);
-            let mut watches_changed = false;
-            if let Some((run_id, turn_id)) = options.progressed.as_ref().filter(|(_, turn)| !turn.is_empty())
-                && let Some(marked) = base.watches.get(run_id).filter(|w| truthy(w)).cloned()
-                && marked.get("progressed").and_then(Value::as_str) != Some(turn_id.as_str())
-            {
-                let mut updated = marked;
-                if let Some(map) = updated.as_object_mut() {
-                    map.insert("progressed".into(), json!(turn_id));
-                }
-                base.watches.insert(run_id.clone(), updated);
-                watches_changed = true;
-            }
-            for run_id in &options.unwatch {
-                if base.watches.get(run_id).is_some_and(truthy) {
-                    base.watches.shift_remove(run_id);
-                    watches_changed = true;
-                }
-            }
+            let watches_changed = update_watches(&mut base, &options);
             Ok(if base_changed || watches_changed { (Some(base), ()) } else { (None, ()) })
         })
         .await

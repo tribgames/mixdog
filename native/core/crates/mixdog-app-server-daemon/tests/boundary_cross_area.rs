@@ -200,8 +200,8 @@ impl CoreHandle for Core {
         self.mock.connection_closed(connection);
     }
 
-    fn connection_opened(&self, connection: ConnectionId, origin: Origin, device: &str, kind: ConnectionKind) {
-        self.mock.connection_opened(connection, origin, device, kind);
+    fn connection_opened(&self, connection: ConnectionId, origin: Origin, device: &str, kind: ConnectionKind) -> String {
+        self.mock.connection_opened(connection, origin, device, kind)
     }
 
     fn request_started(&self, method: &str, params: &Value) -> RequestGuard {

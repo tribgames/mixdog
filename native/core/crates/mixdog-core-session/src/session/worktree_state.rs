@@ -1,5 +1,5 @@
 //! The session workspace record (`workspace` of the session header): where a Lead executes,
-//! its revision and the in-flight transition marker, with Node's validation texts, plus the
+//! its revision and the in-flight transition marker, with their validation texts, plus the
 //! path comparisons every workspace decision uses and the pure record helpers of a Project
 //! switch and a resume.
 

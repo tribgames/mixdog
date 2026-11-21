@@ -32,11 +32,12 @@ impl UserCwd {
         &self.data_dir
     }
 
-    /// `job` as an interactive-io lane job. An `Err` means the job did not run (the lane was
-    /// full or wedged), which is not "no saved cwd": Node's `catch { return null }` covers a
-    /// failed file read only, and an unrun read must not be taken for an absent file.
+    /// `job` as an interactive-io lane job that waits out a full lane. An `Err` means the job
+    /// did not run (the lane is wedged or shut down), which is not "no saved cwd": Node's
+    /// `catch { return null }` covers a failed file read only, and an unrun read must not be
+    /// taken for an absent file.
     async fn on_lane<R: Send + 'static>(&self, job: impl FnOnce(&InLane<InteractiveIo>) -> R + Send + 'static) -> Result<R, CoreError> {
-        mixdog_core_base::support::on_lane(self.io, &CancellationToken::new(), job).await
+        mixdog_core_base::support::on_lane_wait(self.io, &CancellationToken::new(), job).await
     }
 
     /// `explicitSessionCwd()`: the scope's cwd, then a live `MIXDOG_SESSION_CWD`, then
@@ -100,7 +101,7 @@ impl UserCwd {
     /// `writeLastSessionCwd(cwd, keyPid)`: best effort.
     pub async fn write_last_cwd(&self, cwd: &str, key_pid: Option<&str>) {
         let (path, bytes) = (self.last_cwd_file(key_pid), cwd.as_bytes().to_vec());
-        let _ = self.on_lane(move |_lane| publish_file_with(&path, &bytes, Access::Inherit)).await;
+        let _ = mixdog_core_base::support::on_lane(self.io, &CancellationToken::new(), move |_lane| publish_file_with(&path, &bytes, Access::Inherit)).await;
     }
 
     /// `_lastSessionCwdFile(keyPid)`: keyed by the connection's lead pid, else

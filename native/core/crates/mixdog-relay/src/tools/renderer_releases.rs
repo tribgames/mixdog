@@ -1,6 +1,6 @@
-//! `mixdog-relay renderer-releases --action=prepare` (`deploy/renderer-releases.mjs`): the maintenance of the side-by-side
-//! renderer registry (see [`crate::web::releases`]) a deploy runs. It works on the STAGED install tree, never the live one, so a
-//! failure is a failure before the swap and the release transaction's rollback guarantees apply unchanged.
+//! `mixdog-relay renderer-releases --action=prepare`: the maintenance of the side-by-side renderer registry (see
+//! [`crate::web::releases`]) a deploy runs. It works on the STAGED install tree, never the live one, so a failure is a failure
+//! before the swap.
 //!
 //! ```text
 //! mixdog-relay renderer-releases --action=prepare \
@@ -204,20 +204,11 @@ pub fn prepare_releases(options: &PrepareOptions) -> Result<PrepareOutcome, Rele
     let releases_dir = resolve(&options.releases_dir);
     mixdog_fsio::create_dir_all(&Unlaned, &releases_dir)?;
     let mut index = ReleaseIndex::read(&releases_dir)?.unwrap_or_default();
-    // First run on a relay that predates side-by-side releases: the renderer it is serving right now becomes the fallback for
-    // every desktop that never reports a version.
     if index.releases.is_empty()
         && let Some(legacy_dir) = &options.legacy_dir
         && mixdog_fsio::exists(&Unlaned, legacy_dir.join("index.html")).unwrap_or(false)
     {
-        link_tree(legacy_dir, &releases_dir.join(LEGACY_RELEASE_ID))?;
-        index = index.with_release(ReleaseEntry {
-            id: LEGACY_RELEASE_ID.to_owned(),
-            desktop_version: String::new(),
-            shell_version: renderer_shell_version(legacy_dir)?,
-            added_at: options.now,
-            legacy: true,
-        })?;
+        index = adopt_legacy(index, legacy_dir, &releases_dir, options.now)?;
     }
     let mut release_id = String::new();
     let mut added = false;
@@ -246,15 +237,7 @@ pub fn prepare_releases(options: &PrepareOptions) -> Result<PrepareOutcome, Rele
         remove_all(&releases_dir.join(id))?;
     }
     index = ReleaseIndex::new(index.releases.into_iter().filter(|entry| plan.keep.contains(&entry.id)).collect())?;
-    // Anything on disk the registry does not name (an interrupted earlier run) is not servable and not verifiable: collect it
-    // with the rest.
-    for entry in mixdog_fsio::read_dir(&Unlaned, &releases_dir)? {
-        let entry = entry?;
-        let named = index.releases.iter().any(|release| OsStr::new(&release.id) == entry.file_name());
-        if !named && entry.file_type(&Unlaned)?.is_dir() {
-            remove_all(&entry.path())?;
-        }
-    }
+    remove_unnamed_dirs(&releases_dir, &index)?;
     write_index_atomic(&releases_dir, &index)?;
     Ok(PrepareOutcome {
         release_id,
@@ -263,6 +246,30 @@ pub fn prepare_releases(options: &PrepareOptions) -> Result<PrepareOutcome, Rele
         kept: plan.keep,
         dropped: plan.drop,
     })
+}
+
+/// The renderer a relay that predates side-by-side releases is serving becomes the fallback for desktops that never report a version.
+fn adopt_legacy(index: ReleaseIndex, legacy_dir: &Path, releases_dir: &Path, now: f64) -> Result<ReleaseIndex, ReleasesToolError> {
+    link_tree(legacy_dir, &releases_dir.join(LEGACY_RELEASE_ID))?;
+    Ok(index.with_release(ReleaseEntry {
+        id: LEGACY_RELEASE_ID.to_owned(),
+        desktop_version: String::new(),
+        shell_version: renderer_shell_version(legacy_dir)?,
+        added_at: now,
+        legacy: true,
+    })?)
+}
+
+/// A directory the registry does not name is left by an interrupted earlier run: it is neither servable nor verifiable.
+fn remove_unnamed_dirs(releases_dir: &Path, index: &ReleaseIndex) -> Result<(), ReleasesToolError> {
+    for entry in mixdog_fsio::read_dir(&Unlaned, releases_dir)? {
+        let entry = entry?;
+        let named = index.releases.iter().any(|release| OsStr::new(&release.id) == entry.file_name());
+        if !named && entry.file_type(&Unlaned)?.is_dir() {
+            remove_all(&entry.path())?;
+        }
+    }
+    Ok(())
 }
 
 /// `parseArgs`: every argument is `--name=value`; a later one of the same name wins.

@@ -165,16 +165,12 @@ fn without_paths(state: &Value) -> Value {
 }
 
 impl VisualizePanes {
-    /// What the `hostState` `visualize` section carries for a value the desktop set: the section is readable by a paired phone's
-    /// subscription, so it never holds a host path. A snapshot is its states path-free; an event is its change fields alone
-    /// (`reveal`, `tab`, `updated`, `held`, `heldSince`, `openUrl`) with `stateChanged: true` where it carried a state, which the
-    /// phone reads from the core by `visualize/command`. So an event of any size keeps every field, and none is held back as a stub.
-    ///
-    /// An event keeps Node's shape: the state it announces, path-free, with its own effect fields exactly as the producer published them
-    /// (`held` present or absent, `reveal`, `tab`, `updated`, `heldSince`, `openUrl`), so a phone applies it alone and in order. A
-    /// section value is held only up to `INLINE_MAX`, and no stub can say what an event did; an event over [`PART_CHARS`] of JSON is
-    /// therefore published as ordered `part` values of the same key (`{part:{id,index,count,text}}`, the text being slices of the
-    /// event's JSON) that the phone puts back together. A snapshot is the state alone: a phone that cannot hold it reads it again.
+    /// What the `hostState` `visualize` section carries for a value the desktop set; it never holds a host path, because a
+    /// paired phone can subscribe to it. A snapshot is its states, path-free. An event keeps Node's shape: the state it
+    /// announces, path-free, with its effect fields exactly as the producer published them (`held` present or absent,
+    /// `reveal`, `tab`, `updated`, `heldSince`, `openUrl`). A section value is held only up to `INLINE_MAX`, so an event over
+    /// [`PART_CHARS`] of JSON is published as ordered `part` values of the same key (`{part:{id,index,count,text}}`) that the
+    /// phone puts back together.
     pub fn remote_changes(value: &Value) -> Vec<Value> {
         match value {
             Value::Array(states) => vec![Value::Array(states.iter().map(without_paths).collect())],
@@ -311,10 +307,6 @@ impl VisualizePanes {
                 let Some(session) = event.get("sessionId").and_then(Value::as_str).filter(|id| !id.is_empty()) else { return };
                 if let Some(state) = event.get("state").and_then(host_state) {
                     if kept(state) {
-                        // The state carries whether its session is held now and since when, as the producer last said it: `held` on
-                        // the event while the agent turn runs, and its absence on the state-bearing event that releases it. A snapshot
-                        // read is thereby authoritative about holds. The producer's snapshot carries the same fields per session, so the map a
-                        // snapshot replaces is exactly what the producer holds.
                         let mut state = state.clone();
                         if let Some(fields) = state.as_object_mut() {
                             fields.swap_remove("held");

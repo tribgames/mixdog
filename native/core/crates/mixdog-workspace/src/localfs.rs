@@ -268,6 +268,20 @@ where
     handle.await.map_err(|_| FsError::new(FsErrorKind::Io { os_code: None }, None))
 }
 
+/// [`on`] for a read: a lane that holds its far bound of jobs is waited for, in order, where a write is refused.
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+async fn on_read<R, F>(lane: InteractiveIo, job: F) -> Result<R, FsError>
+where
+    R: Send + 'static,
+    F: FnOnce() -> R + Send + 'static,
+{
+    let cancel = CancellationToken::new();
+    let _guard = cancel.clone().drop_guard();
+    let job = counted(job);
+    let handle = lane.submit_wait(&cancel, move |_| job()).await.map_err(|_| FsError::new(FsErrorKind::Io { os_code: None }, None))?;
+    handle.await.map_err(|_| FsError::new(FsErrorKind::Io { os_code: None }, None))
+}
+
 enum Expect {
     Nothing,
     /// `wx`: the target must still be absent right before the rename.
@@ -607,10 +621,6 @@ fn open_to_search(path: &Path) -> io::Result<Box<dyn Read + Send>> {
 /// volume of given-up reads names ([`FsErrorKind::CancelStalled`]).
 const CONTENT: &str = "content";
 
-/// The volume a path lies on as far as its text tells, never waiting on the volume: on Windows its drive, UNC share or
-/// device namespace (the path's prefix), on Unix the device of the mount it lies under in the mount table
-/// ([`unix_io::volume_of`], the path taken as it is written). A search is admitted by this until its producer has told
-/// its root's volume by the filesystem's identity ([`known_volume`], [`Volumes::start`]).
 fn volume_of(path: &Path) -> String {
     #[cfg(windows)]
     {
@@ -635,19 +645,10 @@ fn volume_of(path: &Path) -> String {
     }
 }
 
-/// The volume each searched root was found on by the filesystem's identity, when, and whether that identity is fixed by
-/// the root's text ([`Volumes::start`]): a later search of the root is admitted by it before its producer reads
-/// ([`Stuck::admission`]), and one within [`KNOWN_FRESH`] of the finding takes it as its own without asking the
-/// filesystem again (about a millisecond each, which a burst of thousands of searches of one root would spend over and
-/// over). At most [`KNOWN_ROOTS`] roots; past that it starts again.
 static KNOWN: LazyLock<Mutex<std::collections::HashMap<PathBuf, Known>>> = LazyLock::new(Default::default);
 const KNOWN_ROOTS: usize = 4_096;
 const KNOWN_FRESH: Duration = Duration::from_secs(5);
 
-/// A root's volume as its last search found it ([`KNOWN`]). `fixed`: no junction, mounted folder, link, `subst` or
-/// mapped drive lies between the root's text and its volume, so the volume changes only with the text (or a drive
-/// letter's reassignment; on Unix a mount made or removed over the path, which the kernel's table tells without waiting,
-/// [`Stuck::admission`]).
 struct Known {
     volume: String,
     at: Instant,
@@ -673,11 +674,6 @@ fn remember_volume(root: &Path, (volume, fixed): (&str, bool)) {
     known.insert(root.to_path_buf(), Known { volume: volume.to_owned(), at: Instant::now(), fixed });
 }
 
-/// The key a producer reads on while it tells its root's volume ([`Volumes::start`], [`Ticket::reading`]): that call
-/// reads on volumes not known until it returns (a dead one holds it), so a stall in it is charged to no volume but to
-/// the root's own telling, which only searches of that same root are admitted by: it can refuse no other root's
-/// search, so no healthy volume's. A root whose telling holds [`SchedulerConfig::stuck_per_volume`] given-up threads is
-/// refused at once until they return, as no search of it gets past that call.
 fn telling(root: &Path) -> String {
     format!("telling {}", root.to_string_lossy())
 }
@@ -1350,13 +1346,6 @@ struct IoState {
     done: bool,
 }
 
-/// The link between a text search's scan and the thread making its blocking calls: the walk's directory reads, the
-/// opens and the reads of the files. The scan holds the matcher, the searcher with its buffers (up to the heap limit),
-/// the printer and the queue; it never makes a call that can block, so a stopped stream's scan ends at once and frees
-/// all of that. The serving thread is the one a cancel reaches ([`cancel_io`]) and the one given up when its call does
-/// not return ([`Producers::give_up`]); what it holds then is fixed: the walk's position (its open directories and the
-/// ignore rules of the folders it is in), the open file, one buffer of [`READ_CHUNK`] bytes, its own [`Hold`] and this
-/// link, whose buffer the scan's end frees.
 #[derive(Default)]
 struct IoLink {
     state: Mutex<IoState>,
@@ -1425,11 +1414,6 @@ impl IoLink {
     }
 }
 
-/// The volume a call on `path` reads on, as a stall in it is charged ([`Volumes::name`]): with the mount points below
-/// the root (`mounts`, as the walk names them, each with the volume below it), the volume of the deepest one `path`
-/// lies at or under, else the root's (`root_volume`). With no mount table (`None`: it could not be read), which entries
-/// are mount points is unknown, not "none": any entry may be a dead mount, so the call is charged to `path` itself,
-/// which only calls on that same path are refused by; it can refuse no other path's call, so no healthy volume's.
 fn charged(mounts: Option<&[(PathBuf, String)]>, root_volume: &str, path: &Path) -> String {
     match mounts {
         Some(mounts) => mounts
@@ -2084,6 +2068,9 @@ mod tests {
     }
 
     fn remove_dir_link(link: &Path) {
+        #[cfg(unix)]
+        fs::remove_file(link).unwrap();
+        #[cfg(windows)]
         fs::remove_dir(link).unwrap();
     }
 
@@ -2111,12 +2098,17 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = canonical(dir.path()).unwrap();
         let (lower, upper) = (resolve_write(&root.join("foo.txt")).unwrap(), resolve_write(&root.join("FOO.TXT")).unwrap());
-        let insensitive = cfg!(windows);
-        assert_eq!(lower.key.same(&upper.key), insensitive);
+        fs::write(root.join("probe.tmp"), b"").unwrap();
+        let insensitive = root.join("PROBE.TMP").exists();
+        fs::remove_file(root.join("probe.tmp")).unwrap();
+        // A name not yet there keeps its spelling, and the lock key compares spellings (Node's rule: lowercased on win32 only).
+        assert_eq!(lower.key.same(&upper.key), cfg!(windows));
         // The key does not change once the file exists (and is found under the other spelling).
         fs::write(root.join("foo.txt"), b"x").unwrap();
         let created = resolve_write(&root.join("FOO.TXT")).unwrap();
-        assert_eq!(created.key.same(&lower.key), insensitive);
+        // Windows lowercases both spellings in the lock key whatever the directory's own case rule; elsewhere the existing file is found
+        // under the other spelling only where the directory is insensitive.
+        assert_eq!(created.key.same(&lower.key), cfg!(windows) || insensitive);
         assert!(resolve_write(&root.join("foo.txt")).unwrap().key.same(&lower.key));
     }
 
@@ -2263,10 +2255,6 @@ mod tests {
         assert!(unknown("/r/dead") != unknown("/r/a.txt") && unknown("/r/dead") != unknown("/r") && unknown("/r") != "root");
     }
 
-    /// The real filesystem through the walk's own calls ([`tree::Dirs`]), except that a call on a gated path or under it
-    /// (the root's type, a listing, a type) is counted and held until the test lets go, as on a dead mount; the entries
-    /// at `untyped` are listed without their type, as a listing that gives none lists them (a Unix filesystem without
-    /// `d_type`).
     struct Gated {
         gated: Vec<PathBuf>,
         untyped: Vec<PathBuf>,
@@ -2377,10 +2365,6 @@ mod tests {
         }
     }
 
-    /// A file whose read blocks until its cancel, listed alone, the receiver ending once its producer is at its read; and
-    /// what keeps it blocked (dropped last). On Windows a pipe whose writer never writes (an anonymous pipe is a named
-    /// pipe; `CancelSynchronousIo` ends its read); on Unix a FIFO no one opens to write, opened as a search opens it
-    /// ([`open_to_search`]: its read waits with `poll` beside the thread's interrupt, which the cancel fires).
     fn blocked_read(root: &AbsPath) -> (Listing, Opener, oneshot::Receiver<()>, Box<dyn Send>) {
         let (started, in_read) = oneshot::channel::<()>();
         #[cfg(windows)]
@@ -2657,7 +2641,9 @@ mod tests {
     #[test]
     fn a_batch_cancelled_after_its_first_file_publishes_no_further_file() {
         let dir = tempfile::tempdir().unwrap();
-        let (a, b) = (dir.path().join("a.txt"), dir.path().join("b.txt"));
+        // The barrier names the target as published, at its real path (no `/var` link, no short name).
+        let root = canonical(dir.path()).unwrap();
+        let (a, b) = (root.join("a.txt"), root.join("b.txt"));
         fs::write(&a, b"a0").unwrap();
         fs::write(&b, b"b0").unwrap();
         let cancel = CancellationToken::new();
@@ -2877,13 +2863,42 @@ mod tests {
         assert!(stream.next().await.is_none());
     }
     #[tokio::test]
-    async fn the_git_directory_is_pruned_unless_the_root_is_inside_it() {
-        let (_dir, root) = root();
+    async fn the_git_directory_is_not_walked_when_a_listing_requires_git() {
+        let (_dir, root) = root_with_git_directory();
         let fs = LocalFileService::new();
         let l = lanes();
+        let mut walk = fs.walk(
+            l.maintenance,
+            WalkRequest {
+                root: root.clone(),
+                recursive: true,
+                include_dirs: true,
+                include_hidden: true,
+                respect_ignore: false,
+                require_git: true,
+                prune: Vec::new(),
+                descent: Default::default(),
+                server: None,
+            },
+        );
+        let mut names = Vec::new();
+        while let Some(e) = walk.next().await {
+            names.push(e.unwrap().path.as_path().file_name().unwrap().to_string_lossy().into_owned());
+        }
+        assert_eq!(names, vec!["a.txt"]);
+    }
+    fn root_with_git_directory() -> (tempfile::TempDir, AbsPath) {
+        let (dir, root) = root();
         std::fs::create_dir_all(root.join(".git/refs").as_path()).unwrap();
         std::fs::write(root.join(".git/config").as_path(), "needle\n").unwrap();
         std::fs::write(root.join("a.txt").as_path(), "needle\n").unwrap();
+        (dir, root)
+    }
+    #[tokio::test]
+    async fn the_git_directory_is_pruned_from_a_search_unless_the_root_is_inside_it() {
+        let (_dir, root) = root_with_git_directory();
+        let fs = LocalFileService::new();
+        let l = lanes();
         let search = |root: AbsPath| {
             let request = SearchRequest {
                 root,
@@ -2913,25 +2928,6 @@ mod tests {
         };
         assert_eq!(search(root.clone()).await, vec!["a.txt"]);
         assert_eq!(search(root.join(".git")).await, vec!["config"]);
-        let mut walk = fs.walk(
-            l.maintenance,
-            WalkRequest {
-                root: root.clone(),
-                recursive: true,
-                include_dirs: true,
-                include_hidden: true,
-                respect_ignore: false,
-                require_git: true,
-                prune: Vec::new(),
-                descent: Default::default(),
-                server: None,
-            },
-        );
-        let mut names = Vec::new();
-        while let Some(e) = walk.next().await {
-            names.push(e.unwrap().path.as_path().file_name().unwrap().to_string_lossy().into_owned());
-        }
-        assert_eq!(names, vec!["a.txt"]);
     }
     #[tokio::test]
     async fn only_the_line_terminator_is_removed_from_a_match() {
@@ -3265,10 +3261,6 @@ mod tests {
         items
     }
 
-    /// A tree past [`PARALLEL_AFTER`] files read on several threads gives every request shape exactly the items, in
-    /// the order, of its search on one thread: limits cut inside the parallel part, a failed file's lines withdrawn
-    /// from the limit, one match per file, spanning lines, PCRE2, binary files as text, and rows per file; and each
-    /// file is opened once, so one that reads differently when opened again (`flaky`) answers as on one thread.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_parallel_search_delivers_what_the_search_on_one_thread_does_for_every_request_shape() {
         let (_dir, root) = root();
@@ -3848,11 +3840,6 @@ mod tests {
         pause::clear(root.as_path());
     }
 
-    /// The stream's timeout delivered while its scan is between the handoff's answer and the window's publication and
-    /// its walk is in a listing call nothing cancels: the stream, kept, lets go of the producer at its terminal item, so
-    /// with no grace the slot is free before the walk is released, and the stalled count returns to zero once the
-    /// threads end. The deadline is far off on the producers' clock: only the stream's own timer, on the paused clock,
-    /// passes it, once the queued items are taken.
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn a_timeout_before_the_window_is_published_frees_the_slot_with_the_walk_held() {
         let (_dir, root) = root();
@@ -4154,10 +4141,6 @@ mod tests {
         drop(release);
         settled(&producers, "the given-up thread ends once its read returns", ProducerCounts::default()).await;
     }
-    /// A producer held in a read that never returns is counted as abandoned however its stream lets go of it: a `close`
-    /// that waits out its grace (given up then), a `close` its caller drops before the grace (its deadline or
-    /// cancellation), and a dropped stream; the canceller gives these two up once the grace has passed. Each given-up
-    /// thread is counted as stalled until its read returns.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_producer_its_stream_lets_go_of_is_counted_until_it_ends_or_is_given_up() {
         let (_dir, root) = root();
@@ -4228,13 +4211,6 @@ mod tests {
         };
         within("the scans' end", wait).await;
     }
-    /// Ten thousand searches in a row on one volume, each held in a read that ignores its cancel. The first 8 are given
-    /// up once the grace has passed (none here) and stay; every later one is refused at once, starting no thread, with
-    /// Node's answer to a request whose server was ended for a stalled cancel: the process holds 8 given-up threads, and
-    /// of each only the thread in the read, which holds a fixed set of bytes (the walk's position, the open file, one
-    /// buffer of READ_CHUNK and its slot's hold), as their scans ended and with them the matcher, the searcher's buffers
-    /// and the queue. A search on another volume answers meanwhile. When one read returns, its thread ends touching no
-    /// counter of the scheduler and notifying no one, its volume's mark goes, and the volume takes a search again.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn ten_thousand_reads_that_ignore_the_cancel_hold_eight_threads_and_spare_other_volumes() {
         let (_dir, root) = root();
@@ -4351,13 +4327,6 @@ mod tests {
         };
         tokio::time::timeout(Duration::from_secs(60), all).await.expect("every search answered or given up within 60 s")
     }
-    /// Ten thousand searches queued at once on one volume, each held, once it runs, in a read that never returns, and
-    /// given up once its caller lets go of it. As each running one is given up the next queued one is admitted, until
-    /// the volume holds MAX_STUCK_PER_VOLUME given-up threads; from then each queued one is answered at its admission with
-    /// Node's stalled answer and starts no thread (one admitted just before is answered so by its producer, before its
-    /// read). The threads left stranded, counted as the scheduler counts them and as reads entered and not returned:
-    /// those that were reading on the volume when it reached its bound, at most MAX_STUCK_PER_VOLUME - 1 + the 2 that run
-    /// at once, within `max_stranded_per_volume`; at most those 2 other producers started.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn ten_thousand_searches_queued_on_a_volume_whose_reads_never_return_strand_at_most_the_stated_bound() {
         const SEARCHES: usize = 10_000;
@@ -4388,13 +4357,6 @@ mod tests {
         let started = reads.started.load(Ordering::SeqCst);
         assert!(started - stranded <= AT_ONCE, "{started} started: a refused search starts no thread unless admitted before the bound");
     }
-    /// Nine searches running on one volume whose reads all stall at once (a volume that dies under them), a thousand
-    /// queued behind them: the nine are all given up, past the 8 a volume may otherwise gain, as they were reading on it
-    /// before it reached its bound; each queued one admitted before it reached the bound runs, stalls and is given up
-    /// too, and every later one is answered at its admission and starts no thread (or, admitted just before the bound,
-    /// by its producer before its read). The total stays within
-    /// MAX_STUCK_PER_VOLUME - 1 + 9 (the searches that run at once), within `max_stranded_per_volume`, and a search made
-    /// after is refused at once.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn nine_running_searches_that_stall_at_once_strand_at_most_the_stated_bound() {
         const AT_ONCE: usize = 9;
@@ -4448,11 +4410,6 @@ mod tests {
             }
         }
     }
-    /// Three volumes whose reads stall: two hold MAX_STUCK_PER_VOLUME given-up threads and the third one fewer, so the
-    /// process holds MAX_STUCK_TOTAL - 1: a search on a fourth volume and on the third are served, one on a volume at its
-    /// bound refused. The third's next stall reaches MAX_STUCK_TOTAL: then a search on any volume is refused, the fourth
-    /// (none given up) and the third (fewer than its bound) included, within `max_stranded_total`; once one stuck read
-    /// returns, both are served again.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn three_stalled_volumes_reach_the_process_wide_bound_and_refuse_every_volume() {
         let (_dir, root) = root();
@@ -4504,12 +4461,6 @@ mod tests {
         drop(releases);
         settled(&producers, "every given-up thread ends", ProducerCounts::default()).await;
     }
-    /// Reads that stall under a junction to a folder of another volume are that volume's: once it holds
-    /// MAX_STUCK_PER_VOLUME given-up threads, a search rooted at the junction's target folder (on that volume) and a search
-    /// through the junction are refused with Node's stalled answer, while a search of the folder holding the junction,
-    /// on the temp folder's volume, answers. Once the junction is retargeted to a folder of the temp folder's volume, the
-    /// next search through it is served: its refusal was by the volume it leads to now, told afresh. Skipped (it says so)
-    /// on a machine with one fixed volume.
     #[cfg(windows)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn reads_stalled_under_a_junction_are_charged_to_the_volume_it_leads_to() {
@@ -4659,17 +4610,6 @@ mod tests {
         let rel: Vec<String> = listed.iter().map(|p| p.strip_prefix(root.as_path()).unwrap().to_string_lossy().replace('\\', "/")).collect();
         assert_eq!(rel, ["", ".gitignore", "a.txt"]);
     }
-    /// A root whose excluded children, directly beneath it, are folders on a dead mount: every call of the walk on one of
-    /// them, or on anything under it, never returns ([`Gated`]). `z` is excluded by the search's glob (the listing's
-    /// prune), `.h` as hidden, `q` by an `.ignore` line, and `dead` by an `.ignore` line for folders only (`dead/`)
-    /// while its listing gives no type: the mount table names it a mount point, so it is a folder, told without a call.
-    /// The text search and the file listing each finish with the rest of the tree, and nothing was called on, or opened
-    /// under, an excluded child (counted: none).
-    ///
-    /// [`Gated`] sees every call the walk makes on an entry ([`tree::gate::probe`]). It does not see the root's telling
-    /// ([`Volumes::start`]) nor ignore's own calls as it loads the rules ([`tree`]); of those, the ones that could reach
-    /// an excluded child are the loading of its ignore files, were it ever taken for a folder the walk is in: each holds
-    /// an `.ignore` that tells whether anything opened it ([`Tripwire`]), checked too.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn excluded_children_are_never_listed_typed_or_opened() {
         let (_dir, root) = root();
@@ -4743,12 +4683,6 @@ mod tests {
         release.1.notify_all();
         settled(&producers, "every producer ends", ProducerCounts::default()).await;
     }
-    /// With no mount table (it could not be read), any entry may be a mount point the walk does not know of. A root's
-    /// `dead`, excluded by an `.ignore` line for folders only (`dead/`) and listed without its type, must be asked its
-    /// type to be judged, and that call never returns ([`Gated`]): it is made on the bounded probe, charged to `dead`
-    /// alone. Once MAX_STUCK_PER_VOLUME searches are given up in it, the root's next search answers its other file and
-    /// then, at `dead`, Node's stalled answer, with no call made on `dead`; a search of another folder of the same
-    /// volume answers in full. Once the calls return, every given-up thread ends.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn with_no_mount_table_a_stall_judging_an_entry_is_charged_to_that_entry() {
         let (_other_dir, other) = root();
@@ -4792,11 +4726,6 @@ mod tests {
         release.1.notify_all();
         settled(&producers, "every given-up thread ends", ProducerCounts::default()).await;
     }
-    /// A burst of searches that never end, each class alone, against Node's scheduler with 2 searches at once, an
-    /// interactive reserve of 1, a bulk limit of 2, and 4 waiting places (a priority reserve of 1): as the server's
-    /// dispatcher admits them when it keeps up, 3 interactive ones run (2 and the reserve), 4 wait and the 8th is
-    /// refused; 2 fuzzy ones run, 4 wait, the 7th is refused; 2 bulk ones run, 3 wait (4 less the reserve), the 6th is
-    /// refused.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_burst_is_refused_at_the_search_nodes_scheduler_refuses() {
         let (_dir, root) = root();
@@ -5069,18 +4998,7 @@ fn atomic_write(target: &Path, content: &[u8], expect: &Expect, cancel: Option<&
     };
     let tmp = temp_name(target);
     let fsync = fsync_wanted();
-    let written = (|| -> Result<(), (FsStep, io::Error)> {
-        let open_step = || FsStep::Open { path: AbsPath::new(&tmp).expect("a resolved target is absolute") };
-        let mut file = create_temp(&tmp, existing.as_ref()).map_err(|e| (open_step(), e))?;
-        let result =
-            file.write_all(content).map_err(|e| (FsStep::Write, e)).and_then(|()| if fsync { sync(&file).map_err(|e| (FsStep::Fsync, e)) } else { Ok(()) });
-        drop(file);
-        if result.is_err() {
-            let _ = fs::remove_file(&tmp);
-        }
-        result
-    })();
-    written.map_err(|(step, e)| io_error(&e, target).at(step))?;
+    write_temp(target, &tmp, content, existing.as_ref(), fsync)?;
     #[cfg(windows)]
     if let Some(meta) = &existing {
         // The target's attributes (hidden, system, read-only) go to the temp file, as the patch
@@ -5095,6 +5013,25 @@ fn atomic_write(target: &Path, content: &[u8], expect: &Expect, cancel: Option<&
             return Err(if e.kind() == io::ErrorKind::AlreadyExists { precondition_failed(target) } else { io_error(&e, target) });
         }
     }
+    publish_temp(target, &tmp, expect, cancel, fsync)
+}
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+fn write_temp(target: &Path, tmp: &Path, content: &[u8], existing: Option<&fs::Metadata>, fsync: bool) -> Result<(), FsError> {
+    let written = (|| -> Result<(), (FsStep, io::Error)> {
+        let open_step = || FsStep::Open { path: AbsPath::new(tmp).expect("a resolved target is absolute") };
+        let mut file = create_temp(tmp, existing).map_err(|e| (open_step(), e))?;
+        let result =
+            file.write_all(content).map_err(|e| (FsStep::Write, e)).and_then(|()| if fsync { sync(&file).map_err(|e| (FsStep::Fsync, e)) } else { Ok(()) });
+        drop(file);
+        if result.is_err() {
+            let _ = fs::remove_file(tmp);
+        }
+        result
+    })();
+    written.map_err(|(step, e)| io_error(&e, target).at(step))
+}
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+fn publish_temp(target: &Path, tmp: &Path, expect: &Expect, cancel: Option<&CancellationToken>, fsync: bool) -> Result<(), FsError> {
     let attempts = if cfg!(windows) { RENAME_BACKOFFS_MS.len() + 1 } else { 1 };
     // The final attempt has no backoff; Unix takes only that first, non-retried attempt.
     for (attempt, backoff) in RENAME_BACKOFFS_MS.iter().copied().map(Some).chain(std::iter::once(None)).take(attempts).enumerate() {
@@ -5150,7 +5087,7 @@ fn atomic_write(target: &Path, content: &[u8], expect: &Expect, cancel: Option<&
 impl FileService for LocalFileService {
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn stat(&self, lane: InteractiveIo, path: AbsPath) -> Result<FileStat, FsError> {
-        on(lane, move || {
+        on_read(lane, move || {
             let p = path.as_path();
             stat_path(p)
         })
@@ -5159,7 +5096,7 @@ impl FileService for LocalFileService {
 
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn stat_for_locator(&self, lane: InteractiveIo, path: AbsPath) -> Result<LocatorStat, FsError> {
-        on(lane, move || {
+        on_read(lane, move || {
             let p = path.as_path();
             #[cfg(windows)]
             let meta = crate::ident::open_attributes(p, 0).and_then(|file| file.metadata());
@@ -5173,7 +5110,7 @@ impl FileService for LocalFileService {
 
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn lstat_for_locator(&self, lane: InteractiveIo, path: AbsPath) -> Result<LocatorStat, FsError> {
-        on(lane, move || {
+        on_read(lane, move || {
             let p = path.as_path();
             let meta = fs::symlink_metadata(p).map_err(|e| io_error(&e, p))?;
             Ok(LocatorStat { kind: entry_kind(meta.file_type()), len: meta.len(), modified: meta.modified().ok(), readonly: meta.permissions().readonly() })
@@ -5183,7 +5120,7 @@ impl FileService for LocalFileService {
 
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn read(&self, lane: InteractiveIo, path: AbsPath, range: ReadRange) -> Result<FileBytes, FsError> {
-        on(lane, move || {
+        on_read(lane, move || {
             let p = path.as_path();
             let mut file = open_read(p)?;
             let total = file.metadata().map_err(|e| io_error(&e, p))?.len();
@@ -5194,7 +5131,7 @@ impl FileService for LocalFileService {
 
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn read_versioned(&self, lane: InteractiveIo, path: AbsPath, offset: u64, max_len: u64) -> Result<(FileStat, FileBytes), FsError> {
-        on(lane, move || {
+        on_read(lane, move || {
             let p = path.as_path();
             let mut file = open_read(p)?;
             let (meta, before) = handle_stat_with_version(&file).map_err(|e| io_error(&e, p))?;
@@ -5210,7 +5147,7 @@ impl FileService for LocalFileService {
 
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn list_dir(&self, lane: InteractiveIo, path: AbsPath) -> Result<Vec<DirEntry>, FsError> {
-        on(lane, move || {
+        on_read(lane, move || {
             let mut entries = list_entries(path.as_path())?;
             order_entries(&mut entries);
             Ok(entries)
@@ -5220,7 +5157,7 @@ impl FileService for LocalFileService {
 
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn list_dir_for_ranking(&self, lane: InteractiveIo, path: AbsPath, cap: usize) -> Result<(Vec<DirEntry>, bool), FsError> {
-        on(lane, move || {
+        on_read(lane, move || {
             let mut entries = list_entries(path.as_path())?;
             let unsorted = entries.len() < cap;
             if !unsorted {
@@ -5760,13 +5697,6 @@ impl Stuck<'_> {
         Some(self.answer(volume.last))
     }
 
-    /// `ticket`'s refusal when made or admitted, else whether its producer must tell its root's volume afresh first
-    /// (`Ok(true)`). It is admitted by its root's telling ([`telling`]), then by the volume its root was last found on,
-    /// else the one its text tells. Where that volume would refuse it, the refusal must be by its root's volume now: one
-    /// fixed by the root's text is ([`Known`]; on Unix the kernel's mount table, read now, which never waits on a
-    /// filesystem, tells a mount made or removed over the path since); any other may have changed (a junction or link
-    /// retargeted), so the stream is admitted and its producer tells it afresh, then is refused by it if it is still at
-    /// its bound ([`Volumes::start`]). That telling can wait on a dead volume, so it is never done here.
     fn admission(&self, ticket: &Ticket) -> Result<bool, FsErrorKind> {
         if let Some(refusal) = self.on(&telling(&ticket.root)) {
             return Err(refusal);
@@ -5876,13 +5806,6 @@ impl Producers {
         ProducerCounts { stalled: s.volumes.values().map(Volume::stuck).sum(), ..s.counts }
     }
 
-    /// Takes the places left for threads `ticket`'s content search reads files on besides its own ([`Parallel`]),
-    /// each noted in [`Ticket::readers`]: the capacity [`SchedulerConfig::total`] holds both the searches running and
-    /// these threads ([`Producers::dispatch`]), so searches running together share it, and one running alone reads on
-    /// the rest. None while a search waits for a slot, or while the volume the search reads on holds as many given-up
-    /// threads as one may: a thread reading on a volume is counted where a producer is, so the bounds of
-    /// [`SchedulerConfig::max_stranded_per_volume`] hold of every thread. A place is the thread's until it ends or is
-    /// given up ([`Producers::give_up`]), when it is free again.
     fn read_places(&self, ticket: &Ticket) -> Vec<usize> {
         let mut s = self.lock();
         let reading = locked(&ticket.reading).clone().unwrap_or_default();
@@ -5922,13 +5845,6 @@ impl Producers {
         self.changed.notify_waiters();
     }
 
-    /// A new stream joins its queue and starts at once if [`Producers::dispatch`] gives it a slot (`Ok(true)`), or else
-    /// waits (`Ok(false)`). Refused (its one item):
-    /// - one [`Stuck::admission`] refuses ([`FsErrorKind::CancelStalled`], naming the latest given-up one's request and
-    ///   the cancel grace);
-    /// - one that stands for a search-server request and finds as many searches waiting as its class may join
-    ///   ([`FsErrorKind::Saturated`]), as `SearchScheduler::enqueue` refuses it (scheduler.rs:234-247; the answer,
-    ///   server.rs:370-394). `full`: a replay's scripted full queue ([`deadline_script`]).
     fn enqueue(&self, ticket: &Arc<Ticket>, full: bool) -> Result<bool, FsErrorKind> {
         let mut s = self.lock();
         if let Err(refusal) = (Stuck { config: &self.config, volumes: &s.volumes, last: s.last }).admission(ticket) {
@@ -5984,11 +5900,6 @@ impl Producers {
         }
     }
 
-    /// `ticket`'s producer is about to make a call that reads on `volume`: it reads on it from now on, unless the volume
-    /// holds as many given-up threads as one may (its refusal, `Err(Some)`), or the producer was given up or ended
-    /// (`Err(None)`: it stops; one let go of and not yet given up still names its calls, which a give-up charges). Under
-    /// the lock a give-up is counted under, so a volume at its bound gains no producer reading on it
-    /// ([`SchedulerConfig::max_stranded_per_volume`]).
     fn reading(&self, ticket: &Ticket, volume: &str) -> Result<(), Option<FsErrorKind>> {
         let s = self.lock();
         if !matches!(ticket.state.load(Ordering::SeqCst), RUNNING | RELEASED) {
@@ -6044,14 +5955,6 @@ impl Producers {
         self.changed.notify_waiters();
     }
 
-    /// `ticket`'s producer, let go of and still running when the cancel grace has passed, is given up, as Node's client
-    /// ends a search server whose search did not stop within it (native-search-client.mjs:501-520) and its next search
-    /// starts a new server. Everything is settled now: the slot is free, the counts and the bulk window (started again,
-    /// as a new server's) are the scheduler's, and the scheduler is taken from the ticket, so the thread, which runs on
-    /// until its call returns, reports nothing and holds no reference to it ([`Started`]). It holds its volume's mark
-    /// instead ([`Volume`]) until it ends: the mark of the volume it was reading on ([`Ticket::reading`]), counted under
-    /// the lock admission and [`Producers::reading`] check it under. A thread that took the scheduler first is ending,
-    /// and its end settles it.
     fn give_up(&self, ticket: &Ticket) {
         let mut s = self.lock();
         if ticket.state.load(Ordering::SeqCst) != RELEASED {
@@ -6061,11 +5964,7 @@ impl Producers {
         // A volume whose given-up threads all ended is forgotten, so the volumes kept are the ones holding any.
         s.volumes.retain(|_, volume| volume.stuck() > 0);
         let volume = s.volumes.entry(charged).or_insert_with(|| Volume { marks: Arc::new(()), last: ticket.search });
-        // The mark is the ticket's before the scheduler is taken: an end that comes between takes it back ([`Started`]).
         *locked(&ticket.stuck) = Some(volume.marks.clone());
-        // The readers' notes are held from before the scheduler is taken until each is marked: a reader ending
-        // meanwhile finds either the scheduler, and reports its end to it, or its mark ([`ReaderEnd`]), so no place
-        // is left counted for a thread that is gone.
         let mut readers = locked(&ticket.readers);
         if locked(&ticket.owner).take().is_none() {
             locked(&ticket.stuck).take();
@@ -6133,10 +6032,6 @@ impl Producers {
         }
     }
 }
-/// A started producer's hold on its slot, shared by its threads ([`Hold`]) and let go of when the last of them ends,
-/// however it ends: then, in this order, the end is reported to the scheduler unless the producer was given up (the
-/// scheduler is the ticket's until then, [`Producers::give_up`]), a given-up thread's volume mark is dropped, and the end
-/// `close` waits for is sent.
 struct Started {
     ticket: Arc<Ticket>,
     _done: oneshot::Sender<()>,
@@ -6145,11 +6040,6 @@ struct Started {
 type Hold = Arc<Started>;
 impl Drop for Started {
     fn drop(&mut self) {
-        // A given-up thread that returns late comes here and to [`IoLink::answer`], taking the ticket's and the link's
-        // locks and nothing of the scheduler's. Those cannot hold it or be left half-changed: the others that take them
-        // (the give-up and [`Ticket::read_on`] the owner and the mark, the scan and `Control::halt` the link's state) hold
-        // them only for a few assignments, never across a call that can block, and each lock guards only its own value,
-        // read whole after a poisoning ([`locked`]).
         let owner = locked(&self.ticket.owner).take();
         if let Some(producers) = owner {
             producers.end(&self.ticket);
@@ -6236,17 +6126,6 @@ impl std::error::Error for Halt {}
 fn halt_of(error: &io::Error) -> Option<&Halt> {
     error.get_ref()?.downcast_ref::<Halt>()
 }
-/// The volumes a producer reads on, for [`SchedulerConfig::stuck_per_volume`]: a give-up charges the volume of the
-/// call it was in, told by the filesystem's identity ([`Producers::give_up`], [`Ticket::reading`]). Before each call
-/// the walk makes on an entry ([`tree::gate::probe`]) and each open of a file, the producer names the volume the call
-/// reads on ([`Volumes::name`], [`charged`]) when it is not the one it named last ([`Ticket::read_on`]); one holding as
-/// many given-up threads as one may refuses it, and the producer answers its search with Node's answer to a request
-/// whose server was ended for a stalled cancel. Node has no answer for one part of a search: a subtree whose read
-/// stalls stalls its whole request (its server's walk never finishes), which its client answers with that text once it
-/// ended the server; so the search is answered so in full, as the tools answer it ([`FsErrorKind::CancelStalled`]).
-///
-/// Shared by a walk ([`tree::Tree`]), which names the calls on its entries, and the producer running it, which tells
-/// the root's volume first ([`Volumes::start`]) and names the opens; both on the producer's one thread.
 struct Volumes {
     ticket: Option<Arc<Ticket>>,
     root: PathBuf,
@@ -6277,11 +6156,6 @@ impl Volumes {
         self.ticket = Some(ticket);
     }
 
-    /// The producer's first call: tells its root's volume by the filesystem's identity, remembered for the root's next
-    /// search ([`known_volume`]), and the mount points below it, and names the root's volume (refused if it is at its
-    /// bound). This reads on the volumes the root's path passes through, named as the root's telling ([`telling`]); one
-    /// that cannot be told leaves the producer named so. On Windows one told within [`KNOWN_FRESH`] is taken as it is,
-    /// unless admission asked for it afresh ([`Ticket::retell`]).
     fn start(&mut self) -> Result<(), Option<FsErrorKind>> {
         let Some(ticket) = self.ticket.clone() else { return Ok(()) };
         #[cfg(unix)]
@@ -6421,13 +6295,6 @@ impl Read for Linked<'_> {
         Ok(read)
     }
 }
-/// The text search, each file searched as the walk reaches it, in `PathBuf` order (the walk sorts siblings): Node's
-/// server answers in that order (`serve_search/search.rs`, `scan_operand`). Nothing of the tree is held beyond the
-/// walker's own state and one file's search; Node's server, which scans while its walk publishes, also holds the whole
-/// inventory, so this holds less. It stops once the request's `limit` items are sent (one per printed line, a
-/// multi-line match a line each), and checks the stop and the deadline before each entry of the walk and before every
-/// read of a file. Its scan runs on a thread of its own, its blocking calls on the stream's thread ([`IoLink`]); past
-/// [`PARALLEL_AFTER`] files its files are read on several threads and delivered in the same order ([`Parallel`]).
 struct Searching {
     matcher: Compiled,
     searcher: Searcher,
@@ -6673,23 +6540,6 @@ const WINDOW: usize = 128;
 /// How often a parallel search whose next file has no reader looks for a place to read it in ([`deliver`]).
 const REGROW: Duration = Duration::from_millis(25);
 
-/// A content search's reads on threads of its own beside the stream's, from the first file past [`PARALLEL_AFTER`]:
-/// the stream's thread walks the rest of the tree into a [`Window`], reader threads search the files in it, and the
-/// scan hands each file its turn in the walk's order, so what is delivered is what the search on one thread delivers.
-///
-/// The scheduler's invariants hold as they did:
-/// - the readers take places in the capacity the searches running take theirs in, [`SchedulerConfig::total`]
-///   ([`Producers::read_places`], [`Producers::dispatch`]): searches running together share the cores. While a search
-///   waits for a slot, no place is taken and each reader gives its place back once the file it is on is done
-///   ([`Window::take`]), so a newcomer waits for files being read, not for whole searches; the search goes on with
-///   fewer readers, down to its stream's thread alone ([`walk_into`]), and takes places again once none waits
-///   ([`Readers::grow`]);
-/// - its reads go parallel only while every call below the root reads on the root's volume ([`Volumes::single`]), the
-///   one its stream's thread names, and only while that volume may take another thread: a give-up charges every
-///   thread in flight to it, the stream's thread (which waits for its readers, [`walk_into`]) and each reader still
-///   running, each counted until it ends ([`Producers::give_up`]); a volume's refusal comes as before;
-/// - the readers' blocking calls are cancelled with the stream's thread's ([`cancel_io::until_ended`]), and as soon as
-///   the search has its answer ([`cancel_io::readers_until_ended`]).
 struct Parallel {
     open: SharedOpener,
     ticket: Arc<Ticket>,
@@ -6899,14 +6749,6 @@ struct Grant {
     late: bool,
 }
 
-/// The entries a parallel search walked and has not delivered, in the walk's order, the next to deliver first
-/// ([`Parallel`]). Readers take its files in that order; a reader searches its file until the file's first item, then
-/// waits for the file's turn ([`Lane`]): the scan lends the next file the request's budget and the stream's queue
-/// ([`Grant`]), and its reader goes on as the scan on one thread would, the deadline checked as it starts and before
-/// each read, each item queued as it is built. So a file with no match is searched whole ahead of its turn, and
-/// nothing of a match is built ahead of it: what a search holds ahead of its consumer is its queue and the one item its
-/// next file waits to queue, as on one thread, each file is opened and read once, and the next file always has a
-/// reader (readers take the first file waiting, so it was taken before any after it).
 #[derive(Default)]
 struct Window {
     state: Mutex<Win>,
@@ -7020,11 +6862,6 @@ impl Window {
     }
 }
 
-/// The parallel search's walk, on the stream's thread ([`serve`]): the rest of `listing` into `window`, at most
-/// [`WINDOW`] entries ahead of the delivery, and, while no reader runs (none was left a place, [`Window::take`]), its
-/// files searched with `own`, so the search goes on on this thread alone. Then it waits for the readers to end, so
-/// this thread's share of the slot ([`Hold`]) stands for theirs: the producer ends with its last thread, and one given
-/// up counts this thread among its stranded ones until then ([`Producers::give_up`]).
 fn walk_into(window: &Window, listing: &mut Listing, mut own: Box<dyn ReadFiles>) {
     let mut walked = false;
     loop {
@@ -7198,10 +7035,6 @@ impl Read for Direct<'_> {
     }
 }
 
-/// The scan of a parallel search ([`Parallel`]): delivers the [`Window`]'s entries in the walk's order as the scan on
-/// one thread does, each file in its turn ([`Grant`]) then its outcome ([`settle`]); checks the stop and the deadline
-/// before each entry, and ends the window however it ends, cancelling the reads still in flight ([`Delivering`]).
-/// Before each entry it starts readers in the places free while no search waits ([`Readers::grow`]).
 fn deliver<M: Matcher + Clone + Send + 'static>(readers: &Readers<M>, out: &Out<SearchMatch>, left: &mut Option<usize>) {
     let ctl = &*out.ctl;
     let window = &*readers.reader.window;
@@ -7328,27 +7161,6 @@ impl Drop for Delivering<'_> {
         cancel_io::readers_until_ended(self.ticket.clone());
     }
 }
-/// A stream fed by a producer thread through a queue of [`QUEUE`] items and [`QUEUE_BYTES`]: the producer runs ahead of
-/// the consumer by at most that much and waits while the queue is full.
-///
-/// [`EventSource::close`] stops the producer and waits for its thread to end, at most the cancel grace ([`CLOSE_GRACE`]):
-/// a producer checks the stop between entries, before every read of a file and at every item it queues, so it ends at
-/// once unless a blocking OS call holds it (a directory read, an open or a read on a dead network share, a pipe). That
-/// call is cancelled ([`cancel_io`]); the thread is counted ([`ProducerCounts::abandoned`]) from the moment its stream
-/// lets go of it until it ends, never awaited past the grace, and one still running once the grace has passed is given
-/// up ([`Producers::give_up`]): its slot is free, and the thread ends by itself if its call ever returns. Dropping the
-/// stream, or a `close` cut short by its caller's deadline or cancellation, stops the producer, cancels its call and
-/// counts it the same way without waiting for it; the canceller gives it up when the grace has passed.
-///
-/// A producer starts once its [`Producers`] give it a slot ([`Producers::dispatch`]); until then the stream answers
-/// nothing, its deadline included, as a search waiting in Node's server queue gets no answer until a worker takes it. One that
-/// starts past its deadline answers [`FsErrorKind::TimedOut`] at its first check, as Node's server answers a search
-/// dequeued past its deadline (`scheduler.rs:467`, the deadline counted from `queued_at`); the caller's own hard
-/// deadline answers one that never starts, as Node's client times out a request its server never answers.
-///
-/// With a deadline, the stream ends with a [`FsErrorKind::TimedOut`] item once it passes: from the producer at its next
-/// check, or at once while the producer is in the walk (its directory read may never return), as Node's server answers
-/// what it found when its walk outlives the deadline.
 struct Streamed<T> {
     rx: Option<mpsc::Receiver<Result<T, FsError>>>,
     ctl: Arc<Control>,

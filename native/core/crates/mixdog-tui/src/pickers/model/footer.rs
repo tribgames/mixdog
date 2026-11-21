@@ -47,58 +47,69 @@ fn line(glyph: &str, color: ThemeColor, text: String) -> FooterInput {
     FooterInput::Object { glyph: glyph.to_owned(), color: Some(color), text }
 }
 
+fn context_footer_line(selection: &mut RouteSelection, model: Option<&Value>) -> Option<FooterInput> {
+    let context = model.and_then(|model| selection.context_selection_for(model))?;
+    let is_default = context.percent == context.default_percent;
+    Some(line(
+        "\u{25a3}",
+        theme_color(if is_default { Key::Inactive } else { Key::Permission }),
+        format!(
+            "{}% \u{b7} {}{} \u{b7} C/Shift+C Adjust",
+            context.percent,
+            format_context_window(context.tokens),
+            if is_default { " \u{b7} Default" } else { "" }
+        ),
+    ))
+}
+
+fn fast_footer_line(selection: &mut RouteSelection, model: Option<&Value>) -> Option<FooterInput> {
+    if !selection.fast_available(model) {
+        return None;
+    }
+    let fast_on = model.is_some_and(|model| selection.get_selected_fast(model));
+    let ultrafast = model.is_some_and(|model| selection.is_ultrafast(model));
+    Some(line(
+        if fast_on { "\u{25cf}" } else { "\u{25cb}" },
+        theme_color(if fast_on { Key::FastMode } else { Key::Inactive }),
+        format!("{} \u{b7} Tab Toggle", if ultrafast { "Ultrafast".to_owned() } else { fast_display_label(fast_on) }),
+    ))
+}
+
+fn parameter_footer_lines(selection: &mut RouteSelection, model: Option<&Value>) -> Vec<FooterInput> {
+    let Some(model) = model else { return Vec::new() };
+    let parameters = selection.model_parameters_for(model);
+    let mut lines = Vec::new();
+    for parameter in model.get("modelParameterOptions").and_then(Value::as_array).into_iter().flatten() {
+        let id = parameter.get("id").and_then(Value::as_str).unwrap_or_default();
+        if id == "context" || id == "serviceTier" {
+            continue;
+        }
+        let value = parameters.get(id).filter(|value| truthy(value)).map(mixdog_js::value_to_string).unwrap_or_default();
+        let shown = parameter
+            .get("options")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .find(|option| option.get("value").and_then(Value::as_str) == Some(value.as_str()))
+            .and_then(|option| option.get("label").filter(|label| truthy(label)).map(mixdog_js::value_to_string))
+            .unwrap_or_else(|| value.clone());
+        let label = parameter.get("label").filter(|label| truthy(label)).map(mixdog_js::value_to_string).unwrap_or_default();
+        lines.push(line(
+            "\u{25c7}",
+            theme_color(Key::Inactive),
+            format!("{label}: {shown} \u{b7} {}", if id == OPENROUTER_SORT_PARAMETER { "R Cycle" } else { "T Toggle" }),
+        ));
+    }
+    lines
+}
+
 /// `modelFooter(selection, model)`: the lines under the highlighted row (`None` when the list is empty).
 pub fn model_footer(selection: &mut RouteSelection, model: Option<&Value>) -> Vec<FooterInput> {
     let items = model.map_or_else(|| selection.provider_effort_items(), effort_items_for);
     let values: Vec<String> = items.iter().filter_map(|effort| effort.get("value").filter(|value| truthy(value)).map(mixdog_js::value_to_string)).collect();
-    let context_line = model.and_then(|model| selection.context_selection_for(model)).map(|context| {
-        let is_default = context.percent == context.default_percent;
-        line(
-            "\u{25a3}",
-            theme_color(if is_default { Key::Inactive } else { Key::Permission }),
-            format!(
-                "{}% \u{b7} {}{} \u{b7} C/Shift+C Adjust",
-                context.percent,
-                format_context_window(context.tokens),
-                if is_default { " \u{b7} Default" } else { "" }
-            ),
-        )
-    });
-    let fast_capable = selection.fast_available(model);
-    let fast_on = fast_capable && model.is_some_and(|model| selection.get_selected_fast(model));
-    let fast_line = fast_capable.then(|| {
-        let ultrafast = model.is_some_and(|model| selection.is_ultrafast(model));
-        line(
-            if fast_on { "\u{25cf}" } else { "\u{25cb}" },
-            theme_color(if fast_on { Key::FastMode } else { Key::Inactive }),
-            format!("{} \u{b7} Tab Toggle", if ultrafast { "Ultrafast".to_owned() } else { fast_display_label(fast_on) }),
-        )
-    });
-    let mut parameter_lines = Vec::new();
-    if let Some(model) = model {
-        let parameters = selection.model_parameters_for(model);
-        for parameter in model.get("modelParameterOptions").and_then(Value::as_array).into_iter().flatten() {
-            let id = parameter.get("id").and_then(Value::as_str).unwrap_or_default();
-            if id == "context" || id == "serviceTier" {
-                continue;
-            }
-            let value = parameters.get(id).filter(|value| truthy(value)).map(mixdog_js::value_to_string).unwrap_or_default();
-            let shown = parameter
-                .get("options")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .find(|option| option.get("value").and_then(Value::as_str) == Some(value.as_str()))
-                .and_then(|option| option.get("label").filter(|label| truthy(label)).map(mixdog_js::value_to_string))
-                .unwrap_or_else(|| value.clone());
-            let label = parameter.get("label").filter(|label| truthy(label)).map(mixdog_js::value_to_string).unwrap_or_default();
-            parameter_lines.push(line(
-                "\u{25c7}",
-                theme_color(Key::Inactive),
-                format!("{label}: {shown} \u{b7} {}", if id == OPENROUTER_SORT_PARAMETER { "R Cycle" } else { "T Toggle" }),
-            ));
-        }
-    }
+    let context_line = context_footer_line(selection, model);
+    let fast_line = fast_footer_line(selection, model);
+    let parameter_lines = parameter_footer_lines(selection, model);
     let rest = |lines: &mut Vec<FooterInput>| {
         lines.extend(context_line.clone());
         lines.extend(fast_line.clone());

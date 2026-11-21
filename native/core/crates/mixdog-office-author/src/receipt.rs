@@ -276,11 +276,6 @@ fn note_spec(specs: &mut Specs, shape: &Value) {
     }
 }
 
-// observations
-// What a designer would read off the canvas, as numbers: air, quadrant air, the largest object's share, the visual
-// footprint, text left edges, fill areas, and where the title sits. Read from shape footprints on a 5 pt raster; no
-// threshold turns any of them into a verdict.
-
 const CELL: f64 = 5.0;
 
 /// A shape's footprint; `id` tells which shape it is (a box is the same box by `id`, as an object is by identity).
@@ -621,56 +616,64 @@ fn read_shapes(shapes: &[Value], page: Page) -> Read<'_> {
             continue;
         }
         if has_text(shape) {
-            read.counts.text_boxes += 1;
-            note_spec(&mut read.specs, shape);
-            let size = number_or_zero(field_of(field(shape, "font"), "size"));
-            if size > read.counts.largest_text {
-                read.counts.largest_text = size;
-                read.title_box = frame;
-            }
-            let chrome = is_chrome(shape);
-            if let Some(frame) = frame {
-                read.text_boxes.push(frame);
-                if !chrome {
-                    read.content.push(frame);
-                    read.blocks.push(frame);
-                }
-            }
-            if !chrome {
-                read.counts.chars += collapsed_length(&text_or_empty(field(shape, "text")));
-            }
-            read.covered += area;
+            read_text_box(&mut read, shape, frame, area);
             continue;
         }
-        read.counts.drawn += 1;
-        read.visuals.extend(frame);
-        let geometry = text_or_empty(field(shape, "geometry"));
-        if geometry == "line" || geometry.contains("Connector") {
-            read.counts.lines += 1;
-            if let Some(span) = frame.or_else(|| extent(shape)) {
-                read.constructs.push(span);
-            }
-        } else if geometry == "rect" || geometry == "roundRect" {
-            read.counts.fields += 1;
-            read.covered += area;
-            if let (Some(frame), false) = (frame, fill.is_empty()) {
-                read.surfaces.push(frame);
-            }
-            if is_beat_field(&fill, area, page) {
-                read.beat_field = true;
-            }
-        } else if !geometry.is_empty() {
-            if !read.presets.contains(&geometry) {
-                read.presets.push(geometry);
-            }
-            read.covered += area;
-            if let Some(frame) = frame {
-                read.content.push(frame);
-                read.constructs.push(frame);
-            }
-        }
+        read_drawn_shape(&mut read, shape, frame, area, &fill, page);
     }
     read
+}
+
+fn read_text_box(read: &mut Read, shape: &Value, frame: Option<Frame>, area: f64) {
+    read.counts.text_boxes += 1;
+    note_spec(&mut read.specs, shape);
+    let size = number_or_zero(field_of(field(shape, "font"), "size"));
+    if size > read.counts.largest_text {
+        read.counts.largest_text = size;
+        read.title_box = frame;
+    }
+    let chrome = is_chrome(shape);
+    if let Some(frame) = frame {
+        read.text_boxes.push(frame);
+        if !chrome {
+            read.content.push(frame);
+            read.blocks.push(frame);
+        }
+    }
+    if !chrome {
+        read.counts.chars += collapsed_length(&text_or_empty(field(shape, "text")));
+    }
+    read.covered += area;
+}
+
+fn read_drawn_shape(read: &mut Read, shape: &Value, frame: Option<Frame>, area: f64, fill: &str, page: Page) {
+    read.counts.drawn += 1;
+    read.visuals.extend(frame);
+    let geometry = text_or_empty(field(shape, "geometry"));
+    if geometry == "line" || geometry.contains("Connector") {
+        read.counts.lines += 1;
+        if let Some(span) = frame.or_else(|| extent(shape)) {
+            read.constructs.push(span);
+        }
+    } else if geometry == "rect" || geometry == "roundRect" {
+        read.counts.fields += 1;
+        read.covered += area;
+        if let (Some(frame), false) = (frame, fill.is_empty()) {
+            read.surfaces.push(frame);
+        }
+        if is_beat_field(fill, area, page) {
+            read.beat_field = true;
+        }
+    } else if !geometry.is_empty() {
+        if !read.presets.contains(&geometry) {
+            read.presets.push(geometry);
+        }
+        read.covered += area;
+        if let Some(frame) = frame {
+            read.content.push(frame);
+            read.constructs.push(frame);
+        }
+    }
 }
 
 /// `String(text).replace(/\s+/g, ' ').trim().length`: the UTF-16 length of the text with every run of white space as
@@ -729,32 +732,11 @@ fn diagram_labels(text_boxes: &[Frame], constructs: &[Frame]) -> Vec<Frame> {
         .collect()
 }
 
-fn observe(read: &Read, labels: &[Frame], page: Page) -> Option<Value> {
-    let boxes: Vec<Frame> = read.seen.iter().enumerate().filter_map(|(at, shape)| footprint(shape, at)).collect();
-    if boxes.is_empty() {
-        return None;
-    }
-    let authored: Vec<&Value> = read.seen.iter().copied().filter(|shape| !is_chrome(shape)).collect();
-    let type_set = ascending(distinct(authored.iter().flat_map(|shape| type_sizes_of(shape))));
-    let text_colors = distinct_text(authored.iter().filter(|shape| has_text(shape)).flat_map(|shape| text_colors_of(shape)));
-    let all = raster(&boxes, page);
-    // The same canvas read from content alone: where a surface is carrying nothing.
-    let inner = raster(&read.content, page);
-    let centroid = centroid_of(&boxes, page);
-    // Body top and gaps read the content (text, charts, tables, pictures, contours), never a surface field or a rule.
-    let title = read.title_box.map(|title| {
-        read.content.iter().find(|frame| frame.left == title.left && frame.top == title.top && frame.width == title.width).copied().unwrap_or(title)
-    });
-    let (body_top, body_fill) = body_top_of(&read.content, title.as_ref(), page);
-    let (mid_x, mid_y) = (all.cols / 2, all.rows / 2);
-    let canvas = page.width * page.height;
-    let mut fills: Vec<(&String, f64)> = read.fills.iter().map(|(color, area)| (color, fixed(area / canvas, 2))).filter(|(_, share)| *share > 0.0).collect();
-    fills.sort_by(|a, b| b.1.total_cmp(&a.1));
-    fills.truncate(3);
-    // Presence: the share of the canvas the largest carrier takes: a chart, table, picture, group, or a drawn
-    // construction (three or more contours and connectors read as one object by their extent), never a text box or a
-    // tinted plane. Under a quarter of the canvas is what the reader sees as "a small chart beside a lot of copy"; 0
-    // means the page carries type alone.
+/// Presence: the share of the canvas the largest carrier takes: a chart, table, picture, group, or a drawn
+/// construction (three or more contours and connectors read as one object by their extent), never a text box or a
+/// tinted plane. Under a quarter of the canvas is what the reader sees as "a small chart beside a lot of copy"; 0
+/// means the page carries type alone.
+fn presence_of(read: &Read, canvas: f64) -> f64 {
     let largest = read.content.iter().filter(|frame| !is_in(&read.text_boxes, frame)).map(Frame::area).fold(0.0, f64::max);
     let construct_area = if read.constructs.len() >= 3 {
         let right = read.constructs.iter().map(Frame::right).fold(f64::NEG_INFINITY, f64::max);
@@ -765,7 +747,30 @@ fn observe(read: &Read, labels: &[Frame], page: Page) -> Option<Value> {
     } else {
         0.0
     };
-    let presence = fixed(f64::min(1.0, f64::max(largest, construct_area) / canvas), 2);
+    fixed(f64::min(1.0, f64::max(largest, construct_area) / canvas), 2)
+}
+
+fn observe(read: &Read, labels: &[Frame], page: Page) -> Option<Value> {
+    let boxes: Vec<Frame> = read.seen.iter().enumerate().filter_map(|(at, shape)| footprint(shape, at)).collect();
+    if boxes.is_empty() {
+        return None;
+    }
+    let authored: Vec<&Value> = read.seen.iter().copied().filter(|shape| !is_chrome(shape)).collect();
+    let type_set = ascending(distinct(authored.iter().flat_map(|shape| type_sizes_of(shape))));
+    let text_colors = distinct_text(authored.iter().filter(|shape| has_text(shape)).flat_map(|shape| text_colors_of(shape)));
+    let all = raster(&boxes, page);
+    let inner = raster(&read.content, page);
+    let centroid = centroid_of(&boxes, page);
+    let title = read.title_box.map(|title| {
+        read.content.iter().find(|frame| frame.left == title.left && frame.top == title.top && frame.width == title.width).copied().unwrap_or(title)
+    });
+    let (body_top, body_fill) = body_top_of(&read.content, title.as_ref(), page);
+    let (mid_x, mid_y) = (all.cols / 2, all.rows / 2);
+    let canvas = page.width * page.height;
+    let mut fills: Vec<(&String, f64)> = read.fills.iter().map(|(color, area)| (color, fixed(area / canvas, 2))).filter(|(_, share)| *share > 0.0).collect();
+    fills.sort_by(|a, b| b.1.total_cmp(&a.1));
+    fills.truncate(3);
+    let presence = presence_of(read, canvas);
     let edges = left_edges(&read.text_boxes.iter().filter(|frame| !is_in(labels, frame)).copied().collect::<Vec<_>>());
     let quadrants = |grid: &Raster| {
         numbers(&[
@@ -877,6 +882,90 @@ fn merge_numbers(slides: &[&Value], key: &str) -> Vec<f64> {
     ascending(distinct(slides.iter().flat_map(|slide| as_numbers(observed_field(slide, key)))))
 }
 
+/// Spec carriers across the deck: how many, on how many slides, in which variants, and the distinct anatomies.
+fn deck_specs(slides: &[Value]) -> Map<String, Value> {
+    let mut specs = Map::new();
+    for slide in slides {
+        let Some(Value::Object(entries)) = field(slide, "specs") else { continue };
+        for (name, entry) in entries {
+            let slot = specs.entry(name.clone()).or_insert_with(|| json!({ "count": 0, "slides": 0, "variants": [], "anatomies": [] }));
+            slot["count"] = json_number(to_number_of(field(slot, "count")) + to_number_of(field(entry, "count")));
+            slot["slides"] = json_number(to_number_of(field(slot, "slides")) + 1.0);
+            for list in ["variants", "anatomies"] {
+                for item in as_list(field(entry, list)) {
+                    if let Some(Value::Array(known)) = slot.get_mut(list)
+                        && !known.contains(item)
+                    {
+                        known.push(item.clone());
+                    }
+                }
+            }
+        }
+    }
+    specs
+}
+
+/// The deck read as a sequence: air per slide is the density rhythm, title tops the composition variety.
+fn deck_rhythm(observed: &[&Value], brief: Option<&Value>) -> Map<String, Value> {
+    let each = |build: &dyn Fn(&Value) -> Value| Value::Array(observed.iter().map(|slide| build(*slide)).collect());
+    let mut rhythm = Map::new();
+    rhythm.insert("air".into(), each(&|s| observed_or_null(s, "air")));
+    rhythm.insert("largestTextTops".into(), each(&|s| observed_or_null(s, "largestTextTop")));
+    rhythm.insert("centroidX".into(), each(&|s| first_or_null(s, "centroid")));
+    rhythm.insert("bodyTops".into(), each(&|s| observed_or_null(s, "bodyTop")));
+    rhythm.insert("bodyFills".into(), each(&|s| observed_or_null(s, "bodyFill")));
+    rhythm.insert("fieldFills".into(), each(&|s| first_or_null(s, "fieldFill")));
+    rhythm.insert("presence".into(), each(&|s| observed_or_null(s, "presence")));
+    rhythm.insert("chars".into(), each(&|s| field(s, "chars").cloned().unwrap_or(Value::Null)));
+    rhythm.insert("grammar".into(), each(&|s| field(s, "grammar").cloned().unwrap_or(Value::Null)));
+    if let Some(plan) = brief.and_then(|brief| field(brief, "plan")).and_then(Value::as_array).filter(|plan| !plan.is_empty()) {
+        let planned = |slide: &Value| {
+            let number = field(slide, "slide");
+            let line = plan.iter().find(|entry| match (field(entry, "slide"), number) {
+                (Some(Value::Number(a)), Some(Value::Number(b))) => a.as_f64() == b.as_f64(),
+                _ => false,
+            });
+            match line.and_then(|line| field(line, "rhythm")) {
+                Some(rhythm) if truthy(rhythm) => rhythm.clone(),
+                _ => Value::Null,
+            }
+        };
+        rhythm.insert("planned".into(), each(&planned));
+    }
+    rhythm.insert("gapSet".into(), numbers(&merge_numbers(observed, "gaps")));
+    rhythm.insert("typeSet".into(), numbers(&merge_numbers(observed, "typeSet")));
+    let colors = distinct_text(observed.iter().flat_map(|slide| as_list(observed_field(slide, "textColors"))).map(value_to_string));
+    rhythm.insert("textColors".into(), strings(&colors));
+    rhythm.insert(
+        "rightStray".into(),
+        each(&|s| match field_of(observed_field(s, "textColumns"), "rightStray") {
+            Some(value) if !value.is_null() => value.clone(),
+            _ => json!(0),
+        }),
+    );
+    rhythm
+}
+
+fn attach_missing_carrier(slides: &mut [Value], gap: &Value) {
+    let wanted = match field(gap, "slide") {
+        Some(Value::Number(number)) => number.as_f64(),
+        _ => None,
+    };
+    let target = slides.iter_mut().find(|slide| match (wanted, field(slide, "slide")) {
+        (Some(wanted), Some(Value::Number(number))) => number.as_f64() == Some(wanted),
+        _ => false,
+    });
+    if let Some(Value::Object(target)) = target {
+        let carrier = field(gap, "carrier").cloned().unwrap_or(Value::Null);
+        match target.get_mut("missing") {
+            Some(Value::Array(missing)) => missing.push(carrier),
+            _ => {
+                target.insert("missing".into(), Value::Array(vec![carrier]));
+            }
+        }
+    }
+}
+
 /// `compositionReceipt(document, brief)`: the whole deck: per-slide receipts, totals, the families that never appear,
 /// and the plan lines whose named carriers the snapshot cannot see.
 pub fn composition_receipt(document: &Value, brief: Option<&Value>) -> Value {
@@ -900,25 +989,7 @@ pub fn composition_receipt(document: &Value, brief: Option<&Value>) -> Value {
         })
         .count();
     deck.insert("textOnly".into(), json!(text_only));
-    // Spec carriers across the deck: how many, on how many slides, in which variants, and the distinct anatomies.
-    let mut specs = Map::new();
-    for slide in &slides {
-        let Some(Value::Object(entries)) = field(slide, "specs") else { continue };
-        for (name, entry) in entries {
-            let slot = specs.entry(name.clone()).or_insert_with(|| json!({ "count": 0, "slides": 0, "variants": [], "anatomies": [] }));
-            slot["count"] = json_number(to_number_of(field(slot, "count")) + to_number_of(field(entry, "count")));
-            slot["slides"] = json_number(to_number_of(field(slot, "slides")) + 1.0);
-            for list in ["variants", "anatomies"] {
-                for item in as_list(field(entry, list)) {
-                    if let Some(Value::Array(known)) = slot.get_mut(list)
-                        && !known.contains(item)
-                    {
-                        known.push(item.clone());
-                    }
-                }
-            }
-        }
-    }
+    let specs = deck_specs(&slides);
     if !specs.is_empty() {
         deck.insert("specs".into(), Value::Object(specs));
     }
@@ -936,66 +1007,13 @@ pub fn composition_receipt(document: &Value, brief: Option<&Value>) -> Value {
         .filter(|family| deck.get(**family) == Some(&json!(0)))
         .map(|family| (*family).to_owned())
         .collect();
-    // The deck read as a sequence: air per slide is the density rhythm, title tops the composition variety.
     let observed: Vec<&Value> = slides.iter().filter(|slide| field(slide, "observe").is_some_and(truthy)).collect();
     if !observed.is_empty() {
-        let each = |build: &dyn Fn(&Value) -> Value| Value::Array(observed.iter().map(|slide| build(*slide)).collect());
-        let mut rhythm = Map::new();
-        rhythm.insert("air".into(), each(&|s| observed_or_null(s, "air")));
-        rhythm.insert("largestTextTops".into(), each(&|s| observed_or_null(s, "largestTextTop")));
-        rhythm.insert("centroidX".into(), each(&|s| first_or_null(s, "centroid")));
-        rhythm.insert("bodyTops".into(), each(&|s| observed_or_null(s, "bodyTop")));
-        rhythm.insert("bodyFills".into(), each(&|s| observed_or_null(s, "bodyFill")));
-        rhythm.insert("fieldFills".into(), each(&|s| first_or_null(s, "fieldFill")));
-        rhythm.insert("presence".into(), each(&|s| observed_or_null(s, "presence")));
-        rhythm.insert("chars".into(), each(&|s| field(s, "chars").cloned().unwrap_or(Value::Null)));
-        rhythm.insert("grammar".into(), each(&|s| field(s, "grammar").cloned().unwrap_or(Value::Null)));
-        if let Some(plan) = brief.and_then(|brief| field(brief, "plan")).and_then(Value::as_array).filter(|plan| !plan.is_empty()) {
-            let planned = |slide: &Value| {
-                let number = field(slide, "slide");
-                let line = plan.iter().find(|entry| match (field(entry, "slide"), number) {
-                    (Some(Value::Number(a)), Some(Value::Number(b))) => a.as_f64() == b.as_f64(),
-                    _ => false,
-                });
-                match line.and_then(|line| field(line, "rhythm")) {
-                    Some(rhythm) if truthy(rhythm) => rhythm.clone(),
-                    _ => Value::Null,
-                }
-            };
-            rhythm.insert("planned".into(), each(&planned));
-        }
-        rhythm.insert("gapSet".into(), numbers(&merge_numbers(&observed, "gaps")));
-        rhythm.insert("typeSet".into(), numbers(&merge_numbers(&observed, "typeSet")));
-        let colors = distinct_text(observed.iter().flat_map(|slide| as_list(observed_field(slide, "textColors"))).map(value_to_string));
-        rhythm.insert("textColors".into(), strings(&colors));
-        rhythm.insert(
-            "rightStray".into(),
-            each(&|s| match field_of(observed_field(s, "textColumns"), "rightStray") {
-                Some(value) if !value.is_null() => value.clone(),
-                _ => json!(0),
-            }),
-        );
-        deck.insert("rhythm".into(), Value::Object(rhythm));
+        deck.insert("rhythm".into(), Value::Object(deck_rhythm(&observed, brief)));
     }
     let gaps = brief.filter(|brief| truthy(brief)).map_or_else(Vec::new, |brief| planned_carrier_gaps(document, brief));
     for gap in &gaps {
-        let wanted = match field(gap, "slide") {
-            Some(Value::Number(number)) => number.as_f64(),
-            _ => None,
-        };
-        let target = slides.iter_mut().find(|slide| match (wanted, field(slide, "slide")) {
-            (Some(wanted), Some(Value::Number(number))) => number.as_f64() == Some(wanted),
-            _ => false,
-        });
-        if let Some(Value::Object(target)) = target {
-            let carrier = field(gap, "carrier").cloned().unwrap_or(Value::Null);
-            match target.get_mut("missing") {
-                Some(Value::Array(missing)) => missing.push(carrier),
-                _ => {
-                    target.insert("missing".into(), Value::Array(vec![carrier]));
-                }
-            }
-        }
+        attach_missing_carrier(&mut slides, gap);
     }
     json!({
         "slides": slides,
@@ -1213,6 +1231,28 @@ fn slide_key(slide: &Map<String, Value>) -> String {
     slide.get("slide").map_or_else(|| "undefined".to_owned(), json_stringify)
 }
 
+/// The deck's structure key, and the collapsed deck when it matches the one `previous` holds.
+fn deck_delivery(parts: &Map<String, Value>, previous: &str) -> (String, Option<Value>) {
+    let mut rest = parts.clone();
+    let pacing = rest.shift_remove("pacing");
+    let rhythm = rest.shift_remove("rhythm");
+    rest.insert("rhythm".into(), Value::Object(without_keys(rhythm.as_ref(), &RENDER_RHYTHM)));
+    let structure = json_stringify(&Value::Object(rest));
+    if previous != structure {
+        return (structure, None);
+    }
+    let mut collapsed = Map::new();
+    collapsed.insert("unchanged".into(), Value::Bool(true));
+    let rendered_rhythm = pick_keys(rhythm.as_ref(), &RENDER_RHYTHM);
+    if !rendered_rhythm.is_empty() {
+        collapsed.insert("rhythm".into(), Value::Object(rendered_rhythm));
+    }
+    if let Some(pacing) = pacing.filter(|pacing| truthy(pacing)) {
+        collapsed.insert("pacing".into(), pacing);
+    }
+    (structure, Some(Value::Object(collapsed)))
+}
+
 /// `receiptForDelivery(receipt, session)`: the receipt as the result carries it: a part that matches what `session`
 /// holds goes out as `unchanged`, and `session` becomes what this receipt sends. Mutates nothing it is given; without a
 /// session, or a receipt with no `slides`, the receipt goes out as it is.
@@ -1252,22 +1292,10 @@ pub fn receipt_for_delivery(receipt: &Value, session: Option<&mut DeliveredRecei
     let original = field(receipt, "deck").cloned();
     let mut deck = original.clone();
     if let Some(Value::Object(parts)) = original.as_ref().filter(|deck| truthy(deck)) {
-        let mut rest = parts.clone();
-        let pacing = rest.shift_remove("pacing");
-        let rhythm = rest.shift_remove("rhythm");
-        rest.insert("rhythm".into(), Value::Object(without_keys(rhythm.as_ref(), &RENDER_RHYTHM)));
-        next.deck = json_stringify(&Value::Object(rest));
-        if previous.deck == next.deck {
-            let mut collapsed = Map::new();
-            collapsed.insert("unchanged".into(), Value::Bool(true));
-            let rendered_rhythm = pick_keys(rhythm.as_ref(), &RENDER_RHYTHM);
-            if !rendered_rhythm.is_empty() {
-                collapsed.insert("rhythm".into(), Value::Object(rendered_rhythm));
-            }
-            if let Some(pacing) = pacing.filter(|pacing| truthy(pacing)) {
-                collapsed.insert("pacing".into(), pacing);
-            }
-            deck = Some(Value::Object(collapsed));
+        let (structure, collapsed) = deck_delivery(parts, &previous.deck);
+        next.deck = structure;
+        if let Some(collapsed) = collapsed {
+            deck = Some(collapsed);
         }
     }
     *session = next;
@@ -1378,16 +1406,19 @@ mod tests {
         assert_eq!(deck["deck"]["specs"]["callout"]["slides"], 1);
     }
 
-    #[test]
-    fn a_slide_receipt_observes_air_quadrants_the_largest_object_text_columns_and_fills_from_shape_footprints() {
-        let slide = json!({ "index": 5, "background": { "color": "F7F9FB" }, "shapes": [
+    fn footprint_slide() -> Value {
+        json!({ "index": 5, "background": { "color": "F7F9FB" }, "shapes": [
             { "text": "Title", "font": { "size": 36 }, "left": 43, "top": 72, "width": 600, "height": 60 },
             { "geometry": "rect", "fill": { "color": "0E7C86" }, "left": 0, "top": 0, "width": 480, "height": 540 },
             { "text": "body", "font": { "size": 18 }, "left": 43, "top": 200, "width": 400, "height": 100 },
             { "text": "stray", "font": { "size": 18 }, "left": 700, "top": 300, "width": 200, "height": 60 },
             { "chart": { "path": "/slide[5]/shape[5]/chart" }, "left": 500, "top": 100, "width": 400, "height": 150 },
-        ] });
-        let o = receipt_of(slide)["observe"].clone();
+        ] })
+    }
+
+    #[test]
+    fn a_slide_receipt_observes_air_quadrants_the_largest_object_text_columns_and_fills_from_shape_footprints() {
+        let o = receipt_of(footprint_slide())["observe"].clone();
         let air = number(&o["air"]);
         assert!(air > 0.3 && air < 0.6, "air {air}");
         assert_eq!(o["quadrantAir"][0], 0, "the dark field fills the top-left quadrant");
@@ -1397,6 +1428,16 @@ mod tests {
         let visual = number(&o["visualShare"]);
         assert!(visual > 0.55 && visual < 0.65, "field + chart footprint {visual}");
         assert_eq!(o["presence"], 0.12, "presence is the chart (400 x 150 of 960 x 540), never the field or a text box");
+        assert_eq!(o["textColumns"], json!({ "columns": 2, "stray": 1, "rightEdges": 3, "rightStray": 3, "labels": 0 }));
+        assert_eq!(o["fills"], json!([{ "color": "0E7C86", "share": 0.5 }]));
+        assert_eq!(o["largestTextTop"], 1);
+        assert_eq!(o["bodyTop"], 2.78, "the body starts at the first box under the title (the body text at 200 pt)");
+        assert!(number(&o["centroid"][0]) < 0.5, "the dark left field pulls the centroid left");
+        assert!(number(&o["centroidOffset"]) > 1.0, "and past the horizontal tolerance");
+    }
+
+    #[test]
+    fn three_contours_and_a_connector_read_as_one_construction_by_their_extent() {
         let diagram = receipt_of(json!({ "index": 9, "background": { "color": "F7F9FB" }, "shapes": [
             { "text": "Title", "font": { "size": 36 }, "left": 43, "top": 72, "width": 600, "height": 60 },
             { "geometry": "ellipse", "fill": { "color": "0E7C86" }, "left": 100, "top": 200, "width": 30, "height": 30 },
@@ -1404,30 +1445,30 @@ mod tests {
             { "geometry": "line", "left": 130, "top": 215, "width": 570, "height": 0 },
             { "geometry": "ellipse", "fill": { "color": "0E7C86" }, "left": 400, "top": 460, "width": 30, "height": 30 },
         ] }));
-        assert_eq!(diagram["observe"]["presence"], 0.35, "three contours and a connector read as one construction by their extent (630 x 290)");
-        assert_eq!(o["textColumns"], json!({ "columns": 2, "stray": 1, "rightEdges": 3, "rightStray": 3, "labels": 0 }));
-        assert_eq!(o["fills"], json!([{ "color": "0E7C86", "share": 0.5 }]));
-        assert_eq!(o["largestTextTop"], 1);
-        assert_eq!(o["bodyTop"], 2.78, "the body starts at the first box under the title (the body text at 200 pt)");
-        assert!(number(&o["centroid"][0]) < 0.5, "the dark left field pulls the centroid left");
-        assert!(number(&o["centroidOffset"]) > 1.0, "and past the horizontal tolerance");
+        assert_eq!(diagram["observe"]["presence"], 0.35, "630 x 290 of the canvas");
+    }
+
+    #[test]
+    fn a_canvas_wide_surface_does_not_move_the_centroid() {
         let centered = receipt_of(json!({ "index": 7, "background": { "color": "F7F9FB" }, "shapes": [
-            // A canvas-wide surface does not count.
             { "geometry": "rect", "fill": { "color": "F7F9FB" }, "left": 0, "top": 0, "width": 960, "height": 540 },
             { "text": "claim", "font": { "size": 40 }, "left": 280, "top": 220, "width": 400, "height": 100 },
         ] }));
         assert_eq!(centered["observe"]["centroid"], json!([0.5, 0.5]));
         assert_eq!(centered["observe"]["centroidOffset"], 0);
+    }
+
+    #[test]
+    fn a_com_fill_is_read_from_its_bgr_long_and_an_invisible_fill_is_not_a_surface() {
         let com = receipt_of(json!({ "index": 6, "background": { "color": "0F1B26" }, "shapes": [
             { "text": "no fill textbox", "font": { "size": 18 }, "left": 40, "top": 40, "width": 300, "height": 60, "fillColor": 16777215, "fillVisible": false },
-            // The BGR long 8813582 is 14 + 124 * 256 + 134 * 65536: 0E7C86.
             { "geometry": "rect", "left": 480, "top": 0, "width": 480, "height": 540, "fillColor": 8813582, "fillVisible": true },
         ] }));
-        assert_eq!(
-            com["observe"]["fills"],
-            json!([{ "color": "0E7C86", "share": 0.5 }]),
-            "a COM fill is read from its BGR long; an invisible fill is not a surface"
-        );
+        assert_eq!(com["observe"]["fills"], json!([{ "color": "0E7C86", "share": 0.5 }]), "the BGR long 8813582 is 0E7C86");
+    }
+
+    #[test]
+    fn a_slide_without_positions_has_no_observation() {
         let positionless = receipt_of(document()["slides"][0].clone());
         assert!(positionless.get("observe").is_none(), "no footprint, no observation");
     }
@@ -1514,13 +1555,11 @@ mod tests {
         assert_eq!(receipt["deck"]["rhythm"]["centroidX"].as_array().map(Vec::len), Some(2));
     }
 
-    #[test]
-    fn the_receipt_reads_each_pages_grammar_and_characters_the_decks_shape_and_the_colour_pacing_against_the_planned_rhythm() {
+    fn grammar_deck() -> (Value, Value) {
         let paper = "F7F9FB";
         let title = json!({ "text": "Title", "font": { "size": 36 }, "left": 43, "top": 72, "width": 600, "height": 60 });
         let prose = "A body page carries the argument in the source's own words, three hundred characters or more beside its chart.";
         let document = json!({ "slides": [
-            // The cover's motif is a vector the kit drew (renamed "Icon" by the normaliser): a device, never the picture that makes an evidence page.
             { "index": 1, "background": { "color": "0F1B26" }, "shapes": [
                 { "text": "Cover", "font": { "size": 47 }, "left": 43, "top": 200, "width": 600, "height": 120 },
                 { "type": "p:pic", "name": "Icon", "left": 500, "top": 20, "width": 440, "height": 500 },
@@ -1530,7 +1569,6 @@ mod tests {
                 { "chart": {}, "left": 43, "top": 150, "width": 800, "height": 340 },
                 { "text": prose, "font": { "size": 15 }, "left": 43, "top": 500, "width": 800, "height": 30 },
             ] },
-            // A saturated field over the whole canvas is a beat whatever the slide background says.
             { "index": 3, "background": { "color": paper }, "shapes": [
                 { "geometry": "rect", "fill": { "color": "0E7C86" }, "left": 0, "top": 0, "width": 960, "height": 540 },
                 { "text": "Section", "font": { "size": 40 }, "left": 43, "top": 200, "width": 600, "height": 80 },
@@ -1553,18 +1591,33 @@ mod tests {
         let brief = parse_authoring_brief(
             "\n// BRIEF\n// slide plan: 1 job: cover · rhythm: anchor · 2 job: evidence · rhythm: dense · 3 job: section · rhythm: anchor · 4 job: claim · rhythm: anchor · 5 job: evidence · rhythm: dense · 6 job: process · rhythm: dense\n",
         );
-        let mut receipt = composition_receipt(&document, Some(&brief));
+        (document, brief)
+    }
+
+    #[test]
+    fn the_receipt_reads_each_pages_grammar_and_characters_and_the_decks_shape_against_the_planned_rhythm() {
+        let (document, brief) = grammar_deck();
+        let receipt = composition_receipt(&document, Some(&brief));
         let grammar: Vec<Value> = receipt["slides"].as_array().expect("slides").iter().map(|slide| slide["grammar"].clone()).collect();
         assert_eq!(
             Value::Array(grammar.clone()),
             json!(["beat", "evidence", "beat", "text", "evidence", "evidence"]),
             "dark and field pages are beats; a chart, a signed stat and a drawn construction are evidence; prose alone is text"
         );
-        assert_eq!(receipt["slides"][1]["chars"], 5 + prose.encode_utf16().count(), "characters of authored text");
+        assert_eq!(
+            receipt["slides"][1]["chars"],
+            5 + "A body page carries the argument in the source's own words, three hundred characters or more beside its chart.".encode_utf16().count(),
+            "characters of authored text"
+        );
         assert_eq!(receipt["deck"]["shape"], json!({ "beat": 0.33, "evidence": 0.5, "text": 0.17 }));
         assert_eq!(receipt["deck"]["rhythm"]["grammar"], Value::Array(grammar));
         assert_eq!(receipt["deck"]["rhythm"]["planned"], json!(["anchor", "dense", "anchor", "anchor", "dense", "dense"]));
-        // Rendered colour: the cover and section read saturated, the chart page carries some colour, the rest is paper.
+    }
+
+    #[test]
+    fn rendered_colour_paces_the_deck_against_the_quiet_pages_and_the_anchors_the_plan_promised() {
+        let (document, brief) = grammar_deck();
+        let mut receipt = composition_receipt(&document, Some(&brief));
         let read = |air: f64, colour: f64, largest: f64| PageRead {
             air: Some(air),
             colour: Some(colour),
@@ -1611,25 +1664,32 @@ mod tests {
         assert_eq!(photo["slides"][0]["pictures"], 1);
     }
 
+    fn session_receipt(second_chars: i64) -> Value {
+        json!({
+            "slides": [
+                { "slide": 1, "charts": 0, "chars": 40, "grammar": "beat", "observe": { "air": 0.6 } },
+                { "slide": 2, "charts": 1, "chars": second_chars, "grammar": "evidence", "observe": { "air": 0.3 } },
+            ],
+            "deck": { "slides": 2, "charts": 1, "rhythm": { "air": [0.6, 0.3] } },
+            "absent": ["tables"],
+            "note": "n",
+        })
+    }
+
     #[test]
-    fn a_session_sends_each_slide_structure_once_and_afterwards_only_what_a_render_read() {
-        let receipt = |second_chars: i64| {
-            json!({
-                "slides": [
-                    { "slide": 1, "charts": 0, "chars": 40, "grammar": "beat", "observe": { "air": 0.6 } },
-                    { "slide": 2, "charts": 1, "chars": second_chars, "grammar": "evidence", "observe": { "air": 0.3 } },
-                ],
-                "deck": { "slides": 2, "charts": 1, "rhythm": { "air": [0.6, 0.3] } },
-                "absent": ["tables"],
-                "note": "n",
-            })
-        };
+    fn the_first_delivery_of_a_session_is_whole() {
         let mut session = DeliveredReceipt::default();
-        let first = receipt_for_delivery(&receipt(60), Some(&mut session));
-        assert!(first["slides"][0].get("unchanged").is_none(), "the first delivery is whole");
+        let first = receipt_for_delivery(&session_receipt(60), Some(&mut session));
+        assert!(first["slides"][0].get("unchanged").is_none());
         assert!(first["slides"][0].get("charts").is_none(), "a slide's zero count reads the same absent; the deck keeps totals");
         assert!(first.get("unchangedMeans").is_none());
+    }
 
+    #[test]
+    fn a_resent_receipt_carries_only_what_a_render_read() {
+        let receipt = session_receipt;
+        let mut session = DeliveredReceipt::default();
+        receipt_for_delivery(&receipt(60), Some(&mut session));
         let mut rendered = receipt(60);
         attach_rendered_air(
             &mut rendered,
@@ -1645,7 +1705,10 @@ mod tests {
         assert!(again["deck"].get("slides").is_none(), "the deck structure the caller holds is not resent");
         assert!(again["unchangedMeans"].as_str().is_some_and(|text| text.contains("matches the receipt this session sent last")));
         assert_eq!(rendered["slides"][0]["charts"], 0, "the receipt handed in is not mutated");
+    }
 
+    #[test]
+    fn a_slide_digest_drops_empty_lists_and_a_content_air_equal_to_the_quadrant_air() {
         let plain = receipt_for_delivery(
             &json!({ "slides": [{
                 "slide": 9,
@@ -1655,6 +1718,13 @@ mod tests {
             Some(&mut DeliveredReceipt::default()),
         );
         assert_eq!(plain["slides"][0], json!({ "slide": 9, "observe": { "quadrantAir": [0.5, 0.5, 0.5, 0.5], "fieldFill": [0.3] } }));
+    }
+
+    #[test]
+    fn an_edited_slide_is_sent_whole_and_another_session_or_none_starts_whole() {
+        let receipt = session_receipt;
+        let mut session = DeliveredReceipt::default();
+        receipt_for_delivery(&receipt(60), Some(&mut session));
         let edited = receipt_for_delivery(&receipt(75), Some(&mut session));
         assert_eq!(edited["slides"][0]["unchanged"], true);
         assert_eq!(edited["slides"][1]["chars"], 75, "a slide whose structure changed is sent whole");

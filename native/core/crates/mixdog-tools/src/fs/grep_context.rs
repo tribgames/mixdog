@@ -71,10 +71,6 @@ enum Lines<'a> {
     Mixed(Vec<&'a str>),
 }
 
-/// A window of source lines. Fitting lays the same anchors out again at every radius and after every dropped anchor
-/// (a large search drops hundreds, one at a time), so a window names its lines instead of holding a list of them, and
-/// the passes that only need the length of the text count it instead of building it: copies of the lines, and then
-/// lists of them and the text itself, were gigabytes of allocation for one large search.
 struct Block<'a> {
     path: &'a str,
     match_line: u64,
@@ -152,6 +148,31 @@ pub(super) async fn expand(
     char_budget: usize,
     prefix: bool,
 ) -> Result<String, ToolError> {
+    let mut anchors = distinct_anchors(matches);
+    rank_anchors(&mut anchors, pattern, case_insensitive);
+    let total = anchors.len();
+    if total == 0 {
+        return Ok(String::new());
+    }
+    let after_offset = anchors.get(offset..).unwrap_or(&[]);
+    if after_offset.is_empty() {
+        return Ok(paging_notice(0, total, known, 0, offset, offset));
+    }
+    let page = select_page(after_offset, offset, limit, prefix);
+    let selected = page.anchors;
+    let notice = paging_notice(page.shown, total, known, page.omitted, offset, page.next);
+    if selected.is_empty() {
+        return Ok(notice);
+    }
+    // `contextSpan`: an explicit radius is honoured symmetrically; the automatic one leans downward.
+    let span = if requested > 0 { Span { before: requested, after: requested } } else { Span { before: AUTO_BEFORE.min(AUTO_AFTER), after: AUTO_AFTER } };
+    let budget = char_budget.max(512);
+    let (ctx, sources) = io;
+    sources.load(ctx, &selected, span).await?;
+    Ok(fit(selected, sources, span, budget, notice, total, known, offset, prefix))
+}
+
+fn distinct_anchors(matches: Vec<Match<'_>>) -> Vec<Anchor> {
     let mut anchors: Vec<Anchor> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for m in matches {
@@ -169,20 +190,22 @@ pub(super) async fn expand(
             compact: std::sync::OnceLock::new(),
         });
     }
-    rank_anchors(&mut anchors, pattern, case_insensitive);
-    let total = anchors.len();
-    if total == 0 {
-        return Ok(String::new());
-    }
-    // `selectAnchors`: the page after `offset`; when it is cut, its head half and tail half.
-    let after_offset = anchors.get(offset..).unwrap_or(&[]);
-    if after_offset.is_empty() {
-        return Ok(paging_notice(0, total, known, 0, offset, offset));
-    }
+    anchors
+}
+
+struct Page {
+    anchors: Vec<Anchor>,
+    shown: usize,
+    omitted: usize,
+    next: usize,
+}
+
+/// `selectAnchors`: the page after `offset`; when it is cut, its head half and tail half. `prefix`: a page that was cut to
+/// fit a byte cap is the first `shown` anchors, none skipped or shown twice across pages.
+fn select_page(after_offset: &[Anchor], offset: usize, limit: usize, prefix: bool) -> Page {
     let shown = limit.min(after_offset.len());
     let omitted = after_offset.len() - shown;
-    // `prefix`: a page that was cut to fit a byte cap is the first `shown` anchors, none skipped or shown twice across pages.
-    let (selected, next) = if omitted == 0 || shown == 0 || prefix {
+    let (anchors, next) = if omitted == 0 || shown == 0 || prefix {
         (after_offset[..shown].to_vec(), offset + shown)
     } else {
         let head = shown.div_ceil(2).max(1);
@@ -191,16 +214,7 @@ pub(super) async fn expand(
         picked.extend_from_slice(&after_offset[after_offset.len() - tail..]);
         (picked, offset + head)
     };
-    let notice = paging_notice(shown, total, known, omitted, offset, next);
-    if selected.is_empty() {
-        return Ok(notice);
-    }
-    // `contextSpan`: an explicit radius is honoured symmetrically; the automatic one leans downward.
-    let span = if requested > 0 { Span { before: requested, after: requested } } else { Span { before: AUTO_BEFORE.min(AUTO_AFTER), after: AUTO_AFTER } };
-    let budget = char_budget.max(512);
-    let (ctx, sources) = io;
-    sources.load(ctx, &selected, span).await?;
-    Ok(fit(selected, sources, span, budget, notice, total, known, offset, prefix))
+    Page { anchors, shown, omitted, next }
 }
 
 /// `rankAnchors`: with two or more branches (top-level alternatives of the unwrapped pattern), an anchor's priority is

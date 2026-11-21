@@ -1,8 +1,8 @@
-//! The credential rows and the two digest indexes over them (`lib/device-store-auth.mjs`, `buildTokenIndexes`).
+//! The credential rows and the two digest indexes over them.
 //!
-//! A row is kept as the JSON object Node holds, key order and unknown keys included, so a `devices.json` written by Node loads
-//! and is rewritten byte for byte. The operations here are plain mutations of a [`Devices`] value; which of them become
-//! visible is decided by the store, after the write that makes them durable.
+//! A row is kept as the JSON object Node holds, key order and unknown keys included, so a `devices.json` written by Node loads and
+//! is rewritten byte for byte. The operations here are plain mutations of a [`Devices`] value; the store decides which become
+//! visible, after the write that makes them durable.
 
 use std::collections::HashMap;
 

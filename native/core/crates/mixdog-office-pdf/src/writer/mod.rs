@@ -1,4 +1,4 @@
-//! The PDF writer of the office backend, ported from `src/runtime/office/pdf/pdf-writer.mjs`: [`create_pdf`] flows a list
+//! The PDF writer of the office backend: [`create_pdf`] flows a list
 //! of blocks (heading, paragraph, list, table, image, cover, callout, quote, caption, rule, stats, chart, field rows)
 //! onto pages, adds the form fields, numbers the pages, writes the properties and the file; [`create_chart_pdf`] is the
 //! small chart-only PDF the other writers rasterise.

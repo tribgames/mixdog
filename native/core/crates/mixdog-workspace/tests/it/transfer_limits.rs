@@ -1,8 +1,4 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
-//! DS-WS-7 (transfers): a path swapped for a link between resolving and opening reaches
-//! nothing outside the project, and a 2 GiB file streams page by page with memory that does
-//! not grow with its size ("page" = one `readRange`, at most 4 MiB; the bound asserted is two
-//! pages plus their base64 form, measured as peak working set).
 
 use std::path::Path;
 use std::process::Command;
@@ -76,7 +72,17 @@ fn peak_working_set() -> u64 {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn peak_working_set() -> u64 {
+    // SAFETY: a plain query of the current process into a zeroed out struct; macOS reports the peak in bytes.
+    unsafe {
+        let mut usage: libc::rusage = std::mem::zeroed();
+        assert_eq!(libc::getrusage(libc::RUSAGE_SELF, &mut usage), 0);
+        usage.ru_maxrss as u64
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn peak_working_set() -> u64 {
     let status = std::fs::read_to_string("/proc/self/status").unwrap();
     let kb: u64 = status.lines().find_map(|l| l.strip_prefix("VmHWM:")).and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok()).unwrap();

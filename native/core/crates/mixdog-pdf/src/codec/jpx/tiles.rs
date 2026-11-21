@@ -74,22 +74,7 @@ pub(super) fn assemble(data: &[u8], head: &MainHeader) -> Result<(Vec<Option<Til
         if index >= tile_count {
             return Err(JpxError::new("tile index of SOT beyond the tile grid"));
         }
-        let part_end = if sot.length == 0 {
-            let mut e = data.len();
-            if e >= next + 2 && data[e - 2..] == EOC.to_be_bytes() {
-                e -= 2;
-            }
-            e
-        } else {
-            if sot.length < 12 {
-                return Err(JpxError::new("tile-part length below 12"));
-            }
-            let e = pos as u64 + sot.length as u64;
-            if e > data.len() as u64 {
-                truncated = true;
-            }
-            e.min(data.len() as u64) as usize
-        };
+        let part_end = tile_part_end(data, &sot, pos, next, &mut truncated)?;
         let entry = tiles[index].get_or_insert_with(|| TileEntry {
             builder: head.builder.for_tile(),
             bodies: Vec::new(),
@@ -99,30 +84,7 @@ pub(super) fn assemble(data: &[u8], head: &MainHeader) -> Result<(Vec<Option<Til
             parts: 0,
             last_part: 0,
         });
-        let mut ppt: Vec<(u8, Vec<u8>)> = Vec::new();
-        loop {
-            if next + 2 > data.len() {
-                return Err(JpxError::new("the codestream ends inside a tile-part header"));
-            }
-            if u16::from_be_bytes([data[next], data[next + 1]]) == SOD {
-                next += 2;
-                break;
-            }
-            let (m, seg, after) = read_segment(data, next)?;
-            next = after;
-            if entry.builder.apply(m, seg)? {
-                continue;
-            }
-            match m {
-                markers::PPT => {
-                    let mut r = markers::Be::new(seg);
-                    let z = r.u8()?;
-                    ppt.push((z, r.rest().to_vec()));
-                }
-                markers::PLT => parse_plt(seg, &mut entry.packet_lengths)?,
-                _ => {}
-            }
-        }
+        let mut ppt = read_part_header(data, &mut next, entry)?;
         if part_end < next {
             return Err(JpxError::new("a tile-part is shorter than its header"));
         }
@@ -146,6 +108,55 @@ pub(super) fn assemble(data: &[u8], head: &MainHeader) -> Result<(Vec<Option<Til
         pos = part_end;
     }
     Ok((tiles, truncated))
+}
+
+/// Where the tile-part of `sot`, whose SOT marker is at `pos` and whose header ends after `next`, ends. A length that
+/// runs past the data is cut to it and sets `truncated`; a length of 0 runs to the end (before a closing EOC).
+fn tile_part_end(data: &[u8], sot: &markers::Sot, pos: usize, next: usize, truncated: &mut bool) -> Result<usize, JpxError> {
+    if sot.length == 0 {
+        let mut e = data.len();
+        if e >= next + 2 && data[e - 2..] == EOC.to_be_bytes() {
+            e -= 2;
+        }
+        return Ok(e);
+    }
+    if sot.length < 12 {
+        return Err(JpxError::new("tile-part length below 12"));
+    }
+    let e = pos as u64 + sot.length as u64;
+    if e > data.len() as u64 {
+        *truncated = true;
+    }
+    Ok(e.min(data.len() as u64) as usize)
+}
+
+/// Reads the marker segments of a tile-part header from `next` up to and past its SOD, applying the coding
+/// parameters to `entry`; returns the PPT segments `(index, data)`.
+fn read_part_header(data: &[u8], next: &mut usize, entry: &mut TileEntry) -> Result<Vec<(u8, Vec<u8>)>, JpxError> {
+    let mut ppt: Vec<(u8, Vec<u8>)> = Vec::new();
+    loop {
+        if *next + 2 > data.len() {
+            return Err(JpxError::new("the codestream ends inside a tile-part header"));
+        }
+        if u16::from_be_bytes([data[*next], data[*next + 1]]) == SOD {
+            *next += 2;
+            return Ok(ppt);
+        }
+        let (m, seg, after) = read_segment(data, *next)?;
+        *next = after;
+        if entry.builder.apply(m, seg)? {
+            continue;
+        }
+        match m {
+            markers::PPT => {
+                let mut r = markers::Be::new(seg);
+                let z = r.u8()?;
+                ppt.push((z, r.rest().to_vec()));
+            }
+            markers::PLT => parse_plt(seg, &mut entry.packet_lengths)?,
+            _ => {}
+        }
+    }
 }
 
 /// One segment of a code-block: the passes that end at one codeword-segment termination and its bytes so far.
@@ -303,6 +314,57 @@ pub(super) fn build_tile(siz: &Siz, index: u32, params: &TileParams) -> Result<T
     })
 }
 
+/// The precinct where the precinct grid cell `grid` (`x0, y0, x1, y1`) meets the band `band`, split into code-blocks
+/// of `2^cb.0 x 2^cb.1`; `block_total` counts the blocks of the tile.
+fn build_precinct(grid: (i64, i64, i64, i64), band: (i64, i64, i64, i64), cb: (u32, u32), block_total: &mut u64) -> Result<Precinct, JpxError> {
+    let (cbw, cbh) = cb;
+    let px0 = grid.0.max(band.0);
+    let py0 = grid.1.max(band.1);
+    let px1 = grid.2.min(band.2);
+    let py1 = grid.3.min(band.3);
+    let (mut cw, mut ch) = (0u64, 0u64);
+    let (mut tlbx, mut tlby) = (0i64, 0i64);
+    if px1 > px0 && py1 > py0 {
+        tlbx = floor_div_pow2(px0, cbw) << cbw;
+        tlby = floor_div_pow2(py0, cbh) << cbh;
+        let brbx = ceil_div_pow2(px1, cbw) << cbw;
+        let brby = ceil_div_pow2(py1, cbh) << cbh;
+        cw = ((brbx - tlbx) >> cbw) as u64;
+        ch = ((brby - tlby) >> cbh) as u64;
+    }
+    *block_total += cw * ch;
+    if *block_total > MAX_BLOCKS {
+        return Err(JpxError::new("the tile has too many code-blocks"));
+    }
+    let mut blocks = Vec::with_capacity((cw * ch) as usize);
+    for n in 0..cw * ch {
+        let sx = tlbx + ((n % cw) as i64) * (1i64 << cbw);
+        let sy = tlby + ((n / cw) as i64) * (1i64 << cbh);
+        blocks.push(CodeBlock {
+            x0: sx.max(px0) as u32,
+            y0: sy.max(py0) as u32,
+            x1: (sx + (1i64 << cbw)).min(px1) as u32,
+            y1: (sy + (1i64 << cbh)).min(py1) as u32,
+            numbps: 0,
+            lblock: 3,
+            passes: 0,
+            segments: Vec::new(),
+            data: Vec::new(),
+        });
+    }
+    Ok(Precinct {
+        x0: px0.max(0) as u32,
+        y0: py0.max(0) as u32,
+        x1: px1.max(0) as u32,
+        y1: py1.max(0) as u32,
+        cw: cw as u32,
+        ch: ch as u32,
+        blocks,
+        inclusion: TagTree::new(cw as u32, ch as u32),
+        zero_planes: TagTree::new(cw as u32, ch as u32),
+    })
+}
+
 fn build_resolution(
     precision: u8,
     cp: &CompParams,
@@ -364,51 +426,8 @@ fn build_resolution(
         for precno in 0..pw * ph {
             let gx = tl_cbg_x + ((precno % pw) as i64) * (1i64 << cbg_w);
             let gy = tl_cbg_y + ((precno / pw) as i64) * (1i64 << cbg_h);
-            let px0 = gx.max(bx0);
-            let py0 = gy.max(by0);
-            let px1 = (gx + (1i64 << cbg_w)).min(bx1);
-            let py1 = (gy + (1i64 << cbg_h)).min(by1);
-            let (mut cw, mut ch) = (0u64, 0u64);
-            let (mut tlbx, mut tlby) = (0i64, 0i64);
-            if px1 > px0 && py1 > py0 {
-                tlbx = floor_div_pow2(px0, cbw) << cbw;
-                tlby = floor_div_pow2(py0, cbh) << cbh;
-                let brbx = ceil_div_pow2(px1, cbw) << cbw;
-                let brby = ceil_div_pow2(py1, cbh) << cbh;
-                cw = ((brbx - tlbx) >> cbw) as u64;
-                ch = ((brby - tlby) >> cbh) as u64;
-            }
-            *block_total += cw * ch;
-            if *block_total > MAX_BLOCKS {
-                return Err(JpxError::new("the tile has too many code-blocks"));
-            }
-            let mut blocks = Vec::with_capacity((cw * ch) as usize);
-            for n in 0..cw * ch {
-                let sx = tlbx + ((n % cw) as i64) * (1i64 << cbw);
-                let sy = tlby + ((n / cw) as i64) * (1i64 << cbh);
-                blocks.push(CodeBlock {
-                    x0: sx.max(px0) as u32,
-                    y0: sy.max(py0) as u32,
-                    x1: (sx + (1i64 << cbw)).min(px1) as u32,
-                    y1: (sy + (1i64 << cbh)).min(py1) as u32,
-                    numbps: 0,
-                    lblock: 3,
-                    passes: 0,
-                    segments: Vec::new(),
-                    data: Vec::new(),
-                });
-            }
-            precincts.push(Precinct {
-                x0: px0.max(0) as u32,
-                y0: py0.max(0) as u32,
-                x1: px1.max(0) as u32,
-                y1: py1.max(0) as u32,
-                cw: cw as u32,
-                ch: ch as u32,
-                blocks,
-                inclusion: TagTree::new(cw as u32, ch as u32),
-                zero_planes: TagTree::new(cw as u32, ch as u32),
-            });
+            let grid = (gx, gy, gx + (1i64 << cbg_w), gy + (1i64 << cbg_h));
+            precincts.push(build_precinct(grid, (bx0, by0, bx1, by1), (cbw, cbh), block_total)?);
         }
         bands.push(Band {
             orient,

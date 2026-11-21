@@ -538,10 +538,6 @@ fn assert_answers_as_node(shown: &Value, recorded: &RecordedMove, what: &str) {
         .collect();
     assert!(differing.is_empty(), "{what}: {differing:#?}");
 }
-/// A model switch (`updateSessionRoute` writing the new route into the header) shows the new route's figures with the new model:
-/// Node's `setRoute` runs `syncContextStats` before `publishRoute` (routes-write.mjs:133-142). With the recorded move's read held,
-/// reads show the old route whole and the switch is not answered; let through, it answers as Node did, and no frame shows the new
-/// model without its trigger.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_model_switch_shows_the_new_routes_figures_with_the_new_model() {
     let recorded = recorded_moves().into_iter().find(|m| m.read.is_some()).expect("a read move");

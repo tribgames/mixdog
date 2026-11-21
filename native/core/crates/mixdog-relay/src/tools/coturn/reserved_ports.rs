@@ -1,6 +1,6 @@
 //! `reserved-ports`: adds the coturn relay port range to `net.ipv4.ip_local_reserved_ports` without disturbing what else is
-//! reserved there, and takes back only what it added. The sysctl is a comma-separated list of ports and ranges: ports listed
-//! in it are never picked as ephemeral ports, while an explicit bind (how coturn takes its relay ports) is unaffected.
+//! reserved there, and takes back only what it added. The sysctl is a comma-separated list of ports and ranges: listed ports are
+//! never picked as ephemeral ports, while an explicit bind (how coturn takes its relay ports) is unaffected.
 //!
 //! ```text
 //! reserved-ports apply <min> <max> <record>   reserve the part of min-max that is not reserved yet; write that part to <record>
@@ -115,9 +115,7 @@ fn read_ranges(path: &Path) -> Result<Ranges, String> {
 }
 
 /// The ownership record is one line, `pending|applied|released [ranges]`. The ranges are the part of the reservation this tool
-/// owns: `pending` means the sysctl write is about to happen (or happened and was not confirmed), so they may or may not be
-/// reserved yet; `applied` means they are. Either way they are ours to take back, because they were unreserved when the record
-/// was made.
+/// owns: `pending` means the sysctl write is about to happen (or happened and was not confirmed), `applied` means it did.
 fn read_record(path: &Path) -> Result<Ranges, String> {
     let text = match mixdog_fsio::read_to_string(&Unlaned, path) {
         Ok(text) => text,
@@ -164,51 +162,52 @@ pub fn run(argv: &[String], proc: &Path, write: &mut Writer) -> Result<String, S
     let usage = || USAGE.to_owned();
     let Some((command, args)) = argv.split_first() else { return Err(usage()) };
     match command.as_str() {
-        "apply" => {
-            let Some(record) = args.get(2) else { return Err(usage()) };
-            let record = Path::new(record);
-            let current = read_ranges(proc)?;
-            let (min, max) = (port(args.first())?, port(args.get(1))?);
-            if min > max {
-                return Err(format!("not a port range: {min}-{max}"));
-            }
-            // A start that follows a crash (no stop ran) still owns what the last one added.
-            let mut owned = read_record(record)?;
-            owned.extend(missing_ranges(&current, min, max));
-            let added = normalize(owned);
-            let merged = add_ranges(&current, &added);
-            // Ownership first: if the record cannot be saved nothing has changed, and if this process dies after the sysctl
-            // write the record already names the part.
-            save_record(record, "pending", &added, write)?;
-            if format_ranges(&merged) != format_ranges(&current) {
-                write_sysctl(proc, &merged, write)?;
-            }
-            save_record(record, "applied", &added, write)?;
-            let shown = if added.is_empty() { "nothing, already reserved".to_owned() } else { format_ranges(&added) };
-            Ok(format!("reserved {}-{} (added: {shown})", args[0], args[1]))
-        }
-        "release" => {
-            let Some(record) = args.first() else { return Err(usage()) };
-            let record = Path::new(record);
-            let added = read_record(record)?;
-            if added.is_empty() {
-                return Ok("nothing to release".to_owned());
-            }
-            write_sysctl(proc, &subtract_ranges(&read_ranges(proc)?, &added), write)?;
-            save_record(record, "released", &[], write)?;
-            Ok(format!("released {}", format_ranges(&added)))
-        }
-        "covers" => {
-            let current = read_ranges(proc)?;
-            let (min, max) = (port(args.first())?, port(args.get(1))?);
-            if !covers_range(&current, min, max) {
-                let reserved = if current.is_empty() { "none".to_owned() } else { format_ranges(&current) };
-                return Err(format!("{}-{} is not wholly reserved (reserved: {reserved})", args[0], args[1]));
-            }
-            Ok(format!("reserved: {}", format_ranges(&current)))
-        }
+        "apply" if args.len() > 2 => apply(args, proc, write),
+        "release" if !args.is_empty() => release(Path::new(&args[0]), proc, write),
+        "covers" => covers(args, proc),
         _ => Err(usage()),
     }
+}
+
+fn apply(args: &[String], proc: &Path, write: &mut Writer) -> Result<String, String> {
+    let record = Path::new(&args[2]);
+    let current = read_ranges(proc)?;
+    let (min, max) = (port(args.first())?, port(args.get(1))?);
+    if min > max {
+        return Err(format!("not a port range: {min}-{max}"));
+    }
+    let mut owned = read_record(record)?;
+    owned.extend(missing_ranges(&current, min, max));
+    let added = normalize(owned);
+    let merged = add_ranges(&current, &added);
+    // The record is written before the sysctl, so a crash after the write still names what this tool owns.
+    save_record(record, "pending", &added, write)?;
+    if format_ranges(&merged) != format_ranges(&current) {
+        write_sysctl(proc, &merged, write)?;
+    }
+    save_record(record, "applied", &added, write)?;
+    let shown = if added.is_empty() { "nothing, already reserved".to_owned() } else { format_ranges(&added) };
+    Ok(format!("reserved {}-{} (added: {shown})", args[0], args[1]))
+}
+
+fn release(record: &Path, proc: &Path, write: &mut Writer) -> Result<String, String> {
+    let added = read_record(record)?;
+    if added.is_empty() {
+        return Ok("nothing to release".to_owned());
+    }
+    write_sysctl(proc, &subtract_ranges(&read_ranges(proc)?, &added), write)?;
+    save_record(record, "released", &[], write)?;
+    Ok(format!("released {}", format_ranges(&added)))
+}
+
+fn covers(args: &[String], proc: &Path) -> Result<String, String> {
+    let current = read_ranges(proc)?;
+    let (min, max) = (port(args.first())?, port(args.get(1))?);
+    if !covers_range(&current, min, max) {
+        let reserved = if current.is_empty() { "none".to_owned() } else { format_ranges(&current) };
+        return Err(format!("{}-{} is not wholly reserved (reserved: {reserved})", args[0], args[1]));
+    }
+    Ok(format!("reserved: {}", format_ranges(&current)))
 }
 
 /// The sysctl file: `RESERVED_PORTS_PROC` when set and not empty, else the kernel's.

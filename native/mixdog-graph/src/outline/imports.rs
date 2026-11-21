@@ -1,11 +1,3 @@
-// Import specs in the exact shape the resolvers expect.
-//
-// A rule reports the specifier node it matched; the per-language shaping — the
-// quotes, the `#include` delimiters, Rust's `mod::` prefix, the PHP and Elixir
-// brace groups that expand into several edges — happens here. The
-// SOURCE-IMPORT CONTRACT (what is and is not an edge) is in the module header
-// of `src/outline.rs`.
-
 /// Import spec(s) in the exact shape the resolvers expect, from the rule name
 /// (already the spec node for most languages) plus the matched source text.
 pub(super) fn import_specs(lang: &str, ast_kind: &str, name: &str, text: &str) -> Vec<String> {

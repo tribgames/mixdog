@@ -1,8 +1,5 @@
-//! The callback forward of a server login: this PC listens on the provider's loopback callback port and carries each
-//! accepted connection to the same port on the server through its own `ssh -W`. The listener is this PC's own bind, so
-//! a port something else holds is found by the bind itself, never by a check that a later bind could contradict (on
-//! Windows ssh's own `-L` bind can share a port another program already listens on, and that program keeps the
-//! traffic).
+//! On Windows ssh's own `-L` bind can share a port another program already listens on, and that program keeps the
+//! traffic; this listener is this PC's own bind, so a held port is found by the bind itself.
 
 use std::io;
 use std::net::Ipv4Addr;

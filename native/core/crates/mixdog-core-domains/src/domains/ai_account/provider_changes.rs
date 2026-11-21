@@ -1,13 +1,3 @@
-//! What a change of the providers does: `change.providers` of `createConfigChangeEffects`
-//! (`session-runtime/config-change-effects.mjs`), run by `applyConfigChange`
-//! (`config-lifecycle.mjs`) after every persisted change.
-//!
-//! One subscriber follows [`Config::changes`], the one signal a config edit, an external edit
-//! and a stored secret change (`SecretChanges`) all tick. It compares the providers' signature
-//! with the one last applied and, when it differs, releases the admission cooldowns and
-//! re-initializes the providers. An effect that fails is marked not applied and retried after a
-//! backoff, whatever else changes meanwhile (`settleConfigEffects`).
-
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -104,12 +94,6 @@ impl ProviderChangeEffects for LiveProviderEffects {
     fn reinit_providers(&self) -> BoxFuture<'static, Result<(), String>> {
         let (readiness, config, effective, loaded) = (self.readiness.clone(), self.config.clone(), self.effective.clone(), self.loaded.clone());
         Box::pin(async move {
-            // `applyConfigChange` reloads the runtime's config before this effect, so `providerRecord()` is the reloaded
-            // one. The provider sync follows the same change on its own task and may not have rebuilt it yet: it is rebuilt
-            // here, after the signature was read, and is the runtime's providers before the sync. Rebuilds hand on in the
-            // order they loaded, so no later one puts back a record read before this one, and a ready call after the sync
-            // initializes from this record or a newer one. An initialization already running on an older record when the
-            // sync runs is not covered: the registry orders it by when it reaches the apply chain, not by when it was asked.
             reload(&config, &effective, &readiness, &loaded).await?;
             readiness.reinit_providers(stored_providers(&config)).await.map_err(|error| error.message)
         })

@@ -479,7 +479,6 @@ impl TransportSession {
                     peer.certified = ok;
                     ok
                 });
-                // The certificate is checked before a byte from the peer is trusted.
                 if !matched {
                     c.peer_closed(connection_id, CloseReason::FingerprintMismatch);
                 }

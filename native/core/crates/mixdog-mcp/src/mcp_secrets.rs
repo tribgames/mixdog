@@ -1,7 +1,6 @@
-//! The keychain side of MCP server edits (Node `resource-mcp-secrets.mjs`,
-//! `mcp/oauth-client.mjs` and the app-password store of `connectors/gmail-app-password.mjs`):
-//! storing a server's OAuth client secret or Gmail app password, and releasing a removed
-//! server's or account's sign-in once no other configured server shares it.
+//! The keychain side of MCP server edits: storing a server's OAuth client secret or Gmail app
+//! password, and releasing a removed server's or account's sign-in once no other configured server
+//! shares it.
 //!
 //! What touches the outside world — the keychain, Gmail's IMAP/SMTP check of an app password,
 //! the OAuth token store — sits behind [`SecretOps`]; [`KeychainOps`] is the keychain part.

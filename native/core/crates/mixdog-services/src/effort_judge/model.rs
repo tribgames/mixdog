@@ -66,11 +66,8 @@ fn stamped(dir: &Path) -> bool {
     serde_json::from_slice::<serde_json::Value>(&bytes).ok().and_then(|json| json["release"].as_str().map(|release| !release.is_empty())).unwrap_or(false)
 }
 
-/// Whether the model is installed: both files hold data, and a release
-/// install is stamped.
-///
-/// Reads files: a lane-job body. Async callers use [`available_on`]; the host's info reader
-/// runs it as a read-lane job.
+/// Whether the model is installed: both files hold data, and a release install is stamped.
+/// Reads files: async callers use [`available_on`].
 pub fn available(config: &ModelConfig) -> bool {
     MODEL_FILES.iter().all(|file| holds_data(&config.dir.join(file))) && (config.explicit || stamped(&config.dir))
 }

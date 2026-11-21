@@ -100,6 +100,18 @@ impl OpenAiLogin {
     }
 }
 
+fn expires_at(json: &Value, access: &str, now: u64) -> u64 {
+    json.get("expires_in")
+        .and_then(Value::as_f64)
+        .map(|seconds| now + (seconds * 1000.0) as u64)
+        .filter(|at| *at > 0)
+        .or_else(|| {
+            let exp = claims_of(access)?.get("exp")?.as_f64()?;
+            if exp.is_finite() && exp > 0.0 { Some((exp * 1000.0) as u64) } else { None }
+        })
+        .unwrap_or(0)
+}
+
 #[async_trait]
 impl PkceProvider for OpenAiLogin {
     fn redirect(&self) -> Redirect {
@@ -150,7 +162,6 @@ impl PkceProvider for OpenAiLogin {
                 Refusal { failure: failed("transport", &text), detail: Some(text) }
             })?;
         if !reply.ok() {
-            // `oauthHttpError`: `<operation> <status>: <redacted body>`.
             let summary = oauth_body_summary(&reply.text(), &[code, verifier]);
             let detail = if summary.is_empty() { String::new() } else { format!(": {summary}") };
             let text = format!("{OPERATION} {}{detail}", reply.status);
@@ -160,7 +171,6 @@ impl PkceProvider for OpenAiLogin {
             };
             return Err(Refusal { failure, detail: Some(text) });
         }
-        // `oauthResponseJson`: a body that does not parse is named by its status only.
         let Some(json) = reply.json() else {
             let text = format!("{OPERATION} returned a malformed response (HTTP {})", reply.status);
             return Err(Refusal { failure: failed("token_exchange", &text), detail: Some(text) });
@@ -169,17 +179,7 @@ impl PkceProvider for OpenAiLogin {
         let (Some(access), Some(refresh)) = (text("access_token"), text("refresh_token")) else {
             return Err(failed("token_exchange", "[openai-oauth] token exchange response missing access_token or refresh_token").into());
         };
-        // `expires_in` when the server sends a number, else the token's own `exp`.
-        let expires_at = json
-            .get("expires_in")
-            .and_then(Value::as_f64)
-            .map(|seconds| (self.clock)() + (seconds * 1000.0) as u64)
-            .filter(|at| *at > 0)
-            .or_else(|| {
-                let exp = claims_of(access)?.get("exp")?.as_f64()?;
-                if exp.is_finite() && exp > 0.0 { Some((exp * 1000.0) as u64) } else { None }
-            })
-            .unwrap_or(0);
+        let expires_at = expires_at(&json, access, (self.clock)());
         let identity = identity_of(&[text("id_token").unwrap_or_default(), access]);
         let label = identity.as_ref().and_then(|i| i.get("email")?.as_str().map(str::to_owned));
         self.file.keep(&[access, refresh, text("id_token").unwrap_or_default()]);
@@ -191,7 +191,6 @@ impl PkceProvider for OpenAiLogin {
             stored.insert("account_id".into(), json!(account));
         }
         stored.insert("identity".into(), identity.unwrap_or(Value::Null));
-        // `saveTokens` replaces the file: a sign-in to another account must not keep the previous `account_id`.
         self.file.replace(stored).await.map_err(|_| failed("storage", "the tokens could not be stored"))?;
         Ok(label)
     }

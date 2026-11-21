@@ -14,7 +14,7 @@
 
 use super::boxes::{ChannelDef, ComponentMap, Jp2Info, Palette};
 use super::dwt::{ResBox, inverse_irreversible, inverse_reversible};
-use super::markers::CompSiz;
+use super::markers::{CompSiz, Siz};
 use super::mct::{inverse_ict, inverse_rct};
 use super::t1::Tier1;
 use super::tiles::{TileComponent, TileStructure};
@@ -82,30 +82,7 @@ fn ceil_div(a: u32, b: u32) -> u32 {
 pub fn decode(image: &Image, options: Options) -> Result<DecodedImage, JpxError> {
     let cs = &image.codestream;
     let siz = &cs.siz;
-    let mut planes = Vec::with_capacity(siz.comps.len());
-    let mut total = 0u64;
-    for c in &siz.comps {
-        let (x0, y0) = (ceil_div(siz.x0, c.dx), ceil_div(siz.y0, c.dy));
-        let (width, height) = (ceil_div(siz.x1, c.dx) - x0, ceil_div(siz.y1, c.dy) - y0);
-        if width == 0 || height == 0 {
-            return Err(JpxError::new("a component has no samples"));
-        }
-        total += width as u64 * height as u64;
-        if total > MAX_SAMPLES {
-            return Err(JpxError::new("the image has too many samples"));
-        }
-        planes.push(Plane {
-            precision: c.precision,
-            signed: c.signed,
-            dx: c.dx,
-            dy: c.dy,
-            x0,
-            y0,
-            width,
-            height,
-            data: vec![0; width as usize * height as usize],
-        });
-    }
+    let mut planes = allocate_planes(siz)?;
     let mut t1 = Tier1::new();
     for index in 0..cs.tile_count() {
         if let Some(tile) = cs.decoded_tile(index)? {
@@ -130,6 +107,35 @@ pub fn decode(image: &Image, options: Options) -> Result<DecodedImage, JpxError>
     Ok(decoded)
 }
 
+/// The zeroed plane of every component, refusing an image of no samples or of more than [`MAX_SAMPLES`].
+fn allocate_planes(siz: &Siz) -> Result<Vec<Plane>, JpxError> {
+    let mut planes = Vec::with_capacity(siz.comps.len());
+    let mut total = 0u64;
+    for c in &siz.comps {
+        let (x0, y0) = (ceil_div(siz.x0, c.dx), ceil_div(siz.y0, c.dy));
+        let (width, height) = (ceil_div(siz.x1, c.dx) - x0, ceil_div(siz.y1, c.dy) - y0);
+        if width == 0 || height == 0 {
+            return Err(JpxError::new("a component has no samples"));
+        }
+        total += width as u64 * height as u64;
+        if total > MAX_SAMPLES {
+            return Err(JpxError::new("the image has too many samples"));
+        }
+        planes.push(Plane {
+            precision: c.precision,
+            signed: c.signed,
+            dx: c.dx,
+            dy: c.dy,
+            x0,
+            y0,
+            width,
+            height,
+            data: vec![0; width as usize * height as usize],
+        });
+    }
+    Ok(planes)
+}
+
 fn enumerated_colour(info: &Jp2Info) -> ColourSpace {
     match info.colour().and_then(|c| c.enumerated) {
         Some(16) => ColourSpace::Srgb,
@@ -146,6 +152,25 @@ fn enumerated_colour(info: &Jp2Info) -> ColourSpace {
 enum Samples {
     Int(Vec<i32>),
     Float(Vec<f32>),
+}
+
+impl Samples {
+    /// Stores the decoded coefficients `src` at `at`: halved for the reversible transform, scaled by `step` for the
+    /// irreversible one.
+    fn store_row(&mut self, at: usize, src: &[i32], step: f32) {
+        match self {
+            Samples::Int(d) => {
+                for (d, &s) in d[at..at + src.len()].iter_mut().zip(src) {
+                    *d = s / 2;
+                }
+            }
+            Samples::Float(d) => {
+                for (d, &s) in d[at..at + src.len()].iter_mut().zip(src) {
+                    *d = s as f32 * step;
+                }
+            }
+        }
+    }
 }
 
 struct TileSamples {
@@ -189,13 +214,7 @@ fn decode_component(tile: &TileStructure, c: usize, tc: &TileComponent, t1: &mut
     let params = &tile.params.comps[c];
     let reversible = params.coding.reversible;
     let (w, h) = ((tc.x1 - tc.x0) as usize, (tc.y1 - tc.y0) as usize);
-    let mut ints = Vec::new();
-    let mut floats = Vec::new();
-    if reversible {
-        ints = vec![0i32; w * h];
-    } else {
-        floats = vec![0f32; w * h];
-    }
+    let mut samples = if reversible { Samples::Int(vec![0i32; w * h]) } else { Samples::Float(vec![0f32; w * h]) };
     for (r, res) in tc.resolutions.iter().enumerate() {
         let (prev_w, prev_h) = if r > 0 {
             let p = &tc.resolutions[r - 1];
@@ -218,29 +237,17 @@ fn decode_component(tile: &TileStructure, c: usize, tc: &TileComponent, t1: &mut
                     let by = (block.y0 - band.y0) as usize + offset_y;
                     for j in 0..bh {
                         let at = (by + j) * w + bx;
-                        let src = &data[j * bw..(j + 1) * bw];
-                        if reversible {
-                            for (d, &s) in ints[at..at + bw].iter_mut().zip(src) {
-                                *d = s / 2;
-                            }
-                        } else {
-                            for (d, &s) in floats[at..at + bw].iter_mut().zip(src) {
-                                *d = s as f32 * step;
-                            }
-                        }
+                        samples.store_row(at, &data[j * bw..(j + 1) * bw], step);
                     }
                 }
             }
         }
     }
     let boxes: Vec<ResBox> = tc.resolutions.iter().map(|r| ResBox { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1 }).collect();
-    let samples = if reversible {
-        inverse_reversible(&mut ints, w, &boxes);
-        Samples::Int(ints)
-    } else {
-        inverse_irreversible(&mut floats, w, &boxes);
-        Samples::Float(floats)
-    };
+    match &mut samples {
+        Samples::Int(ints) => inverse_reversible(ints, w, &boxes),
+        Samples::Float(floats) => inverse_irreversible(floats, w, &boxes),
+    }
     Ok(TileSamples { width: w, height: h, samples })
 }
 

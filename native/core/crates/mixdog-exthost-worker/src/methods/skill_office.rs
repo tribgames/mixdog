@@ -1,10 +1,5 @@
-//! The office engine of the process that runs the shipped pptx skill scripts (`mixdogd skill-run`): the scripts read a deck, a
-//! document or a workbook through one office tool call and measure a saved deck, as `source-extract.mjs` and `qc-pages.mjs` did
-//! through `executeOfficeTool`, `issuesPortableOoxml` and `snapshotPortableOoxml`.
-//!
-//! The engine is the same one `office.run` serves, over the same platform (lanes, fonts, Office transport, validator). A skill-run
-//! process has no extension-host call to ask a browser of, so a call that needs one answers what the engine answers without one.
-//! The scripts are synchronous: the engine runs on a runtime of its own.
+//! A skill-run process (`mixdogd skill-run`) has no extension-host call to ask a browser of, so a call that needs one answers what
+//! the engine answers without one.
 
 use std::path::Path;
 

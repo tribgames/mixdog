@@ -1,9 +1,3 @@
-//! What a failed connection threw ([`ConnectError`]) and the guidance view the connect dialog shows for it.
-//!
-//! The view is a [`SshFailureKind`] of the protocol; [`SshFailureLite`] carries it with the error code behind it, the
-//! message the view shows and whether only Settings -> Connection can confirm the fix. Its tests are in
-//! `bootstrap_tests.rs`, beside the rest of the connect-side ones.
-
 use std::sync::LazyLock;
 
 use mixdog_app_protocol::v2::connections::{SshFailure, SshFailureKind, SshMessage};

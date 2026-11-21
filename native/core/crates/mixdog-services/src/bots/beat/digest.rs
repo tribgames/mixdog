@@ -141,9 +141,8 @@ fn room(rows: &[Entry], more: fn(usize) -> String) -> usize {
     if rows.is_empty() { 0 } else { utf16_len(&more(rows.len())) + 1 }
 }
 
-/// The digest lines of `facts` (bounded) over `state` (read only), the routine items among them
-/// and the routines to close. Sessions and tasks past the bounds are counted in one line each.
-pub fn compose_digest(facts: &Facts, state: &HeartbeatState, at: i64) -> Digest {
+/// The routine failures due a report, and the keys of the reported routines to close.
+fn routine_reports(facts: &Facts, state: &HeartbeatState, at: i64) -> (Vec<ReportedRoutine>, Vec<String>) {
     let mut routines = Vec::new();
     let mut closed = Vec::new();
     let mut known = std::collections::HashSet::new();
@@ -185,6 +184,13 @@ pub fn compose_digest(facts: &Facts, state: &HeartbeatState, at: i64) -> Digest 
             closed.push(key.clone());
         }
     }
+    (routines, closed)
+}
+
+/// The digest lines of `facts` (bounded) over `state` (read only), the routine items among them
+/// and the routines to close. Sessions and tasks past the bounds are counted in one line each.
+pub fn compose_digest(facts: &Facts, state: &HeartbeatState, at: i64) -> Digest {
+    let (routines, closed) = routine_reports(facts, state, at);
     let (tasks, sessions) = (&facts.tasks, &facts.sessions);
     let mut out = Lines { lines: Vec::new(), size: 0, reserved: room(tasks, more_tasks) + room(sessions, more_sessions) };
     let reported: Vec<ReportedRoutine> = routines.into_iter().take(MAX_ROUTINE_LINES).filter(|routine| out.add(routine.text.clone())).collect();

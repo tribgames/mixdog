@@ -218,6 +218,64 @@ fn the_annotation_list_drops_only_what_is_not_viewable_and_links_carry_their_act
 }
 
 #[test]
+fn link_actions_are_read_by_their_type() {
+    let link = |action: &str| format!("<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /A << {action} >> >>").into_bytes();
+    let objects: Vec<(u32, Vec<u8>)> = vec![
+        (1, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),
+        (2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec()),
+        (3, b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [6 0 R 7 0 R 8 0 R 9 0 R 10 0 R 11 0 R] >>".to_vec()),
+        (6, link("/S /ResetForm /Fields [(name) 12 0 R] /Flags 1")),
+        (7, link("/S /SetOCGState /State [/OFF 12 0 R] /PreserveRB false")),
+        (8, link("/S /JavaScript /JS (app.launchURL(\"https://example.com/js\", true))")),
+        (9, link("/S /GoToR /F (other.pdf) /NewWindow true")),
+        (10, link("/S /Named /N /NextPage")),
+        (11, link("/S /URI /URI (https://example.com/u)")),
+        (12, b"<< /Type /OCG /Name (layer) >>".to_vec()),
+    ];
+    let document = open(build(&objects));
+    let page = document.page(0).unwrap();
+    let list = annotations::get_annotations(&document, &page).expect("annotations");
+    assert_eq!(list.len(), 6);
+    let reset = list[0].action.reset_form.as_ref().expect("a reset form");
+    assert_eq!((reset.fields.as_slice(), reset.refs.as_slice(), reset.include), (["name".to_owned()].as_slice(), ["12R".to_owned()].as_slice(), false));
+    let ocg = list[1].action.set_ocg_state.as_ref().expect("an OCG state");
+    assert_eq!((ocg.state.as_slice(), ocg.preserve_rb), (["OFF".to_owned(), "12R".to_owned()].as_slice(), false));
+    assert_eq!((list[2].action.url.as_deref(), list[2].action.new_window), (Some("https://example.com/js"), Some(true)));
+    assert_eq!((list[3].action.unsafe_url.as_deref(), list[3].action.new_window), (Some("other.pdf"), Some(true)));
+    assert_eq!(list[4].action.action.as_deref(), Some("NextPage"));
+    assert_eq!(list[5].action.url.as_deref(), Some("https://example.com/u"));
+}
+
+#[test]
+fn quote_operators_move_to_the_next_line_and_set_spacing_before_the_show() {
+    let document = open(one_page("BT /F1 12 Tf (A) ' 3 4 (B) \" ET", FONT_RESOURCES, &[]));
+    let page = document.page(0).unwrap();
+    let fonts = PageFonts::new(&document);
+    let list = oplist::get_operator_list(&document, &page, Some(&fonts as &dyn FontProvider)).unwrap();
+    let kinds: Vec<String> = list
+        .ops()
+        .iter()
+        .map(|op| match op {
+            Op::Param(param, _) => format!("{param:?}"),
+            Op::ShowText(items) => format!("show {}", items.len()),
+            other => tag(other),
+        })
+        .collect();
+    assert_eq!(kinds, ["BT", "Tf", "NextLine", "show 1", "NextLine", "SetWordSpacing", "SetCharSpacing", "show 1", "ET"]);
+}
+
+#[test]
+fn optional_content_marked_content_keeps_its_properties() {
+    let document = open(one_page("/OC /MC0 BDC EMC", "<< /Properties << /MC0 6 0 R >> >>", &[(6, b"<< /Type /OCG /Name (layer) >>".to_vec())]));
+    let page = document.page(0).unwrap();
+    let list = oplist::get_operator_list(&document, &page, None).unwrap();
+    assert!(matches!(
+        &list.ops()[0],
+        Op::BeginMarkedContentProps { tag, data: MarkedData::OptionalContent(Some(_)) } if tag == "OC"
+    ));
+}
+
+#[test]
 fn a_hidden_annotation_is_not_drawn_but_a_print_only_one_is() {
     let appearance = |content: &str| stream("/Type /XObject /Subtype /Form /BBox [0 0 10 10]", content.as_bytes());
     let objects: Vec<(u32, Vec<u8>)> = vec![

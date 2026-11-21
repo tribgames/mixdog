@@ -12,16 +12,15 @@ use mixdog_js::{JsRegex, is_js_space, js_trim, js_words, slice_utf16, utf16_len}
 use mixdog_tools::exec::escape_harness_tags;
 use serde_json::{Map, Value, json};
 
-use super::config::{ROOM_INSTRUCTION_LIMIT, ROOM_MAX_MEMBERS};
+use super::config::{NAME_LIMIT, ROOM_INSTRUCTION_LIMIT, ROOM_MAX_MEMBERS};
 use super::exchange::{Action, DecideInput, Decision, Scene, TakenTurn, TurnResult};
-use super::turn_prompt::row_targets;
+use super::turn_prompt::{js_truthy, row_targets, str_of};
 
 const ROWS_BEFORE_USER: usize = 6;
 /// One exchange's message cap at most (`ROOM_LIMITS.maxMessages.max`).
 const ROWS_AFTER_USER: usize = 30;
 const SUPERVISOR_ROW_TEXT: usize = 600;
 const DESCRIPTION_LIMIT: usize = 160;
-const NAME_LIMIT: usize = 80;
 
 /// A member as the supervisor lists it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -96,11 +95,6 @@ fn kind_of(row: &Value) -> &str {
     row.get("kind").and_then(Value::as_str).unwrap_or("")
 }
 
-/// A truthy string field of a row (`row.speaker`, `row.name`), else `""`.
-fn field<'a>(row: &'a Value, key: &str) -> &'a str {
-    row.get(key).and_then(Value::as_str).unwrap_or("")
-}
-
 /// `String(value ?? '')` of a row field.
 fn text_of(row: &Value, key: &str) -> String {
     match row.get(key) {
@@ -148,16 +142,6 @@ pub fn supervisor_rows(rows: &[Value]) -> Vec<Value> {
         .collect()
 }
 
-/// JS truthiness of an optional value.
-fn js_truthy(value: Option<&Value>) -> bool {
-    match value {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => false,
-        Some(Value::String(text)) => !text.is_empty(),
-        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
-        Some(_) => true,
-    }
-}
-
 pub fn supervisor_prompt(input: &SupervisorInput<'_>) -> Prompt {
     let listed = &input.members[..input.members.len().min(ROOM_MAX_MEMBERS)];
     let by_id: HashMap<&str, &SupervisorMember> = listed.iter().map(|m| (m.id.as_str(), m)).collect();
@@ -168,8 +152,8 @@ pub fn supervisor_prompt(input: &SupervisorInput<'_>) -> Prompt {
     };
     // `row.speaker || row.name`.
     let author = |row: &Value| -> String {
-        let speaker = field(row, "speaker");
-        if speaker.is_empty() { field(row, "name").to_owned() } else { speaker.to_owned() }
+        let speaker = str_of(row, "speaker");
+        if speaker.is_empty() { str_of(row, "name").to_owned() } else { speaker.to_owned() }
     };
     let mut lines = vec!["<room-data>".to_owned(), format!("Room: {}", short(input.room_name)), "Members:".to_owned()];
     for member in listed {
@@ -200,7 +184,7 @@ pub fn supervisor_prompt(input: &SupervisorInput<'_>) -> Prompt {
         } else {
             lines.push(format!("[{}]", who(&author(row))));
         }
-        lines.extend(data_lines(field(row, "text")));
+        lines.extend(data_lines(str_of(row, "text")));
     }
     lines.push(format!("This exchange so far: {}", tally(&input.decide.turns, &by_id, &who)));
     let answered_by = newest.and_then(|n| recent[n + 1..].iter().find(|r| kind_of(r) == "speech"));

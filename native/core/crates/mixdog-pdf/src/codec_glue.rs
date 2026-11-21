@@ -261,29 +261,7 @@ fn encrypt_dict(xref: &Xref, encrypt: &Dict) -> Result<(EncryptDict, Obj)> {
     let cf = if v.unwrap() >= 4 { get("CF")? } else { Obj::Null };
     let stm_value = if v.unwrap() >= 4 { get("StmF")? } else { Obj::Null };
     if length == 0 {
-        if v.unwrap() <= 3 {
-            length = 40;
-        } else if matches!(cf, Obj::Dict(_))
-            && let Some(name) = stm_value.as_name()
-        {
-            let handler = cf_handler(xref, &cf, name, cf_missing)?;
-            let value = match handler {
-                Obj::Null => Obj::Null,
-                Obj::Dict(handler) => xref.get(&handler, "Length")?,
-                _ => {
-                    return Err(PdfError::Format("handlerDict?.get is not a function".into()));
-                }
-            };
-            let value = if is_falsy(&value) { Obj::Num(128.0) } else { value };
-            let numeric = crate::page::object_number(&value);
-            length = if numeric < 40.0 {
-                // JavaScript's <<= 3 first performs ToInt32, including numeric strings/arrays.
-                let bits = if numeric.is_finite() { numeric.trunc().rem_euclid(4_294_967_296.0) as u32 } else { 0 };
-                i64::from(bits.wrapping_shl(3) as i32)
-            } else {
-                value.as_int().unwrap_or(-1)
-            };
-        }
+        length = default_key_length(xref, v.unwrap(), &cf, &stm_value, cf_missing)?;
     }
     if length < 40 || length % 8 != 0 {
         return Err(PdfError::Format("invalid key length".into()));
@@ -325,6 +303,31 @@ fn encrypt_dict(xref: &Xref, encrypt: &Dict) -> Result<(EncryptDict, Obj)> {
         },
         cf,
     ))
+}
+
+/// The key length of an `/Encrypt` dictionary without a `Length`: 40 bits up to version 3, else the `Length` of the
+/// `StmF` crypt filter (in bytes when below 40), 0 when version 4/5 names no usable crypt filter.
+fn default_key_length(xref: &Xref, v: i64, cf: &Obj, stm_value: &Obj, cf_missing: bool) -> Result<i64> {
+    if v <= 3 {
+        return Ok(40);
+    }
+    let (Obj::Dict(_), Some(name)) = (cf, stm_value.as_name()) else {
+        return Ok(0);
+    };
+    let value = match cf_handler(xref, cf, name, cf_missing)? {
+        Obj::Null => Obj::Null,
+        Obj::Dict(handler) => xref.get(&handler, "Length")?,
+        _ => return Err(PdfError::Format("handlerDict?.get is not a function".into())),
+    };
+    let value = if is_falsy(&value) { Obj::Num(128.0) } else { value };
+    let numeric = crate::page::object_number(&value);
+    if numeric < 40.0 {
+        // JavaScript's <<= 3 first performs ToInt32, including numeric strings/arrays.
+        let bits = if numeric.is_finite() { numeric.trunc().rem_euclid(4_294_967_296.0) as u32 } else { 0 };
+        Ok(i64::from(bits.wrapping_shl(3) as i32))
+    } else {
+        Ok(value.as_int().unwrap_or(-1))
+    }
 }
 
 /// One entry of the `CF` dictionary. A `CFM` that is missing (or falsy) is the identity, one that is no name is an

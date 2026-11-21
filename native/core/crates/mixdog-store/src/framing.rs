@@ -511,10 +511,6 @@ mod tests {
     // No longer than `ITEM`, so a stale one lies inside the extent of the member it replaced.
     const CHECKPOINT: &[u8] = br#"{"k":"checkpoint","s":1}"#;
 
-    /// FORMAT.md §3.5/§3.6 at the window: a marker suppresses a candidate anchor only once its group is shown real (cut
-    /// at the end, or whole); a marker whose group fails its check suppresses nothing; the search over the bytes before a
-    /// candidate is never cut by the window (the scan asks for them); a marker naming more than an in-place group is no
-    /// in-place group. In every case the forward scan from the anchor found leaves the log before the group or after it.
     #[test]
     fn a_marker_moves_the_anchor_only_when_its_group_is_shown_real() {
         let mut head = frame(0, br#"{"k":"session","v":2}"#);

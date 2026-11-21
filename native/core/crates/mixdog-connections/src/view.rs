@@ -1,6 +1,4 @@
-//! What the windows know of the connections, as the `connections` scoped feed (`connections/subscribe`). It replaces what the
-//! desktop's main process forwarded to a window: `forwardConnectionLink` (the link state and the Ports panel of the window's
-//! server) and `hostListsChanged` (the saved servers, for ssh). The keys, in the feed's section updates:
+//! What the windows know of the connections, as the `connections` scoped feed (`connections/subscribe`). The keys, in the feed's section updates:
 //!
 //! - `hosts`: the saved servers (`SshHost[]`, `open` while the server has a link);
 //! - `restore`: `{enabled, progress}`, the "reopen server windows" setting and the reopenings still running or failed;

@@ -1,7 +1,6 @@
 //! The production [`PcAccessInstaller`]: the one secure-desktop installer of `mixdog-tools`
 //! (`PcAccessHelper`, the bundled bridge run as a child process) behind the trait the `pcAccess` domain drives.
-//! Off Windows there is no helper: every state reads `unavailable` and an install or enroll answers `unavailable`
-//! (the readiness row reports PC access unsupported there, as the desktop's `windowsPcAccess() === null` did).
+//! Off Windows there is no helper: every state reads `unavailable` and an install or enroll answers `unavailable`.
 
 use std::path::PathBuf;
 use std::sync::Arc;

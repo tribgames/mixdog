@@ -336,7 +336,7 @@ fn check_revocation(cert: *const CERT_CONTEXT, verified_as_of: &FILETIME) -> Res
 /// Decide from a chain's aggregate error status: revoked anywhere is a refusal,
 /// and so is a status that could not be determined (offline / unknown). Other
 /// bits (time validity of the expired daily certificate, trust) are
-/// `WinVerifyTrust`'s verdict above, not revocation's. Pure; unit-tested.
+/// `WinVerifyTrust`'s verdict above, not revocation's.
 fn revocation_verdict(error_status: u32) -> Result<(), Refusal> {
     if error_status & CERT_TRUST_IS_REVOKED != 0 {
         return Err(Refusal::Untrusted("the image's signing certificate, or one of its issuers, has been revoked".into()));
@@ -470,8 +470,7 @@ fn final_nt_path(handle: &OwnedHandle) -> Result<String, String> {
 
 /// The held file is the running image when the image kept the name it was
 /// opened by across the open (the held file can no longer move, so that name
-/// is now pinned to it) and the handle resolves to that same name. Pure;
-/// unit-tested.
+/// is now pinned to it) and the handle resolves to that same name.
 fn held_file_is_image(opened: &str, image_after_open: &str, held_final: &str) -> bool {
     opened == image_after_open && held_final.to_lowercase() == opened.to_lowercase()
 }

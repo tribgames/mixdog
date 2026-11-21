@@ -140,10 +140,6 @@ impl<P: HomePorts> AgentHomes<P> {
         Ok(Reset { session_id, archived_session_id: None })
     }
 
-    /// Archive the home thread of each agent whose definition is proven deleted. Absence from a
-    /// list read never counts: only a per-id `Deleted` answer does. With `on_transition` only a
-    /// home not yet retired for this deletion is archived, so an archived one is never rewritten
-    /// and a hand-restored one stays restored.
     async fn archive_deleted(&self, agent_ids: &[String], on_transition: bool) -> Result<(), RoomError> {
         let mut ids: Vec<String> = Vec::new();
         for id in agent_ids {

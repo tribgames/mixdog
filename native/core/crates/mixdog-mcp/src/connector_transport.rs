@@ -85,6 +85,13 @@ fn error_result(message: impl ToString) -> Value {
     json!({"isError": true, "content": [{"type": "text", "text": message.to_string()}]})
 }
 
+fn progress_relay(token: Value, tx: IncomingTx) -> Arc<dyn Fn(Value) + Send + Sync> {
+    Arc::new(move |mut params: Value| {
+        params["progressToken"] = token.clone();
+        let _ = tx.send(Incoming::Message(json!({"jsonrpc": "2.0", "method": "notifications/progress", "params": params})));
+    })
+}
+
 struct AccountTransport {
     group: Arc<AccountGroup>,
     tx: IncomingTx,
@@ -308,6 +315,22 @@ impl AccountGroup {
         }))
     }
 
+    async fn bind_account(&self, params: &Value, tool: &str, conversation: &str) -> Result<crate::connector_accounts::Chosen, String> {
+        let binding = params["_meta"].get("mixdog/approved-account").ok_or("A grouped connector call requires a bound account identity before dispatch.")?;
+        let chosen = self
+            .choice
+            .approved(
+                tool,
+                &mixdog_core_api::domain::tool::ConnectorAccountBinding {
+                    name: binding["name"].as_str().unwrap_or_default().to_owned(),
+                    id: binding["id"].as_str().unwrap_or_default().to_owned(),
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        self.choice.remember(&chosen.name, conversation).await.map_err(|error| error.to_string())?;
+        Ok(chosen)
+    }
+
     async fn call(&self, params: &Value, cancel: &CancellationToken, tx: IncomingTx) -> Value {
         let tool = params["name"].as_str().unwrap_or_default();
         let conversation = params["_meta"]["mixdog/conversation"].as_str().unwrap_or_default().trim();
@@ -315,30 +338,12 @@ impl AccountGroup {
         if let Some(args) = args.as_object_mut() {
             args.shift_remove("account");
         }
-        let chosen = match params["_meta"].get("mixdog/approved-account") {
-            Some(binding) => self.choice.approved(
-                tool,
-                &mixdog_core_api::domain::tool::ConnectorAccountBinding {
-                    name: binding["name"].as_str().unwrap_or_default().to_owned(),
-                    id: binding["id"].as_str().unwrap_or_default().to_owned(),
-                },
-            ),
-            None => return error_result("A grouped connector call requires a bound account identity before dispatch."),
-        };
-        let chosen = match chosen {
+        let chosen = match self.bind_account(params, tool, conversation).await {
             Ok(chosen) => chosen,
-            Err(error) => return error_result(error),
+            Err(message) => return error_result(message),
         };
-        if let Err(error) = self.choice.remember(&chosen.name, conversation).await {
-            return error_result(error);
-        }
         let server = self.servers.iter().find(|server| server.name() == chosen.name).expect("chosen connection");
-        let progress = params["_meta"].get("progressToken").cloned().map(|token| {
-            Arc::new(move |mut params: Value| {
-                params["progressToken"] = token.clone();
-                let _ = tx.send(Incoming::Message(json!({"jsonrpc": "2.0", "method": "notifications/progress", "params": params})));
-            }) as Arc<dyn Fn(Value) + Send + Sync>
-        });
+        let progress = params["_meta"].get("progressToken").cloned().map(|token| progress_relay(token, tx));
         let mut result = match server.call_account(conversation, tool, args, cancel, progress).await {
             Ok(result) => {
                 self.choice.record(&chosen.name, &AccountReport::default());

@@ -23,7 +23,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::binary::{missing_client_message, ssh_tool_command};
 use crate::command::{FailureClass, SshError, SshTarget, classify_failure, exec_args, stderr_tail_default};
-use crate::context::{AttemptContext, ChildExit, PreparedSpawn, SshChild, SshEnv, SshSpawner};
+use crate::context::{AskpassEnv, AttemptContext, ChildExit, PreparedSpawn, SshChild, SshEnv, SshSpawner};
 use crate::diagnostics::SpawnTrace;
 use crate::private_dir::join_name;
 
@@ -61,58 +61,64 @@ pub fn prepare_spawn(env: &SshEnv, command: &str, args: &[String], context: Opti
     let mut list = args.to_vec();
     let mut vars = None;
     if command == "ssh" {
-        // An attempt's ssh of its target runs with the config its inspection reviewed (none where Mixdog has no ssh folder); any
-        // other ssh with the config the last inspection of the target reviewed, else the generic one. A caller that passes its own
-        // -F keeps it.
-        let reviewed = context
-            .and_then(|attempt| attempt.reviewed.as_ref())
-            .filter(|reviewed| crate::resolved_config::args_target_key(&list).as_deref() == Some(reviewed.target_key.as_str()));
-        let config_file = match reviewed {
-            Some(reviewed) => reviewed.file.as_ref().map(|file| file.path().to_path_buf()),
-            None => env.config_files.for_args(&list).or_else(|| env.config_files.generic()),
-        };
-        if let Some(file) = config_file
-            && !list.iter().any(|arg| arg == "-F")
-        {
-            prepend(&mut list, ["-F".to_owned(), file.to_string_lossy().into_owned()]);
-        }
+        prepend_config_file(env, context, &mut list);
         let identity = context.and_then(|attempt| attempt.settings.as_ref()).and_then(|settings| settings.identity_file.as_deref()).map(str::trim);
         if let Some(identity) = identity.filter(|file| !file.is_empty()) {
             prepend(&mut list, ["-i".to_owned(), expand_home(env, identity), "-o".to_owned(), "IdentitiesOnly=yes".to_owned()]);
         }
         if let Some(session) = context.and_then(|attempt| attempt.askpass.as_ref()).filter(|session| !session.closed()) {
-            for arg in &mut list {
-                if arg == "BatchMode=yes" {
-                    *arg = "BatchMode=no".to_owned();
-                }
-            }
-            // One login for the attempt's short commands: the first ssh keeps a master that the rest reuse. The
-            // long-lived tunnel (-N) only joins one, so it never turns into a background master the supervisor
-            // would lose.
-            if let Some(control_dir) = session.control_dir().filter(|_| !env.platform.is_windows()) {
-                let joins = list.iter().any(|arg| arg == "-N");
-                for arg in &mut list {
-                    if arg == "ControlMaster=no" {
-                        if !joins {
-                            *arg = "ControlMaster=auto".to_owned();
-                        }
-                    } else if arg == "ControlPath=none" {
-                        *arg = format!("ControlPath={}/%C", control_dir.display());
-                    }
-                }
-                if !joins {
-                    prepend(&mut list, ["-o".to_owned(), "ControlPersist=30".to_owned()]);
-                }
-            }
-            let mut merged: BTreeMap<String, String> = env.env.clone();
-            merged.extend(session.env());
-            merged.extend(session.child_env());
-            merged.insert("SSH_ASKPASS_REQUIRE".to_owned(), "force".to_owned());
-            merged.insert("DISPLAY".to_owned(), env.var("DISPLAY").filter(|display| !display.is_empty()).unwrap_or("localhost:0").to_owned());
-            vars = Some(merged);
+            vars = Some(askpass_spawn(env, session.as_ref(), &mut list));
         }
     }
     PreparedSpawn { command: ssh_tool_command(command, env), args: list, env: vars }
+}
+
+/// An attempt's ssh of its target runs with the config its inspection reviewed (none where Mixdog has no ssh folder); any
+/// other ssh with the config the last inspection of the target reviewed, else the generic one. A caller's own `-F` stays.
+fn prepend_config_file(env: &SshEnv, context: Option<&AttemptContext>, list: &mut Vec<String>) {
+    let reviewed = context
+        .and_then(|attempt| attempt.reviewed.as_ref())
+        .filter(|reviewed| crate::resolved_config::args_target_key(list).as_deref() == Some(reviewed.target_key.as_str()));
+    let config_file = match reviewed {
+        Some(reviewed) => reviewed.file.as_ref().map(|file| file.path().to_path_buf()),
+        None => env.config_files.for_args(list).or_else(|| env.config_files.generic()),
+    };
+    if let Some(file) = config_file
+        && !list.iter().any(|arg| arg == "-F")
+    {
+        prepend(list, ["-F".to_owned(), file.to_string_lossy().into_owned()]);
+    }
+}
+
+/// Turns BatchMode off for the askpass session's ssh, lets it share one login master where the platform has ControlPath
+/// sockets, and gives the environment that makes ssh ask through the helper.
+fn askpass_spawn(env: &SshEnv, session: &dyn AskpassEnv, list: &mut Vec<String>) -> BTreeMap<String, String> {
+    for arg in list.iter_mut() {
+        if arg == "BatchMode=yes" {
+            *arg = "BatchMode=no".to_owned();
+        }
+    }
+    if let Some(control_dir) = session.control_dir().filter(|_| !env.platform.is_windows()) {
+        let joins = list.iter().any(|arg| arg == "-N");
+        for arg in list.iter_mut() {
+            if arg == "ControlMaster=no" {
+                if !joins {
+                    *arg = "ControlMaster=auto".to_owned();
+                }
+            } else if arg == "ControlPath=none" {
+                *arg = format!("ControlPath={}/%C", control_dir.display());
+            }
+        }
+        if !joins {
+            prepend(list, ["-o".to_owned(), "ControlPersist=30".to_owned()]);
+        }
+    }
+    let mut merged: BTreeMap<String, String> = env.env.clone();
+    merged.extend(session.env());
+    merged.extend(session.child_env());
+    merged.insert("SSH_ASKPASS_REQUIRE".to_owned(), "force".to_owned());
+    merged.insert("DISPLAY".to_owned(), env.var("DISPLAY").filter(|display| !display.is_empty()).unwrap_or("localhost:0").to_owned());
+    merged
 }
 
 // ---- the process spawner ----

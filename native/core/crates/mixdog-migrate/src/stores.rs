@@ -296,53 +296,64 @@ fn standing(cx: &ItemContext<'_>, source: &mixdog_store::schema::migration::Sour
 
 /// Session ids named by a preserved keyed store (SM §11.6 `links`).
 fn linked_sessions(item: &ManifestItem, cx: &ItemContext<'_>) -> Result<Vec<String>> {
-    let mut ids = Vec::new();
     match item.kind {
-        K::Goals => {
-            for s in &item.sources {
-                let rest = s.path.strip_prefix("goals/").unwrap_or(&s.path);
-                let id = match rest.strip_prefix("history/") {
-                    Some(h) => h.split('/').next().unwrap_or(""),
-                    None => rest.split('.').next().unwrap_or(""),
-                };
-                if !id.is_empty() && !ids.iter().any(|x| x == id) {
-                    ids.push(id.to_string());
+        K::Goals => Ok(goal_session_ids(&item.sources)),
+        K::ConnectorAccounts => conversation_session_ids(&item.sources, cx),
+        K::Worktrees => worktree_owner_ids(&item.sources, cx),
+        _ => Ok(Vec::new()),
+    }
+}
+
+fn goal_session_ids(sources: &[SourceFile]) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for s in sources {
+        let rest = s.path.strip_prefix("goals/").unwrap_or(&s.path);
+        let id = match rest.strip_prefix("history/") {
+            Some(h) => h.split('/').next().unwrap_or(""),
+            None => rest.split('.').next().unwrap_or(""),
+        };
+        if !id.is_empty() && !ids.iter().any(|x| x == id) {
+            ids.push(id.to_string());
+        }
+    }
+    ids
+}
+
+fn conversation_session_ids(sources: &[SourceFile], cx: &ItemContext<'_>) -> Result<Vec<String>> {
+    let mut ids = Vec::new();
+    for s in sources {
+        if s.path == "connector-accounts-by-conversation.json" {
+            let value = json::parse_source(&standing(cx, s)?).map_err(Blocked::journal)?.value;
+            if let Some(map) = value.as_object() {
+                ids.extend(map.keys().cloned());
+            }
+        }
+    }
+    Ok(ids)
+}
+
+fn collect_owner_ids(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::Object(m) => {
+            for (k, v) in m {
+                match (k.as_str(), v) {
+                    ("ownerSessionId", Value::String(s)) => out.push(s.clone()),
+                    _ => collect_owner_ids(v, out),
                 }
             }
         }
-        K::ConnectorAccounts => {
-            for s in &item.sources {
-                if s.path == "connector-accounts-by-conversation.json" {
-                    let value = json::parse_source(&standing(cx, s)?).map_err(Blocked::journal)?.value;
-                    if let Some(map) = value.as_object() {
-                        ids.extend(map.keys().cloned());
-                    }
-                }
-            }
-        }
-        K::Worktrees => {
-            fn owners(v: &Value, out: &mut Vec<String>) {
-                match v {
-                    Value::Object(m) => {
-                        for (k, v) in m {
-                            match (k.as_str(), v) {
-                                ("ownerSessionId", Value::String(s)) => out.push(s.clone()),
-                                _ => owners(v, out),
-                            }
-                        }
-                    }
-                    Value::Array(a) => a.iter().for_each(|v| owners(v, out)),
-                    _ => {}
-                }
-            }
-            for s in &item.sources {
-                if s.path.ends_with(".json") {
-                    let value = json::parse_source(&standing(cx, s)?).map_err(Blocked::journal)?.value;
-                    owners(&value, &mut ids);
-                }
-            }
-        }
+        Value::Array(a) => a.iter().for_each(|v| collect_owner_ids(v, out)),
         _ => {}
+    }
+}
+
+fn worktree_owner_ids(sources: &[SourceFile], cx: &ItemContext<'_>) -> Result<Vec<String>> {
+    let mut ids = Vec::new();
+    for s in sources {
+        if s.path.ends_with(".json") {
+            let value = json::parse_source(&standing(cx, s)?).map_err(Blocked::journal)?.value;
+            collect_owner_ids(&value, &mut ids);
+        }
     }
     Ok(ids)
 }
@@ -368,6 +379,23 @@ mod tests {
         assert_eq!(fold_legacy_compaction(&obj(serde_json::json!({"auto": false}))), None);
         let kept = fold_legacy_compaction(&obj(serde_json::json!({"summaryModel": "a", "semanticModel": "b"}))).unwrap().unwrap();
         assert_eq!(Value::Object(kept), serde_json::json!({"summaryModel": "a"}));
+    }
+
+    fn source(path: &str) -> SourceFile {
+        SourceFile { root: Root::Data, path: path.into(), size: 0, sha256: String::new(), secret: false }
+    }
+
+    #[test]
+    fn a_goal_file_names_its_session_once_whether_current_or_history() {
+        let sources = [source("goals/sess_a.json"), source("goals/sess_a.json.bak"), source("goals/history/sess_b/1.json"), source("goals/history/")];
+        assert_eq!(goal_session_ids(&sources), ["sess_a", "sess_b"]);
+    }
+
+    #[test]
+    fn a_worktree_registry_names_every_owner_session_at_any_depth() {
+        let mut ids = Vec::new();
+        collect_owner_ids(&serde_json::json!({"a": {"ownerSessionId": "s1", "list": [{"ownerSessionId": "s2"}, {"ownerSessionId": 3}]}}), &mut ids);
+        assert_eq!(ids, ["s1", "s2"]);
     }
 
     #[test]

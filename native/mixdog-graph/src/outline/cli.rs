@@ -76,10 +76,6 @@ struct FileJson<'a> {
     file: String,
     lang: &'static str,
     items: Vec<OutlineItem>,
-    /// Call sites in the READABLE object form (`CallDebug`), not the
-    /// positional wire tuple a FileRecord carries: `--outline` exists so rule
-    /// authors can validate a rule against real sources, and a tuple hides
-    /// which field is which.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     calls: Vec<crate::calls::CallDebug<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]

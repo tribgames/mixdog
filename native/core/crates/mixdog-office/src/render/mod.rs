@@ -90,34 +90,7 @@ pub async fn recalculate_for_review<E: RenderEngine>(engine: &E, handle: &Sessio
     let mut result = engine.recalculate_workbook(Path::new(&target), version > 0, cancel).await?;
     let flag = |name: &str| result.get(name).is_some_and(truthy);
     if flag("recalculated") {
-        // A width measured before the values existed fits an empty cell, so the computed column renders as ###. The fit the
-        // caller already asked for is repeated now that the numbers are there.
-        let ranges = lock(handle).authored.autofit_ranges.clone();
-        if !ranges.is_empty() {
-            let operations: Vec<Value> = ranges
-                .iter()
-                .map(|entry| {
-                    let mut operation = Map::new();
-                    operation.insert("op".to_owned(), Value::String("autofit_range".to_owned()));
-                    if let Value::Object(fields) = entry {
-                        operation.extend(fields.clone());
-                    }
-                    Value::Object(operation)
-                })
-                .collect();
-            let outcome = engine.refit_columns(Path::new(&target), &operations).await;
-            if let Some(fields) = result.as_object_mut() {
-                match outcome {
-                    Ok(refit) => {
-                        let columns: f64 = refit.iter().map(|entry| entry.get("columns").filter(|columns| truthy(columns)).map_or(0.0, to_number)).sum();
-                        fields.insert("refittedColumns".to_owned(), json_number(columns));
-                    }
-                    Err(error) => {
-                        fields.insert("refitError".to_owned(), Value::String(error));
-                    }
-                }
-            }
-        }
+        repeat_column_fit(engine, handle, &target, &mut result).await;
         let mut session = lock(handle);
         session.caches.render = None;
         session.design_state.rendered_version = Value::Null;
@@ -127,6 +100,38 @@ pub async fn recalculate_for_review<E: RenderEngine>(engine: &E, handle: &Sessio
         lock(handle).caches.recalculation = Some(RecalculationCache { version, result: result.clone() });
     }
     Ok(Some(result))
+}
+
+/// A width measured before the values existed fits an empty cell, so the computed column renders as ###: the fit the caller
+/// already asked for is repeated now that the numbers are there, and its outcome joins the recalculation's result.
+async fn repeat_column_fit<E: RenderEngine>(engine: &E, handle: &SessionHandle, target: &str, result: &mut Value) {
+    let ranges = lock(handle).authored.autofit_ranges.clone();
+    if ranges.is_empty() {
+        return;
+    }
+    let operations: Vec<Value> = ranges
+        .iter()
+        .map(|entry| {
+            let mut operation = Map::new();
+            operation.insert("op".to_owned(), Value::String("autofit_range".to_owned()));
+            if let Value::Object(fields) = entry {
+                operation.extend(fields.clone());
+            }
+            Value::Object(operation)
+        })
+        .collect();
+    let outcome = engine.refit_columns(Path::new(target), &operations).await;
+    if let Some(fields) = result.as_object_mut() {
+        match outcome {
+            Ok(refit) => {
+                let columns: f64 = refit.iter().map(|entry| entry.get("columns").filter(|columns| truthy(columns)).map_or(0.0, to_number)).sum();
+                fields.insert("refittedColumns".to_owned(), json_number(columns));
+            }
+            Err(error) => {
+                fields.insert("refitError".to_owned(), Value::String(error));
+            }
+        }
+    }
 }
 
 /// `render(session, args, cwd)`: the workbook calculated, the document drawn, and for a deck (or a PDF of designed pages) the

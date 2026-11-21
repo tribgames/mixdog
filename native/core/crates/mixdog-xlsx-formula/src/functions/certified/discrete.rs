@@ -364,6 +364,52 @@ impl HyperF<'_> {
 /// The largest series order of the log-gamma differences in `HyperF::diff`.
 const DIFF_TERMS: i64 = 40;
 
+fn taylor_difference(d: &B, z: &[B; 4], series: &[bool], gap: &[i64], need: i64) -> B {
+    // first order: d sum_S s_c psi(z_c) = d [ln prod_S z_c^(s_c) (exact quotient) + sum_S s_c (psi - ln)(z_c)]
+    let (mut num, mut den) = (one(), one());
+    let mut first = B::zero();
+    for i in (0..4).filter(|&i| series[i]) {
+        let pt = psi_tilde(&z[i]);
+        if SIGNS[i] > 0 {
+            num = num.mul(&z[i].mid);
+            first = first.add(&pt);
+        } else {
+            den = den.mul(&z[i].mid);
+            first = first.sub(&pt);
+        }
+    }
+    let mut s = d.mul(&Rat { n: num, d: den }.ln().add(&first));
+    let mut tail = Mag::ZERO;
+    for i in (0..4).filter(|&i| series[i]) {
+        let jmax = need / gap[i] + 1;
+        let zs = hurwitz_all(&z[i], jmax);
+        let sd = if SIGNS[i] > 0 { d.clone() } else { d.neg() };
+        let mut pw = sd.clone();
+        for j in 2..=jmax {
+            pw = pw.mul(&sd);
+            let term = zs[(j - 2) as usize].mul(&pw).div_int(j);
+            s = if j % 2 == 0 { s.add(&term) } else { s.sub(&term) };
+        }
+        // 4 z rho^(J+1) / (J+1) <= 4 |d| rho^J
+        tail = tail.add(d.abs_hi().mul(Mag::pow2(-gap[i] * jmax)).mul_2exp(2));
+    }
+    B { mid: s.mid, rad: s.rad.add(tail) }
+}
+
+fn lgamma_difference(d: &B, z: &[B; 4], direct: &[usize], dtop: i64) -> B {
+    let ztop = direct.iter().map(|&i| z[i].mid.top()).max().unwrap_or(0);
+    let extra = (16 + (ztop - dtop).max(0)).min(1200) as u64;
+    with_prec(prec() + extra, || {
+        let mut t = B::zero();
+        for &i in direct {
+            let mid = if SIGNS[i] > 0 { z[i].mid.add(&d.mid) } else { z[i].mid.sub(&d.mid) };
+            let zd = B { mid, rad: z[i].rad.add(d.rad) };
+            t = t.add(&lgamma(&zd).sub(&lgamma(&z[i])));
+        }
+        t
+    })
+}
+
 impl Family for HyperF<'_> {
     /// G(v0 + d) - G(v0) = -sum_c [lnGamma(z_c + s_c d) - lnGamma(z_c)]. When every z_c >= 2^16 and |d| <= z_c/32, the
     /// Taylor series `d sum_c s_c psi(z_c) + sum_{j>=2} sum_c (-1)^j zeta(j, z_c) (s_c d)^j / j` (first order through
@@ -382,50 +428,11 @@ impl Family for HyperF<'_> {
         let series: Vec<bool> = (0..4).map(|i| z[i].abs_lo().top() >= 16 && gap[i] >= 5 && need / gap[i] < DIFF_TERMS && z[i].rad.is_zero()).collect();
         let mut s = B::zero();
         if series.iter().any(|&b| b) {
-            // first order: d sum_S s_c psi(z_c) = d [ln prod_S z_c^(s_c) (exact quotient) + sum_S s_c (psi - ln)(z_c)]
-            let (mut num, mut den) = (one(), one());
-            let mut first = B::zero();
-            for i in (0..4).filter(|&i| series[i]) {
-                let pt = psi_tilde(&z[i]);
-                if SIGNS[i] > 0 {
-                    num = num.mul(&z[i].mid);
-                    first = first.add(&pt);
-                } else {
-                    den = den.mul(&z[i].mid);
-                    first = first.sub(&pt);
-                }
-            }
-            s = d.mul(&Rat { n: num, d: den }.ln().add(&first));
-            let mut tail = Mag::ZERO;
-            for i in (0..4).filter(|&i| series[i]) {
-                let jmax = need / gap[i] + 1;
-                let zs = hurwitz_all(&z[i], jmax);
-                let sd = if SIGNS[i] > 0 { d.clone() } else { d.neg() };
-                let mut pw = sd.clone();
-                for j in 2..=jmax {
-                    pw = pw.mul(&sd);
-                    let term = zs[(j - 2) as usize].mul(&pw).div_int(j);
-                    s = if j % 2 == 0 { s.add(&term) } else { s.sub(&term) };
-                }
-                // 4 z rho^(J+1) / (J+1) <= 4 |d| rho^J
-                tail = tail.add(d.abs_hi().mul(Mag::pow2(-gap[i] * jmax)).mul_2exp(2));
-            }
-            s = B { mid: s.mid, rad: s.rad.add(tail) };
+            s = taylor_difference(d, &z, &series, &gap, need);
         }
         let direct: Vec<usize> = (0..4).filter(|&i| !series[i]).collect();
         if !direct.is_empty() {
-            let ztop = direct.iter().map(|&i| z[i].mid.top()).max().unwrap_or(0);
-            let extra = (16 + (ztop - dtop).max(0)).min(1200) as u64;
-            let t = with_prec(prec() + extra, || {
-                let mut t = B::zero();
-                for &i in &direct {
-                    let mid = if SIGNS[i] > 0 { z[i].mid.add(&d.mid) } else { z[i].mid.sub(&d.mid) };
-                    let zd = B { mid, rad: z[i].rad.add(d.rad) };
-                    t = t.add(&lgamma(&zd).sub(&lgamma(&z[i])));
-                }
-                t
-            });
-            s = s.add(&t);
+            s = s.add(&lgamma_difference(d, &z, &direct, dtop));
         }
         s.neg()
     }

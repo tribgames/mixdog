@@ -194,11 +194,6 @@ impl Run {
         }
     }
 
-    /// The Stop's linearization point: the exchange is sealed against further registration and stopped, the submissions it
-    /// owns now are the frozen target set (the same set on every repeat), and `latch` makes every target ineligible in its
-    /// member session, all inside the one critical section `register` takes: no registration falls between the seal and the
-    /// latches, and a member start of a target meets the member session's start gate either latched (it does not run) or
-    /// already running (the latch aborts it).
     fn seal(&self, latch: impl FnOnce(&[Owned])) -> Vec<Owned> {
         let mut ownership = self.ownership();
         ownership.sealed = true;

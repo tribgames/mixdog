@@ -3,20 +3,9 @@
 //! reply line per request, the protocol the Node desktop speaks), plus the in-process screen
 //! half in `computer_screen`.
 //!
-//! The action contract is Node's (`computer-bridge/action-schema.mjs`, in `computer_command`): the same cross-field
-//! rules, the same translation of a tool call into host commands, the same limits and the same
-//! recovery on a timeout or cancellation (the helper is killed and `--abort-cleanup` releases any
-//! input it held). What the Node desktop host adds on top of the helper is one module per concern, each
-//! called from here: `computer_act`, `computer_capture`, `computer_diagnose`, `computer_env` (the launch
-//! environment), `computer_policy` (observation only), `computer_targets`, `computer_keys`,
-//! `computer_frames`, `computer_reply`, `computer_settle`, `computer_verify`, `computer_zoom`,
-//! `computer_ocr`, `computer_internal_windows`, `computer_lane` (the desktop's one keyboard and
-//! pointer), `computer_user_control`, `computer_lease` and `computer_feedback` (the helper's side
-//! lines) and `computer_abort`; and what the host kept of a session: `computer_history` (the run history and the failure
-//! bundles of every command), `computer_delta` (the observation delta and the baseline of a capture), `computer_pixels` (the
-//! pixels of a display), `computer_image_output`, `computer_marks_draw`, `computer_pointer` (the arrow readied before a pointer
-//! step and the pointer held between a session's commands) and `computer_app_owned` (the desktop's own windows). The actions
-//! still served by the desktop's secret store (`saved_login`) report `Unavailable` here.
+//! The action contract is Node's (`computer-bridge/action-schema.mjs`): the same cross-field rules, limits and recovery on a
+//! timeout or cancellation (the helper is killed and `--abort-cleanup` releases any input it held). The actions served by the
+//! desktop's secret store (`saved_login`) report `Unavailable` here.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -126,16 +115,9 @@ pub(crate) const RESPONSE_MARKER: &str = "@@MIXCU@@";
 /// The code of a failure whose message is the host's own reply text (`{"ok":false,…}`), which Node returns as an error result as it
 /// is, with no `Error:` line and no recovery.
 pub(crate) const REPORTED_CODE: &str = "computer_reported";
-/// What the model reads when the helper cannot be started, in Node's words. The error rides the
-/// bridge reply as is, so the text is Node's: `child_process.spawn` reports ENOENT, EACCES,
-/// EAGAIN, EMFILE and ENFILE asynchronously, which `watchHostWorker` words as
-/// `computer host failed to start: spawn <path> <CODE>`; any other code is thrown synchronously
-/// and reaches the caller as the bare `spawn <CODE>` (no path). `None` for a refusal that is not
-/// an OS spawn failure (a full queue, the process limit).
-///
-/// Codes: a missing program is ENOENT and a refused one EACCES (the spawn manager's own
-/// classification); Windows error 193 (a file that is not an executable) is libuv's EFTYPE; any
-/// other OS code libuv has no name for here is UNKNOWN.
+/// The helper-start failure in Node's words, which ride the bridge reply as is: ENOENT, EACCES, EAGAIN, EMFILE and ENFILE read
+/// `computer host failed to start: spawn <path> <CODE>`; any other code reads `spawn <CODE>`. Windows error 193 is libuv's EFTYPE,
+/// any other unnamed OS code UNKNOWN. `None` for a refusal that is not an OS spawn failure (a full queue, the process limit).
 fn node_spawn_message(binary: &Path, error: &ProcessError) -> Option<String> {
     let path = binary.display();
     match error {
@@ -257,15 +239,10 @@ pub(super) fn is_lifecycle(action: &str) -> bool {
 const REVOKE_LINE: &[u8] = b"@@MIXDOG_REVOKE@@\n";
 const REVOKED_MARKER: &str = "@@MIXDOG_REVOKED@@";
 
-/// Revokes one helper process created under a revoked scope: the revocation goes on its control path, or, for a run that reads no
-/// input (an `--abort-cleanup`), the process is stopped. `acknowledged` is told once the helper acknowledged the revocation or exited,
-/// whichever comes first; each acknowledgement line the helper writes (its first says admission closed, later ones the cleanup) is
-/// kept on `authority` as the helper's report, in its meaning. The result, once it exited, is whether it exited 0 (it released what it
-/// held: its teardown confirmed). There is no deadline: a helper that does not answer stays stopping.
 async fn revoke_process(manager: Arc<dyn ProcessManager>, handle: ProcessHandle, authority: Authority, acknowledged: oneshot::Sender<()>) -> bool {
     let mut acknowledged = Some(acknowledged);
-    let subscribed = match manager.subscribe(&handle, Some(0)) {
-        Err(ProcessError::ReplayUnavailable { oldest }) => manager.subscribe(&handle, Some(oldest)),
+    let subscribed = match manager.subscribe_holding(&handle, Some(0)) {
+        Err(ProcessError::ReplayUnavailable { oldest }) => manager.subscribe_holding(&handle, Some(oldest)),
         other => other,
     };
     // A process the manager no longer knows is gone, and nothing confirms what it released.
@@ -346,11 +323,9 @@ fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Revokes, each on its control path and all at once, the helper processes created under the revoked `authority`
-/// ([`revoke_process`]). Once every one acknowledged or exited: true when each closed its admission, as its report states (one that
-/// exited without a report has no admission left), false when one acknowledged without stating it. `cleaning` counts those not yet
-/// exited, and `released` is told, as each exits, whether it released what it held. No deadline: one that does not answer keeps this
-/// waiting.
+/// Revokes all helper processes created under the revoked `authority` at once. Once every one acknowledged or exited: true when each
+/// closed its admission (one that exited without a report has none left), false when one acknowledged without stating it.
+/// `cleaning` counts those not yet exited; `released` is told, as each exits, whether it released what it held. No deadline.
 pub async fn revoke_launched(
     manager: Arc<dyn ProcessManager>,
     authority: &Authority,
@@ -716,10 +691,6 @@ mod tests {
         assert_eq!(authority.revocation_reports()[0].1.cleanup, RevocationCleanup::Unconfirmed);
     }
 
-    /// The text the model reads for a helper that cannot start is Node's, recorded from the real
-    /// `child_process.spawn` (`record-computer-spawn-error.mjs`): a missing file and a missing
-    /// directory are asynchronous ENOENT with the path; a file that is not an executable is
-    /// A dropped or refused queued scan remains eligible for recovery.
     #[test]
     fn a_dropped_or_rejected_pre_recovery_scan_does_not_claim_the_directory() {
         use std::future::{Future, pending, ready};
@@ -859,6 +830,9 @@ mod tests {
             Ok(mixdog_core_api::domain::process::SpawnedProcess { handle: request.handle, pid: 1 })
         }
 
+        fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            self.subscribe(handle, from_seq)
+        }
         fn subscribe(&self, handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
             let receive = locked(&self.receivers).remove(&handle.0).ok_or(ProcessError::UnknownHandle)?;
             Ok(Box::new(Feed(receive)))
@@ -1014,7 +988,8 @@ while read -r line; do
   id=$(echo "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
   case "$line" in
     *hang*) sleep 30;;
-    *) echo "@@MIXCU@@{\"id\":$id,\"ok\":true,\"result\":{\"text\":\"ok $line\"}}";;
+    *) esc=$(printf '%s' "$line" | sed 's/\\/\\\\/g; s/"/\\"/g')
+       printf '%s\n' "@@MIXCU@@{\"id\":$id,\"ok\":true,\"result\":{\"text\":\"ok $esc\"}}";;
   esac
 done
 "#;
@@ -1100,10 +1075,6 @@ done
             assert!(!backend.status().active);
         }
 
-        /// The cancel fires while the command is in flight and the helper never answers: the wait
-        /// ends as `Cancelled` (cancel is checked before the reply), and the helper is retired,
-        /// which kills it and runs `--abort-cleanup`. No timing: the token is already fired when
-        /// the wait starts.
         #[tokio::test]
         async fn a_cancel_during_the_wait_retires_the_helper() {
             let dir = tempfile::tempdir().unwrap();
@@ -2002,13 +1973,15 @@ pub struct ProcessComputerBackend {
 /// The environment the Linux preflight reads, taken afresh for each action.
 pub(super) struct LinuxSession {
     pub(super) env: Box<dyn Fn() -> computer_linux::Env + Send + Sync>,
+    /// A readiness given in place of the probe's (a test's stand-in session), so no probe process is spawned.
+    pub(super) fixed: Option<computer_linux::Readiness>,
 }
 
 impl LinuxSession {
     /// The machine this process runs on; no session on any other platform.
     #[cfg(not(test))]
     fn of_host() -> Option<Self> {
-        cfg!(target_os = "linux").then(|| Self { env: Box::new(|| std::env::vars().collect()) })
+        cfg!(target_os = "linux").then(|| Self { env: Box::new(|| std::env::vars().collect()), fixed: None })
     }
 
     /// A test names its platform through `with_linux_session`: the host's own would silently decide whether it runs.
@@ -2031,10 +2004,20 @@ impl ProcessComputerBackend {
         self
     }
 
-    /// Runs the Linux preflight against `env` whatever the platform this test runs on is.
-    #[cfg(test)]
-    pub(crate) fn with_linux_session(mut self, env: computer_linux::Env) -> Self {
-        self.linux = Some(LinuxSession { env: Box::new(move || env.clone()) });
+    /// Runs the Linux preflight against `env` whatever the platform this test runs on is. Development only (`test-support`): another
+    /// crate's tests that drive a stand-in helper name their session here, where the host's own would decide whether they run.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_linux_session(mut self, env: computer_linux::Env) -> Self {
+        self.linux = Some(LinuxSession { env: Box::new(move || env.clone()), fixed: None });
+        self
+    }
+
+    /// An X11 desktop with every capability ready, taken as probed: the Linux preflight runs and refuses nothing, and no probe process
+    /// is started. Development only (`test-support`).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_ready_linux_desktop(mut self) -> Self {
+        let (env, ready) = computer_linux::ready_x11_desktop();
+        self.linux = Some(LinuxSession { env: Box::new(move || env.clone()), fixed: Some(ready) });
         self
     }
 
@@ -2113,10 +2096,8 @@ impl ProcessComputerBackend {
         }
     }
 
-    /// Cleans up after a helper that exits by itself as soon as that is seen, not at the next command or the end of the
-    /// execution (the sample's `runtime.py` releases at once). The cleanup runs under the turn and only takes a helper still
-    /// marked dead, so it never races a restart: a newer live helper, or one a retire already took, is left alone. Ends with
-    /// the backend.
+    /// Cleans up after a helper that exits by itself as soon as that is seen. Runs under the turn and only takes a helper still
+    /// marked dead, so a newer live helper is left alone. Ends with the backend.
     pub fn watch_for_death(self: &Arc<Self>) {
         // Outside a runtime nothing could run the cleanup; the next command or the end of the execution does it.
         let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
@@ -2187,10 +2168,8 @@ impl ProcessComputerBackend {
         locked(&self.host).as_ref().filter(|host| host.alive.load(Ordering::SeqCst)).map(|host| host.pid)
     }
 
-    /// `session_abort` (`abortComputerSession`, `client.mjs:490-499`; the host side
-    /// `lifecycle-abort.ts:runAbortCleanup`): the helper is stopped and a fresh `--abort-cleanup`
-    /// process releases the input it held. True once the cleanup confirmed (exit 0); then the
-    /// session no longer owns state in the helper. A cancelled `computer` call does this itself.
+    /// Stops the helper; a fresh `--abort-cleanup` process releases the input it held. True once the cleanup confirmed (exit 0),
+    /// after which the session owns no state in the helper.
     pub async fn abort_session(&self) -> bool {
         self.close_execution();
         self.shared.lane.forget(&self.config.session_id);
@@ -2228,12 +2207,9 @@ impl ProcessComputerBackend {
         self.pause_unless(confirmed)
     }
 
-    /// `execution_end` (`endComputerExecution`, `client.mjs:505-512`; the host side
-    /// `session-lifecycle.ts:endComputerExecution`) at a turn's settlement: held keys and buttons
-    /// go up (`release_held_input`) while the helper and its element refs stay warm for a
-    /// follow-up turn. Sent only when an execution is open. A release the helper cannot confirm
-    /// ends the session instead (`session-lifecycle.ts` `confirmed === false`). False when there
-    /// was nothing to end or the fallback abort did not confirm.
+    /// Ends the open execution at a turn's settlement: held keys and buttons go up while the helper and its element refs stay warm.
+    /// A release the helper cannot confirm ends the session instead. False when no execution was open or the fallback abort did not
+    /// confirm.
     pub async fn end_execution(&self) -> bool {
         if !self.close_execution() {
             return false;
@@ -2372,7 +2348,7 @@ impl ProcessComputerBackend {
             (_, Some(text)) => ComputerError::Unavailable { reason: text },
             (_, None) => unavailable(format!("{error:?}")),
         })?;
-        let events = match self.manager.subscribe(&handle, Some(0)) {
+        let events = match self.manager.subscribe_holding(&handle, Some(0)) {
             Ok(events) => events,
             Err(error) => {
                 let _ = self.manager.kill(&handle);
@@ -2468,12 +2444,9 @@ impl ProcessComputerBackend {
         if lifecycle { if self.authority.is_revoked() { Err(bridge_unavailable()) } else { Ok(()) } } else { self.authority.check() }
     }
 
-    /// The cleanup of a revoked scope, separate from an ordinary release: the scope is revoked (if it was not yet), and each helper
-    /// process created under it is revoked on its control path, which it takes without waiting for the command it runs; it then
-    /// refuses every primitive, lets go of the input it holds (its one teardown capability: no focus restore, no pointer move, no
-    /// capture) and exits. A run that reads no input is stopped. Nothing is started, no cleanup process included. True once every such
-    /// process acknowledged or exited (off is confirmed); a process that does not answer keeps this waiting (stopping), with no deadline.
-    /// What a process released is known when it exits: a teardown it did not confirm is recorded as an unconfirmed cleanup.
+    /// Revokes the scope and every helper process created under it; each lets go of the input it holds and exits, and nothing is
+    /// started, no cleanup process included. True once every process acknowledged or exited; one that does not answer keeps this
+    /// waiting. A teardown a process did not confirm is recorded as an unconfirmed cleanup.
     pub async fn revoke_and_stop(&self) -> bool {
         *self.revocation.get_or_init(|| self.stop_revoked()).await
     }
@@ -2565,10 +2538,6 @@ impl ProcessComputerBackend {
         self.run_cleanup().await
     }
 
-    /// Recovers what a core that died left: every ledger under `<data>/computer/ledgers` is replayed by an `--abort-cleanup` run
-    /// (`MIXDOG_ABORT_LEDGERS`, `worker-ledgers.ts:recover`) and the file removed once it confirmed. Once per data folder in this
-    /// process, before the first helper starts: later ledgers there belong to helpers of this process. One that was not
-    /// confirmed stays for the next start.
     async fn sweep_leftover_ledgers(&self) {
         struct Sweeps {
             paths: Mutex<std::collections::HashSet<PathBuf>>,
@@ -2962,11 +2931,20 @@ impl ProcessComputerBackend {
                 let (manager, env) = (self.manager.clone(), env.clone());
                 async move { computer_linux::check_readiness(&env, &computer_linux::SystemProbes::new(manager, env.clone())).await }.boxed()
             };
-            if let Some(fallback) = computer_linux::capture_fallback(&command, check).await {
+            // A session given its readiness uses it as it is: the shared probe is neither read nor filled.
+            let fallback = match &session.fixed {
+                Some(ready) => computer_linux::capture_fallback_on(&command, ready),
+                None => computer_linux::capture_fallback(&command, check).await,
+            };
+            if let Some(fallback) = fallback {
                 command = fallback.command;
                 note = Some(fallback.note);
             }
-            if let Some(refusal) = computer_linux::preflight(&command, check).await {
+            let refusal = match &session.fixed {
+                Some(ready) => computer_linux::preflight_on(&command, ready),
+                None => computer_linux::preflight(&command, check).await,
+            };
+            if let Some(refusal) = refusal {
                 return Err(ComputerError::Failed { code: refusal.code.into(), message: refusal.message });
             }
         }

@@ -86,10 +86,6 @@ async fn quiesce(coordinator: &BootCoordinator) {
     coordinator.settled().await;
 }
 
-/// The real server and `initialize` / `app/subscribe` handling over a mock core, with the real
-/// coordinator installed on the real `Outgoing` as the composition root does: the lane starts from
-/// the server's own call sites, once, and only at Node's boundaries (a non-desktop client's
-/// handshake; a desktop's `desktop.ready`, which is its `app/subscribe`, spec-v2 protocol.md §12.2).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_servers_handshake_and_app_subscribe_start_the_lane_once() {
     use mixdog_core_api::ids::ConnectionId;

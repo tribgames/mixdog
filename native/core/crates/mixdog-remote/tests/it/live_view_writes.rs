@@ -1,8 +1,3 @@
-//! The live view's writes to a phone are asked about again where they enter the phone's stream: a browser frame or a WebRTC signal
-//! the core queued before the phone's device was unpaired, and the bridge reads after it, reaches no phone, also one whose
-//! connection the relay left open. The phone is paired over a real E2EE channel through a scripted relay that refuses the unpair;
-//! the core's side of the bridge is the test's, which hands the bridge a frame only when the test lets it.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

@@ -1,12 +1,3 @@
-//! `session action=create` (`createTaskSession` of `agent-task-sessions.mjs`, with `createRequest`,
-//! `taskLocation`, `createWhere` / `resolveTaskProject`, `taskRoute`, `requestTaskWorktree` and
-//! `dropEmptyTaskSession`; `routeByDisplayName` / `withEffort` of `task-session-route.mjs`;
-//! `parseScheduleModelRef` / `modelRouteFields` of `schedule-model-ref.mjs`): a bot's attended
-//! conversation starts a coding task session on a route, in a Project or its own folder (optionally
-//! in its own worktree), and sends it the brief as the bot's turn through the send path
-//! ([`TaskSends::send_as`]); "Started" reaches the bot's home before any report of that turn.
-//! Replayed against Node's answers: `fixtures/session-tool-control/golden.json` (`create-*`).
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -473,6 +464,45 @@ impl SessionSend {
         )
     }
 
+    /// Puts the new task session into its worktree before the brief; on a failure the empty session is dropped.
+    async fn enter_worktree(&self, session_id: &str, args: &Value, location: &Location, title: &str, request_id: &str) -> Result<(), String> {
+        let explicit = matches!(location, Location::Worktree(_));
+        let mut input = Map::from_iter([
+            ("provision".to_owned(), json!(true)),
+            ("carryChanges".to_owned(), json!("leave")),
+            ("prompt".to_owned(), json!(title)),
+            ("txId".to_owned(), json!(request_id)),
+        ]);
+        if let Location::Worktree(Some(name)) = location {
+            input.insert("name".into(), json!(name));
+        }
+        if args.get("confirm_large") == Some(&Value::Bool(true)) {
+            input.insert("confirmLarge".into(), json!(true));
+        }
+        if let Err(failure) = self.request_task_worktree(session_id, Value::Object(input), explicit).await {
+            let error =
+                if failure.code.as_deref().is_some_and(|code| code.starts_with("WORKTREE_")) { task_worktree_failure(&failure) } else { failure.message };
+            return Err(self.drop_empty_task_session(session_id, error).await);
+        }
+        Ok(())
+    }
+
+    /// The "started" line that reaches the bot's home before any report of the turn.
+    async fn announce_started(&self, agent_id: &str, caller: &str, session_id: &str, request_id: &str, title: &str) {
+        let mut line = Map::from_iter([
+            ("runId".to_owned(), json!(format!("{request_id}_started"))),
+            ("taskSessionId".to_owned(), json!(session_id)),
+            ("title".to_owned(), json!(title)),
+            ("status".to_owned(), json!("started")),
+        ]);
+        if room_member_of_session(caller).is_some() {
+            line.insert("from".into(), json!(caller));
+        }
+        if let Err(error) = self.tasks.deliver_once(agent_id, Value::Object(line)).await {
+            mixdog_rt::node_stderr!("mixdog task sessions: start line of {session_id} failed: {error}");
+        }
+    }
+
     /// `createTaskSession(args, caller)`: `attended` is the caller's worktree scope.
     pub async fn create(&self, call: &ControlCall, attended: bool) -> Result<Value, String> {
         let (args, caller) = (&call.args, call.caller_thread.as_str());
@@ -491,9 +521,7 @@ impl SessionSend {
         let projects = self.create.projects().await;
         let place = self.task_where(args, &projects, &call.cwd, &location).await?;
         let request_id = format!("atask_{}", uuid::Uuid::new_v4());
-        let title = clean(args.get("title"));
-        let title = if title.is_empty() { clean(Some(&json!(brief.split('\n').next().unwrap_or_default()))) } else { title };
-        let title = mixdog_js::slice_utf16(&title, TITLE_LIMIT);
+        let title = task_title(args, &brief);
         let notify = args.get("notify") != Some(&Value::Bool(false));
         let task_origin = json!({ "agentId": agent_id, "sessionId": caller, "requestId": request_id, "title": title, "notify": notify });
         let route = self.task_route(args).await?;
@@ -509,23 +537,7 @@ impl SessionSend {
             return Err("session: task session creation returned no session id".into());
         }
         if in_worktree {
-            let mut input = Map::from_iter([
-                ("provision".to_owned(), json!(true)),
-                ("carryChanges".to_owned(), json!("leave")),
-                ("prompt".to_owned(), json!(title)),
-                ("txId".to_owned(), json!(request_id)),
-            ]);
-            if let Location::Worktree(Some(name)) = &location {
-                input.insert("name".into(), json!(name));
-            }
-            if args.get("confirm_large") == Some(&Value::Bool(true)) {
-                input.insert("confirmLarge".into(), json!(true));
-            }
-            if let Err(failure) = self.request_task_worktree(&session_id, Value::Object(input), explicit).await {
-                let error =
-                    if failure.code.as_deref().is_some_and(|code| code.starts_with("WORKTREE_")) { task_worktree_failure(&failure) } else { failure.message };
-                return Err(self.drop_empty_task_session(&session_id, error).await);
-            }
+            self.enter_worktree(&session_id, args, &location, &title, &request_id).await?;
         }
         let (started, ready) = tokio::sync::watch::channel(false);
         let prompt = handoff_content(&brief, &call.attachment_parts);
@@ -546,22 +558,17 @@ impl SessionSend {
             return Err(format!("session: task session {session_id} did not accept the brief"));
         }
         if sent.get("reportsBack") == Some(&Value::Bool(true)) {
-            let mut line = Map::from_iter([
-                ("runId".to_owned(), json!(format!("{request_id}_started"))),
-                ("taskSessionId".to_owned(), json!(session_id)),
-                ("title".to_owned(), json!(title)),
-                ("status".to_owned(), json!("started")),
-            ]);
-            if room_member_of_session(caller).is_some() {
-                line.insert("from".into(), json!(caller));
-            }
-            if let Err(error) = self.tasks.deliver_once(agent_id, Value::Object(line)).await {
-                mixdog_rt::node_stderr!("mixdog task sessions: start line of {session_id} failed: {error}");
-            }
+            self.announce_started(agent_id, caller, &session_id, &request_id, &title).await;
         }
         let _ = started.send(true);
         Ok(created_answer(&session_id, &title, place.project.as_deref(), &sent, notify))
     }
+}
+
+fn task_title(args: &Value, brief: &str) -> String {
+    let title = clean(args.get("title"));
+    let title = if title.is_empty() { clean(Some(&json!(brief.split('\n').next().unwrap_or_default()))) } else { title };
+    mixdog_js::slice_utf16(&title, TITLE_LIMIT)
 }
 
 /// `taskOriginSuffix(taskOrigin)`: where a bot created its task session, after its id in the

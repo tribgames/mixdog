@@ -1,11 +1,3 @@
-//! The two network probes of the custom-provider section of `provider-admin.mjs`:
-//! `discoverCustomProviderModels` (:1725) and `testCustomProvider` (:1672), with their
-//! `withTimeout` bound, `discoveryErrorView` and `sanitizeCustomError`.
-//!
-//! What a probe reads (the input resolved against the stored config and key) and builds (the
-//! provider of that config) is the host's: `resolveCustomInput` normalizes with
-//! `normalizeCustomProviderConfig`, and the provider is `createCustomProvider`.
-
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::time::Duration;

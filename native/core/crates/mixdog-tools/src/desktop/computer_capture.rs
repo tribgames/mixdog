@@ -192,10 +192,6 @@ impl ProcessComputerBackend {
         Ok(Some(parts))
     }
 
-    /// `finishCapture`'s bookkeeping over the rows the read returned: the change summary against the session's last capture of this
-    /// window, and the observation delta that stands in for the full list when the command asked for one (`observation_delta`: the
-    /// capture that follows an action). Marks, OCR rows and pages always go in full. A cached or failed read, and a `vision` one,
-    /// has no rows to record and drops the delta list the session held.
     #[allow(clippy::too_many_arguments)]
     fn observe(
         &self,

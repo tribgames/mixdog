@@ -4,10 +4,14 @@
 //! is dropped alone and counted into `notice`, never the prompt that carried it; a read that may pass
 //! (a busy file) fails the call, so nothing is rewritten around it.
 
+use std::collections::BTreeMap;
+use std::sync::LazyLock;
+
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use mixdog_core_api::CoreError;
 use mixdog_core_base::support::failed;
+use mixdog_js::JsRegex;
 use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
 use serde_json::Map;
@@ -136,26 +140,38 @@ pub(super) fn hydrate(store: &AttachmentStore, lane: &InLane<InteractiveIo>, mut
 /// takes none); each image reference part is an entry under its `pasteId`, else the id of the image token at its
 /// position, else the next free id. Answers `(pastedTexts, pastedImages)`, each `None` when empty.
 pub(super) fn restorable_attachments(content: &[Value], row_text: &str) -> (Option<Value>, Option<Value>) {
-    use std::collections::BTreeMap;
-    use std::sync::LazyLock;
-
-    use mixdog_js::JsRegex;
-
-    static TEXT_TOKEN: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\[(Pasted text|File) #(\d+)(?:: ([^\]\r\n]+))?[^\]\r\n]*\]", "g"));
-    static IMAGE_TOKEN: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\[Image #(\d+)[^\]\r\n]*\]", "g"));
-
     let kind = |part: &Value| part.get("type").and_then(Value::as_str).map(str::to_owned);
-    let text_kind = |part: &Value| part.get("textKind").and_then(Value::as_str).map(str::to_owned);
-    // `Number(text)` of a digit run; an id is used only when it is not zero.
-    let number = |digits: &str| digits.parse::<u64>().unwrap_or(0);
-    let truthy_text = |part: &Value, key: &str| part.get(key).and_then(Value::as_str).filter(|text| !text.is_empty()).map(str::to_owned);
     let text_refs: Vec<&Value> = content
         .iter()
         .filter(|part| kind(part).as_deref() == Some("text") && reference_of(part).is_some() && matches!(text_kind(part).as_deref(), Some("paste" | "file")))
         .collect();
     let image_refs: Vec<&Value> = content.iter().filter(|part| kind(part).as_deref() == Some("image") && reference_of(part).is_some()).collect();
 
-    // An object keyed by integer ids lists them in ascending order.
+    let texts = restorable_texts(&text_refs, row_text);
+    let images = restorable_images(&image_refs, row_text, &texts);
+    let object =
+        |entries: BTreeMap<u64, Value>| (!entries.is_empty()).then(|| Value::Object(entries.into_iter().map(|(id, entry)| (id.to_string(), entry)).collect()));
+    (object(texts), object(images))
+}
+
+static TEXT_TOKEN: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\[(Pasted text|File) #(\d+)(?:: ([^\]\r\n]+))?[^\]\r\n]*\]", "g"));
+static IMAGE_TOKEN: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\[Image #(\d+)[^\]\r\n]*\]", "g"));
+
+fn text_kind(part: &Value) -> Option<String> {
+    part.get("textKind").and_then(Value::as_str).map(str::to_owned)
+}
+
+fn truthy_text(part: &Value, key: &str) -> Option<String> {
+    part.get(key).and_then(Value::as_str).filter(|text| !text.is_empty()).map(str::to_owned)
+}
+
+/// `Number(text)` of a digit run; an id is used only when it is not zero.
+fn token_number(digits: &str) -> u64 {
+    digits.parse::<u64>().unwrap_or(0)
+}
+
+/// The pasted-text entries by id (an object keyed by integer ids lists them in ascending order).
+fn restorable_texts(text_refs: &[&Value], row_text: &str) -> BTreeMap<u64, Value> {
     let mut texts: BTreeMap<u64, Value> = BTreeMap::new();
     let mut next = 0;
     for token in TEXT_TOKEN.captures_iter(row_text) {
@@ -171,7 +187,7 @@ pub(super) fn restorable_attachments(content: &[Value], row_text: &str) -> (Opti
             continue;
         }
         next += 1;
-        let id = token.get(2).map_or(0, number);
+        let id = token.get(2).map_or(0, token_number);
         if id == 0 || texts.contains_key(&id) {
             continue;
         }
@@ -189,8 +205,13 @@ pub(super) fn restorable_attachments(content: &[Value], row_text: &str) -> (Opti
         }
         texts.insert(id, Value::Object(entry));
     }
+    texts
+}
 
-    let image_ids: Vec<u64> = IMAGE_TOKEN.captures_iter(row_text).map(|token| token.get(1).map_or(0, number)).collect();
+/// The pasted-image entries by id: a part's `pasteId`, else the id of the image token at its position, else the next id no
+/// text or image token holds.
+fn restorable_images(image_refs: &[&Value], row_text: &str, texts: &BTreeMap<u64, Value>) -> BTreeMap<u64, Value> {
+    let image_ids: Vec<u64> = IMAGE_TOKEN.captures_iter(row_text).map(|token| token.get(1).map_or(0, token_number)).collect();
     let mut used: std::collections::BTreeSet<u64> = texts.keys().copied().chain(image_ids.iter().copied()).collect();
     let mut next_id = 1;
     let mut images: BTreeMap<u64, Value> = BTreeMap::new();
@@ -225,9 +246,7 @@ pub(super) fn restorable_attachments(content: &[Value], row_text: &str) -> (Opti
         }
         images.insert(id, Value::Object(entry));
     }
-    let object =
-        |entries: BTreeMap<u64, Value>| (!entries.is_empty()).then(|| Value::Object(entries.into_iter().map(|(id, entry)| (id.to_string(), entry)).collect()));
-    (object(texts), object(images))
+    images
 }
 
 /// The sentence a rewind answers a composer that cannot hold file parts (`rewind.mjs`, `restoreFiles: false`).

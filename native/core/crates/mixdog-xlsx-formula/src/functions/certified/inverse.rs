@@ -235,34 +235,56 @@ fn unrank(k: i128) -> f64 {
     if k < 0 { -f64::from_bits((-k) as u64) } else { f64::from_bits(k as u64) }
 }
 
-/// The quantile in [xlo, xhi] (finite doubles): `Err(#NUM!)` when it lies beyond them (an overflow past the
-/// largest double, or a support end the law never reaches); `guess` is an optional double estimate.
-pub fn quantile(law: Law, t: &Target, xlo: f64, xhi: f64, guess: Option<f64>) -> Result<f64, E> {
-    const FAST: u64 = 1024;
-    const FULL: u64 = 8192;
-    let at = |k: i128, bits: u64| compare(&law, &Fl::from_f64(unrank(k)), t, bits);
-    let (mut lo, mut hi) = (rank(xlo), rank(xhi));
-    let mut lo_known = false;
-    let mut hi_known = false;
-    if let Some(c) = law.centre().filter(|c| *c > xlo && *c < xhi) {
-        let k = rank(c);
-        match at(k, FAST) {
-            Some(Ordering::Equal) => return Ok(c),
-            Some(Ordering::Less) => {
-                lo = k;
-                lo_known = true;
+const FAST: u64 = 1024;
+const FULL: u64 = 8192;
+
+/// The rank bracket `tail(lo) < target <= tail(hi)` being narrowed; a `*_known` end has been decided by a probe.
+struct Search<'a> {
+    law: &'a Law,
+    t: &'a Target,
+    lo: i128,
+    hi: i128,
+    lo_known: bool,
+    hi_known: bool,
+}
+
+impl Search<'_> {
+    fn at(&self, k: i128, bits: u64) -> Option<Ordering> {
+        compare(self.law, &Fl::from_f64(unrank(k)), self.t, bits)
+    }
+
+    /// Moves the end a decided probe bounds; true when it moved. Equal and undecided probes leave the bracket.
+    fn narrow(&mut self, k: i128, o: Option<Ordering>) -> bool {
+        match o {
+            Some(Ordering::Less) if k > self.lo => {
+                self.lo = k;
+                self.lo_known = true;
+                true
             }
-            Some(Ordering::Greater) => {
-                hi = k;
-                hi_known = true;
+            Some(Ordering::Greater) if k < self.hi => {
+                self.hi = k;
+                self.hi_known = true;
+                true
             }
-            None => {}
+            _ => false,
         }
     }
-    // the estimate: two probes 2^-45 either side of it; bracketing the quantile, they certify a normal g to 2^-44
-    // relative. Below 2 DBL_MIN (a bracket that may reach the subnormals) the probes are two ranks either side, and
-    // the bisection then picks the nearest double.
-    if let Some(g) = guess.filter(|g| g.is_finite() && *g > xlo && *g < xhi) {
+
+    fn from_centre(&mut self, xlo: f64, xhi: f64) -> Option<f64> {
+        let c = self.law.centre().filter(|c| *c > xlo && *c < xhi)?;
+        let k = rank(c);
+        let o = self.at(k, FAST);
+        if o == Some(Ordering::Equal) {
+            return Some(c);
+        }
+        self.narrow(k, o);
+        None
+    }
+
+    /// The estimate: two probes 2^-45 either side of it; bracketing the quantile, they certify a normal g to 2^-44
+    /// relative. Below 2 DBL_MIN (a bracket that may reach the subnormals) the probes are two ranks either side, and
+    /// the bisection then picks the nearest double.
+    fn from_guess(&mut self, g: f64) -> Option<f64> {
         let normal = g.abs() >= 2.0 * f64::MIN_POSITIVE;
         let (a, b) = if normal {
             let w = g.abs() * f64::powi(2.0, -45);
@@ -270,155 +292,169 @@ pub fn quantile(law: Law, t: &Target, xlo: f64, xhi: f64, guess: Option<f64>) ->
         } else {
             (rank(g) - 2, rank(g) + 2)
         };
-        let oa = if a > lo && a < hi { at(a, FAST) } else { None };
-        let ob = if b < hi && b > lo { at(b, FAST) } else { None };
+        let oa = if a > self.lo && a < self.hi { self.at(a, FAST) } else { None };
+        let ob = if b < self.hi && b > self.lo { self.at(b, FAST) } else { None };
         if normal && oa == Some(Ordering::Less) && ob == Some(Ordering::Greater) {
-            return Ok(g);
+            return Some(g);
         }
         for (k, o) in [(a, oa), (b, ob)] {
-            match o {
-                Some(Ordering::Less) if k > lo => {
-                    lo = k;
-                    lo_known = true;
-                }
-                Some(Ordering::Greater) if k < hi => {
-                    hi = k;
-                    hi_known = true;
-                }
-                Some(Ordering::Equal) => return Ok(unrank(k)),
-                _ => {}
+            if o == Some(Ordering::Equal) {
+                return Some(unrank(k));
             }
+            self.narrow(k, o);
         }
         // both probes on one side (an estimate a few 2^-45 off, as exp(mu + sd z) is at mu = 700): probes at
         // widening distances on that side, each a certified bound, until one passes the quantile, so the bisection
         // starts from a bracket of about the estimate's error instead of the whole range
         let up = ob == Some(Ordering::Less);
         let down = oa == Some(Ordering::Greater);
-        if up || down {
-            // below 2 DBL_MIN the distances are counted in ranks (GAMMA.INV(0.5,1,2.2250738585072014E-308), a
-            // subnormal quantile, otherwise bisected the whole range)
-            for (e, m) in [(-37, 6), (-29, 12), (-21, 20), (-13, 32), (-5, 44)] {
-                let k = if normal {
-                    let w = g.abs() * f64::powi(2.0, e);
-                    rank(if up { g + w } else { g - w })
-                } else if up {
-                    rank(g) + (1i128 << m)
-                } else {
-                    rank(g) - (1i128 << m)
-                };
-                if k <= lo || k >= hi {
-                    break;
+        if !(up || down) {
+            return None;
+        }
+        // below 2 DBL_MIN the distances are counted in ranks (GAMMA.INV(0.5,1,2.2250738585072014E-308), a
+        // subnormal quantile, otherwise bisected the whole range)
+        for (e, m) in [(-37, 6), (-29, 12), (-21, 20), (-13, 32), (-5, 44)] {
+            let k = if normal {
+                let w = g.abs() * f64::powi(2.0, e);
+                rank(if up { g + w } else { g - w })
+            } else if up {
+                rank(g) + (1i128 << m)
+            } else {
+                rank(g) - (1i128 << m)
+            };
+            if k <= self.lo || k >= self.hi {
+                break;
+            }
+            let o = self.at(k, FAST);
+            match o {
+                Some(Ordering::Equal) => return Some(unrank(k)),
+                None => break,
+                _ => {}
+            }
+            self.narrow(k, o);
+            if (up && o == Some(Ordering::Greater)) || (down && o == Some(Ordering::Less)) {
+                break;
+            }
+        }
+        None
+    }
+
+    /// The quantile must lie in (xlo, xhi]: `Err` when it lies beyond.
+    fn check_ends(&self) -> Result<Option<f64>, E> {
+        if !self.hi_known {
+            match self.at(self.hi, FULL) {
+                Some(Ordering::Less) => return Err(E::Num),
+                Some(Ordering::Equal) => return Ok(Some(unrank(self.hi))),
+                _ => {}
+            }
+        }
+        if !self.lo_known {
+            match self.at(self.lo, FULL) {
+                Some(Ordering::Equal) => return Ok(Some(unrank(self.lo))),
+                Some(Ordering::Greater) => return Err(E::Num),
+                _ => {}
+            }
+        }
+        Ok(None)
+    }
+
+    /// The smallest doubles of either sign: a quantile that underflows is decided in one comparison.
+    fn from_smallest(&mut self) -> Option<f64> {
+        for k in [1i128, -1] {
+            if k > self.lo && k < self.hi {
+                let o = self.at(k, FAST);
+                if o == Some(Ordering::Equal) {
+                    return Some(unrank(k));
                 }
-                match at(k, FAST) {
-                    Some(Ordering::Less) if up => {
-                        lo = k;
-                        lo_known = true;
+                self.narrow(k, o);
+            }
+        }
+        None
+    }
+
+    /// The equality rule: probes a quarter of the bracket either side, compared to the full precision.
+    fn quarter_probes(&mut self, mid: i128) -> Option<f64> {
+        let q = ((self.hi - self.lo) / 4).max(1);
+        let mut moved = false;
+        for k in [mid - q, mid + q] {
+            if k <= self.lo || k >= self.hi {
+                continue;
+            }
+            let o = self.at(k, FULL);
+            if o == Some(Ordering::Equal) {
+                return Some(unrank(k));
+            }
+            moved |= self.narrow(k, o);
+        }
+        if !moved {
+            let o = self.at(mid, FULL);
+            if !self.narrow(mid, o) {
+                return Some(unrank(mid));
+            }
+        }
+        None
+    }
+
+    /// Rank bisection down to adjacent doubles; `Some` when a comparison finds the answer on the way.
+    fn bisect(&mut self) -> Option<f64> {
+        while self.hi - self.lo > 1 {
+            let mid = self.lo + (self.hi - self.lo) / 2;
+            // undecided at 256 bits: the quantile may be very close to mid (GAMMA.INV(1E-300,1,1), whose quantile is
+            // 1E-300 (1 + 5E-301), which 1024 bits do not separate). The exact midpoints to both neighbours are half a
+            // unit away, so they are decided at once; bracketing the quantile they make mid its nearest double
+            let mut o = self.at(mid, 256);
+            if o.is_none() {
+                let xm = unrank(mid);
+                let below = Fl::from_f64(unrank(mid - 1)).add(&Fl::from_f64(xm)).mul_2exp(-1);
+                let above = Fl::from_f64(xm).add(&Fl::from_f64(unrank(mid + 1))).mul_2exp(-1);
+                if compare(self.law, &below, self.t, FAST) == Some(Ordering::Less) && compare(self.law, &above, self.t, FAST) == Some(Ordering::Greater) {
+                    return Some(xm);
+                }
+                o = self.at(mid, FAST);
+            }
+            match o {
+                Some(Ordering::Equal) => return Some(unrank(mid)),
+                None => {
+                    if let Some(x) = self.quarter_probes(mid) {
+                        return Some(x);
                     }
-                    Some(Ordering::Greater) if down => {
-                        hi = k;
-                        hi_known = true;
-                    }
-                    Some(Ordering::Less) => {
-                        lo = k;
-                        lo_known = true;
-                        break;
-                    }
-                    Some(Ordering::Greater) => {
-                        hi = k;
-                        hi_known = true;
-                        break;
-                    }
-                    Some(Ordering::Equal) => return Ok(unrank(k)),
-                    None => break,
+                }
+                _ => {
+                    self.narrow(mid, o);
                 }
             }
         }
+        None
     }
-    // the ends: the quantile must lie in (xlo, xhi]
-    if !hi_known {
-        match at(hi, FULL) {
-            Some(Ordering::Less) => return Err(E::Num),
-            Some(Ordering::Equal) => return Ok(unrank(hi)),
-            _ => {}
+
+    /// Adjacent doubles: the nearest one, from the tail at their exact midpoint (ties to the even neighbour).
+    fn nearest_of_adjacent(&self) -> f64 {
+        let (xl, xh) = (unrank(self.lo), unrank(self.hi));
+        let mid = Fl::from_f64(xl).add(&Fl::from_f64(xh)).mul_2exp(-1);
+        let even = if xl.to_bits() & 1 == 0 { xl } else { xh };
+        match compare(self.law, &mid, self.t, FULL) {
+            Some(Ordering::Less) => xh,
+            Some(Ordering::Greater) => xl,
+            _ => even,
         }
     }
-    if !lo_known {
-        match at(lo, FULL) {
-            Some(Ordering::Equal) => return Ok(unrank(lo)),
-            Some(Ordering::Greater) => return Err(E::Num),
-            _ => {}
-        }
+}
+
+/// The quantile in [xlo, xhi] (finite doubles): `Err(#NUM!)` when it lies beyond them (an overflow past the
+/// largest double, or a support end the law never reaches); `guess` is an optional double estimate.
+pub fn quantile(law: Law, t: &Target, xlo: f64, xhi: f64, guess: Option<f64>) -> Result<f64, E> {
+    let mut s = Search { law: &law, t, lo: rank(xlo), hi: rank(xhi), lo_known: false, hi_known: false };
+    if let Some(x) = s.from_centre(xlo, xhi) {
+        return Ok(x);
     }
-    // the smallest doubles of either sign: a quantile that underflows is decided in one comparison
-    for k in [1i128, -1] {
-        if k > lo && k < hi {
-            match at(k, FAST) {
-                Some(Ordering::Less) => lo = k,
-                Some(Ordering::Greater) => hi = k,
-                Some(Ordering::Equal) => return Ok(unrank(k)),
-                None => {}
-            }
-        }
+    if let Some(x) = guess.filter(|g| g.is_finite() && *g > xlo && *g < xhi).and_then(|g| s.from_guess(g)) {
+        return Ok(x);
     }
-    // rank bisection: tail(lo) < target <= tail(hi)
-    while hi - lo > 1 {
-        let mid = lo + (hi - lo) / 2;
-        // undecided at 256 bits: the quantile may be very close to mid (GAMMA.INV(1E-300,1,1), whose quantile is
-        // 1E-300 (1 + 5E-301), which 1024 bits do not separate). The exact midpoints to both neighbours are half a
-        // unit away, so they are decided at once; bracketing the quantile they make mid its nearest double
-        let mut o = at(mid, 256);
-        if o.is_none() {
-            let xm = unrank(mid);
-            let below = Fl::from_f64(unrank(mid - 1)).add(&Fl::from_f64(xm)).mul_2exp(-1);
-            let above = Fl::from_f64(xm).add(&Fl::from_f64(unrank(mid + 1))).mul_2exp(-1);
-            if compare(&law, &below, t, FAST) == Some(Ordering::Less) && compare(&law, &above, t, FAST) == Some(Ordering::Greater) {
-                return Ok(xm);
-            }
-            o = at(mid, FAST);
-        }
-        match o {
-            Some(Ordering::Less) => lo = mid,
-            Some(Ordering::Greater) => hi = mid,
-            Some(Ordering::Equal) => return Ok(unrank(mid)),
-            None => {
-                // the equality rule: probes a quarter of the bracket either side, compared to the full precision
-                let q = ((hi - lo) / 4).max(1);
-                let (a, b) = (mid - q, mid + q);
-                let mut moved = false;
-                for k in [a, b] {
-                    if k <= lo || k >= hi {
-                        continue;
-                    }
-                    match at(k, FULL) {
-                        Some(Ordering::Less) => {
-                            lo = lo.max(k);
-                            moved = true;
-                        }
-                        Some(Ordering::Greater) => {
-                            hi = hi.min(k);
-                            moved = true;
-                        }
-                        Some(Ordering::Equal) => return Ok(unrank(k)),
-                        None => {}
-                    }
-                }
-                if !moved {
-                    match at(mid, FULL) {
-                        Some(Ordering::Less) => lo = mid,
-                        Some(Ordering::Greater) => hi = mid,
-                        _ => return Ok(unrank(mid)),
-                    }
-                }
-            }
-        }
+    if let Some(x) = s.check_ends()? {
+        return Ok(x);
     }
-    // adjacent doubles: the nearest one, from the tail at their exact midpoint (ties to the even neighbour)
-    let (xl, xh) = (unrank(lo), unrank(hi));
-    let mid = Fl::from_f64(xl).add(&Fl::from_f64(xh)).mul_2exp(-1);
-    let even = if xl.to_bits() & 1 == 0 { xl } else { xh };
-    Ok(match compare(&law, &mid, t, FULL) {
-        Some(Ordering::Less) => xh,
-        Some(Ordering::Greater) => xl,
-        _ => even,
-    })
+    if let Some(x) = s.from_smallest().or_else(|| s.bisect()) {
+        return Ok(x);
+    }
+    Ok(s.nearest_of_adjacent())
 }

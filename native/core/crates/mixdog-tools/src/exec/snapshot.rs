@@ -1,9 +1,3 @@
-//! Shell environment snapshot (`tools/shell-snapshot.mjs`). Captures the user's interactive shell
-//! state (functions, aliases, shell options) by sourcing their rc file in a one-shot login shell
-//! and dumping it to a script; later commands `source` it so they run with the same nvm / pyenv /
-//! mise / direnv setup the user gets in a terminal, without a login-shell start per call. bash
-//! and zsh on POSIX hosts only. The login shell runs through the process manager; every file
-//! operation is a lane job.
 #![allow(clippy::disallowed_methods, reason = "lane job bodies are the sanctioned home of blocking file I/O (clippy.toml)")]
 
 use std::collections::HashMap;
@@ -105,6 +99,24 @@ fn snapshot_env(shell_path: &str) -> EnvSpec {
     EnvSpec { inherit: true, set, remove }
 }
 
+fn fresh_snapshot_path(dir: &Path, shell_path: &str) -> PathBuf {
+    let lower = shell_path.to_lowercase();
+    let tag = if lower.contains("zsh") {
+        "zsh"
+    } else if lower.contains("bash") {
+        "bash"
+    } else {
+        "sh"
+    };
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
+    let suffix = {
+        use sha2::Digest;
+        let digest = sha2::Sha256::digest(format!("{stamp}:{}", std::process::id()));
+        digest.iter().take(3).map(|b| format!("{b:02x}")).collect::<String>()
+    };
+    dir.join(format!("snapshot-{tag}-{stamp}-{suffix}.sh"))
+}
+
 /// Where a snapshot is requested from.
 pub struct SnapshotRequest<'a> {
     pub processes: &'a Arc<dyn ProcessManager>,
@@ -152,21 +164,7 @@ impl Snapshots {
                 return Some(path);
             }
         }
-        let lower = request.shell_path.to_lowercase();
-        let tag = if lower.contains("zsh") {
-            "zsh"
-        } else if lower.contains("bash") {
-            "bash"
-        } else {
-            "sh"
-        };
-        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
-        let suffix = {
-            use sha2::Digest;
-            let digest = sha2::Sha256::digest(format!("{stamp}:{}", std::process::id()));
-            digest.iter().take(3).map(|b| format!("{b:02x}")).collect::<String>()
-        };
-        let path = dir.join(format!("snapshot-{tag}-{stamp}-{suffix}.sh"));
+        let path = fresh_snapshot_path(&dir, request.shell_path);
         let made = path.clone();
         let make_dir = dir.clone();
         let _ = request

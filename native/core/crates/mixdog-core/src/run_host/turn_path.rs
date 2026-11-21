@@ -1,8 +1,3 @@
-//! The turn path, built once per process: every part of the host assembly constructed from its inputs
-//! and bound to the session directory. Every field of [`TurnPathParts`] is required; the parts no
-//! crate implements yet are owner traits there (see `compose-seams.md`, "TurnPath inputs"), so the
-//! daemon can only build the path once each has its real implementation.
-
 // Transparent callback/state names; existing ownership and call signatures are unchanged.
 type HopFactoryBuilder = dyn FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistry>) -> HopFactory;
 
@@ -107,7 +102,7 @@ pub struct TurnPathParts {
     pub settings: SettingsSources,
     pub ladder: Arc<dyn LadderSources>,
     /// The session directory's own dependencies, given the real run factory (WP-SESSION).
-    pub deps: Box<dyn FnOnce(Arc<dyn RunFactory>) -> SessionDeps>,
+    pub deps: Box<dyn FnOnce(Arc<dyn RunFactory>) -> SessionDeps + Send>,
     /// The session compactors, built over the compaction world (WP-COMPACTION-WORLD) by the composition: the manual compaction and the inheritance fit
     /// read the same world, and neither can be built from inside this path (the `deps` closure is called in it with the run factory only).
     pub compactors: Arc<SessionCompactors>,
@@ -246,7 +241,7 @@ impl TurnPath {
                 images: Some(Arc::new(ToolImageCompactor::new(Arc::new(ExtImageCodec::new(ext_pool))).with_intake(intake))),
                 paths,
             },
-            probes: Arc::new(StartupProbes::new(io, processes)),
+            probes: Arc::new(StartupProbes::new(io, tokens.cpu_interactive, processes)),
             observed: Arc::new(StartupObservations::new(clock)),
             shells,
             exclusions: exclusions.clone(),

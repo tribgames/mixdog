@@ -608,44 +608,42 @@ fn first_matching<'t>(finder: &JsRegex, text: &'t str, pattern: &JsRegex) -> Opt
     finder.find_iter(text).map(|range| &text[range]).find(|element| pattern.is_match(element))
 }
 
+/// The part and relationship id of the story the document's section already references for this kind, when that part exists.
+fn referenced_story(zip: &Package, request: &HeaderFooter<'_>, prefix: &str) -> Option<(String, String)> {
+    if request.kind.is_empty() || request.document_xml.is_empty() {
+        return None;
+    }
+    let own_type = compiled(&format!(r#"\bw:type="{}""#, tag_pattern(request.kind)), "");
+    let references = compiled(&format!(r"<w:{prefix}Reference\b[^>]*\/>"), "g");
+    let reference = first_matching(&references, request.document_xml, &own_type)?;
+    let id_pattern = compiled(r#"\br:id="([^"]+)""#, "");
+    let referenced_id = id_pattern.captures(reference).and_then(|found| found.get(1).map(str::to_owned)).filter(|id| !id.is_empty())?;
+    let relationships = zip.text(&part_relationship_path(DOCUMENT_PART));
+    let own_id = compiled(&format!(r#"\bId="{}""#, tag_pattern(&referenced_id)), "");
+    let all = compiled(r"<Relationship\b[^>]*\/>", "g");
+    let target_pattern = compiled(r#"\bTarget="([^"]+)""#, "");
+    let path = first_matching(&all, &relationships, &own_id)
+        .and_then(|element| target_pattern.captures(element).and_then(|found| found.get(1).map(str::to_owned)))
+        .unwrap_or_default();
+    let existing = if path.is_empty() { String::new() } else { part_from_target("word", &path) };
+    (!existing.is_empty() && zip.file(&existing).is_some()).then_some((existing, referenced_id))
+}
+
 /// `writeHeaderFooterPart(zip, { header, body, documentXml, kind })`.
 pub fn write_header_footer_part(zip: &mut Package, request: &HeaderFooter<'_>) -> HeaderFooterPart {
     let tag = if request.header { "hdr" } else { "ftr" };
     let prefix = if request.header { "header" } else { "footer" };
     let document = |content: &str| format!("{XML_HEADER}<w:{tag} xmlns:w=\"{WORD_MAIN_NS}\" xmlns:r=\"{OFFICE_RELATIONSHIP_BASE}\">{content}</w:{tag}>");
     let compose = request.body;
-    // A story this section already references is rewritten where it lives. Writing a new part for every call left the
-    // previous one orphaned in the package while the section pointed at whichever was written last.
-    let reference = if !request.kind.is_empty() && !request.document_xml.is_empty() {
-        let own_type = compiled(&format!(r#"\bw:type="{}""#, tag_pattern(request.kind)), "");
-        let references = compiled(&format!(r"<w:{prefix}Reference\b[^>]*\/>"), "g");
-        first_matching(&references, request.document_xml, &own_type)
-    } else {
-        None
-    };
-    let id_pattern = compiled(r#"\br:id="([^"]+)""#, "");
-    let referenced_id = reference.and_then(|element| id_pattern.captures(element).and_then(|found| found.get(1).map(str::to_owned))).unwrap_or_default();
-    if !referenced_id.is_empty() {
-        let relationships = zip.text(&part_relationship_path(DOCUMENT_PART));
-        let own_id = compiled(&format!(r#"\bId="{}""#, tag_pattern(&referenced_id)), "");
-        let all = compiled(r"<Relationship\b[^>]*\/>", "g");
-        let target_pattern = compiled(r#"\bTarget="([^"]+)""#, "");
-        let path = first_matching(&all, &relationships, &own_id)
-            .and_then(|element| target_pattern.captures(element).and_then(|found| found.get(1).map(str::to_owned)))
-            .unwrap_or_default();
-        let existing = if path.is_empty() { String::new() } else { part_from_target("word", &path) };
-        if !existing.is_empty() && zip.file(&existing).is_some() {
-            // The story keeps its own root: Word's declares the w14, mc and wp prefixes its paragraphs use, and page numbers
-            // added into Word's footer under a root naming only w and r left a document Word would not open.
-            let story = zip.text(&existing);
-            let root_pattern = compiled(&format!(r"(<w:{tag}\b[^>]*>)([\s\S]*)</w:{tag}>"), "");
-            let written = match root_pattern.captures(&story) {
-                Some(root) => format!("{}{}{}</w:{tag}>", &story[..root.range().start], root.get(1).unwrap_or(""), compose(root.get(2).unwrap_or(""))),
-                None => document(&compose("")),
-            };
-            zip.set(&existing, written);
-            return HeaderFooterPart { part: existing, relationship_id: referenced_id, replaced: true };
-        }
+    if let Some((existing, referenced_id)) = referenced_story(zip, request, prefix) {
+        let story = zip.text(&existing);
+        let root_pattern = compiled(&format!(r"(<w:{tag}\b[^>]*>)([\s\S]*)</w:{tag}>"), "");
+        let written = match root_pattern.captures(&story) {
+            Some(root) => format!("{}{}{}</w:{tag}>", &story[..root.range().start], root.get(1).unwrap_or(""), compose(root.get(2).unwrap_or(""))),
+            None => document(&compose("")),
+        };
+        zip.set(&existing, written);
+        return HeaderFooterPart { part: existing, relationship_id: referenced_id, replaced: true };
     }
     let mut ordinal = 1_u64;
     while zip.file(&format!("word/{prefix}{ordinal}.xml")).is_some() {
@@ -698,10 +696,8 @@ pub const SETTINGS_ORDER: [&str; 29] = [
     "w:listSeparator",
 ];
 
-/// `ensureDocxUpdateFields(zip)`: a TOC field carries the entries we cached, and Word draws exactly those until something
-/// asks it to rebuild the field: the recipient opened a table of contents that was three lines of plain text with no leaders
-/// and no page numbers. `updateFields` is the package asking for that rebuild on open, which is when Word writes the real
-/// thing. Answers the part written.
+/// `ensureDocxUpdateFields(zip)`: a TOC field carries the cached entries, and Word draws exactly those until something asks it
+/// to rebuild the field; `updateFields` asks for that rebuild on open. Answers the part written.
 pub fn ensure_docx_update_fields(zip: &mut Package) -> String {
     let part = "word/settings.xml";
     let created = format!("{XML_HEADER}<w:settings xmlns:w=\"{WORD_MAIN_NS}\"></w:settings>");
@@ -850,6 +846,17 @@ fn number_of(digits: &str) -> u64 {
     digits.parse().unwrap_or(0)
 }
 
+/// The first abstract definition of `kind` that has a list instance, and that instance's id.
+fn instanced_abstract(xml: &str, kind: &str) -> Option<(i64, u64)> {
+    let abstracts = compiled(r#"<w:abstractNum\b[^>]*\bw:abstractNumId="(\d+)"[^>]*>[\s\S]*?<\/w:abstractNum>"#, "g");
+    let chosen = abstracts.captures_iter(xml).filter(|found| numbering_scheme(&xml[found.range()]) == kind).find_map(|found| {
+        let abstract_id = found.get(1).unwrap_or("");
+        let instance = compiled(&format!(r#"<w:num\b[^>]*\bw:numId="(\d+)"[^>]*>\s*<w:abstractNumId w:val="{abstract_id}"\/>"#), "");
+        instance.captures(xml).map(|reuse| (number_of(abstract_id) as i64, number_of(reuse.get(1).unwrap_or(""))))
+    });
+    chosen
+}
+
 /// `ensureNumbering(zip, kind, { restart })`: kind is bullet, number (1. a. i.), or korean (1. 가. 1)). `restart` makes a new
 /// list instance of the kind, counting from 1 again. Word numbers every instance of one abstract definition as one list
 /// unless the instance overrides its start, so the restart names it on each level.
@@ -865,22 +872,11 @@ pub fn ensure_numbering(zip: &mut Package, kind: &str, restart: bool) -> Numberi
             relationship: &format!("{OFFICE_RELATIONSHIP_BASE}/numbering"),
         },
     );
-    let mut existing_abstract: Option<i64> = None;
-    let abstracts = compiled(r#"<w:abstractNum\b[^>]*\bw:abstractNumId="(\d+)"[^>]*>[\s\S]*?<\/w:abstractNum>"#, "g");
-    for found in abstracts.captures_iter(&xml) {
-        if numbering_scheme(&xml[found.range()]) != kind {
-            continue;
-        }
-        let abstract_id = found.get(1).unwrap_or("");
-        let instance = compiled(&format!(r#"<w:num\b[^>]*\bw:numId="(\d+)"[^>]*>\s*<w:abstractNumId w:val="{abstract_id}"\/>"#), "");
-        if let Some(reuse) = instance.captures(&xml) {
-            if !restart {
-                return NumberingPart { xml: xml.clone(), num_id: number_of(reuse.get(1).unwrap_or("")), created: false };
-            }
-            existing_abstract = Some(number_of(abstract_id) as i64);
-            break;
-        }
-    }
+    let existing_abstract = match instanced_abstract(&xml, kind) {
+        Some((_, num_id)) if !restart => return NumberingPart { xml, num_id, created: false },
+        Some((abstract_id, _)) => Some(abstract_id),
+        None => None,
+    };
     let abstract_ids = compiled(r#"\bw:abstractNumId="(\d+)""#, "g");
     let highest_abstract = abstract_ids.captures_iter(&xml).map(|found| number_of(found.get(1).unwrap_or("")) as i64).fold(-1, i64::max);
     let instance_ids = compiled(r#"<w:num\b[^>]*\bw:numId="(\d+)""#, "g");
@@ -928,9 +924,7 @@ impl Default for NumberingChoice<'_> {
 
 /// `appendedNumbering(zip, documentXml, options)`: the numbered list an appended item belongs to. An item right after a list
 /// item (its own list's, or a bullet nested under it) continues the latest numbered list; after anything else (a heading, a
-/// body paragraph, a table) it starts a new list at 1: "3. 다음 분기 과제" read its two items as 4 and 5 of the list two sections
-/// above. An item that continues a list takes the scheme that list opened with, so a Korean list's "QA" item stays its third
-/// item rather than opening a list of its own at 1.
+/// body paragraph, a table) it starts a new list at 1. An item that continues a list takes the scheme that list opened with.
 pub fn appended_numbering(zip: &mut Package, document_xml: &str, choice: &NumberingChoice<'_>) -> NumberingPart {
     // `slice(0, lastIndexOf(...))`: a missing marker is -1, which drops the last character.
     let before = match document_xml.rfind("<w:sectPr").or_else(|| document_xml.rfind("</w:body>")) {
@@ -1029,6 +1023,25 @@ mod tests {
         assert_eq!(restarted.num_id, 2);
         assert!(restarted.xml.contains("<w:num w:numId=\"2\"><w:abstractNumId w:val=\"0\"/><w:lvlOverride"));
         assert!(zip.text("[Content_Types].xml").contains("/word/numbering.xml"));
+    }
+
+    #[test]
+    fn a_header_the_section_references_is_rewritten_where_it_lives_and_a_new_one_is_numbered_past_the_existing() {
+        let add_note: &dyn Fn(&str) -> String = &|old| format!("{old}+new");
+        let referencing = "<w:sectPr><w:headerReference w:type=\"default\" r:id=\"rId7\"/></w:sectPr>";
+        let mut zip = package(&[
+            ("[Content_Types].xml", "<Types></Types>"),
+            ("word/_rels/document.xml.rels", "<Relationships><Relationship Id=\"rId7\" Type=\"x\" Target=\"header3.xml\"/></Relationships>"),
+            ("word/header3.xml", "<w:hdr xmlns:w=\"w\" xmlns:w14=\"x\">old</w:hdr>"),
+        ]);
+        let rewritten = write_header_footer_part(&mut zip, &HeaderFooter { header: true, body: add_note, document_xml: referencing, kind: "default" });
+        assert_eq!(rewritten, HeaderFooterPart { part: "word/header3.xml".to_owned(), relationship_id: "rId7".to_owned(), replaced: true });
+        assert_eq!(zip.text("word/header3.xml"), "<w:hdr xmlns:w=\"w\" xmlns:w14=\"x\">old+new</w:hdr>");
+        let created = write_header_footer_part(&mut zip, &HeaderFooter { header: true, body: add_note, document_xml: referencing, kind: "first" });
+        assert_eq!((created.part.as_str(), created.replaced), ("word/header1.xml", false));
+        assert!(zip.text("word/header1.xml").contains("+new</w:hdr>"));
+        assert!(zip.text("word/_rels/document.xml.rels").contains(&format!("Id=\"{}\"", created.relationship_id)));
+        assert!(zip.text("[Content_Types].xml").contains("/word/header1.xml"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! Console output encoding for native Windows programs (`tools/shell-codepage.mjs`). Legacy
+//! Console output encoding for native Windows programs. Legacy
 //! programs write in the system OEM code page (CP949 on a Korean install); reading that as UTF-8
 //! garbles it. The encoding is decided PER STREAM: leading ASCII needs no decision; from the first
 //! non-ASCII byte a window (to the 16th non-ASCII byte or 4096 bytes) that is strictly valid

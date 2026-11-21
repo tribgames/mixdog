@@ -52,6 +52,9 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Globali
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
 
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { workspace = true, features = ["Win32_Security"] }
+
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
 mixdog-workspace = { path = ".", features = ["kill-points", "count-jobs", "replay-controls"] }

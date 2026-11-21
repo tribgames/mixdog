@@ -189,6 +189,29 @@ struct PhraseRun {
     text: Vec<u16>,
 }
 
+fn phrase_runs(paragraph: &str) -> Vec<PhraseRun> {
+    let run_open = compiled(r"^<w:r(?:\s[^>]*)?>", "");
+    let run_properties = compiled(r"^\s*(?:<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>|<w:rPr\s*\/>)", "");
+    let text_only = compiled(r"^(?:\s*<w:t\b[^>]*>[\s\S]*?<\/w:t>\s*)+$", "");
+    let text_element = compiled(r"<w:t\b[^>]*>([\s\S]*?)<\/w:t>", "g");
+    compiled(r"<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>", "g")
+        .find_iter(paragraph)
+        .map(|range| {
+            let whole = &paragraph[range.clone()];
+            let open = run_open.find(whole).map_or("", |open| &whole[open]);
+            let inner = &whole[open.len()..whole.len() - "</w:r>".len()];
+            let properties = run_properties.find(inner).map_or("", |found| &inner[found]);
+            let content = &inner[properties.len()..];
+            let text: Vec<u16> = if text_only.is_match(content) {
+                text_element.captures_iter(content).map(|part| xml_decode(part.get(1).unwrap_or(""))).collect::<String>().encode_utf16().collect()
+            } else {
+                vec![0]
+            };
+            PhraseRun { start: range.start, end: range.end, xml: whole.to_owned(), open: open.to_owned(), properties: properties.to_owned(), text }
+        })
+        .collect()
+}
+
 fn index_of(haystack: &[u16], needle: &[u16]) -> Option<usize> {
     haystack.windows(needle.len()).position(|window| window == needle)
 }
@@ -218,32 +241,12 @@ pub fn format_first_body_phrase(document_xml: &str, find: &str, properties: &Val
     let matched = Cell::new(false);
     let changed = Cell::new(false);
     let failure: RefCell<Option<String>> = RefCell::new(None);
-    let run_open = compiled(r"^<w:r(?:\s[^>]*)?>", "");
-    let run_properties = compiled(r"^\s*(?:<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>|<w:rPr\s*\/>)", "");
-    let text_only = compiled(r"^(?:\s*<w:t\b[^>]*>[\s\S]*?<\/w:t>\s*)+$", "");
-    let text_element = compiled(r"<w:t\b[^>]*>([\s\S]*?)<\/w:t>", "g");
-    let run_pattern = compiled(r"<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>", "g");
     let xml = compiled(r"<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>", "g").replace_all_with(document_xml, |found| {
         let paragraph = found.get(0).unwrap_or("");
         if matched.get() {
             return paragraph.to_owned();
         }
-        let runs: Vec<PhraseRun> = run_pattern
-            .find_iter(paragraph)
-            .map(|range| {
-                let whole = &paragraph[range.clone()];
-                let open = run_open.find(whole).map_or("", |open| &whole[open]);
-                let inner = &whole[open.len()..whole.len() - "</w:r>".len()];
-                let properties = run_properties.find(inner).map_or("", |found| &inner[found]);
-                let content = &inner[properties.len()..];
-                let text: Vec<u16> = if text_only.is_match(content) {
-                    text_element.captures_iter(content).map(|part| xml_decode(part.get(1).unwrap_or(""))).collect::<String>().encode_utf16().collect()
-                } else {
-                    vec![0]
-                };
-                PhraseRun { start: range.start, end: range.end, xml: whole.to_owned(), open: open.to_owned(), properties: properties.to_owned(), text }
-            })
-            .collect();
+        let runs = phrase_runs(paragraph);
         let joined: Vec<u16> = runs.iter().flat_map(|run| run.text.iter().copied()).collect();
         let Some(start) = index_of(&joined, &wanted) else { return paragraph.to_owned() };
         matched.set(true);

@@ -1,8 +1,3 @@
-//! A burst of connection-level cuts on a provider whose stream ladder leaves a spent cut to the loop
-//! (`RetryPolicy::stream_cut_loop_replay`, the Anthropic routes): the loop replays such a send on its transport ladder
-//! (5, 15, 30 s), and a replay does not refill the stream row the first send spent. A response the loop proceeds with, a
-//! salvaged one included, ends the outage the budgets covered.
-
 use mixdog_core_api::domain::provider::ConnectionInfo;
 use mixdog_core_api::domain::provider::Exposure;
 

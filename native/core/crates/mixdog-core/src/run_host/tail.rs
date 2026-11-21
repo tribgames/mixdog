@@ -15,11 +15,8 @@ pub fn session_tail_reminder(context: TailContext) -> Arc<dyn TailReminder> {
     Arc::new(RuleTailReminder { context })
 }
 
-/// `withTailReminder`'s context for a session: its provider, its recorded response language and its
-/// role (`tailReminderRole`: `worker` for an agent-owned session, `bot` in agent mode, else
-/// `lead`). A header with no `responseLanguage` record (an agent, an older record) reads the
-/// config: `config_language` is `rules_lead::build_lead_language` for the install, which the caller
-/// runs in a lane job and which is asked for only then. A recorded `null` is a recorded "no language".
+/// The role is `worker` for an agent-owned session, `bot` in agent mode, else `lead`. A header with no
+/// `responseLanguage` record reads `config_language`, called only then; a recorded `null` is a recorded "no language".
 pub fn tail_context(header: &Header, config_language: impl FnOnce() -> Option<(String, String)>) -> TailContext {
     let text = |key: &str| header.get(key).and_then(Value::as_str).unwrap_or_default();
     let language = match header.get("responseLanguage") {

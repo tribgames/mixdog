@@ -1,9 +1,3 @@
-//! `AnthropicAdapter::send_cache_warm` and the account gate against Node: every scenario of
-//! `fixtures/cache-warm-send/golden.json` (recorded by `record-cache-warm-send.mjs` driving
-//! `sendAnthropicCacheWarm` and `cacheWarmAccountBlock` over a real roster and the real admission
-//! scheduler) must end with the same error text, usage reports, POST count and lane state. The
-//! request the warm POSTs is the one `attempt` builds.
-
 use std::collections::VecDeque;
 use std::sync::Mutex;
 

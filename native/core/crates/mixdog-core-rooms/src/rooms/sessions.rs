@@ -662,10 +662,6 @@ impl<S: RoomStore> SessionHomePorts<S> {
         Ok(())
     }
 
-    /// Members that left their rooms (`dropMembers`, saved): what was owed to them ends, the catalog is republished and their room
-    /// conversations are deleted; how many could not be. No client waits on it (`forgetMember`, `agent-rooms.ts:345-346`;
-    /// `pruneDeleted`, `agent-room-membership.ts:72-74`): the deletions follow the start at once, and the first joins the listing
-    /// in flight (`session-host-lifecycle.ts:527`, `session-host.ts:790`).
     async fn leave(&self, left: &[Left]) -> Result<usize, RoomError> {
         // `removeFromRoom` of `dropMembers`: the calls owed to the member end, room by room.
         for gone in left {

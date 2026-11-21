@@ -424,27 +424,7 @@ impl ParamBuilder {
     pub(super) fn apply(&mut self, marker: u16, body: &[u8]) -> Result<bool, JpxError> {
         let mut r = Be::new(body);
         match marker {
-            COD => {
-                let scod = r.u8()?;
-                let prog = Progression::from_byte(r.u8()?)?;
-                let layers = r.u16()?;
-                let mct = r.u8()?;
-                if layers == 0 {
-                    return Err(bad("zero quality layers"));
-                }
-                let coding = parse_spcod(&mut r, scod & 1 != 0)?;
-                self.params.progression = prog;
-                self.params.layers = layers;
-                self.params.mct = mct;
-                self.params.sop = scod & 2 != 0;
-                self.params.eph = scod & 4 != 0;
-                for (c, comp) in self.params.comps.iter_mut().enumerate() {
-                    if !self.coc_set[c] {
-                        comp.coding = coding.clone();
-                    }
-                }
-                self.have_cod = true;
-            }
+            COD => self.apply_cod(&mut r)?,
             COC => {
                 let c = self.comp_index(&mut r)?;
                 let scoc = r.u8()?;
@@ -472,28 +452,54 @@ impl ParamBuilder {
                 r.u8()?;
                 self.params.comps[c].roi_shift = r.u8()?;
             }
-            POC => {
-                if self.in_tile && !self.poc_in_tile {
-                    self.params.pocs.clear();
-                    self.poc_in_tile = true;
-                }
-                let wide = self.csiz >= 257;
-                while r.left() > 0 {
-                    let res0 = r.u8()? as u32;
-                    let comp0 = if wide { r.u16()? as u32 } else { r.u8()? as u32 };
-                    let layer1 = r.u16()? as u32;
-                    let res1 = r.u8()? as u32;
-                    let mut comp1 = if wide { r.u16()? as u32 } else { r.u8()? as u32 };
-                    if !wide && comp1 == 0 {
-                        comp1 = 256;
-                    }
-                    let progression = Progression::from_byte(r.u8()?)?;
-                    self.params.pocs.push(Poc { res0, comp0, layer1, res1, comp1, progression });
-                }
-            }
+            POC => self.apply_poc(&mut r)?,
             _ => return Ok(false),
         }
         Ok(true)
+    }
+
+    fn apply_cod(&mut self, r: &mut Be) -> Result<(), JpxError> {
+        let scod = r.u8()?;
+        let prog = Progression::from_byte(r.u8()?)?;
+        let layers = r.u16()?;
+        let mct = r.u8()?;
+        if layers == 0 {
+            return Err(bad("zero quality layers"));
+        }
+        let coding = parse_spcod(r, scod & 1 != 0)?;
+        self.params.progression = prog;
+        self.params.layers = layers;
+        self.params.mct = mct;
+        self.params.sop = scod & 2 != 0;
+        self.params.eph = scod & 4 != 0;
+        for (c, comp) in self.params.comps.iter_mut().enumerate() {
+            if !self.coc_set[c] {
+                comp.coding = coding.clone();
+            }
+        }
+        self.have_cod = true;
+        Ok(())
+    }
+
+    fn apply_poc(&mut self, r: &mut Be) -> Result<(), JpxError> {
+        if self.in_tile && !self.poc_in_tile {
+            self.params.pocs.clear();
+            self.poc_in_tile = true;
+        }
+        let wide = self.csiz >= 257;
+        while r.left() > 0 {
+            let res0 = r.u8()? as u32;
+            let comp0 = if wide { r.u16()? as u32 } else { r.u8()? as u32 };
+            let layer1 = r.u16()? as u32;
+            let res1 = r.u8()? as u32;
+            let mut comp1 = if wide { r.u16()? as u32 } else { r.u8()? as u32 };
+            if !wide && comp1 == 0 {
+                comp1 = 256;
+            }
+            let progression = Progression::from_byte(r.u8()?)?;
+            self.params.pocs.push(Poc { res0, comp0, layer1, res1, comp1, progression });
+        }
+        Ok(())
     }
 }
 
@@ -634,21 +640,23 @@ pub(super) fn read_main_header(data: &[u8]) -> Result<MainHeader, JpxError> {
     if !builder.have_qcd {
         return Err(bad("the main header has no QCD"));
     }
-    let ppm = if ppm_parts.is_empty() {
-        None
-    } else {
-        ppm_parts.sort_by_key(|p| p.0);
-        let all: Vec<u8> = ppm_parts.into_iter().flat_map(|p| p.1).collect();
-        let mut chunks = Vec::new();
-        let mut at = 0usize;
-        while at + 4 <= all.len() {
-            let n = u32::from_be_bytes([all[at], all[at + 1], all[at + 2], all[at + 3]]) as usize;
-            at += 4;
-            let end = at.saturating_add(n).min(all.len());
-            chunks.push(all[at..end].to_vec());
-            at = end;
-        }
-        Some(chunks)
-    };
+    let ppm = if ppm_parts.is_empty() { None } else { Some(split_ppm(ppm_parts)) };
     Ok(MainHeader { siz, builder, tlm, comments, crg, ppm, end: pos })
+}
+
+/// The PPM segments in index order, their data joined and cut into the length-prefixed packet-header chunks of the
+/// tile-parts.
+fn split_ppm(mut parts: Vec<(u8, Vec<u8>)>) -> Vec<Vec<u8>> {
+    parts.sort_by_key(|p| p.0);
+    let all: Vec<u8> = parts.into_iter().flat_map(|p| p.1).collect();
+    let mut chunks = Vec::new();
+    let mut at = 0usize;
+    while at + 4 <= all.len() {
+        let n = u32::from_be_bytes([all[at], all[at + 1], all[at + 2], all[at + 3]]) as usize;
+        at += 4;
+        let end = at.saturating_add(n).min(all.len());
+        chunks.push(all[at..end].to_vec());
+        at = end;
+    }
+    chunks
 }

@@ -348,6 +348,45 @@ fn parse_private(bytes: &[u8], parent: &Dict) -> Result<Private> {
     Ok(Private::Present { subrs: Some(objects) })
 }
 
+/// The font dictionaries of a CID font's `FDArray`: each one's matrix, whether its private dictionary is readable, and
+/// its local subroutines.
+#[derive(Default)]
+struct FdArray {
+    dicts: Vec<FontDict>,
+    private_ok: Vec<bool>,
+    locals: Vec<Option<Vec<Vec<u8>>>>,
+}
+
+fn parse_fd_array(bytes: &[u8], top: &Dict) -> Result<FdArray> {
+    let Some(fd_array_offset) = top.scalar(OP_FDARRAY) else {
+        return error("Cannot read properties of undefined (reading 'length')");
+    };
+    let (fd_objects, _) = parse_index(bytes, fd_array_offset.max(0.0) as usize)?;
+    let mut fd_count = fd_objects.len();
+    if fd_count > MAX_FD_ARRAY_COUNT {
+        tracing::warn!("CFFParser.parse: too many FDArray entries ({fd_count}).");
+        fd_count = MAX_FD_ARRAY_COUNT;
+    }
+    let mut fds = FdArray { dicts: Vec::new(), private_ok: Vec::new(), locals: Vec::new() };
+    for raw in fd_objects.iter().take(fd_count) {
+        let dict = Dict::from_entries(parse_dict(raw));
+        let private = parse_private(bytes, &dict)?;
+        let font_matrix = dict.0.get(&OP_FONT_MATRIX).cloned().unwrap_or_else(|| FONT_IDENTITY_MATRIX.to_vec());
+        fds.dicts.push(FontDict { font_matrix });
+        match private {
+            Private::Present { subrs } => {
+                fds.private_ok.push(true);
+                fds.locals.push(subrs);
+            }
+            Private::Missing => {
+                fds.private_ok.push(false);
+                fds.locals.push(None);
+            }
+        }
+    }
+    Ok(fds)
+}
+
 /// pdf.js `parseFDSelect`: the font dictionary index of each of `length` glyphs.
 fn parse_fd_select(bytes: &[u8], mut pos: usize, length: usize) -> Result<Vec<u8>> {
     let get = |at: usize| usize::from(u8_at(bytes, at).unwrap_or(0));
@@ -439,9 +478,7 @@ pub fn parse_cff(data: &[u8], seac_analysis: bool) -> Result<Type2Font> {
     let (mut glyphs, _) = parse_index(bytes, top.scalar(OP_CHARSTRINGS).unwrap_or(0.0).max(0.0) as usize)?;
     let glyph_count = glyphs.len();
     let mut locals: Vec<Option<Vec<Vec<u8>>>> = Vec::new();
-    let mut fd_array: Vec<FontDict> = Vec::new();
-    // Whether the private dictionary of the font dictionary at each index is readable.
-    let mut fd_private_ok: Vec<bool> = Vec::new();
+    let mut fds = FdArray::default();
     let mut fd_select = None;
     let Private::Present { subrs: top_subrs } = top_private else {
         return error("Cannot read properties of null (reading 'subrsIndex')");
@@ -449,31 +486,8 @@ pub fn parse_cff(data: &[u8], seac_analysis: bool) -> Result<Type2Font> {
     locals.push(top_subrs);
     check_charset_and_encoding(bytes, &top, is_cid)?;
     if is_cid {
-        let Some(fd_array_offset) = top.scalar(OP_FDARRAY) else {
-            return error("Cannot read properties of undefined (reading 'length')");
-        };
-        let (fd_objects, _) = parse_index(bytes, fd_array_offset.max(0.0) as usize)?;
-        let mut fd_count = fd_objects.len();
-        if fd_count > MAX_FD_ARRAY_COUNT {
-            tracing::warn!("CFFParser.parse: too many FDArray entries ({fd_count}).");
-            fd_count = MAX_FD_ARRAY_COUNT;
-        }
-        for raw in fd_objects.iter().take(fd_count) {
-            let dict = Dict::from_entries(parse_dict(raw));
-            let private = parse_private(bytes, &dict)?;
-            let font_matrix = dict.0.get(&OP_FONT_MATRIX).cloned().unwrap_or_else(|| FONT_IDENTITY_MATRIX.to_vec());
-            fd_array.push(FontDict { font_matrix });
-            match private {
-                Private::Present { subrs } => {
-                    fd_private_ok.push(true);
-                    locals.push(subrs);
-                }
-                Private::Missing => {
-                    fd_private_ok.push(false);
-                    locals.push(None);
-                }
-            }
-        }
+        fds = parse_fd_array(bytes, &top)?;
+        locals.extend(std::mem::take(&mut fds.locals));
         let Some(select_offset) = top.scalar(OP_FDSELECT) else {
             return error("Cannot read properties of undefined (reading 'length')");
         };
@@ -483,20 +497,20 @@ pub fn parse_cff(data: &[u8], seac_analysis: bool) -> Result<Type2Font> {
     for i in 0..glyph_count {
         let mut valid = true;
         let mut local_set = None;
-        match (&fd_select, fd_array.is_empty()) {
+        match (&fd_select, fds.dicts.is_empty()) {
             (Some(select), false) => {
                 let fd = select.get(i).map(|&f| usize::from(f));
                 if fd.is_none() {
                     tracing::warn!("Glyph index is not in fd select.");
                     valid = false;
                 }
-                if fd.is_some_and(|f| f >= fd_array.len()) {
+                if fd.is_some_and(|f| f >= fds.dicts.len()) {
                     tracing::warn!("Invalid fd index for glyph index.");
                     valid = false;
                 }
                 if valid {
                     let fd = fd.unwrap_or(0);
-                    if !fd_private_ok[fd] {
+                    if !fds.private_ok[fd] {
                         return error("Cannot read properties of null (reading 'subrsIndex')");
                     }
                     local_set = Some(1 + fd);
@@ -508,15 +522,11 @@ pub fn parse_cff(data: &[u8], seac_analysis: bool) -> Result<Type2Font> {
                 }
             }
         }
-        let mut state = RepairState { call_depth: 0, stack_size: 0, stack: Vec::new(), hints: 0, first_stack_clearing: true, has_v_stems: false };
-        valid = valid && ctx.parse_char_string(&mut state, Ref::Glyph(i), local_set);
-        if !valid {
-            ctx.glyphs[i] = vec![14];
-        }
+        ctx.repair_glyph(i, local_set, valid);
     }
     let Repair { gsubrs, locals, .. } = ctx;
     let subrs_bias = subroutine_bias(locals[0].as_ref().map_or(0, Vec::len));
-    Ok(Type2Font { glyphs, gsubrs_bias: subroutine_bias(gsubrs.len()), gsubrs, locals, subrs_bias, is_cid, fd_select, fd_array })
+    Ok(Type2Font { glyphs, gsubrs_bias: subroutine_bias(gsubrs.len()), gsubrs, locals, subrs_bias, is_cid, fd_select, fd_array: fds.dicts })
 }
 
 impl Type2Font {
@@ -530,10 +540,7 @@ impl Type2Font {
         all.extend(glyphs.into_iter().map(|g| if g.is_empty() { vec![0x8b, 0x0e] } else { g }));
         let mut ctx = Repair { glyphs: &mut all, gsubrs: Vec::new(), locals: vec![Some(subrs)], seac_analysis: true };
         for i in 0..ctx.glyphs.len() {
-            let mut state = RepairState { call_depth: 0, stack_size: 0, stack: Vec::new(), hints: 0, first_stack_clearing: true, has_v_stems: false };
-            if !ctx.parse_char_string(&mut state, Ref::Glyph(i), Some(0)) {
-                ctx.glyphs[i] = vec![14];
-            }
+            ctx.repair_glyph(i, Some(0), true);
         }
         let Repair { gsubrs, locals, .. } = ctx;
         let subrs_bias = subroutine_bias(locals[0].as_ref().map_or(0, Vec::len));
@@ -558,6 +565,12 @@ struct RepairState {
     hints: i64,
     first_stack_clearing: bool,
     has_v_stems: bool,
+}
+
+impl RepairState {
+    fn new() -> Self {
+        Self { call_depth: 0, stack_size: 0, stack: Vec::new(), hints: 0, first_stack_clearing: true, has_v_stems: false }
+    }
 }
 
 /// One entry of `CharstringValidationData`.
@@ -664,6 +677,15 @@ fn push_value(state: &mut RepairState, stack_size: &mut i64, v: f64) {
 }
 
 impl Repair<'_> {
+    /// Repairs glyph `i`; one that fails to validate, or whose font dictionary is already `!valid`, becomes a bare
+    /// `endchar`.
+    fn repair_glyph(&mut self, i: usize, local_set: Option<usize>, valid: bool) {
+        let valid = valid && self.parse_char_string(&mut RepairState::new(), Ref::Glyph(i), local_set);
+        if !valid {
+            self.glyphs[i] = vec![14];
+        }
+    }
+
     fn byte(&self, r: Ref, at: usize) -> Option<u8> {
         self.data(r).get(at).copied()
     }
@@ -1345,6 +1367,89 @@ mod tests {
         assert_eq!(js_parse_float("12null3"), 12.0);
         assert!(js_parse_float("null").is_nan());
         assert!(js_parse_float("").is_nan());
+    }
+
+    fn index(objects: &[&[u8]]) -> Vec<u8> {
+        let mut out = (objects.len() as u16).to_be_bytes().to_vec();
+        if objects.is_empty() {
+            return out;
+        }
+        out.push(1);
+        let mut offset = 1u8;
+        out.push(offset);
+        for object in objects {
+            offset += object.len() as u8;
+            out.push(offset);
+        }
+        for object in objects {
+            out.extend_from_slice(object);
+        }
+        out
+    }
+
+    fn offset_operand(value: usize, op: &[u8]) -> Vec<u8> {
+        let mut out = vec![29];
+        out.extend((value as u32).to_be_bytes());
+        out.extend_from_slice(op);
+        out
+    }
+
+    /// A CFF font of `glyphs`; a CID-keyed one when `fd_select` (one font dictionary index per glyph) is given.
+    fn cff_font(glyphs: &[&[u8]], fd_select: Option<&[u8]>) -> Vec<u8> {
+        let top_dict = |charstrings: usize, fd_array: usize, select: usize| {
+            let mut dict = Vec::new();
+            if fd_select.is_some() {
+                dict.extend([139, 139, 139, 12, 30]);
+                dict.extend(offset_operand(fd_array, &[12, 36]));
+                dict.extend(offset_operand(select, &[12, 37]));
+            }
+            dict.extend(offset_operand(charstrings, &[17]));
+            dict
+        };
+        let head = [vec![1, 0, 4, 1], index(&[b"F"]), index(&[&top_dict(0, 0, 0)]), index(&[]), index(&[])].concat();
+        let charstrings = index(glyphs);
+        let charstrings_at = head.len();
+        let fd_array_at = charstrings_at + charstrings.len();
+        let fd_array = index(&[&[]]);
+        let select_at = fd_array_at + fd_array.len();
+        let top = top_dict(charstrings_at, fd_array_at, select_at);
+        let mut font = [vec![1, 0, 4, 1], index(&[b"F"]), index(&[&top]), index(&[]), index(&[])].concat();
+        font.extend(charstrings);
+        if let Some(select) = fd_select {
+            font.extend(fd_array);
+            font.push(0);
+            font.extend_from_slice(select);
+        }
+        font
+    }
+
+    #[test]
+    fn a_name_keyed_cff_font_reads_its_glyphs_and_replaces_a_broken_one_by_endchar() {
+        let triangle = [num(100), num(0), 21, num(100), num(0), 5, 14];
+        let broken = [num(5), 5, 14];
+        let font = parse_cff(&cff_font(&[&[0x8b, 14], &triangle, &broken], None), true).unwrap();
+        assert!(!font.is_cid);
+        assert_eq!(font.glyph(1), Some(&triangle[..]));
+        assert_eq!(font.glyph(2), Some(&[14u8][..]));
+        assert_eq!(path_of(&font, 1), vec![MOVE_TO, 100.0, 0.0, LINE_TO, 200.0, 0.0]);
+    }
+
+    #[test]
+    fn a_cid_keyed_cff_font_replaces_the_glyph_of_an_unknown_font_dictionary_by_endchar() {
+        let triangle = [num(100), num(0), 21, num(100), num(0), 5, 14];
+        let bytes = cff_font(&[&triangle, &triangle], Some(&[0, 3]));
+        let font = parse_cff(&bytes, true).unwrap();
+        assert!(font.is_cid);
+        assert_eq!(font.glyph(0), Some(&triangle[..]));
+        assert_eq!(font.glyph(1), Some(&[14u8][..]));
+        assert_eq!(path_of(&font, 0), vec![MOVE_TO, 100.0, 0.0, LINE_TO, 200.0, 0.0]);
+    }
+
+    #[test]
+    fn a_dict_reads_integer_and_real_operands_before_each_operator() {
+        // 100 (1 byte), 1000 (28 int16), -1.5 (30 nibbles `-1.5` then 0xf), then operator 17; then `12 7`
+        let dict = [num(100), 28, 0x03, 0xe8, 30, 0xe1, 0xa5, 0xff, 17, 12, 7];
+        assert_eq!(parse_dict(&dict), vec![(17, vec![100.0, 1000.0, -1.5]), ((12 << 8) | 7, vec![])]);
     }
 
     #[test]

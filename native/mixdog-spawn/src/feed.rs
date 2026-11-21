@@ -28,6 +28,10 @@ struct Consumer {
     id: u64,
     /// Output bytes this subscriber has taken.
     taken: u64,
+    /// The subscriber whose output its caller promises in full (the one a spawn made with its reader, or a claimed shell's job):
+    /// it holds the reader until it has taken the output or is dropped, past the root's end, a kill and a shutdown too. Every
+    /// such subscriber reads to the exit. Any other holds the reader only while the process runs, and may be overtaken after.
+    holds: bool,
 }
 
 struct State {
@@ -47,8 +51,16 @@ struct State {
     /// Tests only: the reader is parked at the gate, waiting for a consumer to catch up or for the feed to be resumed.
     #[cfg(feature = "core-test")]
     blocked: bool,
-    /// The process was killed or ended: the reader no longer waits for consumers.
+    /// Tests only: how many times a reader has decided at the gate whether to wait.
+    #[cfg(feature = "core-test")]
+    decisions: u64,
+    /// The root ended, or the process was killed or shut down: a pause and the subscribers that do not hold the reader no
+    /// longer hold it.
     released: bool,
+    /// Readers waiting at the gate now, since when, and how long readers waited there before.
+    parked: usize,
+    parked_since: Option<std::time::Instant>,
+    parked_before: std::time::Duration,
     done: bool,
     consumers: Vec<Consumer>,
     next_consumer: u64,
@@ -85,7 +97,12 @@ impl Feed {
                 paused: false,
                 #[cfg(feature = "core-test")]
                 blocked: false,
+                #[cfg(feature = "core-test")]
+                decisions: 0,
                 released: false,
+                parked: 0,
+                parked_since: None,
+                parked_before: std::time::Duration::ZERO,
                 done: false,
                 consumers: Vec::new(),
                 next_consumer: 0,
@@ -180,21 +197,31 @@ impl Feed {
             if state.done {
                 return;
             }
-            if state.released {
-                break;
-            }
-            let slowest = state.consumers.iter().map(|c| c.taken).min();
+            let released = state.released;
+            let slowest = state.consumers.iter().filter(|c| c.holds || !released).map(|c| c.taken).min();
             let trailing = slowest.map_or(0, |taken| state.pushed - taken);
             let over = trailing > 0 && trailing as usize + bytes.len() > self.cap;
-            if !state.paused && !over {
-                break;
-            }
+            let pass = !(state.paused && !released) && !over;
             #[cfg(feature = "core-test")]
             {
-                state.blocked = true;
+                state.decisions += 1;
+                state.blocked = !pass;
                 self.changed.notify_waiters();
             }
+            if pass {
+                break;
+            }
+            if state.parked == 0 {
+                state.parked_since = Some(std::time::Instant::now());
+            }
+            state.parked += 1;
             state = self.gate.wait(state).unwrap_or_else(|e| e.into_inner());
+            state.parked -= 1;
+            if state.parked == 0 {
+                if let Some(since) = state.parked_since.take() {
+                    state.parked_before += since.elapsed();
+                }
+            }
             #[cfg(feature = "core-test")]
             {
                 state.blocked = false;
@@ -238,8 +265,14 @@ impl Feed {
         self.changed.notify_waiters();
     }
 
+    /// Drops the oldest events past the ring bound, never one a subscriber that holds the reader has not taken: that subscriber
+    /// gates the reader, so what it has not taken stays within the bound and one read.
     fn evict(&self, state: &mut State) {
+        let held = state.consumers.iter().filter(|c| c.holds).map(|c| c.taken).min();
         while state.stored > self.cap && state.events.len() > 1 {
+            if held.is_some_and(|taken| state.events[0].end > taken) {
+                break;
+            }
             let Some(front) = state.events.pop_front() else {
                 break;
             };
@@ -339,7 +372,37 @@ impl Feed {
         self.gate.notify_all();
     }
 
-    /// The process was killed: its reader must not wait for consumers any more.
+    /// How many times a reader has decided at the gate whether to wait. Tests only.
+    #[cfg(all(test, feature = "core-test"))]
+    pub(crate) fn decisions(&self) -> u64 {
+        self.lock().decisions
+    }
+
+    /// Whether the reader waits, as it decided at the gate after the first `seen` decisions. Tests only.
+    #[cfg(all(test, feature = "core-test"))]
+    pub(crate) async fn decided_after(&self, seen: u64) -> bool {
+        loop {
+            let changed = self.changed.notified();
+            let mut changed = std::pin::pin!(changed);
+            changed.as_mut().enable();
+            {
+                let state = self.lock();
+                if state.decisions > seen {
+                    return state.blocked;
+                }
+            }
+            changed.await;
+        }
+    }
+
+    /// How long readers have waited at the gate in all, a wait under way included.
+    pub(crate) fn parked_time(&self) -> std::time::Duration {
+        let state = self.lock();
+        state.parked_before + state.parked_since.map_or(std::time::Duration::ZERO, |since| since.elapsed())
+    }
+
+    /// The root ended or the process was killed or shut down: a pause, and every subscriber that does not hold the reader, stop
+    /// holding it, so a stalled consumer cannot keep the reader from reaching its end. A subscriber that holds it still does.
     pub(crate) fn release_reader(&self) {
         self.lock().released = true;
         self.gate.notify_all();
@@ -347,6 +410,15 @@ impl Feed {
 
     /// A subscription from `from_seq` (replayed from the ring) or from the next event.
     pub(crate) fn subscribe(self: &Arc<Self>, from_seq: Option<u64>) -> Result<Subscription, ProcessError> {
+        self.subscribe_as(from_seq, false)
+    }
+
+    /// [`Self::subscribe`] for the subscriber whose output its caller promises in full (see `Consumer::holds`).
+    pub(crate) fn subscribe_holding(self: &Arc<Self>, from_seq: Option<u64>) -> Result<Subscription, ProcessError> {
+        self.subscribe_as(from_seq, true)
+    }
+
+    fn subscribe_as(self: &Arc<Self>, from_seq: Option<u64>, holds: bool) -> Result<Subscription, ProcessError> {
         let state = self.lock();
         if from_seq.is_some_and(|seq| seq < state.first_seq) {
             let oldest = state.first_seq;
@@ -359,7 +431,7 @@ impl Feed {
             }
             return Err(ProcessError::ReplayUnavailable { oldest });
         }
-        Ok(self.subscribe_locked(state, from_seq))
+        Ok(self.subscribe_locked(state, from_seq, holds))
     }
 
     /// A subscription from the oldest event the ring holds, in one step with reading where that is: a start the ring drops meanwhile
@@ -367,10 +439,17 @@ impl Feed {
     pub(crate) fn subscribe_oldest(self: &Arc<Self>) -> Subscription {
         let state = self.lock();
         let oldest = state.first_seq;
-        self.subscribe_locked(state, Some(oldest))
+        self.subscribe_locked(state, Some(oldest), false)
     }
 
-    fn subscribe_locked(self: &Arc<Self>, mut state: MutexGuard<'_, State>, from_seq: Option<u64>) -> Subscription {
+    /// [`Self::subscribe_oldest`] for the subscription a spawn makes with its reader (see `Consumer::holds`).
+    pub(crate) fn subscribe_holder(self: &Arc<Self>) -> Subscription {
+        let state = self.lock();
+        let oldest = state.first_seq;
+        self.subscribe_locked(state, Some(oldest), true)
+    }
+
+    fn subscribe_locked(self: &Arc<Self>, mut state: MutexGuard<'_, State>, from_seq: Option<u64>, holds: bool) -> Subscription {
         let (next_seq, taken) = match from_seq {
             None => (state.next_seq, state.pushed),
             Some(seq) if seq >= state.next_seq => (state.next_seq, state.pushed),
@@ -387,7 +466,7 @@ impl Feed {
         }
         let id = state.next_consumer;
         state.next_consumer += 1;
-        state.consumers.push(Consumer { id, taken });
+        state.consumers.push(Consumer { id, taken, holds });
         Subscription { feed: Arc::clone(self), id, next_seq, start: taken }
     }
 }
@@ -405,11 +484,18 @@ impl Subscription {
         self.start
     }
 
-    /// The next event if there is one now; `Err(())` when the subscription can never get another.
+    /// The output offset where the events this subscription has taken end (where the next starts, unless the ring overtook it).
+    pub(crate) fn taken(&self) -> u64 {
+        self.feed.lock().consumers.iter().find(|c| c.id == self.id).map_or(self.start, |c| c.taken)
+    }
+
+    /// The next event if there is one now; `Err(())` once the exit was taken. A subscription the ring overtook (one that does not
+    /// hold the reader, after the reader was released) goes on from the oldest event the ring holds: the gap in the sequence
+    /// numbers is the output it lost, and the exit, which the ring never drops, still reaches it.
     fn poll(&mut self) -> Result<Option<ProcessEvent>, ()> {
         let mut state = self.feed.lock();
         if self.next_seq < state.first_seq {
-            return Err(());
+            self.next_seq = state.first_seq;
         }
         let index = (self.next_seq - state.first_seq) as usize;
         let Some(entry) = state.events.get(index) else {
@@ -548,6 +634,46 @@ mod tests {
         drop(reader);
         assert_eq!(stored(&feed), 0);
         assert!(first_seq_is_the_exit(&feed));
+    }
+
+    /// The reader is released (the root's end, a kill) while it waits behind the subscriber that holds it, which trails by the
+    /// ring bound: woken, it decides to wait again, so nothing that subscriber has not taken leaves the ring, and it takes all of
+    /// the output, then the exit.
+    #[cfg(feature = "core-test")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_released_reader_still_waits_for_the_subscriber_that_holds_it() {
+        let feed = Feed::new(4);
+        feed.owned_by_its_reader();
+        let mut holder = feed.subscribe_holder();
+        feed.push_output(OutputStream::Stdout, b"first");
+        let reader = Arc::clone(&feed);
+        let parked = std::thread::spawn(move || reader.push_output(OutputStream::Stdout, b"second"));
+        feed.blocked_pushed().await;
+        let seen = feed.decisions();
+        feed.release_reader();
+        assert!(feed.decided_after(seen).await, "the released reader waits for the holder again");
+        assert_eq!(output(holder.poll().unwrap()), b"first");
+        parked.join().unwrap();
+        assert_eq!(output(holder.poll().unwrap()), b"second");
+        feed.push_exit(ProcessExit { status: ExitStatus::Code(0), killed: None });
+        assert!(matches!(holder.poll(), Ok(Some(ProcessEvent::Exited { .. }))));
+    }
+
+    /// A released reader passes a subscriber that does not hold it, and the ring drops what it had not taken: it goes on from the
+    /// oldest event left, the sequence numbers showing the gap, and takes the exit.
+    #[test]
+    fn a_subscriber_the_ring_overtook_learns_its_gap_and_takes_the_exit() {
+        let feed = Feed::new(4);
+        let mut observer = feed.subscribe(None).unwrap();
+        feed.push_output(OutputStream::Stdout, b"first");
+        feed.release_reader();
+        feed.push_output(OutputStream::Stderr, b"second");
+        feed.push_exit(ProcessExit { status: ExitStatus::Code(0), killed: Some(mixdog_core_api::domain::process::KillReason::Requested) });
+        match observer.poll() {
+            Ok(Some(ProcessEvent::Output { seq: 1, bytes, .. })) => assert_eq!(bytes, b"second"),
+            other => panic!("not the event after the gap: {other:?}"),
+        }
+        assert!(matches!(observer.poll(), Ok(Some(ProcessEvent::Exited { seq: 2, .. }))));
     }
 
     /// A feed that replays keeps the output its reader took, for the next subscriber.

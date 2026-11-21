@@ -1,13 +1,3 @@
-//! The PDF cache and what lives beside it.
-//!
-//! Conversion is the expensive half (an external process, seconds), so its output is cached by SOURCE IDENTITY (path, mtime and
-//! size) and reused until the document itself changes. Each document owns a cache DIRECTORY, `<cacheRoot>/document-previews/<key>/`,
-//! because page rasters land beside their PDF: eviction is then one directory removal. At most [`MAX_CACHED_DOCUMENTS`] are kept,
-//! the one least recently used (by the directory's modification time, touched on every use) going first.
-//!
-//! Two panes can open the same document in the same breath: they share one conversion ([`Conversions`]). A document opened with
-//! its password is never written to the cache ([`Unlocked`]).
-
 use std::collections::HashMap;
 use std::fs::Metadata;
 use std::fs::TryLockError;
@@ -105,16 +95,9 @@ pub(super) fn prune_cache<P: WriteProof>(proof: &P, root: &Path) {
     }
 }
 
-// ownership
-//
 // Two things are shared between worker processes and need an owner the operating system enforces: a key directory of the cache
-// (published into and evicted from) and a staging directory (made by one conversion, abandoned if its process dies). Both are
-// guarded by an exclusive lock on a file (`File::lock`, `LockFileEx` on Windows, `flock` elsewhere), which the system releases
-// when the holding process ends, however it ends. Nothing here reads a clock or a pid.
-//
-// The key locks live in a directory beside the cache root (`<cacheRoot>.preview-locks`, sixteen files, one per first hex digit
-// of the key), not in it: the cache's listing and its document count stay what the recordings pin. Staging locks sit beside their
-// staging directories and exist only while a conversion is in progress.
+// (published into and evicted from) and a staging directory. Both are guarded by an exclusive lock on a file (`File::lock`,
+// `LockFileEx` on Windows, `flock` elsewhere), which the system releases when the holding process ends, however it ends.
 //
 // Locks are advisory and need a filesystem that supports them. A cache root on one that does not (some network filesystems) makes
 // the call that needs the lock fail with the system's own error; nothing proceeds unlocked.
@@ -163,10 +146,6 @@ pub(super) fn lock_key<P: WriteProof>(proof: &P, directory: &Path) -> io::Result
     lock_named(proof, cache_root, &key_lock_name(&key))
 }
 
-/// Moves a finished PDF to its place in the cache under the key's lock, so eviction cannot remove the directory between its
-/// creation and the move, and a directory that is gone is simply made again. A PDF that is already there (another conversion of
-/// this version published first) stands: it is a complete PDF of the same version, and the path this conversion's caller is given
-/// is that file's. An error here is the system's own, not a lost race.
 pub(super) fn publish<P: WriteProof>(proof: &P, from: &Path, to: &Path, directory: &Path) -> io::Result<()> {
     let _held = lock_key(proof, directory)?;
     if file_size(proof, to).is_some_and(|size| size > 0) {
@@ -292,10 +271,6 @@ pub(super) struct UnlockedEntry {
     pub output: PathBuf,
 }
 
-/// The PDFs of documents opened with their password: each lives in a private scratch directory for as long as this process runs
-/// (or until newer unlocks push it out), so the viewer's later page requests are served without the password, and nothing of it
-/// outlives the process. Keyed by source identity like the cache, so a changed document asks for its password again. Most
-/// recently used last.
 #[derive(Default)]
 pub(super) struct Unlocked(Mutex<Vec<(String, UnlockedEntry)>>);
 

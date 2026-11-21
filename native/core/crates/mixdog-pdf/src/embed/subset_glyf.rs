@@ -57,30 +57,7 @@ pub(super) fn subset(font: &Sfnt<'_>, glyphs: &mut Vec<u16>) -> Result<Vec<u8>, 
         let gid = glyphs[at];
         at += 1;
         let mut buffer = slice_of(gid).to_vec();
-        if buffer.len() >= 10 && be_i16(&buffer, 0).unwrap_or(0) < 0 {
-            let mut position = 10;
-            loop {
-                let (Some(flags), Some(component)) = (be_u16(&buffer, position), be_u16(&buffer, position + 2)) else {
-                    break;
-                };
-                let id = *index.entry(component).or_insert_with(|| {
-                    glyphs.push(component);
-                    (glyphs.len() - 1) as u16
-                });
-                buffer[position + 2..position + 4].copy_from_slice(&id.to_be_bytes());
-                position += 4 + if flags & 0x0001 != 0 { 4 } else { 2 };
-                if flags & 0x0008 != 0 {
-                    position += 2;
-                } else if flags & 0x0040 != 0 {
-                    position += 4;
-                } else if flags & 0x0080 != 0 {
-                    position += 8;
-                }
-                if flags & 0x0020 == 0 {
-                    break;
-                }
-            }
-        }
+        remap_components(&mut buffer, glyphs, &mut index);
         // The short `loca` stores half offsets: a glyph of odd length is padded so that every offset is even.
         if buffer.len() % 2 == 1 {
             buffer.push(0);
@@ -123,6 +100,36 @@ pub(super) fn subset(font: &Sfnt<'_>, glyphs: &mut Vec<u16>) -> Result<Vec<u8>, 
         tables.push((*b"fpgm", table.to_vec()));
     }
     Ok(write_sfnt(tables))
+}
+
+/// Rewrites the component ids of a composite glyph (a negative contour count) to their ids in the subset, appending
+/// each component not yet in `glyphs`.
+fn remap_components(buffer: &mut [u8], glyphs: &mut Vec<u16>, index: &mut HashMap<u16, u16>) {
+    if buffer.len() < 10 || be_i16(buffer, 0).unwrap_or(0) >= 0 {
+        return;
+    }
+    let mut position = 10;
+    loop {
+        let (Some(flags), Some(component)) = (be_u16(buffer, position), be_u16(buffer, position + 2)) else {
+            break;
+        };
+        let id = *index.entry(component).or_insert_with(|| {
+            glyphs.push(component);
+            (glyphs.len() - 1) as u16
+        });
+        buffer[position + 2..position + 4].copy_from_slice(&id.to_be_bytes());
+        position += 4 + if flags & 0x0001 != 0 { 4 } else { 2 };
+        if flags & 0x0008 != 0 {
+            position += 2;
+        } else if flags & 0x0040 != 0 {
+            position += 4;
+        } else if flags & 0x0080 != 0 {
+            position += 8;
+        }
+        if flags & 0x0020 == 0 {
+            break;
+        }
+    }
 }
 
 fn checksum(data: &[u8]) -> u32 {
@@ -188,5 +195,62 @@ mod tests {
         assert_eq!(be_u16(&out, 8), Some(1));
         assert_eq!(be_u16(&out, 10), Some(16));
         assert_eq!(out.len() % 4, 0);
+    }
+
+    fn glyph_font() -> Vec<u8> {
+        let mut head = vec![0u8; 54];
+        head[50..52].copy_from_slice(&0i16.to_be_bytes());
+        let mut hhea = vec![0u8; 36];
+        hhea[34..36].copy_from_slice(&3u16.to_be_bytes());
+        let mut maxp = vec![0u8; 6];
+        maxp[4..6].copy_from_slice(&3u16.to_be_bytes());
+        let composite: Vec<u8> = vec![0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0];
+        let glyf: Vec<u8> = [vec![0, 1, 0, 0], composite, vec![0, 2, 0, 0]].concat();
+        let loca: Vec<u8> = [0u16, 2, 10, 12].iter().flat_map(|half| half.to_be_bytes()).collect();
+        let hmtx: Vec<u8> = [500u16, 10, 600, 20, 700, 30].iter().flat_map(|value| value.to_be_bytes()).collect();
+        write_sfnt(vec![(*b"head", head), (*b"hhea", hhea), (*b"loca", loca), (*b"maxp", maxp), (*b"glyf", glyf), (*b"hmtx", hmtx)])
+    }
+
+    fn table(font: &Sfnt<'_>, tag: &[u8; 4]) -> Vec<u8> {
+        font.table(tag).unwrap().to_vec()
+    }
+
+    #[test]
+    fn a_component_of_a_composite_is_appended_and_its_id_rewritten() {
+        let file = glyph_font();
+        let font = Sfnt::parse(&file);
+        let mut glyphs = vec![0u16, 1];
+        let out = subset(&font, &mut glyphs).unwrap();
+        assert_eq!(glyphs, vec![0, 1, 2]);
+        let subset_font = Sfnt::parse(&out);
+        let glyf = table(&subset_font, b"glyf");
+        assert_eq!(glyf, [vec![0, 1, 0, 0], vec![0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0], vec![0, 2, 0, 0]].concat());
+    }
+
+    #[test]
+    fn a_component_already_listed_gets_its_position_in_the_subset() {
+        let file = glyph_font();
+        let font = Sfnt::parse(&file);
+        let mut glyphs = vec![0u16, 2, 1];
+        let out = subset(&font, &mut glyphs).unwrap();
+        assert_eq!(glyphs, vec![0, 2, 1]);
+        let glyf = table(&Sfnt::parse(&out), b"glyf");
+        assert_eq!(glyf, [vec![0, 1, 0, 0], vec![0, 2, 0, 0], vec![0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]].concat());
+    }
+
+    #[test]
+    fn the_subset_tables_follow_the_glyph_order() {
+        let file = glyph_font();
+        let font = Sfnt::parse(&file);
+        let mut glyphs = vec![0u16, 2, 1];
+        let out = subset(&font, &mut glyphs).unwrap();
+        let subset_font = Sfnt::parse(&out);
+        let loca = table(&subset_font, b"loca");
+        assert_eq!(loca, [0u16, 2, 4, 12].iter().flat_map(|half| half.to_be_bytes()).collect::<Vec<u8>>());
+        let hmtx = table(&subset_font, b"hmtx");
+        assert_eq!(hmtx, [500u16, 10, 700, 30, 600, 20].iter().flat_map(|value| value.to_be_bytes()).collect::<Vec<u8>>());
+        assert_eq!(be_u16(&table(&subset_font, b"maxp"), 4), Some(3));
+        assert_eq!(be_u16(&table(&subset_font, b"hhea"), 34), Some(3));
+        assert_eq!(be_i16(&table(&subset_font, b"head"), 50), Some(0));
     }
 }

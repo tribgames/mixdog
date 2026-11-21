@@ -1,11 +1,9 @@
-//! The server assembly: `apps/relay/server.mjs` in Rust. [`start`] builds every service of the relay from its configuration, binds,
-//! starts the heartbeat and the diagnostics, and returns the [`RunningRelay`]; [`router`] is `routeRequest`, [`upgrade`] is
-//! `handleUpgrade` with the `/desktop` and `/hookleg` authentication, and [`run_cli`] is the command line entry (the block under
-//! `invokedDirectly`). [`spawn`] starts a relay inside a process that already runs the executors (the interop tests of
-//! mixdog-remote).
+//! The server assembly. [`start`] builds every service of the relay from its configuration, binds, starts the heartbeat and the
+//! diagnostics, and returns the [`RunningRelay`]; [`router`] routes requests, [`upgrade`] handles the `/desktop` and `/hookleg`
+//! upgrades, and [`run_cli`] is the command line entry. [`spawn`] starts a relay inside a process that already runs the executors.
 //!
-//! Like the Node entry the process installs no SIGTERM or SIGINT handler: a stop from systemd ends it as it ends Node, and the
-//! debounce window of the device store can be lost exactly as it can today.
+//! The process installs no SIGTERM or SIGINT handler: a stop from systemd ends it, and the debounce window of the device store can
+//! be lost.
 
 mod router;
 mod start;

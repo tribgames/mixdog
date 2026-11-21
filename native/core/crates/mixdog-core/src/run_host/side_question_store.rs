@@ -1,11 +1,3 @@
-//! The latest provider request each session's main loop sent (Node `side-question-store.mjs`): the
-//! request a compaction summary forks, kept in memory only because the sender it holds is live.
-//!
-//! The loop's send path records into it: [`SideQuestionStore::capture`] when it sends,
-//! [`SideQuestionStore::settle`] when the reply settles and [`SideQuestionStore::discard`] when the
-//! send fails; a compaction that rewrites the transcript calls
-//! [`SideQuestionStore::retire_compaction_fork`], a clear or rewind [`SideQuestionStore::forget`].
-
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -210,10 +202,6 @@ impl SideQuestionStore {
     }
 }
 
-/// `nextMainRequest`: the request the session's next turn would send, for a session with none
-/// saved (a restart, or the saved one forgotten): the session's own provider, model, tools, send
-/// options and transcript assembled by the loop's own pieces without its side effects. `None` when
-/// the session has no conversation, no resolvable provider, is closed, or is an agent's.
 #[async_trait]
 pub trait NextMainRequest: Send + Sync {
     async fn next(&self, thread: &ThreadId) -> Option<SideMaterial>;
@@ -223,11 +211,6 @@ pub trait NextMainRequest: Send + Sync {
     }
 }
 
-/// A transport scope of one fork's own (`forkTransportScope(sessionId, label)`: `<session>#<label>:<uuid>`):
-/// the fork keeps the session id for prompt-cache routing, but no pooled socket, response-chain anchor or
-/// turn state of the session, or of another fork, is read or replaced. Dropping the scope releases the
-/// provider's connections and state under it (`disposeTransportScope`), whether the fork was answered,
-/// failed or cancelled.
 pub(crate) struct ForkScope {
     name: String,
     provider: Arc<dyn ProviderAdapter>,

@@ -1,20 +1,15 @@
-//! The execution authority of Computer Use: a terminal scope per session backend, which every executor (the core, the native helper,
-//! the desktop's computer host) commits its external operations under.
+//! The execution authority of Computer Use: a terminal scope per session backend, under which every executor (the core, the native
+//! helper, the desktop's computer host) commits its external operations.
 //!
-//! - A scope ([`Authority`]) never reopens once revoked. Computer Use switched off closes the creation of new scopes and revokes every
-//!   existing one ([`AuthoritySwitch::close`]); switched on again, new scopes are made and an old one stays revoked. A request, or a
-//!   preparation still pending, keeps the scope it began under.
-//! - The core commits under the scope where it acts: a helper process is created only through the scope's launch commit
-//!   ([`LaunchAuthority`], taken by the process manager at the creation itself and registered with the scope before it is let go), and
-//!   every request to the desktop goes through [`ScopedDesktop`], which names the scope and refuses once it is revoked.
-//! - The other executors enforce on their side: the helper takes a revocation on its control path and refuses every primitive after it;
-//!   the desktop keeps a revocable context per scope (`host/computer/revokeScopes`) and refuses there. A refused later send does not
-//!   retract a request already delivered, which is why the receivers enforce too.
+//! - A scope ([`Authority`]) never reopens once revoked. Computer Use switched off ([`AuthoritySwitch::close`]) revokes every scope
+//!   and closes the creation of new ones; a request keeps the scope it began under.
+//! - A helper process is created only through the scope's launch commit ([`LaunchAuthority`]), and every request to the desktop goes
+//!   through [`ScopedDesktop`], which refuses once the scope is revoked. The helper and the desktop also refuse after a revocation,
+//!   since a request already delivered is not retracted.
 //!
-//! What this guarantees: once a scope is revoked no further operation commits under it in an executor that has taken the revocation;
-//! off is confirmed when the affected executors acknowledged the revocation or exited. An operating-system effect committed before
-//! (a posted message, a launched program) is not undone, and an executor that does not answer is reported as stopping, never assumed
-//! stopped after some time.
+//! Once a scope is revoked no further operation commits under it in an executor that has taken the revocation; off is confirmed when
+//! the affected executors acknowledged it or exited. An operating-system effect committed before is not undone, and an executor that
+//! does not answer is reported as stopping, never assumed stopped after some time.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -231,10 +226,9 @@ impl Authority {
         locked(&self.0.inner).desktop_work.iter().all(|generation| *generation == serving)
     }
 
-    /// The desktop's report of this scope (`report`; `None`: it did not report the scope), answered by the claim `serving` (`None`:
-    /// which claim answered is not known). Kept when every request of the scope's desktop work went to that claim; otherwise the claim
-    /// that took the work cannot report any more, and no later claim knows it: the scope's desktop cleanup is unconfirmed for good.
-    /// A scope with no desktop work needs no report. Returns whether the desktop's closure of the scope is known.
+    /// Records the desktop's report of this scope (`None`: it did not report it), answered by the claim `serving`. Kept only when
+    /// every request of the scope's desktop work went to that claim; otherwise the desktop cleanup stays unconfirmed. Returns whether
+    /// the desktop's closure of the scope is known.
     pub fn record_desktop(&self, executor: &str, report: Option<RevocationReport>, serving: Option<Option<u64>>) -> bool {
         let worked = !locked(&self.0.inner).desktop_work.is_empty();
         match (report, serving) {
@@ -362,12 +356,10 @@ pub enum DesktopRevocation {
     Unconfirmed,
 }
 
-/// Revokes `scopes` at the desktop's computer host, through the unscoped channel, and keeps the desktop's report of each on it as
-/// `executor`'s ([`Authority::record_desktop`]): the answer (`reports: [{scope, revision, admission, unfinished_at_closure, cleanup,
-/// unknown_executors}]`) reports only the scopes its connection served, and it counts for a scope only when every request of the
-/// scope's desktop work went to the claim that answered. Acknowledged only when the desktop's closure of every scope is known; an
-/// answer without `reports` (an older desktop) or a failed request is unconfirmed. Where no desktop serves, a scope whose desktop
-/// work went to a claim that is gone is unconfirmed, the others need nothing.
+/// Revokes `scopes` at the desktop's computer host through the unscoped channel and records its report of each
+/// ([`Authority::record_desktop`]). The answer (`reports: [{scope, revision, admission, unfinished_at_closure, cleanup,
+/// unknown_executors}]`) covers only the scopes its connection served. Acknowledged only when the closure of every scope is known;
+/// an answer without `reports` (an older desktop) or a failed request is unconfirmed.
 pub async fn revoke_at_desktop_reports(desktop: &dyn HostChannel, scopes: &[Authority], executor: &str) -> DesktopRevocation {
     let all = |report: &dyn Fn(&Authority) -> bool| scopes.iter().map(report).collect::<Vec<bool>>().into_iter().all(|known| known);
     let gone = || if all(&|scope| scope.record_desktop(executor, None, None)) { DesktopRevocation::NoDesktop } else { DesktopRevocation::Unconfirmed };

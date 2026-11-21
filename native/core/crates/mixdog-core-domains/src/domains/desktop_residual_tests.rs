@@ -256,8 +256,16 @@ fn an_attachment_stages_under_the_temp_directory_with_a_previewable_name() {
 fn jsonc_comments_and_trailing_commas_are_read_and_strings_are_left_alone() {
     let text = "{\n  // line\n  \"a\": 1, /* block\n  spanning */ \"b\": [1, 2,],\n  \"url\": \"http://x/*y*/ // z\",\n  \"c\": {\"d\": \"q\\\"//\",},\n}\n";
     assert_eq!(parse_jsonc(text).unwrap(), json!({ "a": 1, "b": [1, 2], "url": "http://x/*y*/ // z", "c": { "d": "q\"//" } }));
+}
+
+#[test]
+fn jsonc_that_is_malformed_or_too_large_is_refused() {
     assert!(parse_jsonc("{\"a\": }").is_err());
     assert_eq!(parse_jsonc(&format!("\"{}\"", "x".repeat(2_000_000))).unwrap_err(), "JSON configuration is too large.");
+}
+
+#[test]
+fn only_a_json_object_is_a_settings_record() {
     assert_eq!(object_record(json!([1])), None);
     assert_eq!(object_record(json!({ "a": 1 })).unwrap()["a"], 1);
 }
@@ -273,11 +281,22 @@ fn a_jsonc_file_that_is_missing_empty_or_nul_filled_holds_no_settings() {
     assert_eq!(read_jsonc_file(&file).unwrap(), None);
     std::fs::write(&file, "[1, 2]").unwrap();
     assert_eq!(read_jsonc_file(&file).unwrap(), None);
+}
+
+#[test]
+fn a_jsonc_file_with_an_object_holds_its_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("config.jsonc");
     std::fs::write(&file, "{ // mine\n \"mode\": \"x\", }").unwrap();
     assert_eq!(Value::Object(read_jsonc_file(&file).unwrap().unwrap()), json!({ "mode": "x" }));
+}
+
+#[test]
+fn a_broken_jsonc_file_or_a_directory_is_a_read_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("config.jsonc");
     std::fs::write(&file, "{ broken").unwrap();
     assert!(read_jsonc_file(&file).is_err());
-    // A directory is a read failure, not "no settings".
     assert!(read_jsonc_file(dir.path()).is_err());
 }
 

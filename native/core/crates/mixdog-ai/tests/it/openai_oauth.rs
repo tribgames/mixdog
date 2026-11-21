@@ -136,10 +136,6 @@ async fn a_dead_grant_asks_for_a_new_login_and_a_transient_failure_coasts() {
     assert!(!err.reauth_required && err.kind == ErrorKind::Transient);
 }
 
-/// Two handles over one file, each a process of its own to the lease: both expiring, both refreshing at once. The first
-/// spends the single-use token; the endpoint refuses a second spend as the real one does (`refresh_token_reused`). The
-/// second waits for the lease, reads the pair the first stored and adopts it: one request, one new token for both,
-/// no sign-in asked.
 #[tokio::test]
 async fn two_processes_refreshing_at_once_spend_the_token_once() {
     use mixdog_ai::oauth::lease::LockProcess;

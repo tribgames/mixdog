@@ -1,10 +1,5 @@
-//! The `attachment` source of `transfer/beginRead`: a file of the conversation's messages,
-//! read from the content-addressed store and staged as a temp file for the transfer.
-//!
-//! Node: `authorizeAttachment` (`apps/desktop/src/main/file-downloads.ts`) over
-//! `readSessionAttachment` and `attachmentViewName` (`session-attachments.ts`). The desktop
-//! serves an id only when THIS session's transcript names it; whether it does is the
-//! `SessionAttachments` the session domain answers.
+//! The `attachment` source of `transfer/beginRead`: an id is served only when THIS session's
+//! transcript names it, as the `SessionAttachments` the session domain answers.
 
 use mixdog_core_ports::ports::domain_sessions::SessionAttachments;
 #[allow(clippy::disallowed_types, reason = "the open file a transfer source hands over")]

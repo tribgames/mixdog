@@ -1,25 +1,3 @@
-//! One single-flight slot with a task of its own, for Node's shared in-flight promise
-//! (`let inflight = ..; promise.then(clear, clear)`: `providers/model-proxy-provider.mjs:318-321`,
-//! `session-runtime-inline-host/boot-loaders.mjs:93-107`).
-//!
-//! Node's promise runs on its own, is shared by every caller that finds it, and its slot is emptied
-//! when it settles, however it settles. Here:
-//! - the work is a spawned task, so a caller that drops (a cancelled turn) does not stop it; callers
-//!   only await its [`Join`];
-//! - the slot is emptied by a guard that is created before the task is spawned and moved into the
-//!   task's future, so it drops whenever that future does: on completion, on a panic, and when the
-//!   runtime drops the task before its first poll;
-//! - a task that ends abnormally (panic, shutdown) resolves its [`Join`] with the caller's
-//!   `abnormal` value built from the `JoinError`, as Node's promise rejects;
-//! - nothing stored in the slot refers to the owner of the state: the [`Join`] awaits a handle only.
-//!
-//! The slot lives next to the owner's own state `S` (a cache, a signature) under one lock, so a
-//! caller checks that state, joins or starts a flight and publishes under it ([`Core::holds`] is
-//! Node's `inflight === entry`). The lock is a std mutex and is never held across an await or a
-//! spawn: [`SingleFlight::start`] takes the guard and releases it before it calls the caller's work
-//! constructor and spawns, because a constructor that panics, or a runtime that is shutting down and
-//! drops the task inside `spawn`, drops the flight's guard, which locks.
-
 use std::future::Future;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -139,10 +117,7 @@ where
         .shared();
         core.slot = Some(Slot { id, key, join: join.clone() });
         drop(core);
-        // Armed once the lock is released and the slot is installed: `work(id)` (the caller's
-        // constructor) may panic, and unwinding drops this guard, which locks. Created before the
-        // spawn: a task dropped before its first poll drops this with its future. If the constructor
-        // panics, `send` drops with it and the waiters that joined resolve through `abnormal`.
+        // Created after the lock is released (dropping it locks) and before the spawn, so a task dropped before its first poll still clears the slot.
         let clear = ClearSlot { core: self.0.clone(), id };
         let work = work(id);
         let handle = spawn(

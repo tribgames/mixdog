@@ -168,59 +168,64 @@ pub fn resolve(protocol: &Protocol, row: &ReasoningRow, effort: Option<&str>, ba
     let level = effort.and_then(|e| snap_effort(levels.as_deref(), e));
     let thinking = level.map(|l| if l == "none" { Thinking::Off } else { Thinking::On });
     let value: Option<String> = level.map(|l| row.custom.wire_values.get(l).map(|v| v.trim()).filter(|v| !v.is_empty()).unwrap_or(l).to_owned());
-    let mut fields = Map::new();
-    if let (Some(level), Some(value)) = (level, value) {
-        match protocol {
-            Protocol::OpenaiChat => match format {
-                WireFormat::Deepseek => {
-                    if level == "none" {
-                        fields.insert("thinking".into(), json!({"type": "disabled"}));
-                    } else {
-                        fields.insert("thinking".into(), json!({"type": "enabled"}));
-                        fields.insert("reasoning_effort".into(), json!(value));
-                    }
-                }
-                // `reasoning.enabled` toggles hybrid models (those that can
-                // be turned off); `reasoning_effort` sets the others' depth.
-                WireFormat::Together => {
-                    if level == "none" {
-                        fields.insert("reasoning".into(), json!({"enabled": false}));
-                    } else {
-                        fields.insert("reasoning_effort".into(), json!(value));
-                        if levels.as_ref().is_some_and(|l| l.iter().any(|x| x == "none")) {
-                            fields.insert("reasoning".into(), json!({"enabled": true}));
-                        }
-                    }
-                }
-                // vLLM switches thinking through the chat template.
-                WireFormat::Vllm => {
-                    fields.insert("chat_template_kwargs".into(), json!({"enable_thinking": level != "none"}));
-                    if level != "none" {
-                        fields.insert("reasoning_effort".into(), json!(value));
-                    }
-                }
-                WireFormat::Standard => {
-                    fields.insert("reasoning_effort".into(), json!(value));
-                }
-            },
-            Protocol::OpenaiResponses => {
-                fields.insert("reasoning".into(), json!({"effort": value}));
-            }
-            Protocol::Anthropic => {
-                if level == "none" {
-                    fields.insert("thinking".into(), json!({"type": "disabled"}));
-                } else {
-                    fields.insert("thinking".into(), json!({"type": "adaptive"}));
-                    fields.insert("output_config".into(), json!({"effort": value}));
-                }
-            }
-        }
-    }
+    let fields = match (level, value) {
+        (Some(level), Some(value)) => effort_fields(protocol, format, level, &value, levels.as_deref()),
+        _ => Map::new(),
+    };
     // An explicit replay flag wins over the catalog's reasoning field.
     let flag = row.custom.replay.unwrap_or(row.reasoning_content_field);
     Resolved { level, fields, thinking, replay: chat && flag && thinking != Some(Thinking::Off) }
 }
 
+fn effort_fields(protocol: &Protocol, format: WireFormat, level: &str, value: &str, levels: Option<&[String]>) -> Map<String, Value> {
+    let mut fields = Map::new();
+    match protocol {
+        Protocol::OpenaiChat => match format {
+            WireFormat::Deepseek => {
+                if level == "none" {
+                    fields.insert("thinking".into(), json!({"type": "disabled"}));
+                } else {
+                    fields.insert("thinking".into(), json!({"type": "enabled"}));
+                    fields.insert("reasoning_effort".into(), json!(value));
+                }
+            }
+            // `reasoning.enabled` toggles hybrid models (those that can
+            // be turned off); `reasoning_effort` sets the others' depth.
+            WireFormat::Together => {
+                if level == "none" {
+                    fields.insert("reasoning".into(), json!({"enabled": false}));
+                } else {
+                    fields.insert("reasoning_effort".into(), json!(value));
+                    if levels.is_some_and(|l| l.iter().any(|x| x == "none")) {
+                        fields.insert("reasoning".into(), json!({"enabled": true}));
+                    }
+                }
+            }
+            // vLLM switches thinking through the chat template.
+            WireFormat::Vllm => {
+                fields.insert("chat_template_kwargs".into(), json!({"enable_thinking": level != "none"}));
+                if level != "none" {
+                    fields.insert("reasoning_effort".into(), json!(value));
+                }
+            }
+            WireFormat::Standard => {
+                fields.insert("reasoning_effort".into(), json!(value));
+            }
+        },
+        Protocol::OpenaiResponses => {
+            fields.insert("reasoning".into(), json!({"effort": value}));
+        }
+        Protocol::Anthropic => {
+            if level == "none" {
+                fields.insert("thinking".into(), json!({"type": "disabled"}));
+            } else {
+                fields.insert("thinking".into(), json!({"type": "adaptive"}));
+                fields.insert("output_config".into(), json!({"effort": value}));
+            }
+        }
+    }
+    fields
+}
 // Config
 
 /// Canonical level for `raw` (alias-aware), or `None` when unknown.

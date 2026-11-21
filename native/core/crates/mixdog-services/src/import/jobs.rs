@@ -1,13 +1,3 @@
-//! Background import jobs.
-//!
-//! Jobs are shared by the whole daemon, so a job keeps running and stays observable after the
-//! dialog closes or the user switches conversations. Every file passes one serialized admission
-//! lane shared by all jobs, where the "already imported" check is repeated right before the
-//! session is created, against the session catalog read once per batch and every commit of this
-//! process since. An import key only counts as imported while its session still exists in
-//! storage, so a deleted import can be imported again. Cancel stops admitting further files;
-//! committed imports stay.
-
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -413,6 +403,14 @@ impl ImportJobs {
         Ok(())
     }
 
+    async fn existing_session(&self, ctx: &BatchContext, key: &str) -> Option<String> {
+        if let Some(id) = ctx.imported.get(key) {
+            return Some(id.clone());
+        }
+        let committed = self.registry.lock().unwrap().committed.get(key).cloned()?;
+        self.sessions.session_exists(&committed).await.then_some(committed)
+    }
+
     async fn import_one(&self, candidate_id: &str, ctx: &mut BatchContext) -> Result<Outcome, Fatal> {
         let Some(candidate) = self.discovery.get_candidate(candidate_id) else {
             return Ok(Outcome::failed(candidate_id, "unknownCandidate", None, Vec::new()));
@@ -454,16 +452,7 @@ impl ImportJobs {
         let key = import_origin_key(candidate.source, conversion.foreign_session_id.as_deref(), &candidate.path);
         // The batch's catalog snapshot, then commits made since (by any job; the admission lane
         // serializes them).
-        let mut existing = ctx.imported.get(&key).cloned();
-        if existing.is_none() {
-            let committed = self.registry.lock().unwrap().committed.get(&key).cloned();
-            if let Some(id) = committed
-                && self.sessions.session_exists(&id).await
-            {
-                existing = Some(id);
-            }
-        }
-        if let Some(session_id) = existing {
+        if let Some(session_id) = self.existing_session(ctx, &key).await {
             return Ok(Outcome {
                 candidate_id: candidate_id.to_owned(),
                 status: "alreadyImported",

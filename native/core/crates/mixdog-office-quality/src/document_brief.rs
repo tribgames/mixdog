@@ -1,5 +1,5 @@
 //! A Word document or workbook held to its brief, as an authored deck is: every figure its words show has a fact with a
-//! source, and a fact cites where a reader can open it. Ported from `src/runtime/office/quality/document-brief.mjs`.
+//! source, and a fact cites where a reader can open it.
 //! The brief is the deck's (`design.brief`, key: value lines) and the readings are the deck's own, over the document's
 //! text instead of its slides.
 //!

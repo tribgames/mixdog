@@ -122,7 +122,7 @@ fn read_inventory_header<R: Read>(reader: &mut R) -> io::Result<(usize, usize)> 
 /// One cached inventory: the walk key it answers, its sorted file list and the
 /// accounting a restored cache entry carries. Sorting here keeps a restored
 /// inventory in the same deterministic order the walk published.
-fn read_inventory_entry<R: Read>(reader: &mut R, now: Instant, ttl: Duration) -> io::Result<(WalkKey, ReadyEntry)> {
+pub(super) fn read_inventory_entry<R: Read>(reader: &mut R, now: Instant, ttl: Duration) -> io::Result<(WalkKey, ReadyEntry)> {
     let operand = PathBuf::from(wire_path(Path::new(&read_snapshot_string(reader)?)));
     let root_identity = Some(crate::serve_search_usn::FileIdentity { volume: read_snapshot_u32(reader)?, file_id: read_snapshot_u64(reader)? });
     let mut flags = [0u8; 1];
@@ -212,6 +212,33 @@ pub(super) fn load_file_list_snapshot() -> (HashMap<WalkKey, ReadyEntry>, Option
     }
 }
 
+pub(super) fn write_inventory_entry<W: Write>(
+    writer: &mut W,
+    key: &WalkKey,
+    files: &[PathBuf],
+    root_identity: crate::serve_search_usn::FileIdentity,
+) -> io::Result<()> {
+    write_snapshot_string(writer, &key.operand)?;
+    writer.write_all(&root_identity.volume.to_le_bytes())?;
+    writer.write_all(&root_identity.file_id.to_le_bytes())?;
+    let flags = u8::from(key.hidden) | (u8::from(key.no_ignore) << 1) | (u8::from(key.no_require_git) << 2) | (u8::from(key.directories) << 3);
+    writer.write_all(&[flags])?;
+    writer.write_all(&key.max_depth.map(|depth| depth as u32).unwrap_or(u32::MAX).to_le_bytes())?;
+    writer.write_all(&(key.prune.len() as u32).to_le_bytes())?;
+    writer.write_all(&(key.iglobs.len() as u32).to_le_bytes())?;
+    writer.write_all(&(files.len() as u32).to_le_bytes())?;
+    for prune in &key.prune {
+        write_snapshot_string(writer, Path::new(prune))?;
+    }
+    for glob in &key.iglobs {
+        write_snapshot_string(writer, Path::new(glob))?;
+    }
+    for file in files {
+        write_snapshot_string(writer, file)?;
+    }
+    Ok(())
+}
+
 pub(super) fn persist_file_list_snapshot(ready_cache: &Mutex<HashMap<WalkKey, ReadyEntry>>) {
     let Some(path) = inventory_snapshot_path() else {
         return;
@@ -239,24 +266,7 @@ pub(super) fn persist_file_list_snapshot(ready_cache: &Mutex<HashMap<WalkKey, Re
         write_snapshot_checkpoints(writer, &checkpoints)?;
         let mut count = 0u32;
         for (key, files, root_identity) in &entries {
-            write_snapshot_string(writer, &key.operand)?;
-            writer.write_all(&root_identity.volume.to_le_bytes())?;
-            writer.write_all(&root_identity.file_id.to_le_bytes())?;
-            let flags = u8::from(key.hidden) | (u8::from(key.no_ignore) << 1) | (u8::from(key.no_require_git) << 2) | (u8::from(key.directories) << 3);
-            writer.write_all(&[flags])?;
-            writer.write_all(&key.max_depth.map(|depth| depth as u32).unwrap_or(u32::MAX).to_le_bytes())?;
-            writer.write_all(&(key.prune.len() as u32).to_le_bytes())?;
-            writer.write_all(&(key.iglobs.len() as u32).to_le_bytes())?;
-            writer.write_all(&(files.len() as u32).to_le_bytes())?;
-            for prune in &key.prune {
-                write_snapshot_string(writer, Path::new(prune))?;
-            }
-            for glob in &key.iglobs {
-                write_snapshot_string(writer, Path::new(glob))?;
-            }
-            for file in files.iter() {
-                write_snapshot_string(writer, file)?;
-            }
+            write_inventory_entry(writer, key, files, *root_identity)?;
             count = count.saturating_add(1);
         }
         writer.flush()?;

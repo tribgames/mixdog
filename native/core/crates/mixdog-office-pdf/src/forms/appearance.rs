@@ -1,11 +1,6 @@
 //! The appearance streams of form widgets, drawn the way pdf-lib 1.17.1's default appearance providers draw them
-//! (`api/form/appearances.ts`, `api/operations.ts`, `api/text/layout.ts`) and `PDFForm.updateFieldAppearances`.
-//!
-//! Text is laid out with the font's own measures ([`mixdog_pdf::embed::Font`]: a standard font or the embedded Unicode
-//! face): a size of 0 fits the value to the box (4 pt up, one point at a time, until it no longer fits), a multiline
-//! value wraps at the last space that fits, a combed value takes one cell a character. A check box and a radio button
-//! carry an on and an off appearance (and the darker `down` pair), a text field, dropdown and option list one
-//! stream clipped to the box inside its border, with the selected lines of a list highlighted.
+//! (`api/form/appearances.ts`, `api/operations.ts`, `api/text/layout.ts`) and `PDFForm.updateFieldAppearances`. A size of 0 fits
+//! the value to the box (4 pt up, one point at a time, until it no longer fits).
 
 use std::sync::{Arc, LazyLock};
 

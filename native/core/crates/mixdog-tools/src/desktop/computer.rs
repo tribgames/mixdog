@@ -78,10 +78,8 @@ pub struct ComputerTool {
     sessions: Arc<dyn ComputerSessions>,
 }
 
-/// `COMPUTER_ACTION_INPUT_UNION` (`defs/computer.union.json`) registered under its flat projection,
-/// which is the `inputSchema` of `defs/computer.json`: a provider path that takes nested per-action
-/// input alternatives (first-party Anthropic, Claude behind Antigravity) sends the union for it
-/// (`actionInputUnionFor`). The tool advertises the flat form everywhere else.
+/// The nested action union, registered under the flat `inputSchema` of `defs/computer.json`: providers that take nested per-action
+/// input alternatives (first-party Anthropic, Claude behind Antigravity) are sent it; every other path gets the flat form.
 static ADVERTISED_UNION: LazyLock<JsonValue> = LazyLock::new(|| {
     let nested: JsonValue = serde_json::from_str(include_str!("defs/computer.union.json")).expect("embedded computer union is valid JSON");
     advertise_action_input_union(&nested)

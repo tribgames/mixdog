@@ -431,12 +431,6 @@ pub fn operation_text(operation: Option<RepoOperation>) -> &'static str {
     }
 }
 
-// ── git-status.ts `readGitStatus`, as the phone's pane reads it ──
-//
-// Node asks git for the directory it was given and keeps what it learned per directory (`gitRootCache`, `gitDirCache`,
-// `lineStatsCache`, `remoteMetadataCache`), so which commands a status starts depends on those caches. The inspector above answers
-// from its own cache keyed by the repository's state; this is the read whose commands are Node's, in Node's order.
-
 /// gitCacheKey: the path, lower-cased on Windows.
 pub(crate) fn cache_key(path: &Path) -> String {
     if cfg!(windows) { path_text(path).to_lowercase() } else { path_text(path) }
@@ -645,6 +639,42 @@ pub(crate) async fn remote_metadata(git: &Git, cancel: &CancellationToken, root:
     cache.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (now, value.clone()));
     Ok(value)
 }
+/// Fills each file's add/delete counts from the two numstats and, for untracked files, a line count of the file; with
+/// `count_untracked` false the untracked files are not read.
+async fn count_line_stats(
+    lane: MaintenanceIo,
+    cancel: &CancellationToken,
+    root: &Path,
+    files: &mut [GitFileEntry],
+    staged: &HashMap<String, (u64, u64)>,
+    unstaged: &HashMap<String, (u64, u64)>,
+    count_untracked: bool,
+) -> Result<(), ScmFailure> {
+    let untracked_paths: Vec<String> = files.iter().filter(|file| count_untracked && file.untracked).map(|file| file.path.clone()).collect();
+    let counted_root = root.to_path_buf();
+    let untracked_counts = on_lane(lane, cancel, move || {
+        untracked_paths
+            .into_iter()
+            .map(|path| {
+                let lines = untracked_lines(&counted_root, &path);
+                (path, lines)
+            })
+            .collect::<HashMap<_, _>>()
+    })
+    .await?;
+    for file in files {
+        let staged_row = staged.get(&file.path).copied().unwrap_or((0, 0));
+        let unstaged_row = unstaged.get(&file.path).copied().unwrap_or((0, 0));
+        file.staged_additions = staged_row.0;
+        file.staged_deletions = staged_row.1;
+        file.unstaged_additions = if file.untracked { untracked_counts.get(&file.path).copied().unwrap_or(0) } else { unstaged_row.0 };
+        file.unstaged_deletions = unstaged_row.1;
+        file.additions = file.staged_additions + file.unstaged_additions;
+        file.deletions = file.staged_deletions + file.unstaged_deletions;
+    }
+    Ok(())
+}
+
 /// Scans the work tree at `root`. Without `line_stats` no file has add/delete counts (the
 /// numstat reads and the untracked line counts are skipped), as the pane's `skipLineStats` asks.
 pub async fn scan(
@@ -705,28 +735,7 @@ pub async fn scan(
     let (remote_names, remote_url) = remotes;
     let git_dir = identity.git_dir.clone();
     let operation = on_lane(lane, cancel, move || operation_in_progress(&git_dir)).await?;
-    let untracked_paths: Vec<String> = parsed.files.iter().filter(|file| line_stats && file.untracked).map(|file| file.path.clone()).collect();
-    let counted_root: PathBuf = root.clone();
-    let untracked_counts = on_lane(lane, cancel, move || {
-        untracked_paths
-            .into_iter()
-            .map(|path| {
-                let lines = untracked_lines(&counted_root, &path);
-                (path, lines)
-            })
-            .collect::<HashMap<_, _>>()
-    })
-    .await?;
-    for file in &mut parsed.files {
-        let staged_row = staged.get(&file.path).copied().unwrap_or((0, 0));
-        let unstaged_row = unstaged.get(&file.path).copied().unwrap_or((0, 0));
-        file.staged_additions = staged_row.0;
-        file.staged_deletions = staged_row.1;
-        file.unstaged_additions = if file.untracked { untracked_counts.get(&file.path).copied().unwrap_or(0) } else { unstaged_row.0 };
-        file.unstaged_deletions = unstaged_row.1;
-        file.additions = file.staged_additions + file.unstaged_additions;
-        file.deletions = file.staged_deletions + file.unstaged_deletions;
-    }
+    count_line_stats(lane, cancel, &root, &mut parsed.files, &staged, &unstaged, line_stats).await?;
     let (json, branch, upstream) = fold(path_text(&root), parsed, &remote_names, remote_url, operation);
     let entries = json.files.iter().map(entry_view).collect();
     Ok(StatusScan { json, head, operation, branch, upstream, entries })
@@ -821,28 +830,7 @@ pub async fn node_status(
                     (staged?, unstaged?)
                 }
             };
-            let untracked_paths: Vec<String> = parsed.files.iter().filter(|file| file.untracked).map(|file| file.path.clone()).collect();
-            let counted_root = PathBuf::from(&root);
-            let untracked_counts = on_lane(lane, cancel, move || {
-                untracked_paths
-                    .into_iter()
-                    .map(|path| {
-                        let lines = untracked_lines(&counted_root, &path);
-                        (path, lines)
-                    })
-                    .collect::<HashMap<_, _>>()
-            })
-            .await?;
-            for file in &mut parsed.files {
-                let staged_row = staged.get(&file.path).copied().unwrap_or((0, 0));
-                let unstaged_row = unstaged.get(&file.path).copied().unwrap_or((0, 0));
-                file.staged_additions = staged_row.0;
-                file.staged_deletions = staged_row.1;
-                file.unstaged_additions = if file.untracked { untracked_counts.get(&file.path).copied().unwrap_or(0) } else { unstaged_row.0 };
-                file.unstaged_deletions = unstaged_row.1;
-                file.additions = file.staged_additions + file.unstaged_additions;
-                file.deletions = file.staged_deletions + file.unstaged_deletions;
-            }
+            count_line_stats(lane, cancel, Path::new(&root), &mut parsed.files, &staged, &unstaged, true).await?;
             let rows = parsed
                 .files
                 .iter()

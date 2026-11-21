@@ -598,16 +598,7 @@ impl McpServer {
             return Err(ConnectError::Closed);
         }
         let Ok(_attempt) = self.connecting.try_acquire() else {
-            let mut rx = self.subscribe();
-            let settled = match rx.wait_for(|s| !matches!(**s, ServerState::Starting)).await {
-                Ok(state) => Arc::clone(&*state),
-                Err(_) => return Err(ConnectError::Closed),
-            };
-            return match &*settled {
-                ServerState::Ready(_) => Ok(()),
-                ServerState::Failed { cause } => Err(ConnectError::Failed(cause.clone())),
-                _ => Err(ConnectError::Closed),
-            };
+            return self.join_attempt().await;
         };
         if self.shutdown.is_cancelled() {
             return Err(ConnectError::Closed);
@@ -659,31 +650,49 @@ impl McpServer {
             }
             Err(error) => {
                 let client = opened.lock().unwrap_or_else(|e| e.into_inner()).take();
-                let mut message = error.to_string();
-                // A pid-live advert whose port refuses the connect is a corpse (a recycled pid): the next connect does
-                // not trust it again (`runBoundedHandshake`).
-                let code = match &error {
-                    ConnectError::Transport(error) => error.os_code(),
-                    ConnectError::Rpc(RpcError::Transport(_, code)) => *code,
-                    _ => None,
-                };
-                if let Some(advert) = self.advert.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
-                    && code.is_some_and(crate::config::connection_refused)
-                {
-                    crate::config::mark_service_unreachable(advert);
-                }
-                // A failed handshake carries what the server wrote to stderr (`runBoundedHandshake`), read once the
-                // closed transport's stream ended, its last unterminated line included.
-                if let Some(client) = client {
-                    client.close().await;
-                    message = append_stderr_tail(&message, &client.transport().stderr_tail());
-                }
-                let cause = scrub(&message, &self.secrets);
+                let cause = self.connect_failure(&error, client).await;
                 crate::config::daemon_line(&format!("[mcp-server] name={} connect failed: {cause}", self.name()));
                 self.publish(generation, ServerState::Failed { cause: cause.clone() });
                 Err(ConnectError::Failed(cause))
             }
         }
+    }
+
+    async fn join_attempt(&self) -> Result<(), ConnectError> {
+        let mut rx = self.subscribe();
+        let settled = match rx.wait_for(|s| !matches!(**s, ServerState::Starting)).await {
+            Ok(state) => Arc::clone(&*state),
+            Err(_) => return Err(ConnectError::Closed),
+        };
+        match &*settled {
+            ServerState::Ready(_) => Ok(()),
+            ServerState::Failed { cause } => Err(ConnectError::Failed(cause.clone())),
+            _ => Err(ConnectError::Closed),
+        }
+    }
+
+    /// The scrubbed cause of a failed handshake, with what the server wrote to stderr.
+    async fn connect_failure(&self, error: &ConnectError, client: Option<Arc<RpcClient>>) -> String {
+        let mut message = error.to_string();
+        // A pid-live advert whose port refuses the connect is a corpse (a recycled pid): the next connect does
+        // not trust it again (`runBoundedHandshake`).
+        let code = match error {
+            ConnectError::Transport(error) => error.os_code(),
+            ConnectError::Rpc(RpcError::Transport(_, code)) => *code,
+            _ => None,
+        };
+        if let Some(advert) = self.advert.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+            && code.is_some_and(crate::config::connection_refused)
+        {
+            crate::config::mark_service_unreachable(advert);
+        }
+        // A failed handshake carries what the server wrote to stderr (`runBoundedHandshake`), read once the
+        // closed transport's stream ended, its last unterminated line included.
+        if let Some(client) = client {
+            client.close().await;
+            message = append_stderr_tail(&message, &client.transport().stderr_tail());
+        }
+        scrub(&message, &self.secrets)
     }
 
     async fn open_transport(&self) -> Result<(Arc<dyn Transport>, IncomingRx), TransportError> {
@@ -829,7 +838,8 @@ impl McpServer {
         });
     }
 
-    async fn relist(&self, generation: u64, client: &Arc<RpcClient>) {
+    /// Every page of `tools/list`; `None` (already logged) when one fails and the listing stays as it was.
+    async fn list_all_pages(&self, client: &Arc<RpcClient>) -> Option<Vec<Value>> {
         // Node's refresh gives each page's request the call timeout (`runToolRefresh`, `listAllMcpTools`), whatever the
         // startup budget is; with the call timeout disabled a page is not bounded.
         let mut walk = ToolPages::default();
@@ -838,24 +848,34 @@ impl McpServer {
             let page = match self.config.call_timeout {
                 Some(bound) => match mixdog_rt::time::timeout(bound, page).await {
                     Ok(page) => page,
-                    Err(_) => return tracing::warn!(server = self.name(), "tools/list timed out after list_changed"),
+                    Err(_) => {
+                        tracing::warn!(server = self.name(), "tools/list timed out after list_changed");
+                        return None;
+                    }
                 },
                 None => page.await,
             };
             match page {
                 Ok(page) => {
                     if !walk.take(page) {
-                        break;
+                        return Some(walk.tools);
                     }
                 }
                 // `runToolRefresh` keeps the listing it had and logs this line.
                 Err(PageError::Shape(text)) => {
-                    return crate::config::mcp_log(&format!("[mcp-client] Failed to refresh tools for \"{}\": {}", self.name(), scrub(&text, &self.secrets)));
+                    crate::config::mcp_log(&format!("[mcp-client] Failed to refresh tools for \"{}\": {}", self.name(), scrub(&text, &self.secrets)));
+                    return None;
                 }
-                Err(PageError::Rpc(error)) => return tracing::warn!(server = self.name(), %error, "tools/list failed after list_changed"),
+                Err(PageError::Rpc(error)) => {
+                    tracing::warn!(server = self.name(), %error, "tools/list failed after list_changed");
+                    return None;
+                }
             }
         }
-        let tools = walk.tools;
+    }
+
+    async fn relist(&self, generation: u64, client: &Arc<RpcClient>) {
+        let Some(tools) = self.list_all_pages(client).await else { return };
         let current = self.state();
         let ServerState::Ready(ready) = &*current else { return };
         let catalog = build_catalog(&self.config.name, &tools, &ready.capabilities);
@@ -1098,9 +1118,7 @@ impl McpServer {
             }
             Err(not_ready) => return Err(not_ready),
         };
-        let Some(request) = (if delivery.unlisted { Some(Request::Tool(tool)) } else { listed(&ready, tool) }) else {
-            return Err(CallError::UnknownTool { server: self.name().to_owned(), tool: tool.to_owned() });
-        };
+        let request = self.request_of(&ready, tool, delivery)?;
         let first = match self.settle(gate, &ready, owner, request, arguments.clone(), cancel, deadline, delivery).await {
             Ok(output) => return Ok(output),
             Err(error) => error,
@@ -1148,7 +1166,7 @@ impl McpServer {
         };
         if let Err(reason) = reconnected {
             let message = append_stderr_tail(&format!("Tool call failed: {first}; reconnect also failed: {reason}"), &tail);
-            return Err(CallError::Recovery { message: scrub(&message, &self.secrets), outcome_unknown: !undelivered });
+            return Err(self.recovery_error(&message, !undelivered));
         }
         if !undelivered {
             let message = append_stderr_tail(
@@ -1158,16 +1176,14 @@ impl McpServer {
                 ),
                 &tail,
             );
-            return Err(CallError::Recovery { message: scrub(&message, &self.secrets), outcome_unknown: true });
+            return Err(self.recovery_error(&message, true));
         }
         // A reconnect that outlived the caller's cancel must not dispatch the replay.
         if cancel.is_cancelled() {
             return Err(RpcError::Cancelled.into());
         }
         let ready = self.ready()?;
-        let Some(request) = (if delivery.unlisted { Some(Request::Tool(tool)) } else { listed(&ready, tool) }) else {
-            return Err(CallError::UnknownTool { server: self.name().to_owned(), tool: tool.to_owned() });
-        };
+        let request = self.request_of(&ready, tool, delivery)?;
         match self.settle(gate, &ready, owner, request, arguments, cancel, deadline, delivery).await {
             Err(retry @ (CallError::Rpc(_) | CallError::TimedOut(_))) if !matches!(retry, CallError::Rpc(RpcError::Cancelled)) && !cancel.is_cancelled() => {
                 // The SDK's text of a JSON-RPC error (`McpError`); a timed-out replay is wrapped too (`retryMsg`).
@@ -1176,10 +1192,19 @@ impl McpServer {
                     other => (other.to_string(), false),
                 };
                 let message = format!("Tool call failed: {first}; retry after reconnect also failed: {text}");
-                Err(CallError::Recovery { message: scrub(&message, &self.secrets), outcome_unknown: !answered })
+                Err(self.recovery_error(&message, !answered))
             }
             other => other,
         }
+    }
+
+    fn recovery_error(&self, message: &str, outcome_unknown: bool) -> CallError {
+        CallError::Recovery { message: scrub(message, &self.secrets), outcome_unknown }
+    }
+
+    fn request_of<'a>(&self, ready: &Ready, tool: &'a str, delivery: &CallDelivery) -> Result<Request<'a>, CallError> {
+        let request = if delivery.unlisted { Some(Request::Tool(tool)) } else { listed(ready, tool) };
+        request.ok_or_else(|| CallError::UnknownTool { server: self.name().to_owned(), tool: tool.to_owned() })
     }
 
     /// `reconnectMcpServer` (mcp/client.mjs:432): replaces the connection `failed` was (`None`: the one that ended by
@@ -1291,7 +1316,28 @@ impl McpServer {
             (a, b) => a.or(b),
         };
         let options = RequestOptions { idle_timeout: self.config.call_timeout, max_total, cancel: Some(cancel) };
-        let (method, params) = match request {
+        let (method, params) = self.wire_request(request, arguments, owner, delivery);
+        let result = ready.client.request_with_progress(method, params, options, delivery.progress.clone()).await;
+        drop(permit);
+        // The call's own deadline, worded as `runMcpRequest`'s caller words it (`executeMcpTool`, `_callMcpFeatureWithTimeout`).
+        // The total cap ends the call the same way: Node's own timer is re-armed on a progress to no more than the cap's remainder, so
+        // it fires at the cap with the same text (`mcpCallTimeout`). A cap that is the caller's deadline is not the call's own.
+        let caller_bound = from_deadline.is_some_and(|d| self.config.max_total_timeout.is_none_or(|m| d < m));
+        let result = result.map_err(|error| match (error, self.config.call_timeout) {
+            (error @ (RpcError::IdleTimeout | RpcError::TotalTimeout), Some(limit)) if !(caller_bound && matches!(error, RpcError::TotalTimeout)) => {
+                self.timed_out(request, limit)
+            }
+            (error, _) => CallError::Rpc(error),
+        });
+        match request {
+            Request::Tool(tool) => self.checked(ready, tool, result?, cancel).await,
+            // The server's answer, as the text of a call that succeeded.
+            Request::Feature(_) => Ok(json!({"content": [{"type": "text", "text": mixdog_js::json_stringify_indent(&result?, 2)}], "isError": false})),
+        }
+    }
+
+    fn wire_request(&self, request: Request<'_>, arguments: Value, owner: &str, delivery: &CallDelivery) -> (&'static str, Value) {
+        match request {
             Request::Tool(tool) => {
                 let mut params = json!({"name": tool, "arguments": arguments});
                 if self.accounts.get().is_some() {
@@ -1303,31 +1349,18 @@ impl McpServer {
                 ("tools/call", params)
             }
             Request::Feature(feature) => (feature.method(), feature.params(&arguments)),
-        };
-        let result = ready.client.request_with_progress(method, params, options, delivery.progress.clone()).await;
-        drop(permit);
-        // The call's own deadline, worded as `runMcpRequest`'s caller words it (`executeMcpTool`, `_callMcpFeatureWithTimeout`).
-        // The total cap ends the call the same way: Node's own timer is re-armed on a progress to no more than the cap's remainder, so
-        // it fires at the cap with the same text (`mcpCallTimeout`). A cap that is the caller's deadline is not the call's own.
-        let caller_bound = from_deadline.is_some_and(|d| self.config.max_total_timeout.is_none_or(|m| d < m));
-        let result = result.map_err(|error| match (error, self.config.call_timeout) {
-            (error @ (RpcError::IdleTimeout | RpcError::TotalTimeout), Some(limit)) if !(caller_bound && matches!(error, RpcError::TotalTimeout)) => {
-                let (kind, field, name) = match request {
-                    Request::Tool(tool) => ("tool", "tool", tool),
-                    Request::Feature(feature) => ("feature", "operation", feature.operation()),
-                };
-                CallError::TimedOut(scrub(
-                    &format!("MCP {kind} call timed out after {}ms without progress (server=\"{}\", {field}=\"{name}\")", limit.as_millis(), self.name()),
-                    &self.secrets,
-                ))
-            }
-            (error, _) => CallError::Rpc(error),
-        });
-        match request {
-            Request::Tool(tool) => self.checked(ready, tool, result?, cancel).await,
-            // The server's answer, as the text of a call that succeeded.
-            Request::Feature(_) => Ok(json!({"content": [{"type": "text", "text": mixdog_js::json_stringify_indent(&result?, 2)}], "isError": false})),
         }
+    }
+
+    fn timed_out(&self, request: Request<'_>, limit: std::time::Duration) -> CallError {
+        let (kind, field, name) = match request {
+            Request::Tool(tool) => ("tool", "tool", tool),
+            Request::Feature(feature) => ("feature", "operation", feature.operation()),
+        };
+        CallError::TimedOut(scrub(
+            &format!("MCP {kind} call timed out after {}ms without progress (server=\"{}\", {field}=\"{name}\")", limit.as_millis(), self.name()),
+            &self.secrets,
+        ))
     }
 
     /// `callTool`'s check of `result` against `tool`'s output schema, as a cpu-bulk lane job: a pattern may backtrack for

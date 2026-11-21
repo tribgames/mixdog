@@ -101,11 +101,7 @@ pub fn grant_id(agent_id: &str, action: &GrantKey) -> String {
     format!("grant_{}", &hex[..24])
 }
 
-/// Whether a stored row can exist: an `allow` of what may be allowed or a
-/// `block` of a category, under the id its own owner and key give. A row whose
-/// id is not that (a hand-edited owner or action) is damaged: what it would
-/// grant and what revoking it removes would be two different rows.
-fn valid(grant: &Grant) -> bool {
+fn can_exist(grant: &Grant) -> bool {
     if grant.id != grant_id(&grant.agent_id, &grant.action) {
         return false;
     }
@@ -124,7 +120,7 @@ pub struct GrantTable {
 impl GrantTable {
     /// Rows read from storage; a row that cannot exist is dropped.
     pub fn from_rows(rows: impl IntoIterator<Item = Grant>) -> Self {
-        Self { grants: rows.into_iter().filter(valid).collect() }
+        Self { grants: rows.into_iter().filter(can_exist).collect() }
     }
 
     pub fn rows(&self) -> &[Grant] {

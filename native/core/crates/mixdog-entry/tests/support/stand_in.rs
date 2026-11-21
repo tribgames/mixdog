@@ -1,6 +1,3 @@
-//! A stand-in provider for the entry's process tests: an Anthropic messages endpoint that answers every request with the next
-//! scripted text (the last one again when the script is used up), or refuses every request, or breaks the stream after it began.
-//!
 //! The binary reaches it over TLS through the `test-support` pin of its HTTP client (`REPLAY_PROVIDER_PIN`,
 //! `REPLAY_PROVIDER_PIN_CERT`: [`StandIn::pin`]).
 #![allow(dead_code, reason = "each test uses the part of the stand-in it needs")]

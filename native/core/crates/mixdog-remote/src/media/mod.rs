@@ -221,16 +221,47 @@ async fn fail(out: &mut dyn MediaOutput, status: u16) {
     out.end().await;
 }
 
+/// The source for a request: a download lease, or a leased project file before the gallery.
+async fn resolve_source(
+    sources: &dyn MediaSources,
+    media: &MediaRequest,
+    session: &MediaSession,
+    download: bool,
+) -> Result<Option<Box<dyn ByteSource>>, SourceFailure> {
+    let device = session.device.as_deref();
+    if download {
+        return match device {
+            Some(device) => Ok(sources.download(&media.asset_id, device).await),
+            None => Ok(None),
+        };
+    }
+    let leased = match device {
+        Some(device) => sources.project_file(&media.asset_id, device).await,
+        None => None,
+    };
+    match leased {
+        Some(source) => Ok(Some(source)),
+        None => sources.gallery(&media.asset_id, &media.variant).await,
+    }
+}
+
+async fn read_segment(source: &mut dyn ByteSource, offset: u64, length: u64) -> Result<Vec<u8>, SourceFailure> {
+    match source.read(offset, length as usize).await {
+        Ok(bytes) if bytes.len() as u64 == length => Ok(bytes),
+        Ok(_) => Err(SourceFailure::Changed),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(SourceFailure::NotFound),
+        Err(_) => Err(SourceFailure::Other),
+    }
+}
+
 /// Answers one request on `out`: a status, or a 200 head, the authenticated meta frame and the
 /// window's segment frames, then the end. Shared by every lane, so a window is the same bytes
 /// whichever lane carries it.
 pub async fn serve_media_window(sources: &dyn MediaSources, media: &MediaRequest, session: &MediaSession, out: &mut dyn MediaOutput) {
-    // Only a client that explicitly speaks the encrypted scheme gets bytes.
     if media.enc != MEDIA_SCHEME {
         return fail(out, 404).await;
     }
     let Some(key) = session.media_key else { return fail(out, 403).await };
-    // A credential revoked before the request is served has no authority: refused before any source is asked.
     if session.revocation.is_revoked() {
         return fail(out, 403).await;
     }
@@ -238,21 +269,7 @@ pub async fn serve_media_window(sources: &dyn MediaSources, media: &MediaRequest
         return fail(out, 405).await;
     }
     let download = media.variant == FILE_DOWNLOAD_MEDIA_VARIANT;
-    let source = if download {
-        match session.device.as_deref() {
-            Some(device) => Ok(sources.download(&media.asset_id, device).await),
-            None => Ok(None),
-        }
-    } else {
-        let leased = match session.device.as_deref() {
-            Some(device) => sources.project_file(&media.asset_id, device).await,
-            None => None,
-        };
-        match leased {
-            Some(source) => Ok(Some(source)),
-            None => sources.gallery(&media.asset_id, &media.variant).await,
-        }
-    };
+    let source = resolve_source(sources, media, session, download).await;
     let mut source = match source {
         Ok(Some(source)) => source,
         Ok(None) => return fail(out, 404).await,
@@ -264,19 +281,7 @@ pub async fn serve_media_window(sources: &dyn MediaSources, media: &MediaRequest
     let Some((start, end)) = window(parse_range(&media.range, size), size, window_bytes) else {
         return fail(out, 416).await;
     };
-    // Exactly `length` bytes, or the file changed under the stream: a short segment would not
-    // match the size the frames are bound to.
-    async fn read_segment(source: &mut dyn ByteSource, offset: u64, length: u64) -> Result<Vec<u8>, SourceFailure> {
-        match source.read(offset, length as usize).await {
-            Ok(bytes) if bytes.len() as u64 == length => Ok(bytes),
-            Ok(_) => Err(SourceFailure::Changed),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(SourceFailure::NotFound),
-            Err(_) => Err(SourceFailure::Other),
-        }
-    }
     let segment = MEDIA_SEGMENT_BYTES;
-    // The first segment is read before the head: a lease that ended or a file that changed is a
-    // status the phone can act on, not a body that breaks off.
     let mut first = None;
     if i128::from(start) <= end {
         let length = segment.min((end - i128::from(start) + 1) as u64);

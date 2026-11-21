@@ -1,21 +1,14 @@
-//! `orchestrationInstructions(mode)` of `runtime-core/orchestration.mjs`: the text a coding
-//! Lead's prompt carries for an orchestration mode, and the instruction-file decode under it
-//! (`lib/instruction-text.cjs` `decodeInstructionFile`, `readInstructionFile`).
-//!
-//! The user's `<data>/orchestration/<mode>.md` wins when it holds text; a file that is empty,
-//! too large, not text or unreadable is passed over for the shipped `<root>/orchestration/<mode>.md`,
-//! and no file at all gives the empty text. Node memoises a read on the file's identity once
-//! the file is settled; the memo never changes an answer, so a read here is always fresh.
+//! The user's `<data>/orchestration/<mode>.md` wins when it holds text; an empty, oversized, non-text or unreadable file falls back to the shipped `<root>/orchestration/<mode>.md`.
 
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 
-use mixdog_core_base::support::on_lane;
+use mixdog_agent::compact::blob_reads::turn_cancel;
+use mixdog_core_base::support::on_lane_wait;
 use mixdog_core_config::workflow::ids::ORCHESTRATION_MODES;
 use mixdog_core_session::session::thread_switches::SurfaceFailure;
 use mixdog_js::js_trim_end;
-use mixdog_rt::CancellationToken;
 use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
 
@@ -131,7 +124,7 @@ impl OrchestrationTexts {
         let file = mode_file(mode);
         let user = self.data.join("orchestration").join(&file);
         let shipped = self.root.join("orchestration").join(&file);
-        on_lane(self.lane, &CancellationToken::new(), move |lane| mode_text(lane, &user, &shipped))
+        on_lane_wait(self.lane, &turn_cancel(), move |lane| mode_text(lane, &user, &shipped))
             .await
             .map_err(|error| SurfaceFailure(format!("the orchestration text of mode \"{mode}\" could not be read: {error:?}")))
     }

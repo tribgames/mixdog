@@ -31,7 +31,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use crate::document::Document;
 use crate::error::{PdfError, Result};
 use crate::fontfile::cff::{CffProperties, CharsetEntry, read_cff_font};
-use crate::fontfile::truetype::TrueTypeFont as SfntFile;
+use crate::fontfile::truetype::{CmapTable, GlyphInfo, TrueTypeFont as SfntFile};
 use crate::fonts::data::{
     self,
     encodings::{MAC_ROMAN_ENCODING, STANDARD_ENCODING, get_encoding},
@@ -348,6 +348,71 @@ fn set_code(codes: &mut HashMap<u32, u16>, code: i64, glyph: i64) {
     }
 }
 
+/// The codes of a simple TrueType font with an encoding: the glyph name of each code (the differences, the base
+/// encoding, the standard encoding) through the Unicode (platform 3) or Mac Roman (platform 1) `cmap`.
+fn codes_through_encoding(font: &Font, cmap: &CmapTable, base_encoding: Option<&'static [&'static str; 256]>, codes: &mut HashMap<u32, u16>) {
+    let mut by_char: HashMap<i64, i64> = HashMap::new();
+    for mapping in &cmap.mappings {
+        by_char.entry(mapping.char_code).or_insert(mapping.glyph_id);
+    }
+    for code in 0..256_i64 {
+        let glyph_name = match font.differences.get(code) {
+            Some(name) if !name.is_empty() => name,
+            _ => match base_encoding {
+                Some(base) if !base[code as usize].is_empty() => base[code as usize],
+                _ => STANDARD_ENCODING[code as usize],
+            },
+        };
+        if glyph_name.is_empty() {
+            continue;
+        }
+        let standard = recover_glyph_name(glyph_name);
+        let mut wanted: Option<i64> = if cmap.platform_id == 3 {
+            data::glyph_unicode(&standard).map(i64::from)
+        } else {
+            Some(MAC_ROMAN_ENCODING.iter().position(|name| *name == standard).map_or(-1, |at| at as i64))
+        };
+        if wanted.is_none()
+            && font.has_included_to_unicode_map
+            && !font.to_unicode.is_identity()
+            && let Some(UniValue::Str(text)) = font.to_unicode.get(code as u32)
+            && let Some(first) = String::from_utf16_lossy(&text).chars().next()
+        {
+            wanted = Some(i64::from(u32::from(first)));
+        }
+        if let Some(glyph) = wanted.and_then(|wanted| by_char.get(&wanted)) {
+            set_code(codes, code, *glyph);
+        }
+    }
+}
+
+/// The codes the `post` glyph names give: the names of the differences and the base encoding, for the codes without a
+/// glyph yet (all of them when `force`).
+fn add_post_table_codes(
+    codes: &mut HashMap<u32, u16>,
+    font: &Font,
+    names: &[Option<String>],
+    info: &GlyphInfo,
+    base_encoding: Option<&'static [&'static str; 256]>,
+    force: bool,
+) {
+    for code in 0..256_i64 {
+        if !force && codes.contains_key(&(code as u32)) {
+            continue;
+        }
+        let glyph_name = match font.differences.get(code) {
+            Some(name) if !name.is_empty() => name,
+            _ => base_encoding.map_or("", |base| base[code as usize]),
+        };
+        if glyph_name.is_empty() {
+            continue;
+        }
+        if let Some(glyph) = names.iter().position(|name| name.as_deref() == Some(glyph_name)).filter(|glyph| *glyph > 0 && info.has_glyph(*glyph as i64)) {
+            set_code(codes, code, glyph as i64);
+        }
+    }
+}
+
 fn true_type_codes(font: &Font, ttf: &SfntFile) -> Result<HashMap<u32, u16>> {
     let info = ttf.glyph_info(None)?;
     let cmap = ttf.read_cmap_table(font.is_symbolic_font, font.has_encoding)?;
@@ -359,42 +424,7 @@ fn true_type_codes(font: &Font, ttf: &SfntFile) -> Result<HashMap<u32, u16>> {
     }
     let mut force_post_table = false;
     if font.has_encoding && !font.is_symbolic_font && ((platform == 3 && encoding == 1) || (platform == 1 && encoding == 0)) {
-        let by_char: HashMap<i64, i64> = {
-            let mut table = HashMap::new();
-            for mapping in &cmap.mappings {
-                table.entry(mapping.char_code).or_insert(mapping.glyph_id);
-            }
-            table
-        };
-        for code in 0..256_i64 {
-            let glyph_name = match font.differences.get(code) {
-                Some(name) if !name.is_empty() => name,
-                _ => match base_encoding {
-                    Some(base) if !base[code as usize].is_empty() => base[code as usize],
-                    _ => STANDARD_ENCODING[code as usize],
-                },
-            };
-            if glyph_name.is_empty() {
-                continue;
-            }
-            let standard = recover_glyph_name(glyph_name);
-            let mut wanted: Option<i64> = if platform == 3 {
-                data::glyph_unicode(&standard).map(i64::from)
-            } else {
-                Some(MAC_ROMAN_ENCODING.iter().position(|name| *name == standard).map_or(-1, |at| at as i64))
-            };
-            if wanted.is_none()
-                && font.has_included_to_unicode_map
-                && !font.to_unicode.is_identity()
-                && let Some(UniValue::Str(text)) = font.to_unicode.get(code as u32)
-                && let Some(first) = String::from_utf16_lossy(&text).chars().next()
-            {
-                wanted = Some(i64::from(u32::from(first)));
-            }
-            if let Some(glyph) = wanted.and_then(|wanted| by_char.get(&wanted)) {
-                set_code(&mut codes, code, *glyph);
-            }
-        }
+        codes_through_encoding(font, &cmap, base_encoding, &mut codes);
     } else if platform == 0 {
         for mapping in &cmap.mappings {
             set_code(&mut codes, mapping.char_code, mapping.glyph_id);
@@ -417,21 +447,7 @@ fn true_type_codes(font: &Font, ttf: &SfntFile) -> Result<HashMap<u32, u16>> {
     if let Some(names) = post_names
         && (base_encoding.is_some() || font.differences.size() > 0)
     {
-        for code in 0..256_i64 {
-            if !force_post_table && codes.contains_key(&(code as u32)) {
-                continue;
-            }
-            let glyph_name = match font.differences.get(code) {
-                Some(name) if !name.is_empty() => name,
-                _ => base_encoding.map_or("", |base| base[code as usize]),
-            };
-            if glyph_name.is_empty() {
-                continue;
-            }
-            if let Some(glyph) = names.iter().position(|name| name.as_deref() == Some(glyph_name)).filter(|glyph| *glyph > 0 && info.has_glyph(*glyph as i64)) {
-                set_code(&mut codes, code, glyph as i64);
-            }
-        }
+        add_post_table_codes(&mut codes, font, &names, &info, base_encoding, force_post_table);
     }
     Ok(codes)
 }
@@ -688,4 +704,137 @@ fn substitute_outlines(font: &Font) -> std::result::Result<Outlines, String> {
     let standard = substitute_name(font);
     let face = substitute_face(standard).ok_or_else(|| format!("the substitute face {standard} is not available"))?;
     Ok(Outlines { renderer: Arc::clone(&face.renderer), mapping: Mapping::Unicode(Arc::clone(&face.by_unicode)) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fonts::font::Properties;
+    use crate::fonts::to_unicode::{ToUnicode, ToUnicodeMap};
+
+    fn font(has_encoding: bool, is_symbolic: bool, base_encoding: Option<&str>, differences: &[(u32, &str)]) -> Font {
+        let properties = Properties { to_unicode: Some(ToUnicode::Map(ToUnicodeMap::new())), ..Properties::default() };
+        let mut font = Font::new("Test", None, properties).unwrap();
+        font.has_encoding = has_encoding;
+        font.is_symbolic_font = is_symbolic;
+        font.base_encoding_name = base_encoding.map(str::to_owned);
+        for (code, name) in differences {
+            font.differences.set(f64::from(*code), (*name).to_owned());
+        }
+        font
+    }
+
+    fn u16s(values: &[u16]) -> Vec<u8> {
+        values.iter().flat_map(|value| value.to_be_bytes()).collect()
+    }
+
+    /// A `cmap` table with one format 6 subtable: `glyphs[i]` for the code `first + i`.
+    fn cmap_format6(platform: u16, encoding: u16, first: u16, glyphs: &[u16]) -> Vec<u8> {
+        let mut table = u16s(&[0, 1, platform, encoding]);
+        table.extend_from_slice(&12u32.to_be_bytes());
+        table.extend(u16s(&[6, 10 + 2 * glyphs.len() as u16, 0, first, glyphs.len() as u16]));
+        table.extend(u16s(glyphs));
+        table
+    }
+
+    /// A format 2 `post` table of three glyphs: `.notdef`, then the custom names `foo` and `bar`.
+    fn post_foo_bar() -> Vec<u8> {
+        let mut table = 0x0002_0000u32.to_be_bytes().to_vec();
+        table.extend([0u8; 28]);
+        table.extend(u16s(&[3, 0, 258, 259]));
+        table.extend([3, b'f', b'o', b'o', 3, b'b', b'a', b'r']);
+        table
+    }
+
+    /// An sfnt whose outlines are `CFF ` (so `glyph_info` reads no `loca` and every glyph counts as present) and
+    /// whose `maxp` says three glyphs.
+    fn sfnt(cmap: Vec<u8>, post: Option<Vec<u8>>) -> SfntFile {
+        let mut tables: Vec<(&[u8; 4], Vec<u8>)> = vec![
+            (b"head", vec![0; 54]),
+            (b"hhea", vec![0; 36]),
+            (b"hmtx", vec![0; 12]),
+            (b"maxp", vec![0, 1, 0, 0, 0, 3]),
+            (b"CFF ", vec![0; 4]),
+            (b"cmap", cmap),
+        ];
+        if let Some(post) = post {
+            tables.push((b"post", post));
+        }
+        let mut file = vec![0, 1, 0, 0];
+        file.extend(u16s(&[tables.len() as u16, 0, 0, 0]));
+        let mut offset = 12 + 16 * tables.len() as u32;
+        for (tag, data) in &tables {
+            file.extend_from_slice(*tag);
+            file.extend_from_slice(&[0; 4]);
+            file.extend_from_slice(&offset.to_be_bytes());
+            file.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            offset += data.len() as u32;
+        }
+        for (_, data) in &tables {
+            file.extend_from_slice(data);
+        }
+        SfntFile::parse(&file, "Test").unwrap()
+    }
+
+    fn sorted(codes: HashMap<u32, u16>) -> Vec<(u32, u16)> {
+        let mut codes: Vec<(u32, u16)> = codes.into_iter().collect();
+        codes.sort_unstable();
+        codes
+    }
+
+    #[test]
+    fn a_windows_unicode_cmap_is_reached_through_the_glyph_names_of_the_base_encoding() {
+        let ttf = sfnt(cmap_format6(3, 1, 0x41, &[1, 2]), None);
+        let font = font(true, false, Some("WinAnsiEncoding"), &[]);
+        assert_eq!(sorted(true_type_codes(&font, &ttf).unwrap()), vec![(0x41, 1), (0x42, 2)]);
+    }
+
+    #[test]
+    fn a_difference_sends_its_code_to_the_glyph_of_the_named_character() {
+        let ttf = sfnt(cmap_format6(3, 1, 0x41, &[1, 2]), None);
+        let font = font(true, false, Some("WinAnsiEncoding"), &[(0x61, "B")]);
+        assert_eq!(sorted(true_type_codes(&font, &ttf).unwrap()), vec![(0x41, 1), (0x42, 2), (0x61, 2)]);
+    }
+
+    #[test]
+    fn a_unicode_platform_cmap_maps_its_codes_as_they_are() {
+        let ttf = sfnt(cmap_format6(0, 3, 0x41, &[1, 2]), None);
+        let font = font(true, false, Some("WinAnsiEncoding"), &[]);
+        assert_eq!(sorted(true_type_codes(&font, &ttf).unwrap()), vec![(0x41, 1), (0x42, 2)]);
+    }
+
+    #[test]
+    fn a_symbol_cmap_folds_the_private_use_codes_onto_one_byte() {
+        let ttf = sfnt(cmap_format6(3, 0, 0xF041, &[1]), None);
+        let font = font(false, true, None, &[]);
+        assert_eq!(sorted(true_type_codes(&font, &ttf).unwrap()), vec![(0x41, 1)]);
+    }
+
+    #[test]
+    fn any_other_cmap_without_an_encoding_maps_its_codes_as_they_are() {
+        let ttf = sfnt(cmap_format6(1, 0, 0x41, &[1]), None);
+        let font = font(false, false, None, &[]);
+        assert_eq!(sorted(true_type_codes(&font, &ttf).unwrap()), vec![(0x41, 1)]);
+    }
+
+    #[test]
+    fn post_names_fill_the_codes_the_cmap_left_empty() {
+        let ttf = sfnt(cmap_format6(1, 0, 0x41, &[1]), Some(post_foo_bar()));
+        let font = font(false, false, None, &[(0x62, "bar")]);
+        assert_eq!(sorted(true_type_codes(&font, &ttf).unwrap()), vec![(0x41, 1), (0x62, 2)]);
+    }
+
+    #[test]
+    fn post_names_do_not_replace_a_code_the_cmap_gave() {
+        let ttf = sfnt(cmap_format6(1, 0, 0x41, &[1]), Some(post_foo_bar()));
+        let font = font(false, false, None, &[(0x41, "bar")]);
+        assert_eq!(sorted(true_type_codes(&font, &ttf).unwrap()), vec![(0x41, 1)]);
+    }
+
+    #[test]
+    fn post_names_replace_the_codes_of_a_unicode_platform_cmap() {
+        let ttf = sfnt(cmap_format6(0, 3, 0x41, &[1]), Some(post_foo_bar()));
+        let font = font(false, false, None, &[(0x41, "bar")]);
+        assert_eq!(sorted(true_type_codes(&font, &ttf).unwrap()), vec![(0x41, 2)]);
+    }
 }

@@ -1,13 +1,11 @@
 //! The inputs of the agent registry and the worker-turn observer that the purge hooks hold
 //! (`PurgeOwners.agents`, `PurgeOwners.worker_turns`) and that exist before the session directory:
 //!
-//! - [`ConfigReap`]: `ReapWindow`, Node's `resolveAgentTerminalReapMs(config, provider)` over the live
-//!   config's `autoClear` section (`agent_terminal_reap_ms`).
+//! - [`ConfigReap`]: `ReapWindow` over the live config's `autoClear` section (`agent_terminal_reap_ms`).
 //! - [`LateLiveSessions`] and [`LateTurnSource`]: the directory's own `LiveSessions` and `TurnSource`
 //!   through the late directory. The purge hooks are part of what the directory is built from, so
 //!   the registry cannot hold the built directory. Unbound nothing is loaded and no session
-//!   reports turns, which is what Node's registry sees before any session runtime exists; the
-//!   composition verifies the directory before the listener accepts.
+//!   reports turns; the composition verifies the directory before the listener accepts.
 //! - [`FileEnvironment`]: the agent tool's `Environment` (`AgentParts.env`).
 
 use std::path::PathBuf;
@@ -71,17 +69,21 @@ impl LiveSessions for LateLiveSessions {
         LiveSessions::runtime_stage(&*self.0.directory()?, session)
     }
 
+    fn while_idle(&self, session: &str, at: &mut dyn FnMut() -> bool) -> bool {
+        match self.0.directory() {
+            Some(directory) => LiveSessions::while_idle(&*directory, session, at),
+            None => at(),
+        }
+    }
+
     fn stamp(&self, session: &str) -> Option<LiveStamp> {
         LiveSessions::stamp(&*self.0.directory()?, session)
     }
 }
 
-/// The agent tool's `Environment`, over the file service on the interactive lane:
-/// - `is_directory`: `isExistingDirectory(path)` (`stat(path)` follows links; any failure is no);
-/// - `read_text`: `readFileSync(target, 'utf8')` (invalid bytes read as U+FFFD; a failure reads as
-///   Node's `err.message`);
-/// - `current_dir`: `process.cwd()`, the folder the daemon started in (it never changes it);
-/// - `now_iso`: `new Date().toISOString()`.
+/// The agent tool's `Environment`, over the file service on the interactive lane: `is_directory`
+/// follows links and answers no on any failure; `read_text` reads invalid bytes as U+FFFD and a failure
+/// as Node's `err.message`; `current_dir` is the folder the daemon started in.
 pub struct FileEnvironment {
     files: Arc<dyn FileService>,
     lane: InteractiveIo,
@@ -228,47 +230,60 @@ mod tests {
         assert!(stamp.len() == 24 && stamp.ends_with('Z') && stamp.as_bytes()[10] == b'T', "{stamp}");
     }
 
-    /// The counters of the test above are live on every route the forbidden work can take, including the ones that do not
-    /// pass through the instance under test: another `Config` opening or reloading the file, each provider adapter's
-    /// constructor (`build`, `build_custom_parts`), `custom_key_ids`, a credential file, the gcloud login, the keychain and
-    /// the key variables.
-    #[tokio::test]
-    async fn every_route_to_the_forbidden_work_moves_its_counter() {
+    struct Routes {
+        world: crate::run_host::process_tests::World,
+        builder: Arc<mixdog_ai::registry::builder::DefaultProviderBuilder>,
+        keys: mixdog_ai::registry::keys::ApiKeyStore,
+        effective: mixdog_ai::registry::effective::EffectiveProviders,
+    }
+
+    async fn routes() -> Routes {
         use mixdog_ai::registry::builder::DefaultProviderBuilder;
         use mixdog_ai::registry::effective::EffectiveProviders;
-        use mixdog_ai::registry::keys::{ApiKeyStore, KeyConfig};
-        use mixdog_ai::registry::providers::ProviderBuilder;
-        use mixdog_core_config::config::ConfigLanes;
+        use mixdog_ai::registry::keys::ApiKeyStore;
 
         let world = crate::run_host::process_tests::world(&[("OPENAI_API_KEY", "k"), ("CUSTOM_KEY", "v")], json!({}), Vec::new()).await;
         let services = &world.services;
         let builder = Arc::new(DefaultProviderBuilder::new(crate::run_host::builder_env::builder_env(services)));
         let keys = ApiKeyStore::new(services.vault.clone(), services.env.clone(), false);
         let effective = EffectiveProviders::new(builder.clone(), ApiKeyStore::new(services.vault.clone(), services.env.clone(), false), services.env.clone());
+        Routes { world, builder, keys, effective }
+    }
+
+    fn assert_moved(name: &str, before: [u64; 5], counter: usize) {
+        assert!(forbidden_work()[counter] > before[counter], "{name} moved no {} counter", FORBIDDEN[counter]);
+    }
+
+    #[tokio::test]
+    async fn config_and_provider_map_routes_move_their_counters() {
+        use mixdog_core_config::config::ConfigLanes;
+
+        let routes = routes().await;
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let other = tempfile::tempdir().expect("dir");
-        let agent = services.config.agent();
-
-        let moved = |name: &str, before: [u64; 5], counter: usize| {
-            assert!(forbidden_work()[counter] > before[counter], "{name} moved no {} counter", FORBIDDEN[counter]);
-        };
+        let agent = routes.world.services.config.agent();
         let before = forbidden_work();
         Config::open(other.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes)
             .await
             .expect("another instance");
-        moved("opening another Config", before, 0);
+        assert_moved("opening another Config", before, 0);
         let before = forbidden_work();
-        services.config.reload().await.expect("reload");
-        moved("Config::reload", before, 0);
+        routes.world.services.config.reload().await.expect("reload");
+        assert_moved("Config::reload", before, 0);
         let before = forbidden_work();
-        services.config.loaded_agent().await.expect("rebuilt");
-        moved("Config::loaded_agent", before, 1);
+        routes.world.services.config.loaded_agent().await.expect("rebuilt");
+        assert_moved("Config::loaded_agent", before, 1);
         let before = forbidden_work();
-        effective.load(&agent, false).await.expect("loaded");
-        moved("EffectiveProviders::load", before, 2);
-        // Each adapter's constructor counts, whichever function reaches it: the setup probes call `build_custom_parts` itself,
-        // and a keyless provider reads no credential.
+        routes.effective.load(&agent, false).await.expect("loaded");
+        assert_moved("EffectiveProviders::load", before, 2);
+    }
+
+    #[tokio::test]
+    async fn every_provider_constructor_moves_the_built_counter() {
+        use mixdog_ai::registry::providers::ProviderBuilder;
+
+        let routes = routes().await;
         for (name, cfg) in [
             ("openai", json!({ "apiKey": "k" })),
             ("openai-oauth", json!({})),
@@ -280,8 +295,8 @@ mod tests {
             ("devin-oauth", json!({})),
         ] {
             let before = forbidden_work();
-            builder.build(name, &cfg).await.unwrap_or_else(|error| panic!("{name}: {error}"));
-            moved(&format!("DefaultProviderBuilder::build {name}"), before, 3);
+            routes.builder.build(name, &cfg).await.unwrap_or_else(|error| panic!("{name}: {error}"));
+            assert_moved(&format!("DefaultProviderBuilder::build {name}"), before, 3);
         }
         for (name, cfg) in [
             (
@@ -298,42 +313,50 @@ mod tests {
             ),
         ] {
             let (before, credentials) = (forbidden_work(), mixdog_ai::work::credential_reads());
-            builder.build_custom_parts(name, &cfg).unwrap_or_else(|error| panic!("{name}: {error}"));
-            moved(&format!("DefaultProviderBuilder::build_custom_parts {name}"), before, 3);
+            routes.builder.build_custom_parts(name, &cfg).unwrap_or_else(|error| panic!("{name}: {error}"));
+            assert_moved(&format!("DefaultProviderBuilder::build_custom_parts {name}"), before, 3);
             assert_eq!(mixdog_ai::work::credential_reads(), credentials, "{name} is keyless: nothing reads a credential");
         }
-        // The gcloud login file is read by the settings view alone: no provider is built, no provider map loaded.
+    }
+
+    #[tokio::test]
+    async fn every_credential_route_moves_the_credential_counter() {
+        use mixdog_ai::registry::keys::KeyConfig;
+        use mixdog_ai::registry::providers::ProviderBuilder;
+
+        let routes = routes().await;
+        let agent = routes.world.services.config.agent();
         for read in 1..=2 {
             let before = forbidden_work();
-            builder.adc_describe("", false).await;
-            moved(&format!("DefaultProviderBuilder::adc_describe, read {read}"), before, 4);
+            routes.builder.adc_describe("", false).await;
+            assert_moved(&format!("DefaultProviderBuilder::adc_describe, read {read}"), before, 4);
             assert_eq!(forbidden_work()[1..4], before[1..4], "adc_describe built or loaded nothing");
         }
         let before = forbidden_work();
         let configured = KeyConfig { api_key: None, api_key_env: Some("CUSTOM_KEY".into()) };
-        assert_eq!(keys.resolve("custom-one", &configured).await.expect("env key"), "v");
-        moved("ApiKeyStore::resolve of a key variable", before, 4);
+        assert_eq!(routes.keys.resolve("custom-one", &configured).await.expect("env key"), "v");
+        assert_moved("ApiKeyStore::resolve of a key variable", before, 4);
         let before = forbidden_work();
-        assert_eq!(keys.reload("custom-one", &configured).await.expect("env key"), "v");
-        moved("ApiKeyStore::reload of a key variable", before, 4);
+        assert_eq!(routes.keys.reload("custom-one", &configured).await.expect("env key"), "v");
+        assert_moved("ApiKeyStore::reload of a key variable", before, 4);
         let before = forbidden_work();
         let vault = crate::run_host::vault::KeychainVault::new(Arc::new(mixdog_secrets::MemoryStore::default()));
         mixdog_ai::registry::keys::SecretVault::get(&vault, "agent.openai.apiKey").await.expect("keychain");
-        moved("KeychainVault::get", before, 4);
+        assert_moved("KeychainVault::get", before, 4);
         let before = forbidden_work();
-        builder.custom_key_ids("custom-acme").await.expect("roster");
-        moved("DefaultProviderBuilder::custom_key_ids", before, 4);
+        routes.builder.custom_key_ids("custom-acme").await.expect("roster");
+        assert_moved("DefaultProviderBuilder::custom_key_ids", before, 4);
         let before = forbidden_work();
-        builder.oauth_credentials_usable("openai-oauth").await.expect("probe");
-        moved("DefaultProviderBuilder::oauth_credentials_usable", before, 4);
+        routes.builder.oauth_credentials_usable("openai-oauth").await.expect("probe");
+        assert_moved("DefaultProviderBuilder::oauth_credentials_usable", before, 4);
         let before = forbidden_work();
-        builder.oauth_credential_state("openai-oauth").await.expect("state");
-        moved("DefaultProviderBuilder::oauth_credential_state", before, 4);
+        routes.builder.oauth_credential_state("openai-oauth").await.expect("state");
+        assert_moved("DefaultProviderBuilder::oauth_credential_state", before, 4);
         let before = forbidden_work();
-        keys.get("openai").await.expect("key");
-        moved("ApiKeyStore::get", before, 4);
+        routes.keys.get("openai").await.expect("key");
+        assert_moved("ApiKeyStore::get", before, 4);
         let before = forbidden_work();
-        effective.load(&agent, true).await.expect("loaded with secrets");
-        moved("EffectiveProviders::load with secrets", before, 4);
+        routes.effective.load(&agent, true).await.expect("loaded with secrets");
+        assert_moved("EffectiveProviders::load with secrets", before, 4);
     }
 }

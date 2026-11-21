@@ -1,18 +1,11 @@
-//! What a run's usage reports write into its thread's header, at the point and with the values Node
-//! writes them. Each function reads the header as it stands and answers the change to write, over the
-//! ports of this module (`usage_metrics`, `status::pre_send_check`, `record_provider_context_baseline`):
+//! What a run's usage reports write into its thread's header. Each function reads the header as it
+//! stands and answers the change to write:
 //!
-//! - one model call (`session/manager/ask-turn-loop-options.mjs` `onUsageDelta`):
-//!   `persistIterationMetrics`, then, for a provider send, the request-boundary
-//!   `recordProviderContextBaseline` ([`usage_change`]);
-//! - the check before a send that compacts nothing (`session/pre-send-compact.mjs`
-//!   `compactTelemetry(ctx, 'pre_send_check')`, [`check_change`]);
-//! - a compaction pass (`compactBeforeSend`: its telemetry stages, an adopted transcript's
-//!   `bumpUsageMetricsEpoch`, `invalidateProviderContextBaseline` and the post-compact usage snapshot,
-//!   [`pass_change`]);
-//! - the turn's start (`bumpUsageMetricsTurnId`, [`turn_started`]);
-//! - the ask's end (`session/manager/ask-turn-settle.mjs` `applyAskTerminalUsageTotals`, then the
-//!   complete-boundary `recordProviderContextBaseline`, [`settled_change`]).
+//! - [`usage_change`]: one model call's usage, and for a provider send the request-boundary baseline;
+//! - [`check_change`]: the check before a send that compacts nothing;
+//! - [`pass_change`]: a stage of a compaction pass;
+//! - [`turn_started`]: the turn's start;
+//! - [`settled_change`]: the ask's end, with the complete-boundary baseline.
 
 use serde_json::Value;
 use serde_json::json;
@@ -145,6 +138,20 @@ fn unmeasured_prompt(read: Value, written: Value, now: f64) -> HeaderPatch {
     patch
 }
 
+fn provider_send_usage(delta: &Value) -> Value {
+    let pick = |context: &str, fallback: &str| -> Value {
+        delta.get(context).filter(|value| !value.is_null()).or_else(|| delta.get(fallback)).cloned().unwrap_or(Value::Null)
+    };
+    json!({
+        "inputTokens": pick("contextInputTokens", "deltaInput"),
+        "outputTokens": pick("contextOutputTokens", "deltaOutput"),
+        "promptTokens": pick("contextPromptTokens", "deltaPrompt"),
+        "cachedTokens": pick("contextCachedReadTokens", "deltaCachedRead"),
+        "cacheWriteTokens": pick("contextCacheWriteTokens", "deltaCacheWrite"),
+        "contextTokens": delta.get("contextMeasuredTokens").cloned().unwrap_or(Value::Null),
+    })
+}
+
 /// `onUsageDelta(delta)` for one model call: `delta` is the call's `usageDeltaEvent`, `outgoing` the
 /// transcript its request carried (the provider's reading covers it, not the reply appended after) and
 /// `send_tools` its tools. `books`: `None` records no pressure.
@@ -177,18 +184,7 @@ pub fn usage_change(
     if let Some(books) = books
         && delta.get("source") == Some(&json!("provider_send"))
     {
-        // `d.contextInputTokens ?? d.deltaInput`: a missing or null context figure takes the billed one.
-        let pick = |context: &str, fallback: &str| -> Value {
-            delta.get(context).filter(|value| !value.is_null()).or_else(|| delta.get(fallback)).cloned().unwrap_or(Value::Null)
-        };
-        let usage = json!({
-            "inputTokens": pick("contextInputTokens", "deltaInput"),
-            "outputTokens": pick("contextOutputTokens", "deltaOutput"),
-            "promptTokens": pick("contextPromptTokens", "deltaPrompt"),
-            "cachedTokens": pick("contextCachedReadTokens", "deltaCachedRead"),
-            "cacheWriteTokens": pick("contextCacheWriteTokens", "deltaCacheWrite"),
-            "contextTokens": delta.get("contextMeasuredTokens").cloned().unwrap_or(Value::Null),
-        });
+        let usage = provider_send_usage(delta);
         let args = BaselineArgs {
             boundary: "request",
             send_tools: RequestTools { native: books.native, defined: send_tools },
@@ -305,16 +301,9 @@ fn status_input<'a>(header: &'a Header, messages: &'a [AgentMessage], tools: &'a
     }
 }
 
-/// One stage of a pre-send compaction pass (`session/pre-send-compact.mjs` `compactBeforeSend`), as
-/// the header records it:
-///
-/// - the pass starts: `compactTelemetry(ctx, 'compacting', { trigger })`;
-/// - it failed: `reportCompactFailure`'s `compactTelemetry(ctx, 'overflow_failed', ..)`;
-/// - it found no token reduction: `compactTelemetry(ctx, 'pre_send_check', { skipReason })`;
-/// - it finished: a changed transcript was adopted (`adoptCompactedTranscript`'s `bumpUsageMetricsEpoch`),
-///   `reportCompactOutcome`'s `compactTelemetry(ctx, 'pre_send', ..)` (which stamps the compaction's time
-///   and voids the provider reading of the old transcript when the transcript changed) and, then,
-///   `recordContextUsageSnapshot(.., 'post_compact')`.
+/// One stage of a pre-send compaction pass as the header records it: started, failed, skipped
+/// (no token reduction) or done. A done pass that changed the transcript also bumps the usage epoch,
+/// stamps the compaction time, voids the old provider reading and records the post-compact usage snapshot.
 pub fn pass_change(header: &Header, pass: &CompactPass, books: &Books<'_>, now: f64) -> Option<HeaderPatch> {
     let mut draft = Draft::new(header);
     let request = |session: &Header, stage: &str, meta: &StageMeta<'_>| {

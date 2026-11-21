@@ -1357,41 +1357,7 @@ impl CffParser {
         let end = (offset + size).max(0.0) as usize;
         let dict = self.parse_dict(start, end.max(start))?;
         let mut private = create_dict(&PRIVATE_DICT_LAYOUT, dict);
-        let blue_scale = private.number("BlueScale").unwrap_or(f64::NAN);
-        let blue_shift = private.number("BlueShift").unwrap_or(f64::NAN);
-        let blue_fuzz = private.number("BlueFuzz").unwrap_or(f64::NAN);
-        let expansion_factor = private.number("ExpansionFactor").unwrap_or(f64::NAN);
-        if blue_scale == 0.0 && blue_shift == 0.0 && blue_fuzz == 0.0 && expansion_factor == 0.0 {
-            private.set_by_name("BlueScale", DictValue::Number(DEFAULT_BLUE_SCALE));
-            private.set_by_name("BlueShift", DictValue::Number(DEFAULT_BLUE_SHIFT));
-            private.set_by_name("BlueFuzz", DictValue::Number(DEFAULT_BLUE_FUZZ));
-        }
-        if expansion_factor == 0.0 {
-            private.set_by_name("ExpansionFactor", DictValue::Number(DEFAULT_EXPANSION_FACTOR));
-        }
-        if blue_scale > 0.0 {
-            let mut max_zone_height = 0.0f64;
-            for name in ["BlueValues", "OtherBlues"] {
-                let Some(zones) = private.list(name) else {
-                    continue;
-                };
-                for zone in zones.iter().skip(1).step_by(2) {
-                    if *zone > max_zone_height {
-                        max_zone_height = *zone;
-                    }
-                }
-            }
-            if max_zone_height > 0.0 {
-                const PRECISION: f64 = 1e5;
-                let lower_bound = 0.5 / max_zone_height;
-                let min_blue_scale = if lower_bound <= DEFAULT_BLUE_SCALE { (lower_bound * PRECISION).ceil() / PRECISION } else { f64::NEG_INFINITY };
-                let max_blue_scale = (PRECISION / max_zone_height).floor() / PRECISION;
-                let clamped = blue_scale.max(min_blue_scale).min(max_blue_scale);
-                if clamped != blue_scale {
-                    private.set_by_name("BlueScale", DictValue::Number(clamped));
-                }
-            }
-        }
+        apply_blue_defaults(&mut private);
         let subrs_offset = private.number("Subrs").unwrap_or(0.0);
         if subrs_offset == 0.0 {
             parent.private_dict = Some(Box::new(private));
@@ -1598,6 +1564,46 @@ fn looks_like_unsigned_16_bit_negative(coord: f64) -> bool {
     coord > 32767.0 && coord <= 65535.0
 }
 
+/// The default blue values of a Private DICT whose blue values are all zero, and `BlueScale` kept within the bounds
+/// its blue zones allow.
+fn apply_blue_defaults(private: &mut CffDict) {
+    let blue_scale = private.number("BlueScale").unwrap_or(f64::NAN);
+    let blue_shift = private.number("BlueShift").unwrap_or(f64::NAN);
+    let blue_fuzz = private.number("BlueFuzz").unwrap_or(f64::NAN);
+    let expansion_factor = private.number("ExpansionFactor").unwrap_or(f64::NAN);
+    if blue_scale == 0.0 && blue_shift == 0.0 && blue_fuzz == 0.0 && expansion_factor == 0.0 {
+        private.set_by_name("BlueScale", DictValue::Number(DEFAULT_BLUE_SCALE));
+        private.set_by_name("BlueShift", DictValue::Number(DEFAULT_BLUE_SHIFT));
+        private.set_by_name("BlueFuzz", DictValue::Number(DEFAULT_BLUE_FUZZ));
+    }
+    if expansion_factor == 0.0 {
+        private.set_by_name("ExpansionFactor", DictValue::Number(DEFAULT_EXPANSION_FACTOR));
+    }
+    if blue_scale > 0.0 {
+        let mut max_zone_height = 0.0f64;
+        for name in ["BlueValues", "OtherBlues"] {
+            let Some(zones) = private.list(name) else {
+                continue;
+            };
+            for zone in zones.iter().skip(1).step_by(2) {
+                if *zone > max_zone_height {
+                    max_zone_height = *zone;
+                }
+            }
+        }
+        if max_zone_height > 0.0 {
+            const PRECISION: f64 = 1e5;
+            let lower_bound = 0.5 / max_zone_height;
+            let min_blue_scale = if lower_bound <= DEFAULT_BLUE_SCALE { (lower_bound * PRECISION).ceil() / PRECISION } else { f64::NEG_INFINITY };
+            let max_blue_scale = (PRECISION / max_zone_height).floor() / PRECISION;
+            let clamped = blue_scale.max(min_blue_scale).min(max_blue_scale);
+            if clamped != blue_scale {
+                private.set_by_name("BlueScale", DictValue::Number(clamped));
+            }
+        }
+    }
+}
+
 /// `recoverSigned16BitBBox` (with `Util.normalizeRect`).
 fn recover_signed_16_bit_bbox(bbox: &[f64], only_lower_left: bool) -> Vec<f64> {
     let mapped: Vec<f64> = bbox
@@ -1620,4 +1626,125 @@ fn recover_signed_16_bit_bbox(bbox: &[f64], only_lower_left: bool) -> Vec<f64> {
 
 fn is_array_equal(a: &[f64], b: &[f64]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x == y)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn int(value: i32) -> Vec<u8> {
+        vec![(value + 139) as u8]
+    }
+
+    fn real(text: &str) -> Vec<u8> {
+        let mut nibbles: Vec<u8> = text
+            .chars()
+            .map(|c| match c {
+                '.' => 0xa,
+                '-' => 0xe,
+                digit => digit.to_digit(10).unwrap() as u8,
+            })
+            .collect();
+        nibbles.push(0xf);
+        if nibbles.len() % 2 == 1 {
+            nibbles.push(0xf);
+        }
+        let mut out = vec![30];
+        out.extend(nibbles.chunks(2).map(|pair| pair[0] << 4 | pair[1]));
+        out
+    }
+
+    fn long_int(value: i32) -> Vec<u8> {
+        [vec![29], value.to_be_bytes().to_vec()].concat()
+    }
+
+    fn index(objects: &[Vec<u8>]) -> Vec<u8> {
+        let mut out = (objects.len() as u16).to_be_bytes().to_vec();
+        if objects.is_empty() {
+            return out;
+        }
+        out.push(1);
+        let mut offset = 1u8;
+        out.push(offset);
+        for object in objects {
+            offset += object.len() as u8;
+            out.push(offset);
+        }
+        for object in objects {
+            out.extend_from_slice(object);
+        }
+        out
+    }
+
+    /// A CFF of one glyph (`endchar`) whose Private DICT is `private`.
+    fn cff_with_private(private: &[u8]) -> Vec<u8> {
+        let name = index(&[b"T".to_vec()]);
+        let empty = index(&[]);
+        let char_strings = index(&[vec![14]]);
+        let top = |char_strings_at: i32, private_at: i32| {
+            [long_int(char_strings_at), vec![17], long_int(private.len() as i32), long_int(private_at), vec![18]].concat()
+        };
+        let top_index_size = index(&[top(0, 0)]).len();
+        let char_strings_at = 4 + name.len() + top_index_size + 2 * empty.len();
+        let private_at = char_strings_at + char_strings.len();
+        [vec![1, 0, 4, 1], name, index(&[top(char_strings_at as i32, private_at as i32)]), empty.clone(), empty, char_strings, private.to_vec()].concat()
+    }
+
+    fn private_dict(entries: &[(Vec<Vec<u8>>, &[u8])]) -> CffDict {
+        let bytes: Vec<u8> = entries.iter().flat_map(|(operands, op)| [operands.concat(), op.to_vec()].concat()).collect();
+        let cff = read_cff_font(&cff_with_private(&bytes), &mut CffProperties::default()).unwrap();
+        *cff.top_dict.private_dict.unwrap()
+    }
+
+    fn blue(scale: &str, shift: i32, fuzz: i32, expansion: &str) -> Vec<(Vec<Vec<u8>>, &'static [u8])> {
+        vec![
+            (vec![real(scale)], &[12u8, 9][..]),
+            (vec![int(shift)], &[12u8, 10][..]),
+            (vec![int(fuzz)], &[12u8, 11][..]),
+            (vec![real(expansion)], &[12u8, 18][..]),
+        ]
+    }
+
+    #[test]
+    fn a_private_dict_whose_blue_values_are_all_zero_gets_the_default_ones() {
+        let private = private_dict(&blue("0", 0, 0, "0"));
+        assert_eq!(private.number("BlueScale"), Some(0.039625));
+        assert_eq!(private.number("BlueShift"), Some(7.0));
+        assert_eq!(private.number("BlueFuzz"), Some(1.0));
+        assert_eq!(private.number("ExpansionFactor"), Some(0.06));
+    }
+
+    #[test]
+    fn a_zero_expansion_factor_alone_gets_its_default() {
+        let private = private_dict(&blue("0.03", 5, 2, "0"));
+        assert_eq!(private.number("BlueScale"), Some(0.03));
+        assert_eq!(private.number("BlueShift"), Some(5.0));
+        assert_eq!(private.number("BlueFuzz"), Some(2.0));
+        assert_eq!(private.number("ExpansionFactor"), Some(0.06));
+    }
+
+    #[test]
+    fn blue_scale_is_cut_to_what_the_tallest_blue_zone_allows() {
+        let mut entries = blue("0.03", 7, 1, "0.06");
+        entries.push((vec![int(-10), int(0), int(50), int(64)], &[6u8][..]));
+        let private = private_dict(&entries);
+        // the tallest zone is 64: ceil(1e5 * 0.5 / 64) / 1e5 = 0.00782 and floor(1e5 / 64) / 1e5 = 0.01562
+        assert_eq!(private.number("BlueScale"), Some(0.01562));
+    }
+
+    #[test]
+    fn blue_scale_below_the_bounds_of_the_blue_zones_is_raised() {
+        let mut entries = blue("0.001", 7, 1, "0.06");
+        entries.push((vec![int(-10), int(0), int(50), int(64)], &[6u8][..]));
+        let private = private_dict(&entries);
+        assert_eq!(private.number("BlueScale"), Some(0.00782));
+    }
+
+    #[test]
+    fn blue_scale_inside_the_bounds_of_the_blue_zones_stays() {
+        let mut entries = blue("0.01", 7, 1, "0.06");
+        entries.push((vec![int(-10), int(0), int(50), int(64)], &[6u8][..]));
+        let private = private_dict(&entries);
+        assert_eq!(private.number("BlueScale"), Some(0.01));
+    }
 }

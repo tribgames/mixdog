@@ -436,28 +436,13 @@ pub fn table_xml(options: &Value) -> Result<String, String> {
     let id = text_of(options.get("id"));
     let name = options.get("name").filter(|value| truthy(value)).map_or_else(|| format!("Table {id}"), value_to_string);
     let (left, top, width, height) = box_of(options, 400.0, 200.0);
-    // columnWidths (points, one per column) share the frame's width in their proportions; without them the columns are
-    // equal.
-    let declared: Vec<f64> = properties.get("columnWidths").and_then(Value::as_array).map(|widths| widths.iter().map(to_number).collect()).unwrap_or_default();
-    let shares: Vec<f64> = if declared.len() == columns && declared.iter().all(|value| *value > 0.0) {
-        let total = declared.iter().fold(0.0, |sum, entry| sum + entry);
-        declared.iter().map(|value| value / total).collect()
-    } else {
-        vec![1.0 / columns as f64; columns]
-    };
+    let shares = column_shares(properties, columns);
     let header_height = number_or_zero(properties.get("headerRowHeight"));
     let body_height = number_or_zero(properties.get("bodyRowHeight"));
     let grid: String = shares.iter().map(|share| format!("<a:gridCol w=\"{}\"/>", num(math::max(1.0, math::round(to_emu(width) * share))))).collect();
     let header_fill = normalize_hex(properties.get("headerFillColor"));
     let body_fill = normalize_hex(properties.get("bodyFillColor"));
-    let figure = compiled(TABLE_FIGURE, "");
-    let alignments: Vec<&str> = (0..columns)
-        .map(|column| {
-            let cells: Vec<String> =
-                rows.iter().skip(1).map(|row| js_trim(&text_or_empty(row.get(column))).to_owned()).filter(|cell| !cell.is_empty()).collect();
-            if column > 0 && !cells.is_empty() && cells.iter().all(|cell| figure.is_match(cell)) { "right" } else { "left" }
-        })
-        .collect();
+    let alignments = column_alignments(&rows, columns);
     let mut body = String::new();
     for (row_index, row) in rows.iter().enumerate() {
         let header = row_index == 0;
@@ -486,6 +471,28 @@ pub fn table_xml(options: &Value) -> Result<String, String> {
         num(math::max(1.0, to_emu(width))),
         num(math::max(1.0, to_emu(height)))
     ))
+}
+
+/// `columnWidths` (points, one per column) share the frame's width in their proportions; without them the columns are equal.
+fn column_shares(properties: &Value, columns: usize) -> Vec<f64> {
+    let declared: Vec<f64> = properties.get("columnWidths").and_then(Value::as_array).map(|widths| widths.iter().map(to_number).collect()).unwrap_or_default();
+    if declared.len() == columns && declared.iter().all(|value| *value > 0.0) {
+        let total = declared.iter().fold(0.0, |sum, entry| sum + entry);
+        declared.iter().map(|value| value / total).collect()
+    } else {
+        vec![1.0 / columns as f64; columns]
+    }
+}
+
+fn column_alignments(rows: &[&Vec<Value>], columns: usize) -> Vec<&'static str> {
+    let figure = compiled(TABLE_FIGURE, "");
+    (0..columns)
+        .map(|column| {
+            let cells: Vec<String> =
+                rows.iter().skip(1).map(|row| js_trim(&text_or_empty(row.get(column))).to_owned()).filter(|cell| !cell.is_empty()).collect();
+            if column > 0 && !cells.is_empty() && cells.iter().all(|cell| figure.is_match(cell)) { "right" } else { "left" }
+        })
+        .collect()
 }
 
 /// An attribute list with one attribute set (or added) to a value.
@@ -581,10 +588,22 @@ fn with_shadow(shape: &str, shadow: &Value) -> String {
 /// frame (every paragraph's alignment, every run's face, size, weight and colour, the frame's anchor and insets) and its
 /// outline.
 pub fn restyle_shape_text(shape: &str, properties: &Value) -> String {
+    let mut next = restyled_outline(shape, properties);
+    if let Some(shadow) = properties.get("shadow").filter(|value| truthy(value)) {
+        next = with_shadow(&next, shadow);
+    }
+    let Some((body_range, body)) =
+        compiled(r"<p:txBody>([\s\S]*?)</p:txBody>", "").captures(&next).map(|found| (found.range(), found.get(1).unwrap_or("").to_owned()))
+    else {
+        return next;
+    };
+    let inner = restyled_paragraphs(&with_paragraph_spacing(&with_body_frame(&body, properties), properties), properties);
+    format!("{}<p:txBody>{inner}</p:txBody>{}", &next[..body_range.start], &next[body_range.end..])
+}
+
+fn restyled_outline(shape: &str, properties: &Value) -> String {
     let mut next = shape.to_owned();
     let sp_pr = compiled(r"<p:spPr\b[^>]*>([\s\S]*?)</p:spPr>", "").captures(&next).map(|found| (found.range(), found.get(1).unwrap_or("").to_owned()));
-    // A width or transparency alone restyles the outline the shape has, and a new colour keeps its width, as the Office
-    // backend's Line does; both were dropped here unless a colour came with them.
     let line_element = compiled(r"<a:ln\b[^>]*?(?:/>|>[\s\S]*?</a:ln>)", "");
     let existing_line = sp_pr.as_ref().and_then(|(_, inside)| line_element.find(inside).map(|range| inside[range].to_owned())).unwrap_or_default();
     let existing_alpha = first_group(&compiled(r#"<a:alpha val="(\d+)""#, ""), &existing_line);
@@ -634,16 +653,12 @@ pub fn restyle_shape_text(shape: &str, properties: &Value) -> String {
             next = format!("{}{inner}{}", &next[..start], &next[start + inside.len()..]);
         }
     }
-    if let Some(shadow) = properties.get("shadow").filter(|value| truthy(value)) {
-        next = with_shadow(&next, shadow);
-    }
-    let Some((body_range, body)) =
-        compiled(r"<p:txBody>([\s\S]*?)</p:txBody>", "").captures(&next).map(|found| (found.range(), found.get(1).unwrap_or("").to_owned()))
-    else {
-        return next;
-    };
+    next
+}
+
+fn with_body_frame(body: &str, properties: &Value) -> String {
     let anchor_key = js_to_lowercase(&text_if_truthy(properties.get("verticalAlignment")));
-    let mut inner = replace_first_with(&compiled(r"<a:bodyPr\b([^>]*?)(/?)>", ""), &body, |found| {
+    replace_first_with(&compiled(r"<a:bodyPr\b([^>]*?)(/?)>", ""), body, |found| {
         let mut attrs = found.get(1).unwrap_or("").to_owned();
         if let Some(anchor) = lookup(&ANCHOR, &anchor_key) {
             attrs = with_attribute(&attrs, "anchor", anchor);
@@ -654,10 +669,13 @@ pub fn restyle_shape_text(shape: &str, properties: &Value) -> String {
             }
         }
         format!("<a:bodyPr{attrs}{}>", found.get(2).unwrap_or(""))
-    });
+    })
+}
+
+fn with_paragraph_spacing(inner: &str, properties: &Value) -> String {
     let spacing = to_number_of(properties.get("paragraphSpacing"));
+    let mut inner = inner.to_owned();
     if is_set(properties.get("paragraphSpacing")) && spacing.is_finite() {
-        // Space before every paragraph, as add_shape writes it and the Office backend sets it; set_shape ignored it.
         let before = if spacing > 0.0 { format!("<a:spcBef><a:spcPts val=\"{}\"/></a:spcBef>", num(math::round(spacing * 100.0))) } else { String::new() };
         inner = compiled(r"<a:p>(?!<a:pPr)", "g").replace_all_with(&inner, |_| "<a:p><a:pPr/>".to_owned());
         inner = compiled(r"<a:pPr\b([^>]*?)/>", "g").replace_all_with(&inner, |found| format!("<a:pPr{}></a:pPr>", found.get(1).unwrap_or("")));
@@ -668,8 +686,7 @@ pub fn restyle_shape_text(shape: &str, properties: &Value) -> String {
             format!("{}{line_spacing}{before}{}</a:pPr>", found.get(1).unwrap_or(""), &rest[line_spacing.len()..])
         });
     }
-    let inner = restyled_paragraphs(&inner, properties);
-    format!("{}<p:txBody>{inner}</p:txBody>{}", &next[..body_range.start], &next[body_range.end..])
+    inner
 }
 
 /// `restyledParagraphs(inner, properties)`: a text body's paragraphs aligned (`properties.alignment`) and its runs

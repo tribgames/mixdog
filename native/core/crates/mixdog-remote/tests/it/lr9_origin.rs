@@ -1,8 +1,3 @@
-//! LR §9 tests 2 and 6 (the second test below is test 6). Test 2, origin scoping, end to end: a paired phone's E2EE frames cross the relay and the
-//! in-process bridge into the real server over the mock core, and every method the table does not
-//! offer over the relay (the audit write, the management requests) is refused `permissionDenied`
-//! on that connection. Nothing the phone sends can reach a method outside its origin.
-
 use std::collections::BTreeSet;
 use std::sync::Arc;
 

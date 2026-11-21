@@ -69,8 +69,7 @@ pub fn workbook_digit_width<P: ReadProof>(measurer: &TextMeasurer<'_, P>, zip: &
 }
 
 /// The characters a text takes across a column: its width in the cell's own face, size and weight, counted in the default
-/// font's digits. Counted as two for a Hangul letter and one for anything else, and a fifth more when bold: a bold 10 pt
-/// "기간 (일)" read as ten characters where Excel prints it in eight, and its column was reported cut. `style` is the
+/// font's digits. Counted as two for a Hangul letter and one for anything else, and a fifth more when bold. `style` is the
 /// cell's style (`fontName`, `fontSize`, `bold`, `italic`).
 pub fn text_characters<P: ReadProof>(measurer: &TextMeasurer<'_, P>, text: &Value, style: Option<&Value>, digit_width: f64) -> Result<f64, String> {
     let field = |name: &str| style.and_then(|style| style.get(name));
@@ -126,8 +125,6 @@ pub fn worksheet_geometry(xml: &str, digit_width: f64) -> WorksheetGeometry {
     let number = |attributes: &str, name: &str| string_to_number(&xml_attribute(attributes, name));
     let declared_row = number(&format, "defaultRowHeight");
     let default_row = if declared_row.is_nan() || declared_row == 0.0 { 15.0 } else { declared_row };
-    // A column the sheet leaves undeclared: its defaultColWidth, else Excel's own default of eight characters and the
-    // padding, rounded up to a multiple of 8 pixels (64 in Calibri 11, 72 in 맑은 고딕 11).
     let declared_default = number(&format, "defaultColWidth");
     let declared_base = number(&format, "baseColWidth");
     let base_characters = if declared_base.is_nan() || declared_base == 0.0 { 8.0 } else { declared_base };
@@ -263,86 +260,92 @@ const GRID_ROWS: f64 = 1_048_576.0;
 /// (1-based, inclusive). Excel writes three anchor kinds and our own writer uses the absolute one, so the print area and the
 /// snapshot read the same resolver rather than each parsing anchors again.
 pub fn worksheet_drawings<P: ReadProof>(measurer: &TextMeasurer<'_, P>, zip: &Package, sheet: &Sheet, xml: &str) -> Result<Vec<WorksheetDrawing>, String> {
-    let relations = zip.text(&part_relationship_path(&sheet.path));
     let geometry = worksheet_geometry(xml, workbook_digit_width(measurer, zip)?);
     let mut drawings = Vec::new();
+    for part in drawing_parts(zip, sheet) {
+        let drawing = zip.text(&part);
+        for anchor in ANCHOR.captures_iter(&drawing) {
+            drawings.push(anchored_drawing(&part, anchor.get(1).unwrap_or(""), anchor.get(2).unwrap_or(""), &geometry)?);
+        }
+    }
+    Ok(drawings)
+}
+
+fn drawing_parts(zip: &Package, sheet: &Sheet) -> Vec<String> {
+    let relations = zip.text(&part_relationship_path(&sheet.path));
+    let mut parts = Vec::new();
     for relationship in RELATIONSHIP.captures_iter(&relations) {
         let attributes = relationship.get(1).unwrap_or("");
         if !xml_attribute(attributes, "Type").ends_with("/drawing") || xml_attribute(attributes, "TargetMode") == "External" {
             continue;
         }
         let target = xml_attribute(attributes, "Target");
-        let part = match target.strip_prefix('/') {
+        parts.push(match target.strip_prefix('/') {
             Some(rooted) => rooted.to_owned(),
             None => posix::normalize(&posix::join(&[posix::dirname(&sheet.path).as_str(), target.as_str()])),
-        };
-        let drawing = zip.text(&part);
-        for anchor in ANCHOR.captures_iter(&drawing) {
-            let kind = anchor.get(1).unwrap_or("");
-            let body = anchor.get(2).unwrap_or("");
-            let start = (kind != "absoluteAnchor").then(|| marker(body, "from"));
-            if start.is_some_and(|start| start.column >= GRID_COLUMNS || start.row >= GRID_ROWS) {
-                return Err("Worksheet drawing anchor exceeds the Excel grid".to_owned());
-            }
-            if let (Some(start), "twoCellAnchor") = (start, kind) {
-                let end = marker(body, "to");
-                if end.column >= GRID_COLUMNS || end.row >= GRID_ROWS {
-                    return Err("Worksheet drawing anchor exceeds the Excel grid".to_owned());
-                }
-                drawings.push(WorksheetDrawing {
-                    part: part.clone(),
-                    kind: kind.to_owned(),
-                    body: body.to_owned(),
-                    start_column: start.column + 1.0,
-                    start_row: start.row + 1.0,
-                    end_column: end.column + if end.x > 0.0 { 1.0 } else { 0.0 },
-                    end_row: end.row + if end.y > 0.0 { 1.0 } else { 0.0 },
-                    // The cell the bottom-right corner lies in, as Excel's BottomRightCell names it: the `to` cell itself.
-                    corner_column: end.column + 1.0,
-                    corner_row: end.row + 1.0,
-                    frame: None,
-                });
-                continue;
-            }
-            let extent = EXTENT.captures(body).and_then(|found| found.get(1).map(str::to_owned)).unwrap_or_default();
-            let (x, y) = match start {
-                None => {
-                    let position = POSITION.captures(body).and_then(|found| found.get(1).map(str::to_owned)).unwrap_or_default();
-                    (emu_points(&position, "x"), emu_points(&position, "y"))
-                }
-                Some(start) => {
-                    let (mut x, mut y) = (start.x, start.y);
-                    let mut index = 1.0;
-                    while index <= start.column {
-                        x += geometry.column_points(index);
-                        index += 1.0;
-                    }
-                    index = 1.0;
-                    while index <= start.row {
-                        y += geometry.row_points(index);
-                        index += 1.0;
-                    }
-                    (x, y)
-                }
-            };
-            let width = emu_points(&extent, "cx");
-            let height = emu_points(&extent, "cy");
-            drawings.push(WorksheetDrawing {
-                part: part.clone(),
-                kind: kind.to_owned(),
-                body: body.to_owned(),
-                start_column: geometry.column_at(x, false)?,
-                start_row: geometry.row_at(y, false)?,
-                end_column: geometry.column_at(x + width, true)?,
-                end_row: geometry.row_at(y + height, true)?,
-                // A corner on a boundary is in the cell that begins there.
-                corner_column: geometry.column_at(x + width, false)?,
-                corner_row: geometry.row_at(y + height, false)?,
-                frame: Some(DrawingFrame { left: x, top: y, width, height }),
-            });
-        }
+        });
     }
-    Ok(drawings)
+    parts
+}
+
+fn anchored_drawing(part: &str, kind: &str, body: &str, geometry: &WorksheetGeometry) -> Result<WorksheetDrawing, String> {
+    let start = (kind != "absoluteAnchor").then(|| marker(body, "from"));
+    if start.is_some_and(|start| start.column >= GRID_COLUMNS || start.row >= GRID_ROWS) {
+        return Err("Worksheet drawing anchor exceeds the Excel grid".to_owned());
+    }
+    if let (Some(start), "twoCellAnchor") = (start, kind) {
+        let end = marker(body, "to");
+        if end.column >= GRID_COLUMNS || end.row >= GRID_ROWS {
+            return Err("Worksheet drawing anchor exceeds the Excel grid".to_owned());
+        }
+        return Ok(WorksheetDrawing {
+            part: part.to_owned(),
+            kind: kind.to_owned(),
+            body: body.to_owned(),
+            start_column: start.column + 1.0,
+            start_row: start.row + 1.0,
+            end_column: end.column + if end.x > 0.0 { 1.0 } else { 0.0 },
+            end_row: end.row + if end.y > 0.0 { 1.0 } else { 0.0 },
+            corner_column: end.column + 1.0,
+            corner_row: end.row + 1.0,
+            frame: None,
+        });
+    }
+    let extent = EXTENT.captures(body).and_then(|found| found.get(1).map(str::to_owned)).unwrap_or_default();
+    let (x, y) = match start {
+        None => {
+            let position = POSITION.captures(body).and_then(|found| found.get(1).map(str::to_owned)).unwrap_or_default();
+            (emu_points(&position, "x"), emu_points(&position, "y"))
+        }
+        Some(start) => {
+            let (mut x, mut y) = (start.x, start.y);
+            let mut index = 1.0;
+            while index <= start.column {
+                x += geometry.column_points(index);
+                index += 1.0;
+            }
+            index = 1.0;
+            while index <= start.row {
+                y += geometry.row_points(index);
+                index += 1.0;
+            }
+            (x, y)
+        }
+    };
+    let width = emu_points(&extent, "cx");
+    let height = emu_points(&extent, "cy");
+    Ok(WorksheetDrawing {
+        part: part.to_owned(),
+        kind: kind.to_owned(),
+        body: body.to_owned(),
+        start_column: geometry.column_at(x, false)?,
+        start_row: geometry.row_at(y, false)?,
+        end_column: geometry.column_at(x + width, true)?,
+        end_row: geometry.row_at(y + height, true)?,
+        corner_column: geometry.column_at(x + width, false)?,
+        corner_row: geometry.row_at(y + height, false)?,
+        frame: Some(DrawingFrame { left: x, top: y, width, height }),
+    })
 }
 
 /// `contentPrintArea(zip, sheet, xml)`: the area from A1 to the last cell that holds something, a merged range ends or a
@@ -464,17 +467,7 @@ fn write_sheet_name(zip: &mut Package, name: &str, sheet_index: f64, reference: 
     zip.set("xl/workbook.xml", updated);
 }
 
-/// `applyWorksheetPageSetup(zip, sheets, sheet, xml, op)`: `set_page_setup` on one worksheet: orientation, fit, margins,
-/// centring, print area (named, or the content's with `fitToContent`) and the header rows every printed page repeats. The
-/// sheet part and the workbook are written into `zip`; the answer is the operation's report.
-pub fn apply_worksheet_page_setup<P: ReadProof>(
-    measurer: &TextMeasurer<'_, P>,
-    zip: &mut Package,
-    sheets: &[Sheet],
-    sheet: &Sheet,
-    xml: &str,
-    op: &Map<String, Value>,
-) -> Result<Value, String> {
+fn page_layout_xml(xml: &str, op: &Map<String, Value>) -> Result<String, String> {
     let orientation = match op.get("orientation").filter(|value| truthy(value)) {
         Some(value) => js_to_lowercase(&value_to_string(value)),
         None => String::new(),
@@ -482,15 +475,12 @@ pub fn apply_worksheet_page_setup<P: ReadProof>(
     if !orientation.is_empty() && orientation != "portrait" && orientation != "landscape" {
         return Err("set_page_setup orientation must be portrait or landscape".to_owned());
     }
-    // A fit bounds the pages it names and leaves the other side free ("fitted by width alone" in the xlsx skill). The count
-    // left out is written as 0 (automatic): missing, Excel reads it as 1, and fitToPagesWide:1 shrank a 92-row log onto
-    // one page.
+    // A count left out is written as 0 (automatic); missing, Excel reads it as 1.
     let fit_wide = page_count(op.get("fitToPagesWide"));
     let fit_tall = page_count(op.get("fitToPagesTall"));
     let fitting = fit_wide.is_some() || fit_tall.is_some();
     let mut xml = xml.to_owned();
-    // A call that sets only the print area or margins keeps the fit the sheet already declares: with fitToPage on and the
-    // counts dropped, Excel would read the default 1 x 1 and shrink a long sheet onto one page.
+    // With fitToPage on and the counts dropped, Excel reads the default 1 x 1.
     let carried_fit = if fitting {
         String::new()
     } else {
@@ -524,7 +514,21 @@ pub fn apply_worksheet_page_setup<P: ReadProof>(
     } else {
         String::new()
     };
-    xml = upsert_worksheet_section(&xml, "pageSetup", &format!("<pageSetup paperSize=\"9\"{orientation_attribute}{fit_attributes}{carried_fit}/>"));
+    Ok(upsert_worksheet_section(&xml, "pageSetup", &format!("<pageSetup paperSize=\"9\"{orientation_attribute}{fit_attributes}{carried_fit}/>")))
+}
+
+/// `applyWorksheetPageSetup(zip, sheets, sheet, xml, op)`: `set_page_setup` on one worksheet: orientation, fit, margins,
+/// centring, print area (named, or the content's with `fitToContent`) and the header rows every printed page repeats. The
+/// sheet part and the workbook are written into `zip`; the answer is the operation's report.
+pub fn apply_worksheet_page_setup<P: ReadProof>(
+    measurer: &TextMeasurer<'_, P>,
+    zip: &mut Package,
+    sheets: &[Sheet],
+    sheet: &Sheet,
+    xml: &str,
+    op: &Map<String, Value>,
+) -> Result<Value, String> {
+    let xml = page_layout_xml(xml, op)?;
     let named_area = if op.get("fitToContent") == Some(&Value::Bool(true)) {
         Some(Value::from(content_print_area(measurer, zip, sheet, &xml)?))
     } else {
@@ -536,8 +540,6 @@ pub fn apply_worksheet_page_setup<P: ReadProof>(
         let reference = format!("{}!{}", quote_sheet_name(&sheet.name), absolute_range(&area_reference(&parse_area_range(&value_to_string(area))?)));
         write_sheet_name(zip, "_xlnm.Print_Area", sheet_index, &reference);
     }
-    // The header rows every printed page repeats (Print_Titles): a data sheet longer than a page named its columns on the
-    // first page only, and the frozen header the screen shows does not print.
     let titles = print_title_row_span(op.get("printTitleRows"))?;
     if let Some((first, last)) = titles {
         let reference = format!("{}!${}:${}", quote_sheet_name(&sheet.name), number_to_string(first), number_to_string(last));
@@ -624,6 +626,37 @@ mod tests {
         assert!(fitted.applied);
         assert!(fitted.xml.contains("<sheetPr codeName=\"S\"><tabColor rgb=\"FF0000FF\"/><pageSetUpPr fitToPage=\"1\"/></sheetPr>"));
         assert!(fitted.xml.contains("<pageSetup orientation=\"landscape\" fitToWidth=\"1\" fitToHeight=\"0\"/>"));
+    }
+
+    #[test]
+    fn a_two_cell_anchor_resolves_onto_the_cells_it_names() {
+        let geometry = worksheet_geometry("<worksheet/>", 7.0);
+        let body = "<xdr:from><xdr:col>1</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>2</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>\
+                    <xdr:to><xdr:col>3</xdr:col><xdr:colOff>12700</xdr:colOff><xdr:row>5</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>";
+        let drawing = anchored_drawing("xl/drawings/drawing1.xml", "twoCellAnchor", body, &geometry).unwrap();
+        assert_eq!((drawing.start_column, drawing.start_row), (2.0, 3.0));
+        assert_eq!((drawing.end_column, drawing.end_row), (4.0, 5.0));
+        assert_eq!((drawing.corner_column, drawing.corner_row), (4.0, 6.0));
+        assert!(drawing.frame.is_none());
+    }
+
+    #[test]
+    fn an_anchor_past_the_excel_grid_is_refused() {
+        let geometry = worksheet_geometry("<worksheet/>", 7.0);
+        let body = "<xdr:from><xdr:col>16384</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>";
+        assert!(anchored_drawing("p", "oneCellAnchor", body, &geometry).is_err());
+    }
+
+    #[test]
+    fn page_layout_writes_orientation_fit_margins_and_centring() {
+        let op = json!({"orientation": "Landscape", "fitToPagesWide": 1, "centerHorizontally": true, "leftMargin": 0.5});
+        let xml = page_layout_xml("<worksheet><sheetData/></worksheet>", op.as_object().unwrap()).unwrap();
+        assert!(xml.contains("<pageSetup paperSize=\"9\" orientation=\"landscape\" fitToWidth=\"1\" fitToHeight=\"0\"/>"));
+        assert!(xml.contains("<pageMargins left=\"0.5\" right=\"0.7\" top=\"0.75\" bottom=\"0.75\" header=\"0.3\" footer=\"0.3\"/>"));
+        assert!(xml.contains("<printOptions horizontalCentered=\"1\"/>"));
+        assert!(xml.contains("fitToPage=\"1\""));
+        let bad = json!({"orientation": "sideways"});
+        assert!(page_layout_xml("<worksheet/>", bad.as_object().unwrap()).is_err());
     }
 
     #[test]

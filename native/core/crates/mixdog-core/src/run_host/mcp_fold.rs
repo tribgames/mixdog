@@ -87,6 +87,48 @@ fn name_server(name: &str) -> String {
     parse_mcp_tool_name(js_trim(name)).map(|(server, _)| server).unwrap_or_default()
 }
 
+/// A fixed surface not yet on the bridge: connect, reconnect and removal update the scoped catalog only (availability
+/// follows the connected names); nothing is announced and the eager `tools` are not re-linked, as in Node.
+fn reconcile_fixed_surface_catalog(session: &mut Value, live: &[Value], now: i64) {
+    let mut by_name = ByName::default();
+    for tool in list(session, "deferredToolCatalog") {
+        let name = tool_name(tool);
+        if !name.is_empty() && !is_mcp(&name) {
+            by_name.set(name, tool.clone());
+        }
+    }
+    for tool in live {
+        let name = tool_name(tool);
+        if !name.is_empty() && is_mcp(&name) {
+            by_name.set(name, tool.clone());
+        }
+    }
+    let catalog = sorted_catalog_by_measured_usage(by_name.into_catalog());
+    let moved = list(session, "deferredToolCatalog") != catalog.as_slice();
+    map_mut(session).insert("deferredToolCatalog".into(), Value::Array(catalog));
+    if moved {
+        map_mut(session).insert("updatedAt".into(), json!(now));
+    }
+}
+
+/// A promoted MCP tool re-links to the fresh server tool only when the serialized surface changed.
+#[allow(
+    clippy::cmp_owned,
+    reason = "MCP relinking compares the serialized tool surface including nested JSON key order; structural Value equality would change refresh behavior"
+)]
+fn relink_promoted_mcp_tools(session: &mut Value, live_by_name: &ByName) {
+    let Some(tools) = session.get_mut("tools").and_then(Value::as_array_mut) else { return };
+    for tool in tools.iter_mut() {
+        let name = tool_name(tool);
+        if name.is_empty() || !is_mcp(&name) {
+            continue;
+        }
+        if let Some(fresh) = live_by_name.get(&name).filter(|fresh| fresh.to_string() != tool.to_string()) {
+            *tool = fresh.clone();
+        }
+    }
+}
+
 impl ToolSurface<'_> {
     /// `refreshInitialDeferredMcpSurface(session, liveMcpTools)`: folds the LIVE MCP tools into the boot
     /// catalog and the first-turn surface. A server gone since creation leaves the initial surface (nothing was
@@ -204,10 +246,6 @@ impl ToolSurface<'_> {
     /// `reconcileDeferredMcpToolCatalog(session, liveMcpTools)` (the part after its unchanged-input
     /// cache): the late pool, the connected names and the pending deferred-tools delta follow the live
     /// registry. The names announced or removed, or `None` when nothing was.
-    #[allow(
-        clippy::cmp_owned,
-        reason = "MCP relinking compares the serialized tool surface including nested JSON key order; structural Value equality would change refresh behavior"
-    )]
     pub fn reconcile_mcp_catalog(&self, session: &mut Value, live_mcp: &[Value]) -> Option<Vec<String>> {
         if !session.get("tools").is_some_and(Value::is_array) {
             return None;
@@ -228,28 +266,7 @@ impl ToolSurface<'_> {
         let connected = unique(live.iter().map(tool_name).filter(|name| is_mcp(name)));
         map_mut(session).insert("deferredMcpToolNames".into(), names_value(&connected));
         if fixed_surface_session(session) {
-            // A fixed surface not yet on the bridge: connect, reconnect and removal update the scoped catalog
-            // only (availability follows the connected names); nothing is announced.
-            let mut by_name = ByName::default();
-            for tool in list(session, "deferredToolCatalog") {
-                let name = tool_name(tool);
-                if !name.is_empty() && !is_mcp(&name) {
-                    by_name.set(name, tool.clone());
-                }
-            }
-            for tool in &live {
-                let name = tool_name(tool);
-                if !name.is_empty() && is_mcp(&name) {
-                    by_name.set(name, tool.clone());
-                }
-            }
-            let catalog = sorted_catalog_by_measured_usage(by_name.into_catalog());
-            let moved = list(session, "deferredToolCatalog") != catalog.as_slice();
-            map_mut(session).insert("deferredToolCatalog".into(), Value::Array(catalog));
-            // The scoped catalog only: Node returns here, so the eager `tools` are not re-linked on this branch.
-            if moved {
-                map_mut(session).insert("updatedAt".into(), json!(now));
-            }
+            reconcile_fixed_surface_catalog(session, &live, now);
             return None;
         }
         let late = list(session, "deferredLateToolCatalog").to_vec();
@@ -290,18 +307,7 @@ impl ToolSurface<'_> {
             next.set(name.clone(), tool.clone());
         }
         map_mut(session).insert("deferredLateToolCatalog".into(), Value::Array(sorted_catalog_by_measured_usage(next.into_catalog())));
-        // A promoted MCP tool re-links to the fresh server tool only when the serialized surface changed.
-        if let Some(tools) = session.get_mut("tools").and_then(Value::as_array_mut) {
-            for tool in tools.iter_mut() {
-                let name = tool_name(tool);
-                if name.is_empty() || !is_mcp(&name) {
-                    continue;
-                }
-                if let Some(fresh) = live_by_name.get(&name).filter(|fresh| fresh.to_string() != tool.to_string()) {
-                    *tool = fresh.clone();
-                }
-            }
-        }
+        relink_promoted_mcp_tools(session, &live_by_name);
         let connected: HashSet<&String> = connected.iter().collect();
         let startup: HashSet<String> = clean_list(session, "deferredAnnouncedTools").into_iter().collect();
         let mut added: Vec<(String, String)> = Vec::new();

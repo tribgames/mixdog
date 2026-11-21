@@ -174,6 +174,83 @@ fn tracked_warnings(tracked: &crate::worktree::disk::Tracked) -> Vec<String> {
     if tracked.submodules { vec!["submodules".to_owned()] } else { Vec::new() }
 }
 
+fn validate_create_request(request: &CreateRequest) -> Result<(), ScmFailure> {
+    if request.start_commit.is_some() && (request.existing_branch || request.branch.is_none()) {
+        return Err(ScmFailure::invalid("startCommit", "a new exact branch only"));
+    }
+    if !matches!(request.carry.as_deref(), None | Some("ask" | "leave" | "carry")) {
+        return Err(ScmFailure::invalid("carryChanges", "ask, leave or carry"));
+    }
+    Ok(())
+}
+
+fn project_subdir(facts: &RepoFacts) -> String {
+    facts.project_path.strip_prefix(&facts.top_level).map(|rel| rel.to_string_lossy().replace('\\', "/")).unwrap_or_default()
+}
+
+/// The `creating` record of a read-only snapshot, before git makes the checkout.
+fn snapshot_record(facts: &RepoFacts, slug: &str, path: &Path, commit: &str, holder_id: &str, tx_id: &str) -> WorktreeRecord {
+    let mut record = WorktreeRecord {
+        id: slug.to_owned(),
+        repo_common_dir: path_text(&facts.common_dir),
+        project_path: path_text(&facts.project_path),
+        path: path_text(path),
+        branch: None,
+        base_commit: Some(commit.to_owned()),
+        created_at: now_ms(),
+        owner_session_id: None,
+        state: "creating".into(),
+        merge_target: None,
+        shared_session_ids: Vec::new(),
+        extra: Default::default(),
+    };
+    record.extra.insert("kind".into(), json!("snapshot"));
+    record.extra.insert("holderSessionId".into(), json!(holder_id));
+    record.extra.insert("txId".into(), json!(tx_id));
+    // No branch of its own: nothing is ever deleted from refs/heads.
+    record.extra.insert("existingBranch".into(), json!(true));
+    record.extra.insert("exactBranch".into(), json!(false));
+    record.extra.insert("disposable".into(), json!(true));
+    record.extra.insert("resources".into(), json!({ "worktree": null, "lock": null, "owner": null, "includes": [] }));
+    record
+}
+
+/// The `creating` record of a branch worktree, before git makes the checkout.
+fn creating_record(
+    request: &CreateRequest,
+    facts: &RepoFacts,
+    slug: &str,
+    branch: &str,
+    path: &Path,
+    base_commit: &str,
+    warnings: Vec<String>,
+) -> WorktreeRecord {
+    let mut record = WorktreeRecord {
+        id: slug.to_owned(),
+        repo_common_dir: path_text(&facts.common_dir),
+        project_path: path_text(&facts.project_path),
+        path: path_text(path),
+        branch: Some(branch.to_owned()),
+        base_commit: Some(base_commit.to_owned()),
+        created_at: now_ms(),
+        owner_session_id: Some(request.session_id.clone()),
+        state: "creating".into(),
+        // An existing branch has no base it branched from: it merges where a merge first
+        // takes it (recorded then).
+        merge_target: if request.existing_branch { None } else { request.base_branch.clone().or_else(|| facts.current_branch.clone()) },
+        shared_session_ids: Vec::new(),
+        extra: Default::default(),
+    };
+    record.extra.insert("txId".into(), json!(request.tx_id));
+    record.extra.insert("existingBranch".into(), json!(request.existing_branch));
+    record.extra.insert("exactBranch".into(), json!(request.branch.is_some()));
+    record.extra.insert("projectSubdir".into(), json!(project_subdir(facts)));
+    record.extra.insert("disposable".into(), json!(false));
+    record.extra.insert("warnings".into(), json!(warnings));
+    record.extra.insert("resources".into(), json!({ "worktree": null, "lock": null, "owner": null, "includes": [] }));
+    record
+}
+
 pub(crate) fn is_snapshot(record: &WorktreeRecord) -> bool {
     record.extra.get("kind").and_then(Value::as_str) == Some("snapshot")
 }
@@ -409,17 +486,11 @@ impl Worktrees {
         let facts = self.inspect_repo(&request.project_path, cancel).await?;
         let repo = self.scm.open(&facts.top_level, cancel).await?;
         let _lock = repo.lock_repository().await?;
-        let common = path_text(&facts.common_dir);
         if let Some(settled) = self.settle_session_attempts(&request, &facts.common_dir, cancel).await? {
             return Ok(settled);
         }
-        if request.start_commit.is_some() && (request.existing_branch || request.branch.is_none()) {
-            return Err(ScmFailure::invalid("startCommit", "a new exact branch only"));
-        }
-        if !matches!(request.carry.as_deref(), None | Some("ask" | "leave" | "carry")) {
-            return Err(ScmFailure::invalid("carryChanges", "ask, leave or carry"));
-        }
-        let subdir = facts.project_path.strip_prefix(&facts.top_level).map(|rel| rel.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+        validate_create_request(&request)?;
+        let subdir = project_subdir(&facts);
         // The project folder's uncommitted changes: a carry is judged by the same status read
         // that counts them; `ask` refuses while there are any.
         let pending = match request.carry.as_deref() {
@@ -430,47 +501,12 @@ impl Worktrees {
         if !pending.is_empty() && request.carry.as_deref() == Some("ask") {
             return Err(errors::dirty_choice(pending));
         }
-        // `resolveStartPoint`: the base branch's commit (it must exist), then an explicit start commit resolved to a commit.
-        let mut base_commit = facts.head.clone();
-        if let Some(branch) = &request.base_branch {
-            base_commit = self
-                .scm
-                .git
-                .read(cancel, &facts.top_level, &["rev-parse", "--verify", &format!("refs/heads/{branch}^{{commit}}")])
-                .await
-                .map_err(|_| errors::base_branch_missing(branch.clone()))?
-                .trim()
-                .to_owned();
-        }
-        if let Some(commit) = &request.start_commit {
-            let name = mixdog_js::js_trim(commit);
-            if name.is_empty() || name.starts_with('-') {
-                return Err(ScmFailure::git("A commit is required."));
-            }
-            let resolved = self
-                .scm
-                .git
-                .outcome(cancel, &facts.top_level, &["rev-parse", "--verify", "--quiet", &format!("{name}^{{commit}}")], &RunOptions::default())
-                .await?;
-            if !resolved.success() {
-                return Err(ScmFailure::git(format!("Commit {name} does not exist.")));
-            }
-            base_commit = resolved.stdout_text().lines().next().unwrap_or("").trim().to_owned();
-        }
+        let base_commit = self.resolve_start_point(&request, &facts, cancel).await?;
         let settings = self.current_settings().await;
         let root = names::managed_root(&self.data_dir, &facts.common_dir);
         // The main checkout's local env files come along on their own; `.worktreeinclude`
         // applies on top. The estimate must fit before anything is made.
-        let entries = {
-            let file = facts.top_level.join(include::INCLUDE_FILE);
-            let text = on_lane(self.scm.lane, cancel, move || match std::fs::read_to_string(file) {
-                Ok(text) => Ok(text),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
-                Err(error) => Err(ScmFailure::from(error)),
-            })
-            .await??;
-            include::parse_include_entries(&text)?
-        };
+        let entries = self.read_include_entries(&facts.top_level, cancel).await?;
         let env_files = self.untracked_env_files(&facts.top_level, cancel).await?;
         let plan = self.plan_includes(&facts.top_level, &entries, env_files, cancel).await?;
         let (tracked, _needed) =
@@ -512,29 +548,8 @@ impl Worktrees {
             let path = names::managed_path(&self.data_dir, &facts.common_dir, &slug);
             // A new checkout at this path: no size measured for an earlier one counts.
             self.sizes.forget(&path);
-            let mut record = WorktreeRecord {
-                id: slug.clone(),
-                repo_common_dir: common.clone(),
-                project_path: path_text(&facts.project_path),
-                path: path_text(&path),
-                branch: Some(branch.clone()),
-                base_commit: Some(base_commit.clone()),
-                created_at: now_ms(),
-                owner_session_id: Some(request.session_id.clone()),
-                state: "creating".into(),
-                // An existing branch has no base it branched from: it merges where a merge first
-                // takes it (recorded then).
-                merge_target: if request.existing_branch { None } else { request.base_branch.clone().or_else(|| facts.current_branch.clone()) },
-                shared_session_ids: Vec::new(),
-                extra: Default::default(),
-            };
-            record.extra.insert("txId".into(), json!(request.tx_id));
-            record.extra.insert("existingBranch".into(), json!(request.existing_branch));
-            record.extra.insert("exactBranch".into(), json!(request.branch.is_some()));
-            record.extra.insert("projectSubdir".into(), json!(subdir));
-            record.extra.insert("disposable".into(), json!(false));
-            record.extra.insert("warnings".into(), json!(tracked_warnings(&tracked).into_iter().chain(plan.warnings.clone()).collect::<Vec<_>>()));
-            record.extra.insert("resources".into(), json!({ "worktree": null, "lock": null, "owner": null, "includes": [] }));
+            let warnings = tracked_warnings(&tracked).into_iter().chain(plan.warnings.clone()).collect();
+            let mut record = creating_record(&request, &facts, &slug, &branch, &path, &base_commit, warnings);
             self.put(cancel, record.clone()).await?;
             let target = path_text(&path);
             let parent = root.clone();
@@ -567,7 +582,7 @@ impl Worktrees {
                 }
             }
         };
-        let populated = self.populate_checkout(&mut record, &request, &facts, &subdir, &plan, &pending, &path, &base_commit, cancel).await;
+        let populated = self.populate_checkout(&mut record, &request, &facts, &plan, &pending, &path, &base_commit, cancel).await;
         match populated {
             Ok((prepared, changes, _carried)) => {
                 repo.touched();
@@ -586,6 +601,48 @@ impl Worktrees {
                 Err(failure)
             }
         }
+    }
+
+    async fn read_include_entries(&self, top_level: &Path, cancel: &CancellationToken) -> Result<Vec<include::IncludeEntry>, ScmFailure> {
+        let file = top_level.join(include::INCLUDE_FILE);
+        let text = on_lane(self.scm.lane, cancel, move || match std::fs::read_to_string(file) {
+            Ok(text) => Ok(text),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+            Err(error) => Err(ScmFailure::from(error)),
+        })
+        .await??;
+        include::parse_include_entries(&text)
+    }
+
+    /// `resolveStartPoint`: the base branch's commit (it must exist), then an explicit start commit resolved to a commit.
+    async fn resolve_start_point(&self, request: &CreateRequest, facts: &RepoFacts, cancel: &CancellationToken) -> Result<String, ScmFailure> {
+        let mut base_commit = facts.head.clone();
+        if let Some(branch) = &request.base_branch {
+            base_commit = self
+                .scm
+                .git
+                .read(cancel, &facts.top_level, &["rev-parse", "--verify", &format!("refs/heads/{branch}^{{commit}}")])
+                .await
+                .map_err(|_| errors::base_branch_missing(branch.clone()))?
+                .trim()
+                .to_owned();
+        }
+        if let Some(commit) = &request.start_commit {
+            let name = mixdog_js::js_trim(commit);
+            if name.is_empty() || name.starts_with('-') {
+                return Err(ScmFailure::git("A commit is required."));
+            }
+            let resolved = self
+                .scm
+                .git
+                .outcome(cancel, &facts.top_level, &["rev-parse", "--verify", "--quiet", &format!("{name}^{{commit}}")], &RunOptions::default())
+                .await?;
+            if !resolved.success() {
+                return Err(ScmFailure::git(format!("Commit {name} does not exist.")));
+            }
+            base_commit = resolved.stdout_text().lines().next().unwrap_or("").trim().to_owned();
+        }
+        Ok(base_commit)
     }
 
     /// An earlier attempt's ready worktree, its owner lease written again.
@@ -657,12 +714,6 @@ impl Worktrees {
         self.put(cancel, record.clone()).await
     }
 
-    /// `failCreation`'s rollback: the record goes through the ledger-proved `rollbackCreation`
-    /// (`rollback_record`), never a forced removal of the branch: a branch that moved since the
-    /// creation holds someone's commits and stays. The ledger (`set_resource`: `pending` before a
-    /// resource is made, `created` after) says what the creation made. The creation's own failure
-    /// is the one surfaced, so what the rollback could not undo is logged (Node attaches it to
-    /// that error as `rollback`, which nothing reads).
     async fn undo_failed_creation(&self, record: &mut WorktreeRecord, failure: &ScmFailure, cancel: &CancellationToken) {
         match self.rollback_record(record, Some(&failure.to_string()), cancel).await {
             Ok((true, _)) => {}
@@ -680,38 +731,22 @@ impl Worktrees {
         record: &mut WorktreeRecord,
         request: &CreateRequest,
         facts: &RepoFacts,
-        subdir: &str,
         plan: &include::IncludePlan,
         pending: &[String],
         path: &Path,
         base_commit: &str,
         cancel: &CancellationToken,
     ) -> Result<(Value, Option<Value>, Option<String>), (ScmFailure, Option<String>)> {
-        let git = &self.scm.git;
-        let target = path_text(path);
         let plain = |failure: ScmFailure| (failure, None);
-        let reason = format!("mixdog session={}", request.session_id);
-        self.set_resource(record, "worktree", "created", cancel).await.map_err(plain)?;
-        self.set_resource(record, "lock", "pending", cancel).await.map_err(plain)?;
-        git.run(cancel, &facts.project_path, &["worktree", "lock", "--reason", &reason, &target]).await.map_err(plain)?;
-        self.set_resource(record, "lock", "created", cancel).await.map_err(plain)?;
-        if !request.runtime_token.trim().is_empty() {
-            let owner = crate::worktree::ownership::Owner {
-                session_id: request.session_id.clone(),
-                runtime_token: request.runtime_token.clone(),
-                pid: Some(std::process::id()),
-            };
-            self.set_resource(record, "owner", "pending", cancel).await.map_err(plain)?;
-            self.write_owner_lease(record, &owner, cancel).await.map_err(plain)?;
-            self.set_resource(record, "owner", "created", cancel).await.map_err(plain)?;
-        }
+        let subdir = project_subdir(facts);
+        self.lock_checkout_for_session(record, request, facts, path, cancel).await.map_err(plain)?;
         // Carried before the include entries are copied, so an include never stands in the way
         // of a carried file; the status is read again inside, right before acting.
         let mut changes = (!pending.is_empty()).then(|| json!({ "mode": "left", "count": pending.len() }));
         let mut carried: Option<String> = None;
         if request.carry.as_deref() == Some("carry") {
             let label = record.id.clone();
-            let (count, reference) = self.carry_uncommitted_changes(&facts.top_level, subdir, path, base_commit, &label, cancel).await.map_err(plain)?;
+            let (count, reference) = self.carry_uncommitted_changes(&facts.top_level, &subdir, path, base_commit, &label, cancel).await.map_err(plain)?;
             carried = reference.clone();
             // The recovery ref stays until the caller has committed the move or put the changes back.
             changes = (count > 0).then(|| json!({ "mode": "carried", "count": count, "recoveryRef": reference }));
@@ -740,6 +775,30 @@ impl Worktrees {
         record.state = "ready".into();
         self.put(cancel, record.clone()).await.map_err(|failure| (failure, carried.clone()))?;
         Ok((prepared, changes, carried))
+    }
+
+    /// Locks the fresh checkout against pruning and, when the request carries a runtime, binds the owner lease.
+    async fn lock_checkout_for_session(
+        &self,
+        record: &mut WorktreeRecord,
+        request: &CreateRequest,
+        facts: &RepoFacts,
+        path: &Path,
+        cancel: &CancellationToken,
+    ) -> Result<(), ScmFailure> {
+        let target = path_text(path);
+        let reason = format!("mixdog session={}", request.session_id);
+        self.set_resource(record, "worktree", "created", cancel).await?;
+        self.set_resource(record, "lock", "pending", cancel).await?;
+        self.scm.git.run(cancel, &facts.project_path, &["worktree", "lock", "--reason", &reason, &target]).await?;
+        self.set_resource(record, "lock", "created", cancel).await?;
+        if !request.runtime_token.trim().is_empty() {
+            let owner = Owner { session_id: request.session_id.clone(), runtime_token: request.runtime_token.clone(), pid: Some(std::process::id()) };
+            self.set_resource(record, "owner", "pending", cancel).await?;
+            self.write_owner_lease(record, &owner, cancel).await?;
+            self.set_resource(record, "owner", "created", cancel).await?;
+        }
+        Ok(())
     }
 
     /// A read-only detached checkout of `commit`, held by `holder` and removed with its turn. The
@@ -791,54 +850,41 @@ impl Worktrees {
         self.assert_checkout_fits(&facts.top_level, commit, 0, &root, settings.size_warn_bytes, confirm_large, cancel).await?;
         let slug = names::unique_slug("snapshot", |c| ids.contains(&c.to_lowercase()) || root.join(c).exists());
         let path = names::managed_path(&self.data_dir, &facts.common_dir, &slug);
-        let mut record = WorktreeRecord {
-            id: slug,
-            repo_common_dir: common,
-            project_path: path_text(&facts.project_path),
-            path: path_text(&path),
-            branch: None,
-            base_commit: Some(commit.to_owned()),
-            created_at: now_ms(),
-            owner_session_id: None,
-            state: "creating".into(),
-            merge_target: None,
-            shared_session_ids: Vec::new(),
-            extra: Default::default(),
-        };
-        record.extra.insert("kind".into(), json!("snapshot"));
-        record.extra.insert("holderSessionId".into(), json!(holder_id));
-        record.extra.insert("txId".into(), json!(tx_id));
-        // No branch of its own: nothing is ever deleted from refs/heads.
-        record.extra.insert("existingBranch".into(), json!(true));
-        record.extra.insert("exactBranch".into(), json!(false));
-        record.extra.insert("disposable".into(), json!(true));
-        record.extra.insert("resources".into(), json!({ "worktree": null, "lock": null, "owner": null, "includes": [] }));
+        let mut record = snapshot_record(&facts, &slug, &path, commit, holder_id, tx_id);
         self.put(cancel, record.clone()).await?;
         let parent = root.clone();
         on_lane(self.scm.lane, cancel, move || std::fs::create_dir_all(parent)).await??;
-        let target = path_text(&path);
-        let made: Result<(), ScmFailure> = async {
-            self.set_resource(&mut record, "worktree", "pending", cancel).await?;
-            self.scm.git.run(cancel, &facts.top_level, &["worktree", "add", "--detach", &target, commit]).await?;
-            self.set_resource(&mut record, "worktree", "created", cancel).await?;
-            self.set_resource(&mut record, "lock", "pending", cancel).await?;
-            let reason = format!("mixdog snapshot session={holder_id}");
-            self.scm.git.run(cancel, &facts.project_path, &["worktree", "lock", "--reason", &reason, &target]).await?;
-            self.set_resource(&mut record, "lock", "created", cancel).await?;
-            self.set_resource(&mut record, "owner", "pending", cancel).await?;
-            self.write_owner_lease(&record, holder, cancel).await?;
-            self.set_resource(&mut record, "owner", "created", cancel).await?;
-            record.state = "ready".into();
-            self.put(cancel, record.clone()).await
-        }
-        .await;
-        if let Err(failure) = made {
+        if let Err(failure) = self.add_snapshot_checkout(&mut record, &facts, holder, commit, &path, cancel).await {
             // `rollbackCreation` over the ledger as far as it got; the creation's failure is the one surfaced.
             self.undo_failed_creation(&mut record, &failure, cancel).await;
             return Err(failure);
         }
         self.ledger.register(&record.id, &path);
         Ok(record)
+    }
+
+    async fn add_snapshot_checkout(
+        &self,
+        record: &mut WorktreeRecord,
+        facts: &RepoFacts,
+        holder: &Owner,
+        commit: &str,
+        path: &Path,
+        cancel: &CancellationToken,
+    ) -> Result<(), ScmFailure> {
+        let target = path_text(path);
+        self.set_resource(record, "worktree", "pending", cancel).await?;
+        self.scm.git.run(cancel, &facts.top_level, &["worktree", "add", "--detach", &target, commit]).await?;
+        self.set_resource(record, "worktree", "created", cancel).await?;
+        self.set_resource(record, "lock", "pending", cancel).await?;
+        let reason = format!("mixdog snapshot session={}", holder.session_id);
+        self.scm.git.run(cancel, &facts.project_path, &["worktree", "lock", "--reason", &reason, &target]).await?;
+        self.set_resource(record, "lock", "created", cancel).await?;
+        self.set_resource(record, "owner", "pending", cancel).await?;
+        self.write_owner_lease(record, holder, cancel).await?;
+        self.set_resource(record, "owner", "created", cancel).await?;
+        record.state = "ready".into();
+        self.put(cancel, record.clone()).await
     }
 
     /// Managed worktrees (optionally of one repository) with who keeps them.
@@ -916,6 +962,14 @@ impl Worktrees {
         if crate::worktree::housekeeping::is_gone(path) {
             return Ok(());
         }
+        self.assert_back_link(record, cancel).await
+    }
+
+    /// The checkout's `.git` file links back into this repository's worktree admin dir.
+    async fn assert_back_link(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        let unsafe_ = |reason: &str| errors::path_unsafe(record.id.clone(), record.path.clone(), Some(reason));
+        let common = Path::new(&record.repo_common_dir);
+        let path = Path::new(&record.path);
         let dot_git = path.join(".git");
         let info = match dot_git.symlink_metadata() {
             Ok(info) => info,

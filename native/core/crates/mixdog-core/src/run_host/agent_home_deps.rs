@@ -2,7 +2,7 @@
 //! agent catalog for who may have a home and on which route, the session directory for the home
 //! threads themselves, and the reset that keeps the old conversation.
 //!
-//! A reset (`resetSessionConversation` with `archiveAs`) copies the conversation to the fresh
+//! A reset copies the conversation to the fresh
 //! archive id with `thread/fork` — durable before anything is wiped — marks the copy archived (it
 //! restores with `set_archived(.., false)`, keeping its whole history), and only then clears the
 //! home thread in place with `thread/clear`. A conversation without a user turn keeps no copy; a

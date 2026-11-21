@@ -1,9 +1,3 @@
-//! The producer over fakes: the session catalog's rows and the approval states are what the test sends, the host records the toasts it
-//! is asked to show, the relay records the pushes it is handed.
-//!
-//! Each test names the test of the TypeScript decider it replaces (`desktop-turn-notifier.test.mjs` = DTN,
-//! `final-answer-watcher.test.mjs` = FAW, `push-turn-events.test.mjs` = PTE, `push-notifier.ts`'s rules = PN).
-
 use std::collections::HashSet;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
@@ -166,6 +160,10 @@ struct Rig {
 }
 
 fn rig() -> Rig {
+    rig_reading(None)
+}
+
+fn rig_reading(reader: Option<Arc<dyn FinalAnswers>>) -> Rig {
     let host = Arc::new(Host::default());
     let relay = Arc::new(Relay::default());
     let listeners = Arc::new(Listeners {
@@ -186,7 +184,7 @@ fn rig() -> Rig {
         audience: listeners.clone(),
         host: host.clone(),
         push: relay.clone(),
-        answers: answers.clone(),
+        answers: reader.unwrap_or_else(|| answers.clone()),
         names: Arc::new(Names),
         owners: Arc::new(NoOwners),
         texts: Arc::new(Texts),
@@ -416,10 +414,6 @@ async fn a_bots_home_chat_is_told_under_the_bots_name_and_a_room_under_its_name(
     want.sort();
     assert_eq!(rig.titles(), want);
 }
-/// DTN "foreground-visible produces an explicit suppression, not a claimed native delivery", "on-screen state is rechecked at
-/// native delivery, including return during the quiet period", "a focused window showing session A does not suppress session
-/// B's completion", "every split pane session stays suppressed while a background session notifies", "a window that is focused
-/// but minimized or hidden shows nothing, so the completion notifies" (the host reports an empty set for it).
 #[tokio::test(start_paused = true)]
 async fn what_the_window_shows_is_checked_when_the_toast_is_made() {
     let rig = rig();
@@ -580,10 +574,6 @@ async fn a_pending_answer_is_polled_until_it_lands() {
     advance(ANSWER_POLL_MS).await;
     assert_eq!(rig.toasts().len(), 1);
 }
-/// FAW "a Lead that stops to wait on background work is not announced until the work settles"; PTE "child-agent work counts
-/// as the session still working", "pending work comes from running child agents only, not shell jobs or the Lead row status",
-/// "background work settling without a new Lead turn announces the answer already given", "a running background shell job
-/// never holds the Lead final answer".
 #[tokio::test(start_paused = true)]
 async fn a_lead_waiting_on_its_agents_has_not_answered() {
     let rig = rig();
@@ -685,41 +675,19 @@ async fn answers_are_read_one_at_a_time() {
         }
     }
     let slow = Arc::new(Slow { active: AtomicI64::new(0), most: AtomicI64::new(0) });
-    let host = Arc::new(Host::default());
-    let listeners = Arc::new(Listeners {
-        pc: Mutex::new(PreferencesView { preferences: DevicePreferences::default(), overrides: Vec::new() }),
-        on_screen: Mutex::new(HashSet::new()),
-        supported: AtomicBool::new(true),
-        desktop_active: AtomicBool::new(false),
-        devices: Mutex::new(Vec::new()),
-        audience_gate: Mutex::default(),
-    });
-    let notifier = SessionNotifier::start(ProducerEnv {
-        engine: Arc::new(NotificationEngine::new(Arc::new(|| ToastStyle::for_volume(100)))),
-        audience: listeners,
-        host: host.clone(),
-        push: Arc::new(Relay::default()),
-        answers: slow.clone(),
-        names: Arc::new(Names),
-        owners: Arc::new(NoOwners),
-        texts: Arc::new(Texts),
-        enabled: Arc::new(|| true),
-        now_ms: Arc::new(|| 1_000),
-        log: Arc::new(|_| {}),
-    });
-    let input = notifier.input();
+    let rig = rig_reading(Some(slow.clone()));
     for id in ["a", "b", "c"] {
-        input.row(row(id, id, true));
+        rig.input.row(row(id, id, true));
     }
     settle().await;
     for id in ["a", "b", "c"] {
-        input.row(row(id, id, false));
+        rig.input.row(row(id, id, false));
     }
     for _ in 0..8 {
         advance(LEAD_FINISHED_MS + 100).await;
     }
     assert_eq!(slow.most.load(Ordering::SeqCst), 1);
-    assert_eq!(host.shown.lock().unwrap().len(), 3);
+    assert_eq!(rig.toasts().len(), 3);
 }
 // ---- waits
 

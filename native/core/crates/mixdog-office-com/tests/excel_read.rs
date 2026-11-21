@@ -1,10 +1,3 @@
-//! The workbook reader against a scripted workbook: a tree of COM objects that answer by member name, in place of Excel.
-//!
-//! The recorded call logs of `tests/scenarios/excel-read.json` (taken from the PowerShell hosts against Microsoft Excel)
-//! are held to the same reader once they exist on the migration PC; these tests pin the rules of the port that need no
-//! Office: what a page of cells and a selection look like, the types the page's COM arguments go out with, the colour names
-//! of a Korean Excel, and the financial-model audit.
-
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -539,4 +532,39 @@ fn a_financial_audit_of_a_workbook_without_a_checks_sheet_says_so() {
     let answer = Reader.issues(&World::new().env(), &book, &request("{\"auditProfile\":\"financial-model\"}")).expect("issues");
     let json = to_json(&answer, 12);
     assert!(json.contains("\"code\":\"missing_checks_sheet\",\"path\":\"/\""), "{json}");
+}
+
+#[test]
+fn a_numeric_hardcode_inside_a_row_of_formulas_is_reported_three_ways() {
+    let cell = obj(vec![("Text", text("7")), ("Font", konst(obj(vec![("Name", text("Calibri"))])))]);
+    let formula = || Com::Str("=1".to_owned());
+    let chunk = obj(vec![
+        ("Value2", konst(matrix(vec![vec![Com::R8(1.0), Com::R8(1.0), Com::R8(7.0), Com::R8(1.0), Com::R8(1.0)]]))),
+        ("FormulaR1C1", konst(matrix(vec![vec![formula(), formula(), Com::Str(String::new()), formula(), formula()]]))),
+        ("Cells", konst(obj(vec![("Item", konst(cell))]))),
+    ]);
+    let used = obj(vec![
+        ("Rows", count(1)),
+        ("Columns", count(5)),
+        ("Row", konst(Com::I4(1))),
+        ("Column", konst(Com::I4(1))),
+        ("Address", text("A1:E1")),
+        ("Cells", konst(obj(vec![("Item", konst(obj(vec![("Resize", konst(chunk))])))]))),
+    ]);
+    let sheet = obj(vec![
+        ("Name", text("Model")),
+        ("UsedRange", konst(used)),
+        ("Shapes", konst(Com::Dispatch(make(Vec::new(), Vec::new())))),
+        ("ChartObjects", konst(obj(vec![("Count", konst(Com::I4(0)))]))),
+    ]);
+    let book = make(vec![("Worksheets", konst(Com::Dispatch(make(Vec::new(), vec![sheet]))))], Vec::new());
+    let world = World::new();
+    let mut fonts = FontSet::default();
+    fonts.insert("Calibri");
+    world.platform.set_fonts(fonts);
+    let answer = Reader.issues(&world.env(), &book, &request("{\"auditProfile\":\"financial-model\"}")).expect("issues");
+    let json = to_json(&answer, 12);
+    for code in ["hardcode_missing_source", "rogue_hardcode", "formula_inconsistency"] {
+        assert!(json.contains(&format!("\"code\":\"{code}\",\"path\":\"/sheet[Model]/cell[C1]\"")), "{code}: {json}");
+    }
 }

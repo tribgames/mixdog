@@ -1,12 +1,3 @@
-//! The custom-provider section of `provider-admin.mjs`: `saveCustomProvider` (:1376),
-//! `saveCustomProviderKey` (:1437), `updateCustomProviderModel` (:1506),
-//! `removeCustomProvider` (:1650), the row they answer (`customProviderRow`, :622) and the
-//! host the connection probes (`custom_probe.rs`) run over.
-//!
-//! The config document is the agent section of `mixdog-config.json`; every change to it is one
-//! `Config::update_agent` transaction, so what Node does "synchronously from here" is atomic
-//! here, and an edit another writer landed meanwhile is never reverted.
-
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::future::Future;
@@ -228,9 +219,6 @@ struct InputAt {
 }
 
 /// `customInputAt`. `stored_key` is the stored key of an existing provider (empty when none).
-/// `body_lone_units`: the lone surrogates the client's `requestBody` held, for its size limit
-/// ([`normalize_input`]); a later reading of an input [`CustomHost::resolve`] accepted passes 0,
-/// as the same body can only measure smaller.
 fn input_at(agent: &Obj, input: &Obj, stored_key: &str, env: &dyn Environment, body_lone_units: usize) -> Result<InputAt, Failure> {
     let id = input.get("id").and_then(Value::as_str).map(str::to_owned);
     // Additional keys are secrets, applied by the save itself.
@@ -321,6 +309,52 @@ fn apply_tri_state(base: Option<&Value>, patch: &Obj) -> Obj {
         }
     }
     out
+}
+
+/// The override of one model after `patch`; `None` removes it (a `null` patch, or one that leaves it empty).
+fn patched_model_override(current: Option<&Value>, patch: Option<&Value>) -> Result<Option<Obj>, Failure> {
+    if patch.is_some_and(Value::is_null) {
+        return Ok(None);
+    }
+    let mut rest = plain_patch(patch.unwrap_or(&Value::Null), &MODEL_PATCH_KEYS, "model patch")?.clone();
+    let reasoning = rest.shift_remove("reasoning");
+    let mut next = apply_tri_state(current, &rest);
+    if let Some(reasoning) = &reasoning {
+        merge_reasoning_patch(&mut next, reasoning)?;
+    }
+    Ok(Some(next).filter(|next| !next.is_empty()))
+}
+
+/// Applies a `reasoning` patch to `next`. The supplied values are validated as sent, before any pruning can hide a
+/// malformed mapping; new levels retire the wire values of levels they no longer list.
+fn merge_reasoning_patch(next: &mut Obj, reasoning: &Value) -> Result<(), Failure> {
+    if !reasoning.is_null() {
+        plain_patch(reasoning, &REASONING_PATCH_KEYS, "reasoning patch")?;
+        assert_reasoning_patch(reasoning).map_err(Failure::error)?;
+    }
+    let mut merged = if reasoning.is_null() {
+        Obj::new()
+    } else {
+        apply_tri_state(next.get("reasoning"), plain_patch(reasoning, &REASONING_PATCH_KEYS, "reasoning patch")?)
+    };
+    if let (Some(levels), Some(values)) = (reasoning.get("levels").and_then(Value::as_array), merged.get("wireValues").and_then(Value::as_object)) {
+        let kept: HashSet<Option<&str>> = levels.iter().map(canonical_reasoning_level).collect();
+        let wire: Obj = values
+            .iter()
+            .filter(|(level, _)| kept.contains(&mixdog_ai::providers::custom::reasoning::canonical_level(level)))
+            .map(|(level, value)| (level.clone(), value.clone()))
+            .collect();
+        if wire.is_empty() {
+            merged.shift_remove("wireValues");
+        } else {
+            merged.insert("wireValues".into(), Value::Object(wire));
+        }
+    }
+    next.shift_remove("reasoning");
+    if !merged.is_empty() {
+        next.insert("reasoning".into(), Value::Object(merged));
+    }
+    Ok(())
 }
 
 /// `plainPatch`.
@@ -417,6 +451,41 @@ fn is_keyless(config: Option<&Value>, entry: &Value) -> bool {
     config.and_then(|c| c.get("auth")).or_else(|| entry.get("auth")).and_then(Value::as_str) == Some("none")
 }
 
+struct KeyState {
+    env_set: bool,
+    stored: bool,
+    status: &'static str,
+    detail: String,
+    authenticated: bool,
+}
+
+/// Where a custom provider's key comes from and what the row says of it: the variable it names, else the stored key.
+fn key_state<F: CustomFacts + ?Sized>(facts: &F, id: &str, api_key_env: &str, keyless: bool, configured_enabled: bool, check_secrets: bool) -> KeyState {
+    let env_set = !api_key_env.is_empty() && facts.env(api_key_env).is_some_and(|value| !value.is_empty());
+    let account = api_key_account(id);
+    let stored = check_secrets && facts.has_stored_secret(&account);
+    let unstored_status = if configured_enabled { "No Key" } else { "Off" };
+    let mut status = if stored { "Set" } else { unstored_status };
+    let located = if facts.is_fallback_secret(&account) { "stored in private file" } else { "stored in keychain" };
+    let mut detail = if stored { located } else { "custom endpoint" }.to_owned();
+    if !api_key_env.is_empty() {
+        status = if env_set { "Env" } else { unstored_status };
+        detail = api_key_env.to_owned();
+    }
+    if keyless {
+        status = if configured_enabled { "Keyless" } else { "Off" };
+        detail = "no API key required".into();
+    }
+    let key_authenticated = if !api_key_env.is_empty() {
+        env_set
+    } else if check_secrets {
+        stored
+    } else {
+        configured_enabled
+    };
+    KeyState { env_set, stored, status, detail, authenticated: keyless || key_authenticated }
+}
+
 /// `customProviderRow(id, entry, checkSecrets)`: the secret-free public view of a custom provider,
 /// always in the v2 shape. `models` are the rows known without network I/O (manual models with
 /// their overrides). With `check_secrets` false the keychain is not read: nothing is stored, and a
@@ -430,28 +499,7 @@ pub fn custom_provider_row<F: CustomFacts + ?Sized>(facts: &F, id: &str, entry: 
     let keyless = is_keyless(config.as_ref(), entry);
     let api_key_env =
         if keyless { String::new() } else { config.as_ref().and_then(|c| c.get("apiKeyEnv")).and_then(Value::as_str).unwrap_or_default().to_owned() };
-    let env_set = !api_key_env.is_empty() && facts.env(&api_key_env).is_some_and(|value| !value.is_empty());
-    let account = api_key_account(id);
-    let stored = check_secrets && facts.has_stored_secret(&account);
-    let unstored_status = if configured_enabled { "No Key" } else { "Off" };
-    let mut status = if stored { "Set" } else { unstored_status };
-    let located = if facts.is_fallback_secret(&account) { "stored in private file" } else { "stored in keychain" };
-    let mut detail = if stored { located } else { "custom endpoint" }.to_owned();
-    if !api_key_env.is_empty() {
-        status = if env_set { "Env" } else { unstored_status };
-        detail = api_key_env.clone();
-    }
-    if keyless {
-        status = if configured_enabled { "Keyless" } else { "Off" };
-        detail = "no API key required".into();
-    }
-    let key_authenticated = if !api_key_env.is_empty() {
-        env_set
-    } else if check_secrets {
-        stored
-    } else {
-        configured_enabled
-    };
+    let KeyState { env_set, stored, status, detail, authenticated } = key_state(facts, id, &api_key_env, keyless, configured_enabled, check_secrets);
     let mut row = Obj::new();
     row.insert("id".into(), json!(id));
     for key in ["name", "protocol", "baseURL"] {
@@ -464,7 +512,7 @@ pub fn custom_provider_row<F: CustomFacts + ?Sized>(facts: &F, id: &str, entry: 
     row.insert("group".into(), json!("api"));
     row.insert("type".into(), json!("api-key"));
     row.insert("enabled".into(), json!(configured_enabled));
-    row.insert("authenticated".into(), json!(keyless || key_authenticated));
+    row.insert("authenticated".into(), json!(authenticated));
     row.insert("stored".into(), json!(stored));
     row.insert("env".into(), json!(env_set));
     row.insert("envName".into(), if api_key_env.is_empty() { Value::Null } else { json!(api_key_env) });
@@ -1026,61 +1074,16 @@ impl CustomAdmin {
         if model.is_empty() {
             return Err(Failure::type_error("model id is required"));
         }
-        // The provider is read, patched and saved in one transaction, so a concurrent update can
-        // never be overwritten by a provider object read earlier.
         let at = id.clone();
         let saved = self
             .edit(move |agent| {
                 let entry = existing_entry(agent, &at)?;
                 let current = normalize(&entry).map_err(Failure::error)?;
                 let mut overrides = current.get("modelOverrides").and_then(Value::as_object).cloned().unwrap_or_default();
-                if patch.as_ref().is_some_and(Value::is_null) {
-                    overrides.shift_remove(&model);
-                } else {
-                    // An absent patch is `plainPatch(undefined)`.
-                    let patch = plain_patch(patch.as_ref().unwrap_or(&Value::Null), &MODEL_PATCH_KEYS, "model patch")?;
-                    let mut rest = patch.clone();
-                    let reasoning = rest.shift_remove("reasoning");
-                    let mut next = apply_tri_state(overrides.get(&model), &rest);
-                    // The supplied reasoning values are validated as sent, before any pruning can
-                    // hide a malformed mapping.
-                    if let Some(supplied) = reasoning.as_ref().filter(|r| !r.is_null()) {
-                        plain_patch(supplied, &REASONING_PATCH_KEYS, "reasoning patch")?;
-                        assert_reasoning_patch(supplied).map_err(Failure::error)?;
-                    }
-                    if let Some(reasoning) = &reasoning {
-                        let mut merged = if reasoning.is_null() {
-                            Obj::new()
-                        } else {
-                            apply_tri_state(next.get("reasoning"), plain_patch(reasoning, &REASONING_PATCH_KEYS, "reasoning patch")?)
-                        };
-                        // New levels retire the wire values of levels they no longer list.
-                        if let (Some(levels), Some(values)) =
-                            (reasoning.get("levels").and_then(Value::as_array), merged.get("wireValues").and_then(Value::as_object))
-                        {
-                            let kept: HashSet<Option<&str>> = levels.iter().map(canonical_reasoning_level).collect();
-                            let wire: Obj = values
-                                .iter()
-                                .filter(|(level, _)| kept.contains(&mixdog_ai::providers::custom::reasoning::canonical_level(level)))
-                                .map(|(level, value)| (level.clone(), value.clone()))
-                                .collect();
-                            if wire.is_empty() {
-                                merged.shift_remove("wireValues");
-                            } else {
-                                merged.insert("wireValues".into(), Value::Object(wire));
-                            }
-                        }
-                        next.shift_remove("reasoning");
-                        if !merged.is_empty() {
-                            next.insert("reasoning".into(), Value::Object(merged));
-                        }
-                    }
-                    if next.is_empty() {
-                        overrides.shift_remove(&model);
-                    } else {
-                        overrides.insert(model.clone(), Value::Object(next));
-                    }
-                }
+                match patched_model_override(overrides.get(&model), patch.as_ref())? {
+                    Some(next) => overrides.insert(model.clone(), Value::Object(next)),
+                    None => overrides.shift_remove(&model),
+                };
                 let mut next_config = current.as_object().cloned().unwrap_or_default();
                 next_config.insert("modelOverrides".into(), Value::Object(overrides));
                 let config = normalize(&Value::Object(next_config)).map_err(Failure::error)?;

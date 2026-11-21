@@ -431,30 +431,30 @@ fn summarize_state_tool_args(normalized: &str, a: &Value, max: usize) -> String 
             or_text(a, &["action", "type", "operation", "op"], "memory"),
             truncate_tool_text(&first_text_of(a, &["query", "summary", "element", "key", "name", "text", "value"]), max.min(80)),
         ]),
-        "recall" | "search_memories" => {
-            let ids: Vec<String> = match field(a, "id") {
-                Some(Value::Array(items)) => items.iter().collect::<Vec<_>>(),
-                other => vec![other.unwrap_or(&Value::Null)],
-            }
-            .into_iter()
-            .filter(|id| !id.is_null() && !matches!(id, Value::String(text) if text.is_empty()))
-            .map(|id| format!("#{}", value_to_string(id)))
-            .collect();
-            let queries: Vec<&Value> = match field(a, "query") {
-                Some(Value::Array(items)) => items.iter().collect::<Vec<&Value>>(),
-                _ => vec![coalesce(a, &["query", "text", "input"]).unwrap_or(&Value::Null)],
-            }
-            .into_iter()
-            .filter(|query| !query.is_null() && !js_trim(&value_to_string(query)).is_empty())
-            .collect();
-            let shown =
-                if queries.len() > 1 { format_counted_unit(queries.len() as f64, "query", "queries") } else { quoted_value(queries.first().copied(), max) };
-            let top =
-                if truthy(field(a, "limit")) || truthy(field(a, "topK")) { format!("top {}", text_of(coalesce(a, &["limit", "topK"]))) } else { String::new() };
-            compact_parts(&[ids.join(", "), shown, top])
-        }
+        "recall" | "search_memories" => summarize_recall_args(a, max),
         _ => String::new(),
     }
+}
+
+fn summarize_recall_args(a: &Value, max: usize) -> String {
+    let ids: Vec<String> = match field(a, "id") {
+        Some(Value::Array(items)) => items.iter().collect::<Vec<_>>(),
+        other => vec![other.unwrap_or(&Value::Null)],
+    }
+    .into_iter()
+    .filter(|id| !id.is_null() && !matches!(id, Value::String(text) if text.is_empty()))
+    .map(|id| format!("#{}", value_to_string(id)))
+    .collect();
+    let queries: Vec<&Value> = match field(a, "query") {
+        Some(Value::Array(items)) => items.iter().collect::<Vec<&Value>>(),
+        _ => vec![coalesce(a, &["query", "text", "input"]).unwrap_or(&Value::Null)],
+    }
+    .into_iter()
+    .filter(|query| !query.is_null() && !js_trim(&value_to_string(query)).is_empty())
+    .collect();
+    let shown = if queries.len() > 1 { format_counted_unit(queries.len() as f64, "query", "queries") } else { quoted_value(queries.first().copied(), max) };
+    let top = if truthy(field(a, "limit")) || truthy(field(a, "topK")) { format!("top {}", text_of(coalesce(a, &["limit", "topK"]))) } else { String::new() };
+    compact_parts(&[ids.join(", "), shown, top])
 }
 
 /// The first two own keys of an arguments value as `key=value` (an array's keys are its indexes).
@@ -815,14 +815,26 @@ mod tests {
     }
 
     #[test]
-    fn bridge_and_state_tools() {
+    fn bridge_tools_read_their_nested_input() {
         assert_eq!(surface("browser", json!({ "action": "click", "input": { "ref": "e4", "tab": 2 } })).1, "click · e4 (tab 2)");
         assert_eq!(surface("browser", json!("{\"action\":\"open\",\"input\":{\"url\":\"https://x.y\"}}")).1, "open · https://x.y");
         assert_eq!(surface("computer", json!({ "action": "window", "input": { "operation": "list" } })).1, "window · list");
+    }
+
+    #[test]
+    fn memory_tools_summarise_their_query() {
         assert_eq!(surface("memory", json!({ "query": "tea" })).1, "memory · tea");
         assert_eq!(surface("recall", json!({ "id": [3, 4], "query": ["a", "b"], "limit": 2 })).1, "#3, #4 · 2 queries · top 2");
+    }
+
+    #[test]
+    fn github_actions_summarise_their_target() {
         assert_eq!(surface("github", json!({ "action": "pr.merge", "repo": "o/r", "number": 7 })).1, "Merge PR 7 · o/r");
         assert_eq!(surface("github", json!({ "action": "run.logs", "repo": "o/r" })).1, "Read run logs o/r");
+    }
+
+    #[test]
+    fn session_mcp_agent_and_unknown_tools_summarise() {
         assert_eq!(surface("session", json!({ "action": "rename", "title": "T" })), ("Setup".into(), "rename · T".into()));
         assert_eq!(surface("mcp__srv__do", json!({ "query": "q" })), ("MCP Srv".into(), "do · q".into()));
         assert_eq!(surface("unknown_tool", json!({ "a": 1, "b": [1], "c": "z" })).1, "a=1");

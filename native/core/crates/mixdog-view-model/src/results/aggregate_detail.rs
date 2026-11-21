@@ -100,128 +100,26 @@ pub fn format_aggregate_detail_steps(summaries: &[String], mut yield_point: impl
     if summaries.is_empty() {
         return String::new();
     }
-    let mut metrics: Vec<(String, Metric)> = Vec::new();
-    let mut order: Vec<Item> = Vec::new();
-    let mut extras: Vec<String> = Vec::new();
-
-    fn slot<'a>(metrics: &'a mut Vec<(String, Metric)>, order: &mut Vec<Item>, key: &str, initial: impl FnOnce() -> Metric) -> &'a mut Metric {
-        let at = match metrics.iter().position(|(known, _)| known == key) {
-            Some(at) => at,
-            None => {
-                metrics.push((key.to_owned(), initial()));
-                order.push(Item::Metric(key.to_owned()));
-                metrics.len() - 1
-            }
-        };
-        &mut metrics[at].1
-    }
-
+    let mut aggregate = Aggregate { metrics: Vec::new(), order: Vec::new(), extras: Vec::new() };
     for (index, raw) in summaries.iter().enumerate() {
         if (index + 1) % STEP == 0 {
             yield_point();
         }
         let text = js_trim(raw);
-        if text.is_empty() {
-            continue;
-        }
-        if let Some(found) = READ_LINES.captures(text) {
-            let n = string_to_number(found.get(1).unwrap_or_default());
-            if let Metric::ReadLines(count) = slot(&mut metrics, &mut order, "read_lines", || Metric::ReadLines(0.0)) {
-                *count += n;
-            }
-            continue;
-        }
-        if READ_IMAGE.is_match(text) {
-            if let Metric::ReadImages(count) = slot(&mut metrics, &mut order, "read_images", || Metric::ReadImages(0.0)) {
-                *count += 1.0;
-            }
-            continue;
-        }
-        if let Some(found) = FOUND_COUNT.captures(text) {
-            // The canonical singular keys the metric, so "48 matches" and "1 match" merge into "49 matches".
-            let singular = singular_noun(&mixdog_js::js_to_lowercase(found.get(2).unwrap_or_default()));
-            let plural = plural_noun(&singular);
-            let n = string_to_number(found.get(1).unwrap_or_default());
-            let key = format!("found_{singular}");
-            if let Metric::Found { count, .. } = slot(&mut metrics, &mut order, &key, || Metric::Found { count: 0.0, singular, plural }) {
-                *count += n;
-            }
-            continue;
-        }
-        if let Some(found) = UPDATED_DELTA.captures(text) {
-            let (a, r) = (string_to_number(found.get(1).unwrap_or_default()), string_to_number(found.get(2).unwrap_or_default()));
-            if let Metric::Updated { added, removed } = slot(&mut metrics, &mut order, "updated", || Metric::Updated { added: 0.0, removed: 0.0 }) {
-                *added += a;
-                *removed += r;
-            }
-            continue;
-        }
-        let update = parse_update_summary(text);
-        // Dry-run patch checks are validations, not edits: their line delta must NEVER be summed into the real edit total.
-        // A delta-less "Checked ..." text (a task or memory summary) falls through to the extras unchanged.
-        match &update {
-            Some(update) if update.action == "Checked" => {
-                if update.seen {
-                    if let Metric::CheckedFiles(metric) = slot(&mut metrics, &mut order, "checked_files", || Metric::CheckedFiles(FileMetric::default())) {
-                        metric.accumulate(update);
-                    }
-                    continue;
-                }
-            }
-            Some(update) => {
-                if let Metric::UpdatedFiles(metric) = slot(&mut metrics, &mut order, "updated_files", || Metric::UpdatedFiles(FileMetric::default())) {
-                    if !metric.actions.contains(&update.action) {
-                        metric.actions.push(update.action.clone());
-                    }
-                    metric.accumulate(update);
-                }
-                continue;
-            }
-            None => {}
-        }
-        if !text.is_empty() && !extras.iter().any(|known| known == text) {
-            extras.push(text.to_owned());
-            order.push(Item::Extra(text.to_owned()));
+        if !text.is_empty() {
+            aggregate.fold(text);
         }
     }
-
-    let edit_delta = metrics
-        .iter()
-        .find_map(|(key, metric)| match metric {
-            Metric::UpdatedFiles(files) if key == "updated_files" => Some(format_line_delta(&files.delta)),
-            _ => None,
-        })
-        .unwrap_or_default();
-    let render = |metric: &Metric| -> String {
-        match metric {
-            Metric::ReadLines(count) => counted(*count, "line", "lines"),
-            Metric::ReadImages(count) => counted(*count, "image", "images"),
-            Metric::Found { count, singular, plural } => counted(*count, singular, plural),
-            Metric::Updated { added, removed } => format!("+{} -{}", number_to_string(*added), number_to_string(*removed)),
-            Metric::CheckedFiles(files) => {
-                let target = files.target();
-                let delta = if edit_delta.is_empty() { format_line_delta(&files.delta) } else { String::new() };
-                if delta.is_empty() { format!("Checked {target}") } else { format!("Checked {target} · {delta}") }
-            }
-            // The aggregate header already carries the action and file count, so the detail row shows only the merged line
-            // delta; the action and target only when there is no delta to show (a pure create or delete).
-            Metric::UpdatedFiles(files) => {
-                let delta = format_line_delta(&files.delta);
-                if !delta.is_empty() {
-                    return delta;
-                }
-                let action = if files.actions.len() == 1 { files.actions[0].as_str() } else { "Updated" };
-                format!("{action} {}", files.target())
-            }
-        }
-    };
+    let edit_delta = aggregate.edit_delta();
     let mut joined = String::new();
-    for (index, item) in order.iter().enumerate() {
+    for (index, item) in aggregate.order.iter().enumerate() {
         if (index + 1) % STEP == 0 {
             yield_point();
         }
         let part = match item {
-            Item::Metric(key) => metrics.iter().find(|(known, _)| known == key).map(|(_, metric)| render(metric)).unwrap_or_default(),
+            Item::Metric(key) => {
+                aggregate.metrics.iter().find(|(known, _)| known == key).map(|(_, metric)| render_metric(metric, &edit_delta)).unwrap_or_default()
+            }
             Item::Extra(text) => text.clone(),
         };
         if !part.is_empty() {
@@ -232,6 +130,117 @@ pub fn format_aggregate_detail_steps(summaries: &[String], mut yield_point: impl
         }
     }
     joined
+}
+
+/// The summaries folded into metrics, with the order their first appearance fixes.
+struct Aggregate {
+    metrics: Vec<(String, Metric)>,
+    order: Vec<Item>,
+    extras: Vec<String>,
+}
+
+impl Aggregate {
+    fn slot(&mut self, key: &str, initial: impl FnOnce() -> Metric) -> &mut Metric {
+        let at = match self.metrics.iter().position(|(known, _)| known == key) {
+            Some(at) => at,
+            None => {
+                self.metrics.push((key.to_owned(), initial()));
+                self.order.push(Item::Metric(key.to_owned()));
+                self.metrics.len() - 1
+            }
+        };
+        &mut self.metrics[at].1
+    }
+
+    fn fold(&mut self, text: &str) {
+        if let Some(found) = READ_LINES.captures(text) {
+            let n = string_to_number(found.get(1).unwrap_or_default());
+            if let Metric::ReadLines(count) = self.slot("read_lines", || Metric::ReadLines(0.0)) {
+                *count += n;
+            }
+            return;
+        }
+        if READ_IMAGE.is_match(text) {
+            if let Metric::ReadImages(count) = self.slot("read_images", || Metric::ReadImages(0.0)) {
+                *count += 1.0;
+            }
+            return;
+        }
+        if let Some(found) = FOUND_COUNT.captures(text) {
+            let singular = singular_noun(&mixdog_js::js_to_lowercase(found.get(2).unwrap_or_default()));
+            let plural = plural_noun(&singular);
+            let n = string_to_number(found.get(1).unwrap_or_default());
+            let key = format!("found_{singular}");
+            if let Metric::Found { count, .. } = self.slot(&key, || Metric::Found { count: 0.0, singular, plural }) {
+                *count += n;
+            }
+            return;
+        }
+        if let Some(found) = UPDATED_DELTA.captures(text) {
+            let (a, r) = (string_to_number(found.get(1).unwrap_or_default()), string_to_number(found.get(2).unwrap_or_default()));
+            if let Metric::Updated { added, removed } = self.slot("updated", || Metric::Updated { added: 0.0, removed: 0.0 }) {
+                *added += a;
+                *removed += r;
+            }
+            return;
+        }
+        match parse_update_summary(text) {
+            Some(update) if update.action == "Checked" => {
+                if update.seen {
+                    if let Metric::CheckedFiles(metric) = self.slot("checked_files", || Metric::CheckedFiles(FileMetric::default())) {
+                        metric.accumulate(&update);
+                    }
+                    return;
+                }
+            }
+            Some(update) => {
+                if let Metric::UpdatedFiles(metric) = self.slot("updated_files", || Metric::UpdatedFiles(FileMetric::default())) {
+                    if !metric.actions.contains(&update.action) {
+                        metric.actions.push(update.action.clone());
+                    }
+                    metric.accumulate(&update);
+                }
+                return;
+            }
+            None => {}
+        }
+        if !self.extras.iter().any(|known| known == text) {
+            self.extras.push(text.to_owned());
+            self.order.push(Item::Extra(text.to_owned()));
+        }
+    }
+
+    fn edit_delta(&self) -> String {
+        self.metrics
+            .iter()
+            .find_map(|(key, metric)| match metric {
+                Metric::UpdatedFiles(files) if key == "updated_files" => Some(format_line_delta(&files.delta)),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+}
+
+fn render_metric(metric: &Metric, edit_delta: &str) -> String {
+    match metric {
+        Metric::ReadLines(count) => counted(*count, "line", "lines"),
+        Metric::ReadImages(count) => counted(*count, "image", "images"),
+        Metric::Found { count, singular, plural } => counted(*count, singular, plural),
+        Metric::Updated { added, removed } => format!("+{} -{}", number_to_string(*added), number_to_string(*removed)),
+        Metric::CheckedFiles(files) => {
+            let target = files.target();
+            let delta = if edit_delta.is_empty() { format_line_delta(&files.delta) } else { String::new() };
+            if delta.is_empty() { format!("Checked {target}") } else { format!("Checked {target} · {delta}") }
+        }
+        Metric::UpdatedFiles(files) => {
+            let delta = format_line_delta(&files.delta);
+            if !delta.is_empty() {
+                return delta;
+            }
+            let action = if files.actions.len() == 1 { files.actions[0].as_str() } else { "Updated" };
+            format!("{action} {}", files.target())
+        }
+    }
 }
 
 #[cfg(test)]

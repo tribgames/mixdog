@@ -37,13 +37,15 @@ fn hook_handler(raw: Value) -> mixdog_mcp::hooks::HookHandler {
     mixdog_mcp::hooks::HookHandler { raw, source: std::path::PathBuf::new(), plugin_root: None, plugin_data: None, untrusted: false }
 }
 
-const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
+fn mock_bin() -> String {
+    mixdog_testkit::bin_exe!("mixdog-mcp-mock-server")
+}
 fn io() -> McpIo {
     let tokens = mixdog_rt::testing::tokens();
     McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk }
 }
 fn config(name: &str, extra: Value) -> McpServerConfig {
-    let mut entry = json!({"command": MOCK});
+    let mut entry = json!({"command": mock_bin()});
     entry.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
     let env = std::env::vars().collect();
     McpServerConfig::from_entry(name, &entry, &env).unwrap()
@@ -354,10 +356,8 @@ async fn list_changed_from_a_server_that_did_not_advertise_it_is_ignored() {
         server.close().await;
     }
 }
-#[tokio::test(flavor = "multi_thread")]
-async fn a_hung_or_missing_server_never_blocks_another() {
-    let dir = tempfile::tempdir().unwrap();
-    let hub = McpHub::new(io(), dir.path().to_path_buf(), OutputPolicy::default());
+async fn hub_of_good_busy_and_missing(dir: &std::path::Path) -> Arc<McpHub> {
+    let hub = McpHub::new(io(), dir.to_path_buf(), OutputPolicy::default());
     let mut missing = config("missing", json!({}));
     missing.transport = mixdog_mcp::config::TransportConfig::Stdio {
         command: "mixdog-definitely-not-installed".to_owned(),
@@ -370,11 +370,16 @@ async fn a_hung_or_missing_server_never_blocks_another() {
     for name in ["good", "busy", "missing"] {
         until(&hub.server(name).unwrap(), |s| !matches!(s, ServerState::Starting)).await;
     }
+    hub
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hung_or_missing_server_never_blocks_another() {
+    let dir = tempfile::tempdir().unwrap();
+    let hub = hub_of_good_busy_and_missing(dir.path()).await;
     let status = hub.status();
     assert!(status.iter().find(|s| s.name == "missing").unwrap().state.starts_with("failed"));
     assert_eq!(status.iter().find(|s| s.name == "good").unwrap().state, "ready");
 
-    // `busy` has a call that never returns; `good` answers regardless.
     let busy = hub.server("busy").unwrap();
     let cancel = CancellationToken::new();
     let hanging = {
@@ -386,7 +391,12 @@ async fn a_hung_or_missing_server_never_blocks_another() {
     assert_eq!(echoed.expect("not blocked by the hung server").unwrap(), "fast");
     cancel.cancel();
     assert!(matches!(hanging.await.unwrap(), Err(CallError::Rpc(RpcError::Cancelled))));
-
+    hub.close_all().await;
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_published_tool_resolves_by_its_servers_name_and_reports_its_outbound_kind() {
+    let dir = tempfile::tempdir().unwrap();
+    let hub = hub_of_good_busy_and_missing(dir.path()).await;
     let tools = hub.tools();
     assert!(tools.iter().any(|t| t.spec().name == "mcp__good__echo"));
     assert!(tools.iter().any(|t| t.spec().name == "mcp__busy__echo"));
@@ -431,10 +441,6 @@ async fn applying_the_unchanged_configuration_of_a_failed_server_connects_it_aga
     assert!(Arc::ptr_eq(&again, &hub.server("files").unwrap()), "a connected server is kept");
     hub.close_all().await;
 }
-/// A scope is a key into the one hub (Node's registry key `scope\0name`, `mcp/client.mjs:110-118`): the
-/// servers connected under it are its tools and its lookups only, an empty id is the default scope, a
-/// scope never connected has nothing, and releasing a scope (`disconnectAll({ scopeId })`) closes its
-/// servers and leaves every other scope's running.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_scope_holds_its_own_servers_and_releasing_it_closes_only_them() {
     let dir = tempfile::tempdir().unwrap();
@@ -472,10 +478,6 @@ async fn a_scope_holds_its_own_servers_and_releasing_it_closes_only_them() {
     hub.close_all().await;
     assert!(!hub.has_scope("global") && !hub.has_scope("runtime-b"));
 }
-/// `_sharedStdio` (mcp/client.mjs:80-87; `stdio-lifetime.slow.test.mjs`, "share one process tree" and "ending one session
-/// keeps"): scopes that connect the same stdio server with the same configuration share one process; a scope that lets
-/// it go leaves it to the others, and the last one closes it. A configuration of its own is a process of its own, and a
-/// shared connection that ended by itself is connected again in place, for every scope holding it.
 #[tokio::test(flavor = "multi_thread")]
 async fn scopes_with_the_same_stdio_configuration_share_one_process_until_the_last_lets_it_go() {
     let dir = tempfile::tempdir().unwrap();
@@ -519,10 +521,6 @@ async fn scopes_with_the_same_stdio_configuration_share_one_process_until_the_la
     assert_eq!(starts(&counted), 4);
     hub.close_all().await;
 }
-/// `callAdmissionFor` and `closeCallAdmission` (mcp/client.mjs:340-370): Node keys a call's admission gate by scope and
-/// server name, so a connection the scopes share admits each scope's calls by that scope's gate. With `maxConcurrency` 1,
-/// a call one scope has hanging does not hold up another scope's; a scope that lets the connection go has its waiting
-/// calls refused, while the other scope keeps the connection.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_shared_connection_admits_each_scopes_calls_by_that_scopes_gate() {
     let dir = tempfile::tempdir().unwrap();

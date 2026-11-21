@@ -1,20 +1,7 @@
-//! `authoring/pptx-author-action.mjs`: the `author` action for a `.pptx` target.
-//!
-//! The source is HTML (it opens with markup) or a pptxgenjs script; with neither the deck is built again from
-//! `<deck>.pptx.mixdog-source.html`, so a fix is an edit to that file and not the whole deck sent again. The deck is written
-//! into a staging path on the target's filesystem and the gates read it there: the HTML's own geometry, the figures against
-//! the fact sheet and the pages against the plan that was written before them. It lands over the target only when they hold,
-//! and is then opened as a session, measured by the inline audit, rendered, and for an HTML deck held against the browser's
-//! own picture of the same page.
-//!
-//! The design guide lives in the built-in `pptx` skill; the action never serves it, so one copy stays authoritative and
-//! user-overridable.
-
 use std::path::{Path, PathBuf};
 
 use mixdog_js::value_to_string;
 use mixdog_office_author::brief::{facts_gate, html_brief_script, parse_authoring_brief, plan_gate};
-use mixdog_office_author::html_browser::RunError;
 use mixdog_office_author::pptx_html_runner::html_artifacts;
 use mixdog_office_base::formats::document_format;
 use mixdog_office_base::values::truthy;
@@ -339,6 +326,21 @@ async fn compare_with_html<H: AuthorHost>(host: &H, target: &str, run: &Value, r
     let shots = run.get("htmlShots").cloned().unwrap_or(Value::Null);
     let compare = host.write_html_comparisons(Path::new(target), &shots, &images).await?;
     let drift = host.measure_html_drift(&shots, run.get("htmlText").unwrap_or(&Value::Null), &images).await?;
+    let drift_notes = describe_drift(&drift);
+    if let Some(Value::Object(render)) = result.get_mut("render") {
+        render.insert("compare".into(), Value::Array(compare));
+        render.insert("drift".into(), drift);
+    }
+    let previous = result.get("nextAction").map(value_to_string).unwrap_or_default();
+    result.insert(
+        "nextAction".into(),
+        Value::String(format!("{previous} render.compare holds one image per page, the HTML (left) beside the PPTX render (right): open a page's pair when its render differs from what the HTML drew.{drift_notes}")),
+    );
+    Ok(())
+}
+
+/// The next-action sentences for the drift record: the text that moved, and the pages whose drift was not read.
+fn describe_drift(drift: &Value) -> String {
     let moved: Vec<String> = drift
         .get("pages")
         .and_then(Value::as_array)
@@ -381,16 +383,7 @@ async fn compare_with_html<H: AuthorHost>(host: &H, target: &str, run: &Value, r
         ),
         None => String::new(),
     };
-    if let Some(Value::Object(render)) = result.get_mut("render") {
-        render.insert("compare".into(), Value::Array(compare));
-        render.insert("drift".into(), drift);
-    }
-    let previous = result.get("nextAction").map(value_to_string).unwrap_or_default();
-    result.insert(
-        "nextAction".into(),
-        Value::String(format!("{previous} render.compare holds one image per page, the HTML (left) beside the PPTX render (right): open a page's pair when its render differs from what the HTML drew.{drifted}{unread}")),
-    );
-    Ok(())
+    format!("{drifted}{unread}")
 }
 
 async fn finish_authored_deck<H: AuthorHost>(
@@ -474,11 +467,7 @@ async fn stage_and_land<H: AuthorHost>(
     throw_if_authoring_cancelled(signal, None)?;
     let target_path = Path::new(target);
     let run = if html {
-        match host.run_pptx_html(script, staging, target_path, signal, false).await {
-            Ok(run) => run,
-            Err(RunError::Cancelled) => return Err(AuthorError::Abort("Office authoring was cancelled".to_owned())),
-            Err(RunError::Failed(message)) => return Err(AuthorError::Failed(message)),
-        }
+        host.run_pptx_html(script, staging, target_path, signal, false).await?
     } else {
         host.run_pptx_script(script, staging, target_path.parent().unwrap_or_else(|| Path::new(""))).await?
     };
@@ -556,4 +545,25 @@ pub async fn author_pptx<H: AuthorHost>(host: &H, args: &Value, call: &AuthorCal
         fields.insert("replacedEdits".into(), edits);
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drift_names_the_text_that_moved_and_the_pages_that_were_not_read() {
+        let drift = json!({
+            "threshold": 4,
+            "pages": [{ "page": 2, "items": [{ "text": "Q4", "dy": 9, "dx": 0 }] }],
+            "unreadPages": [5, 6],
+        });
+        let notes = describe_drift(&drift);
+        assert!(notes.starts_with(" html_render_drift: text PowerPoint drew more than 4px from where the HTML put it (slide 2: \"Q4\" dy 9 dx 0);"), "{notes}");
+        assert!(
+            notes.ends_with(" Pages 5, 6 were rendered in shared images, so their drift was not read; render them in batches of 12 or fewer to read it."),
+            "{notes}"
+        );
+        assert_eq!(describe_drift(&json!({ "pages": [], "unreadPages": [] })), "");
+    }
 }

@@ -1,4 +1,4 @@
-//! A bot's emoji reaction on a message the user wrote (`session/message-reactions.mjs`): stored
+//! A bot's emoji reaction on a message the user wrote: stored
 //! on the message as `meta.transcript.reactions` (`[{ agentId, emoji, at }]`, one per bot), so it
 //! travels with the transcript. Pure functions over stored messages; the actor writes the result.
 
@@ -70,29 +70,25 @@ pub(super) struct Reacted {
     pub message: Option<Value>,
 }
 
-/// `reactToMessage`: set (or, with `""`, remove) `agent_id`'s reaction on the user message
-/// `messages_back` user messages before the newest one in `messages`. One reaction per bot: a new
-/// one takes the place of the old. The error is Node's message.
-pub(super) fn react_to_message(messages: &[Value], change: &Change<'_>) -> Result<Reacted, String> {
+fn reactable_index(messages: &[Value], messages_back: u64) -> Result<usize, String> {
     let mut seen: u64 = 0;
-    let mut found = None;
     for (index, message) in messages.iter().enumerate().rev() {
         if !is_reactable_message(message) {
             continue;
         }
-        if seen == change.messages_back {
-            found = Some(index);
-            break;
+        if seen == messages_back {
+            return Ok(index);
         }
         seen += 1;
     }
-    let Some(index) = found else {
-        return Err(if seen > 0 {
-            format!("react: there are only {seen} user messages to react to")
-        } else {
-            "react: there is no user message to react to".to_owned()
-        });
-    };
+    Err(if seen > 0 { format!("react: there are only {seen} user messages to react to") } else { "react: there is no user message to react to".to_owned() })
+}
+
+/// Set (or, with `""`, remove) `agent_id`'s reaction on the user message `messages_back` user
+/// messages before the newest one in `messages`. One reaction per bot: a new one takes the place
+/// of the old.
+pub(super) fn react_to_message(messages: &[Value], change: &Change<'_>) -> Result<Reacted, String> {
+    let index = reactable_index(messages, change.messages_back)?;
     let previous = &messages[index];
     let transcript = &previous["meta"]["transcript"];
     let current = normalize_reactions(transcript.get("reactions"));
@@ -128,4 +124,30 @@ pub(super) fn react_to_message(messages: &[Value], change: &Change<'_>) -> Resul
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+
+    fn user(id: &str) -> Value {
+        json!({ "role": "user", "content": "hello", "meta": { "transcript": { "messageId": id } } })
+    }
+
+    fn change(messages_back: u64) -> Change<'static> {
+        Change { agent_id: "rev", emoji: "👍", messages_back, others_keep: false, at: 7 }
+    }
+
+    #[test]
+    fn no_user_message_is_refused_with_the_no_message_text() {
+        let assistant = json!({ "role": "assistant", "content": "hi" });
+        assert_eq!(react_to_message(&[assistant], &change(0)).err().as_deref(), Some("react: there is no user message to react to"));
+    }
+
+    #[test]
+    fn messages_back_counts_user_messages_from_the_newest() {
+        let messages = [user("m1"), json!({ "role": "assistant", "content": "hi" }), user("m2")];
+        let newest = react_to_message(&messages, &change(0)).expect("newest");
+        let older = react_to_message(&messages, &change(1)).expect("older");
+        assert_eq!((newest.index, newest.message_id.as_str()), (2, "m2"));
+        assert_eq!((older.index, older.message_id.as_str()), (0, "m1"));
+        assert_eq!(react_to_message(&messages, &change(2)).err().as_deref(), Some("react: there are only 2 user messages to react to"));
+    }
+}

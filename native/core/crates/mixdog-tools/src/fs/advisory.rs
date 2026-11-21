@@ -1,8 +1,6 @@
 //! Node's cross-process advisory lock (`builtin/advisory-lock.mjs`): a lock file created
 //! exclusively in the user's local mixdog directory, named by the hash of the target's real
 //! location, whose holder is probed for liveness so a crashed process never wedges its path.
-//! Every `std::fs` call is the body of a durability-lane job, except the release in `Drop`,
-//! which cannot await one.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every std::fs call is a durability-lane job body, bar the one unlink in Drop")]
 
 use std::ffi::OsString;

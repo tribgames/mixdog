@@ -62,10 +62,8 @@ fn content_print_area(sheet: &Com) -> Result<String> {
     Ok(string_of_com(&get_with(&area, "Address", &[Com::Bool(true), Com::Bool(true), Com::I4(1)])?))
 }
 
-/// `Set-ExcelSheetOnePageWide`: a chart or picture beside a table is wider than a portrait page. A sheet that declares no fit,
-/// print scale, or print area takes one page wide and keeps paging down (a fit only scales down, so a small sheet prints as
-/// before); a declared setup is the author's and stays. Answers the fit applied. `PageSetup` needs a printer driver: without one
-/// the sheet is left as it is.
+/// A sheet that declares no fit, print scale, or print area takes one page wide and keeps paging down; a declared setup
+/// stays. Answers the fit applied. `PageSetup` needs a printer driver: without one the sheet is left as it is.
 pub(super) fn set_one_page_wide(sheet: &Com) -> Option<&'static str> {
     attempt(|| -> Result<Option<&'static str>> {
         let setup = sheet.member("PageSetup")?;
@@ -164,11 +162,9 @@ fn spilling_cells(book: &Com, sheet: &Com, target: &Com) -> Result<Vec<Com>> {
     Ok(spilling)
 }
 
-/// `autofit_range`: the columns fit the cells of the range only, as the portable writer measures them (fitting the entire
-/// columns sized a report's table column to the long subtitle above it), then its rule: two characters of air past the text, a
-/// floor of 8 (`minWidth` when a composed layout asks for one) and a ceiling of 80. A column with nothing in the range keeps its
-/// width unless a floor was asked for. A row fit names rows (1:12): fitting columns there would rewrite widths the caller never
-/// asked about, so only a range naming columns fits them.
+/// `autofit_range`: the columns fit the cells of the range only: two characters of air past the text, a floor of 8
+/// (`minWidth` when asked for) and a ceiling of 80. A column with nothing in the range keeps its width unless a floor was
+/// asked for. Only a range naming columns fits them; a row range (1:12) changes nothing.
 pub(super) fn autofit_range(book: &Com, op: &Value) -> Result<Value> {
     let sheet = excel_sheet(book, op)?;
     let target = range_of(&sheet, &text_of(op, "range"))?;

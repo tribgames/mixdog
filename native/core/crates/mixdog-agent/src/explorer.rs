@@ -34,6 +34,8 @@ use crate::one_shot::isolated_env;
 use crate::run::Run;
 use crate::run::RunCarry;
 use crate::run::RunConfig;
+use crate::run::RunFailure;
+use crate::run::RunOutput;
 use crate::tools::ToolEnv;
 use crate::tools::ToolSet;
 
@@ -223,25 +225,7 @@ impl ExploreRunner for AgentExplorer {
         system.message.role = Role::System;
         let messages = vec![system, AgentMessage::user(run.query)];
 
-        // `sharedPrefixProviderCacheOpts`: the explorer's breakpoints ride `model_parameters.cacheStrategy`, where the
-        // Anthropic body reads them.
-        let mut model_parameters = route.model_parameters.clone();
-        if let Some(strategy) = crate::cache_scope::shared_prefix_strategy(route.provider.id().as_str()) {
-            let parameters = model_parameters.get_or_insert_with(|| JsonValue::Object(Default::default()));
-            if let Some(parameters) = parameters.as_object_mut() {
-                parameters.insert("cacheStrategy".to_owned(), strategy);
-            }
-        }
-        // No session id: nothing session-keyed is created for an explorer.
-        let options = mixdog_core_api::domain::provider::RequestOptions {
-            effort: route.effort.clone(),
-            fast: route.fast,
-            model_parameters,
-            // `ownerSessionId: ctx.callerSessionId`: the thread that called `explore`.
-            parent_session_id: route.owner_session_id.clone().or_else(|| Some(run.thread.as_str().to_owned())),
-            prompt_cache_scope: Some(crate::cache_scope::SHARED.to_owned()),
-            ..Default::default()
-        };
+        let options = request_options(&route, run.thread.as_str());
         let mut tool_env = self.tool_env.clone();
         tool_env.thread_id = run.thread.clone();
         tool_env.cwd = run.cwd.clone();
@@ -267,19 +251,41 @@ impl ExploreRunner for AgentExplorer {
         timer.cancel();
         let late = fired.load(Ordering::SeqCst);
 
-        match outcome {
-            Ok(output) => {
-                let text = mixdog_js::js_trim(&output.response.content).to_owned();
-                if text.is_empty() && late {
-                    return Err(ExploreFailure::TimedOut);
-                }
-                Ok(ExploreAnswer { text, late })
-            }
-            Err(failure) if late => {
-                let partial = salvage(&failure.transcript, &streamed.text());
-                if partial.is_empty() { Err(ExploreFailure::TimedOut) } else { Ok(ExploreAnswer { text: partial, late: true }) }
-            }
-            Err(failure) => Err(ExploreFailure::Message(failure.error.to_string())),
+        answer_of(outcome, late, &streamed.text())
+    }
+}
+
+fn request_options(route: &ExplorerRoute, caller_thread: &str) -> mixdog_core_api::domain::provider::RequestOptions {
+    let mut model_parameters = route.model_parameters.clone();
+    if let Some(strategy) = crate::cache_scope::shared_prefix_strategy(route.provider.id().as_str()) {
+        let parameters = model_parameters.get_or_insert_with(|| JsonValue::Object(Default::default()));
+        if let Some(parameters) = parameters.as_object_mut() {
+            parameters.insert("cacheStrategy".to_owned(), strategy);
         }
+    }
+    mixdog_core_api::domain::provider::RequestOptions {
+        effort: route.effort.clone(),
+        fast: route.fast,
+        model_parameters,
+        parent_session_id: route.owner_session_id.clone().or_else(|| Some(caller_thread.to_owned())),
+        prompt_cache_scope: Some(crate::cache_scope::SHARED.to_owned()),
+        ..Default::default()
+    }
+}
+
+fn answer_of(outcome: Result<RunOutput, RunFailure>, late: bool, streamed: &str) -> Result<ExploreAnswer, ExploreFailure> {
+    match outcome {
+        Ok(output) => {
+            let text = mixdog_js::js_trim(&output.response.content).to_owned();
+            if text.is_empty() && late {
+                return Err(ExploreFailure::TimedOut);
+            }
+            Ok(ExploreAnswer { text, late })
+        }
+        Err(failure) if late => {
+            let partial = salvage(&failure.transcript, streamed);
+            if partial.is_empty() { Err(ExploreFailure::TimedOut) } else { Ok(ExploreAnswer { text: partial, late: true }) }
+        }
+        Err(failure) => Err(ExploreFailure::Message(failure.error.to_string())),
     }
 }

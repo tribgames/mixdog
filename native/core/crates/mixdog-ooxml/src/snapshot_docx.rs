@@ -12,7 +12,7 @@ use mixdog_js::{js_to_lowercase, json_number, math, string_to_number, to_number_
 use mixdog_office_base::values::truthy;
 use serde_json::{Map, Value, json};
 
-use crate::docx_revisions::{RevisionKind, count_docx_property_changes, docx_revision_tree, flatten_docx_revisions};
+use crate::docx_revisions::{RevisionKind, RevisionSpan, count_docx_property_changes, docx_revision_tree, flatten_docx_revisions};
 use crate::opc::relationship_map;
 use crate::snapshot_shared::{docx_paragraph_spacing, docx_run_font, next_page_offset, soft_break_facts, stated_run_font};
 use crate::xml::{
@@ -803,45 +803,52 @@ fn docx_revisions(model: &mut DocxBodyModel, story_xml: &[(String, String)]) -> 
                 Some(found) => format!("/body/tbl[{}]{}", model.blocks[found].logical_index, location.suffix),
                 None => String::new(),
             };
-            let text_tag = if span.kind == RevisionKind::Insertion { "w:t" } else { "w:delText" };
-            let mut revision = Map::new();
-            revision.insert("path".to_owned(), Value::String(format!("/body/revision[{}]", revisions.len() + 1)));
-            revision.insert("index".to_owned(), Value::from(revisions.len() + 1));
-            revision.insert("id".to_owned(), Value::String(xml_decode(&span.id)));
-            revision.insert("author".to_owned(), Value::String(span.author.clone()));
-            revision.insert("date".to_owned(), Value::String(xml_decode(&span.date)));
-            revision.insert("type".to_owned(), Value::String(revision_type(&span.tag).to_owned()));
-            revision.insert("text".to_owned(), Value::String(block_text(&xml[span.inner_start..span.inner_end], text_tag)));
-            if !span.children.is_empty() {
-                revision.insert("nested".to_owned(), Value::from(span.children.len()));
-            }
-            if !at.is_empty() {
-                revision.insert("at".to_owned(), Value::String(at));
-            }
-            revision.insert("part".to_owned(), Value::String(part.clone()));
-            revisions.push(Value::Object(revision));
-            let ordinal = revisions.len();
-            match block {
-                Some(found) if model.blocks[found].is_paragraph() => {
-                    add_revision_ordinal(&mut model.paragraphs[model.blocks[found].logical_index - 1], ordinal);
-                }
-                Some(found) if location.cell > 0 => {
-                    let cell = model
-                        .tables
-                        .get_mut(model.blocks[found].logical_index - 1)
-                        .and_then(|table| table.get_mut("rows"))
-                        .and_then(|rows| rows.get_mut(location.row - 1))
-                        .and_then(|row| row.get_mut("cells"))
-                        .and_then(|cells| cells.get_mut(location.cell - 1));
-                    if let Some(cell) = cell {
-                        add_revision_ordinal(cell, ordinal);
-                    }
-                }
-                _ => {}
-            }
+            revisions.push(revision_record(&span, revisions.len() + 1, part, xml, at));
+            attach_revision_ordinal(model, block, &location, revisions.len());
         }
     }
     (revisions, property_change_count)
+}
+
+fn revision_record(span: &RevisionSpan, ordinal: usize, part: &str, xml: &str, at: String) -> Value {
+    let text_tag = if span.kind == RevisionKind::Insertion { "w:t" } else { "w:delText" };
+    let mut revision = Map::new();
+    revision.insert("path".to_owned(), Value::String(format!("/body/revision[{ordinal}]")));
+    revision.insert("index".to_owned(), Value::from(ordinal));
+    revision.insert("id".to_owned(), Value::String(xml_decode(&span.id)));
+    revision.insert("author".to_owned(), Value::String(span.author.clone()));
+    revision.insert("date".to_owned(), Value::String(xml_decode(&span.date)));
+    revision.insert("type".to_owned(), Value::String(revision_type(&span.tag).to_owned()));
+    revision.insert("text".to_owned(), Value::String(block_text(&xml[span.inner_start..span.inner_end], text_tag)));
+    if !span.children.is_empty() {
+        revision.insert("nested".to_owned(), Value::from(span.children.len()));
+    }
+    if !at.is_empty() {
+        revision.insert("at".to_owned(), Value::String(at));
+    }
+    revision.insert("part".to_owned(), Value::String(part.to_owned()));
+    Value::Object(revision)
+}
+
+fn attach_revision_ordinal(model: &mut DocxBodyModel, block: Option<usize>, location: &CellAt, ordinal: usize) {
+    match block {
+        Some(found) if model.blocks[found].is_paragraph() => {
+            add_revision_ordinal(&mut model.paragraphs[model.blocks[found].logical_index - 1], ordinal);
+        }
+        Some(found) if location.cell > 0 => {
+            let cell = model
+                .tables
+                .get_mut(model.blocks[found].logical_index - 1)
+                .and_then(|table| table.get_mut("rows"))
+                .and_then(|rows| rows.get_mut(location.row - 1))
+                .and_then(|row| row.get_mut("cells"))
+                .and_then(|cells| cells.get_mut(location.cell - 1));
+            if let Some(cell) = cell {
+                add_revision_ordinal(cell, ordinal);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Who changed what, at a glance: the redline reviewer reads this before the revision list.
@@ -1024,7 +1031,6 @@ fn docx_sections(document_xml: &str, relationships_xml: &str, part_text: &HashMa
     for (offset, range) in compiled(r"<w:sectPr\b[\s\S]*?<\/w:sectPr>", "g").find_iter(document_xml).enumerate() {
         let section_xml = &document_xml[range];
         let index = offset + 1;
-        let margin = |side: &str| first(&format!(r#"<w:pgMar\b[^>]*\bw:{side}="(-?\d+)""#), section_xml).map(|twips| points_of(string_to_number(&twips)));
         let mut own: HashMap<String, String> = HashMap::new();
         for found in references.captures_iter(section_xml) {
             let location = found.get(1).unwrap_or("");
@@ -1062,30 +1068,33 @@ fn docx_sections(document_xml: &str, relationships_xml: &str, part_text: &HashMa
                 stories.push(Value::Object(story));
             }
         }
-        // The columns the text flows through, as set_page columns lays them out.
-        let cols = first(r"<w:cols\b([^>]*?)\/?>", section_xml).unwrap_or_default();
-        let counted = first(r#"\bw:num="(\d+)""#, &cols).map_or(0.0, |digits| string_to_number(&digits));
-        let columns = if counted == 0.0 { 1.0 } else { counted };
-        let spacing = first(r#"\bw:space="(\d+)""#, &cols).map_or(Value::from(36), |digits| points_of(string_to_number(&digits)));
-        let mut section = Map::new();
-        section.insert("path".to_owned(), Value::String(format!("/section[{index}]")));
-        section.insert("index".to_owned(), Value::from(index));
-        let landscape = compiled(r#"<w:pgSz\b[^>]*\bw:orient="landscape""#, "").is_match(section_xml);
-        section.insert("orientation".to_owned(), Value::String(if landscape { "landscape" } else { "portrait" }.to_owned()));
-        for (key, side) in [("topMargin", "top"), ("bottomMargin", "bottom"), ("leftMargin", "left"), ("rightMargin", "right")] {
-            if let Some(points) = margin(side) {
-                section.insert(key.to_owned(), points);
-            }
-        }
-        section.insert("columns".to_owned(), json_number(columns));
-        // Word's own spacing when the file names none is half an inch.
-        if columns > 1.0 {
-            section.insert("columnSpacing".to_owned(), spacing);
-        }
-        section.insert("stories".to_owned(), Value::Array(stories));
-        sections.push(Value::Object(section));
+        sections.push(section_record(section_xml, index, stories));
     }
     sections
+}
+
+fn section_record(section_xml: &str, index: usize, stories: Vec<Value>) -> Value {
+    let margin = |side: &str| first(&format!(r#"<w:pgMar\b[^>]*\bw:{side}="(-?\d+)""#), section_xml).map(|twips| points_of(string_to_number(&twips)));
+    let cols = first(r"<w:cols\b([^>]*?)\/?>", section_xml).unwrap_or_default();
+    let counted = first(r#"\bw:num="(\d+)""#, &cols).map_or(0.0, |digits| string_to_number(&digits));
+    let columns = if counted == 0.0 { 1.0 } else { counted };
+    let spacing = first(r#"\bw:space="(\d+)""#, &cols).map_or(Value::from(36), |digits| points_of(string_to_number(&digits)));
+    let mut section = Map::new();
+    section.insert("path".to_owned(), Value::String(format!("/section[{index}]")));
+    section.insert("index".to_owned(), Value::from(index));
+    let landscape = compiled(r#"<w:pgSz\b[^>]*\bw:orient="landscape""#, "").is_match(section_xml);
+    section.insert("orientation".to_owned(), Value::String(if landscape { "landscape" } else { "portrait" }.to_owned()));
+    for (key, side) in [("topMargin", "top"), ("bottomMargin", "bottom"), ("leftMargin", "left"), ("rightMargin", "right")] {
+        if let Some(points) = margin(side) {
+            section.insert(key.to_owned(), points);
+        }
+    }
+    section.insert("columns".to_owned(), json_number(columns));
+    if columns > 1.0 {
+        section.insert("columnSpacing".to_owned(), spacing);
+    }
+    section.insert("stories".to_owned(), Value::Array(stories));
+    Value::Object(section)
 }
 
 /// `snapshotDocx(zip, options)`: the Word document as the Office tool shows it to the model. `options` is Node's
@@ -1242,6 +1251,26 @@ mod tests {
         assert!(separate_adjacent_tables(joined).contains("</w:tbl> <w:p/><w:tbl>"));
         let closing = "<w:body><w:tbl><w:tr/></w:tbl><w:sectPr/></w:body>";
         assert_eq!(close_trailing_table(closing), "<w:body><w:tbl><w:tr/></w:tbl><w:p/><w:sectPr/></w:body>");
+    }
+
+    #[test]
+    fn a_tracked_insertion_is_listed_with_its_paragraph_and_a_section_reports_its_page() {
+        let mut zip = Package::new();
+        zip.set(
+            "word/document.xml",
+            format!(
+                r#"<w:document {W} xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body><w:p><w:ins w:id="1" w:author="Ann" w:date="2024-01-01T00:00:00Z"><w:r><w:t>new</w:t></w:r></w:ins></w:p><w:sectPr><w:headerReference w:type="default" r:id="rId1"/><w:pgSz w:orient="landscape"/><w:pgMar w:top="1440"/></w:sectPr></w:body></w:document>"#
+            ),
+        );
+        let snapshot = snapshot_docx(&zip, &json!({}));
+        assert_eq!(snapshot["revisionCount"], json!(1));
+        assert_eq!(snapshot["revisions"][0]["author"], json!("Ann"));
+        assert_eq!(snapshot["revisions"][0]["text"], json!("new"));
+        assert_eq!(snapshot["revisions"][0]["at"], json!("/body/p[1]"));
+        assert_eq!(snapshot["sections"][0]["orientation"], json!("landscape"));
+        assert_eq!(snapshot["sections"][0]["topMargin"], json!(72));
+        assert_eq!(snapshot["sections"][0]["columns"], json!(1));
+        assert_eq!(snapshot["sections"][0]["stories"][0]["path"], json!("/section[1]/header[primary]"));
     }
 
     #[test]

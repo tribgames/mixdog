@@ -320,6 +320,98 @@ fn ensure_contrast(colors: &mut Map<String, Value>, foreground_role: &str, backg
     }
 }
 
+fn hsl_of(colors: &Map<String, Value>, role: &str) -> Option<Hsl> {
+    hex_to_hsl(&text(colors.get(role)))
+}
+
+fn repair_dark_and_light_fields(colors: &mut Map<String, Value>, adjustments: &mut Vec<Value>) {
+    if let Some(inverse) = hsl_of(colors, "inverse")
+        && (inverse.lightness < 7.0 || inverse.saturation < 8.0)
+    {
+        let hue = if inverse.saturation < 8.0 { hsl_of(colors, "accent").map_or(216.0, |accent| accent.hue) } else { inverse.hue };
+        let repaired = hsl_to_hex(hue, clamp(inverse.saturation.max(22.0), 12.0, 40.0), clamp(inverse.lightness.max(10.0), 10.0, 20.0));
+        adjustments.push(json!({
+            "role": "inverse",
+            "from": color(colors, "inverse"),
+            "to": repaired,
+            "reason": "Dark fields stay tinted between 10% and 20% lightness; pure black reads as unfinished.",
+        }));
+        colors.insert("inverse".into(), Value::String(repaired));
+    }
+    if let Some(canvas) = hsl_of(colors, "canvas")
+        && (canvas.lightness < 90.0 || canvas.saturation > 22.0)
+    {
+        let repaired = hsl_to_hex(canvas.hue, canvas.saturation.min(18.0), canvas.lightness.max(95.0));
+        adjustments.push(json!({
+            "role": "canvas",
+            "from": color(colors, "canvas"),
+            "to": repaired,
+            "reason": "Light canvases stay near-white with low saturation.",
+        }));
+        colors.insert("canvas".into(), Value::String(repaired));
+    }
+}
+
+fn light_panel(colors: &Map<String, Value>) -> Value {
+    if is_hex(&color(colors, "surface2")) { color(colors, "surface2") } else { color(colors, "canvas") }
+}
+
+fn add_second_dark_step_and_accent_tints(colors: &mut Map<String, Value>) {
+    // A second dark step gives panels and cards on a dark field a planned tone.
+    if let Some(dark_field) = hsl_of(colors, "inverse")
+        && !is_hex(&color(colors, "inverse2"))
+    {
+        let second = hsl_to_hex(dark_field.hue, dark_field.saturation, clamp(dark_field.lightness + 7.0, 14.0, 30.0));
+        colors.insert("inverse2".into(), Value::String(second));
+    }
+    // Accents are tuned for light canvases; on the dark field the same hue needs a lighter step to stay legible, so
+    // each accent gets a paired tint. Each tint clears the hardest field of its kind.
+    let dark_panel = if is_hex(&color(colors, "inverse2")) { color(colors, "inverse2") } else { color(colors, "inverse") };
+    let light_panel = light_panel(colors);
+    for role in ["accent", "accent2"] {
+        if !is_hex(&color(colors, role)) {
+            continue;
+        }
+        let light_key = format!("{role}Light");
+        if !is_hex(&color(colors, &light_key)) && is_hex(&dark_panel) {
+            let tint = adjust_lightness_for_contrast(&color(colors, role), &dark_panel, TEXT_CONTRAST_MINIMUM, 1.0);
+            colors.insert(light_key, tint);
+        }
+        let deep_key = format!("{role}Deep");
+        if !is_hex(&color(colors, &deep_key)) && is_hex(&light_panel) {
+            let tint = adjust_lightness_for_contrast(&color(colors, role), &light_panel, TEXT_CONTRAST_MINIMUM, -1.0);
+            colors.insert(deep_key, tint);
+        }
+    }
+}
+
+fn add_state_colors(colors: &mut Map<String, Value>) {
+    let light_panel = light_panel(colors);
+    // Four state colours on fixed hues, each as a solid mark, a weak field under a state word and the word itself.
+    for (role, hue) in STATE_HUES {
+        if !is_hex(&color(colors, role)) {
+            let solid = Value::String(hsl_to_hex(hue, 65.0, 48.0));
+            let canvas = color(colors, "canvas");
+            let mark = if is_hex(&canvas) { adjust_lightness_for_contrast(&solid, &canvas, LARGE_TEXT_CONTRAST_MINIMUM, -1.0) } else { solid };
+            colors.insert(role.to_owned(), mark);
+        }
+        let weak_key = format!("{role}Weak");
+        if !is_hex(&color(colors, &weak_key)) {
+            colors.insert(weak_key.clone(), Value::String(hsl_to_hex(hue, 45.0, 92.0)));
+        }
+        let text_key = format!("{role}Text");
+        if !is_hex(&color(colors, &text_key)) {
+            let mut word = Value::String(hsl_to_hex(hue, 30.0, 34.0));
+            for field in [color(colors, "canvas"), light_panel.clone(), color(colors, &weak_key)] {
+                if is_hex(&field) {
+                    word = adjust_lightness_for_contrast(&word, &field, TEXT_CONTRAST_MINIMUM, -1.0);
+                }
+            }
+            colors.insert(text_key, word);
+        }
+    }
+}
+
 /// What [`normalize_palette_tokens`] answers.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PaletteTokens {
@@ -336,32 +428,7 @@ pub fn normalize_palette_tokens(source: &Value) -> PaletteTokens {
         _ => Map::new(),
     };
     let mut adjustments: Vec<Value> = Vec::new();
-    let hsl_of = |colors: &Map<String, Value>, role: &str| hex_to_hsl(&text(colors.get(role)));
-    if let Some(inverse) = hsl_of(&colors, "inverse")
-        && (inverse.lightness < 7.0 || inverse.saturation < 8.0)
-    {
-        let hue = if inverse.saturation < 8.0 { hsl_of(&colors, "accent").map_or(216.0, |accent| accent.hue) } else { inverse.hue };
-        let repaired = hsl_to_hex(hue, clamp(inverse.saturation.max(22.0), 12.0, 40.0), clamp(inverse.lightness.max(10.0), 10.0, 20.0));
-        adjustments.push(json!({
-            "role": "inverse",
-            "from": color(&colors, "inverse"),
-            "to": repaired,
-            "reason": "Dark fields stay tinted between 10% and 20% lightness; pure black reads as unfinished.",
-        }));
-        colors.insert("inverse".into(), Value::String(repaired));
-    }
-    if let Some(canvas) = hsl_of(&colors, "canvas")
-        && (canvas.lightness < 90.0 || canvas.saturation > 22.0)
-    {
-        let repaired = hsl_to_hex(canvas.hue, canvas.saturation.min(18.0), canvas.lightness.max(95.0));
-        adjustments.push(json!({
-            "role": "canvas",
-            "from": color(&colors, "canvas"),
-            "to": repaired,
-            "reason": "Light canvases stay near-white with low saturation.",
-        }));
-        colors.insert("canvas".into(), Value::String(repaired));
-    }
+    repair_dark_and_light_fields(&mut colors, &mut adjustments);
     ensure_contrast(&mut colors, "ink", "canvas", 7.0, &mut adjustments);
     ensure_contrast(&mut colors, "muted", "canvas", TEXT_CONTRAST_MINIMUM, &mut adjustments);
     // Muted copy also lands on surface panels, so it must clear the darkest one.
@@ -374,55 +441,8 @@ pub fn normalize_palette_tokens(source: &Value) -> PaletteTokens {
     // onAccent is the ink every composer puts on an accent field, including 10pt table values and headers, so it has
     // to clear the readable minimum rather than the large-text one.
     ensure_contrast(&mut colors, "onAccent", "accent", TEXT_CONTRAST_MINIMUM, &mut adjustments);
-    // A second dark step gives panels and cards on a dark field a planned tone.
-    if let Some(dark_field) = hsl_of(&colors, "inverse")
-        && !is_hex(&color(&colors, "inverse2"))
-    {
-        let second = hsl_to_hex(dark_field.hue, dark_field.saturation, clamp(dark_field.lightness + 7.0, 14.0, 30.0));
-        colors.insert("inverse2".into(), Value::String(second));
-    }
-    // Accents are tuned for light canvases; on the dark field the same hue needs a lighter step to stay legible, so
-    // each accent gets a paired tint. Each tint clears the hardest field of its kind.
-    let dark_panel = if is_hex(&color(&colors, "inverse2")) { color(&colors, "inverse2") } else { color(&colors, "inverse") };
-    let light_panel = if is_hex(&color(&colors, "surface2")) { color(&colors, "surface2") } else { color(&colors, "canvas") };
-    for role in ["accent", "accent2"] {
-        if !is_hex(&color(&colors, role)) {
-            continue;
-        }
-        let light_key = format!("{role}Light");
-        if !is_hex(&color(&colors, &light_key)) && is_hex(&dark_panel) {
-            let tint = adjust_lightness_for_contrast(&color(&colors, role), &dark_panel, TEXT_CONTRAST_MINIMUM, 1.0);
-            colors.insert(light_key, tint);
-        }
-        let deep_key = format!("{role}Deep");
-        if !is_hex(&color(&colors, &deep_key)) && is_hex(&light_panel) {
-            let tint = adjust_lightness_for_contrast(&color(&colors, role), &light_panel, TEXT_CONTRAST_MINIMUM, -1.0);
-            colors.insert(deep_key, tint);
-        }
-    }
-    // Four state colours on fixed hues, each as a solid mark, a weak field under a state word and the word itself.
-    for (role, hue) in STATE_HUES {
-        if !is_hex(&color(&colors, role)) {
-            let solid = Value::String(hsl_to_hex(hue, 65.0, 48.0));
-            let canvas = color(&colors, "canvas");
-            let mark = if is_hex(&canvas) { adjust_lightness_for_contrast(&solid, &canvas, LARGE_TEXT_CONTRAST_MINIMUM, -1.0) } else { solid };
-            colors.insert(role.to_owned(), mark);
-        }
-        let weak_key = format!("{role}Weak");
-        if !is_hex(&color(&colors, &weak_key)) {
-            colors.insert(weak_key.clone(), Value::String(hsl_to_hex(hue, 45.0, 92.0)));
-        }
-        let text_key = format!("{role}Text");
-        if !is_hex(&color(&colors, &text_key)) {
-            let mut word = Value::String(hsl_to_hex(hue, 30.0, 34.0));
-            for field in [color(&colors, "canvas"), light_panel.clone(), color(&colors, &weak_key)] {
-                if is_hex(&field) {
-                    word = adjust_lightness_for_contrast(&word, &field, TEXT_CONTRAST_MINIMUM, -1.0);
-                }
-            }
-            colors.insert(text_key, word);
-        }
-    }
+    add_second_dark_step_and_accent_tints(&mut colors);
+    add_state_colors(&mut colors);
     PaletteTokens { colors, adjustments }
 }
 

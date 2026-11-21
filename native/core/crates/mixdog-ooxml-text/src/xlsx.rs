@@ -136,23 +136,7 @@ fn worksheet_rows(xml: &str, strings: &[String], formats: &[String], max_content
         let mut cells: Vec<String> = Vec::new();
         for cell in scan_elements(row.inner.unwrap_or(""), "c") {
             let attributes = cell.attrs;
-            let inner = cell.inner.unwrap_or("");
-            let kind = first_group(&CELL_TYPE_RE, attributes).unwrap_or("n");
-            let text = if kind == "s" {
-                let index = first_group(&V_RE, inner).map_or(f64::NAN, string_to_number);
-                if index.is_finite() && index.fract() == 0.0 && index >= 0.0 { strings.get(index as usize).cloned().unwrap_or_default() } else { String::new() }
-            } else if kind == "inlineStr" {
-                text_runs(inner)?
-            } else {
-                let text = decode_xml_entities(first_group(&V_RE, inner).unwrap_or(""))?;
-                let style = first_group(&CELL_STYLE_RE, attributes).map_or(f64::NAN, string_to_number);
-                if !text.is_empty() && style.is_finite() && style.fract() == 0.0 {
-                    let format = formats.get(style as usize).map_or("", String::as_str);
-                    displayed_number(&text, format)?
-                } else {
-                    text
-                }
-            };
+            let text = cell_text(attributes, cell.inner.unwrap_or(""), strings, formats)?;
             let column = column_index(first_group(&CELL_REF_RE, attributes).unwrap_or(""));
             if cells.len() < column {
                 cells.resize(column, String::new());
@@ -175,16 +159,42 @@ fn worksheet_rows(xml: &str, strings: &[String], formats: &[String], max_content
     while lines.last().is_some_and(String::is_empty) {
         lines.pop();
     }
-    let first = lines.first().map_or("", String::as_str);
-    let header: Vec<&str> = first.strip_prefix("[hidden] ").unwrap_or(first).split('\t').collect();
-    let hidden_columns = hidden_column_numbers(xml)
+    let hidden_columns = hidden_column_labels(xml, lines.first().map_or("", String::as_str));
+    Ok(Rows { text: lines.join("\n"), truncated, hidden_columns })
+}
+
+fn cell_text(attributes: &str, inner: &str, strings: &[String], formats: &[String]) -> Result<String, Failure> {
+    let kind = first_group(&CELL_TYPE_RE, attributes).unwrap_or("n");
+    if kind == "s" {
+        let index = first_group(&V_RE, inner).map_or(f64::NAN, string_to_number);
+        return Ok(if index.is_finite() && index.fract() == 0.0 && index >= 0.0 {
+            strings.get(index as usize).cloned().unwrap_or_default()
+        } else {
+            String::new()
+        });
+    }
+    if kind == "inlineStr" {
+        return text_runs(inner);
+    }
+    let text = decode_xml_entities(first_group(&V_RE, inner).unwrap_or(""))?;
+    let style = first_group(&CELL_STYLE_RE, attributes).map_or(f64::NAN, string_to_number);
+    if !text.is_empty() && style.is_finite() && style.fract() == 0.0 {
+        let format = formats.get(style as usize).map_or("", String::as_str);
+        displayed_number(&text, format)
+    } else {
+        Ok(text)
+    }
+}
+
+fn hidden_column_labels(xml: &str, first_line: &str) -> Vec<String> {
+    let header: Vec<&str> = first_line.strip_prefix("[hidden] ").unwrap_or(first_line).split('\t').collect();
+    hidden_column_numbers(xml)
         .into_iter()
         .map(|index| {
             let label = (index >= 1.0).then(|| header.get(index as usize - 1)).flatten().map_or("", |label| js_trim(label));
             if label.is_empty() { column_name(index) } else { format!("{} ({label})", column_name(index)) }
         })
-        .collect();
-    Ok(Rows { text: lines.join("\n"), truncated, hidden_columns })
+        .collect()
 }
 
 /// `relatedPart(target, ownerPart)`: the package path a relationship target names, relative to the part that owns it.
@@ -251,37 +261,44 @@ fn sheet_figures(zip: &Zip, sheet_part: &str) -> Result<Vec<String>, Failure> {
     Ok(figures)
 }
 
-/// `workbookText`.
-pub fn workbook_text(zip: &Zip, max_output_bytes: usize) -> Result<String, Failure> {
-    if !zip.has("xl/workbook.xml") {
-        return Err(Failure::Format("no xl/workbook.xml part — not an Excel workbook (or an encrypted one)".into()));
-    }
-    let workbook = zip.part_text("xl/workbook.xml")?;
-    let mut relationships: HashMap<String, String> = HashMap::new();
+fn workbook_relationships(zip: &Zip) -> Result<HashMap<String, String>, Failure> {
+    let mut relationships = HashMap::new();
     for (id, target) in relationship_list(&zip.part_text("xl/_rels/workbook.xml.rels")?) {
         let Some(id) = id else { continue };
         let target = target.strip_prefix("/xl/").or_else(|| target.strip_prefix("xl/")).unwrap_or(&target);
         let target = target.strip_prefix("./").unwrap_or(target);
         relationships.insert(id, format!("xl/{target}"));
     }
+    Ok(relationships)
+}
+
+/// A hidden sheet is content the workbook does not show; reading it as an ordinary sheet presents withheld data as the
+/// answer.
+fn sheet_state_label(attributes: &str) -> &'static str {
+    match js_to_lowercase(first_group(&STATE_RE, attributes).unwrap_or("")).as_str() {
+        "hidden" => " (hidden)",
+        "veryhidden" => " (very hidden)",
+        // `{ hidden, veryhidden }[state]` reads the object's own prototype for these two names.
+        "constructor" => "function Object() { [native code] }",
+        "__proto__" => "[object Object]",
+        _ => "",
+    }
+}
+
+/// `workbookText`.
+pub fn workbook_text(zip: &Zip, max_output_bytes: usize) -> Result<String, Failure> {
+    if !zip.has("xl/workbook.xml") {
+        return Err(Failure::Format("no xl/workbook.xml part — not an Excel workbook (or an encrypted one)".into()));
+    }
+    let workbook = zip.part_text("xl/workbook.xml")?;
+    let relationships = workbook_relationships(zip)?;
     let strings = shared_string_table(&zip.part_text("xl/sharedStrings.xml")?)?;
     let formats = cell_number_formats(&zip.part_text("xl/styles.xml")?)?;
     let mut sections: Vec<String> = Vec::new();
     let mut section_chars = 0usize;
     for found in SHEET_RE.captures_iter(&workbook) {
         let attributes = found.get(1).unwrap_or("");
-        // A hidden sheet is content the workbook does not show; reading it as an ordinary sheet presents withheld data
-        // as the answer.
-        let state = js_to_lowercase(first_group(&STATE_RE, attributes).unwrap_or(""));
-        let label = match state.as_str() {
-            "hidden" => " (hidden)",
-            "veryhidden" => " (very hidden)",
-            // `{ hidden, veryhidden }[state]` reads the object's own prototype for these two names.
-            "constructor" => "function Object() { [native code] }",
-            "__proto__" => "[object Object]",
-            _ => "",
-        };
-        let name = format!("{}{label}", decode_xml_entities(first_group(&NAME_RE, attributes).unwrap_or(""))?);
+        let name = format!("{}{}", decode_xml_entities(first_group(&NAME_RE, attributes).unwrap_or(""))?, sheet_state_label(attributes));
         let relationship_id = first_group(&SHEET_ID_RE, attributes).unwrap_or("");
         let part = relationships.get(relationship_id).map(String::as_str);
         let Some(part) = part.filter(|part| zip.has(part)) else {

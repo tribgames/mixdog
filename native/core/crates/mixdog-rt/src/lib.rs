@@ -1,4 +1,4 @@
-//! Executors, lanes and lane tokens (RL §3, §7.1, §13; SPEC R47).
+//! Executors, lanes and lane tokens.
 //!
 //! Every async task is spawned through [`spawn`], which instruments its polls. Every job that
 //! needs a dedicated thread pool is submitted through a zero-sized lane token
@@ -155,25 +155,25 @@ pub trait Backend: Send + Sync + 'static {
     fn handle(&self, class: TaskClass) -> tokio::runtime::Handle;
     /// One poll of an instrumented task finished after `elapsed`.
     fn record_poll(&self, task: &'static str, class: TaskClass, elapsed: Duration);
-    /// Enqueues `job` on its lane (`job.lane()`). Never blocks: the job waits in the lane's FIFO
-    /// queue for a thread, and only a queue at its far bound (or a lane with no healthy worker)
-    /// answers [`LaneFull`] (overloaded). The lane thread calls [`QueuedJob::run`], which drops a
-    /// cancelled job at dequeue (RL §7.1).
+    /// Enqueues `job` on its lane (`job.lane()`). Never blocks: the job waits in the lane's FIFO queue for a thread, and only a
+    /// queue at its far bound (or a lane with no healthy worker) answers [`LaneFull`] (overloaded). The lane thread calls
+    /// [`QueuedJob::run`], which drops a cancelled job at dequeue.
     fn submit(&self, job: QueuedJob) -> Result<(), LaneFull>;
     /// [`Self::submit`] only when a thread takes the job at once; [`LaneFull`] when it would
     /// have to wait. Default: [`Self::submit`].
     fn try_submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
         self.submit(job)
     }
-    /// Enqueues a [`LaneToken::submit_wait`] job in arrival order: it is admitted at once, or
-    /// waits on its [`lanes::Ticket`] with its place in the queue kept, or is refused at the far
-    /// bound. `Err(job)` (the default): the backend has no ordered queue, and `submit_wait` retries
-    /// [`Backend::submit`] on [`Backend::capacity_notify`].
+    /// Takes a [`LaneToken::submit_wait`] job into `job.lane()` in arrival order, once: it is
+    /// admitted at once, or waits on its [`lanes::Ticket`] in the lane's order (beyond the queue's
+    /// far bound too), or is refused when the lane has no healthy worker. `Err(job)` (the
+    /// default): the backend has no ordered queue, and `submit_wait` retries [`Backend::submit`]
+    /// on [`Backend::capacity_notify`].
     fn enter(&self, job: QueuedJob) -> Result<lanes::Entered, QueuedJob> {
         Err(job)
     }
-    /// Takes the job of a waiting `ticket` out of `lane`'s queue unrun; `false` when the ticket no
-    /// longer waits (it was admitted or answered first).
+    /// Takes the job of `ticket` out of `lane` unrun, admitted or not, and answers it cancelled;
+    /// `false` when the lane no longer holds it (a thread took it, or it was answered first).
     fn withdraw(&self, _lane: LaneKind, _ticket: &lanes::Ticket) -> bool {
         false
     }

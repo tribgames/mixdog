@@ -12,6 +12,8 @@ use mixdog_js::to_number;
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::record::nullish;
+use crate::record::or_null;
 use crate::record::truthy;
 
 pub type Args = Map<String, Value>;
@@ -76,17 +78,6 @@ impl Row {
     fn done(self) -> Map<String, Value> {
         self.0
     }
-}
-
-fn or_null(value: Option<&Value>) -> Value {
-    match value {
-        Some(v) if truthy(v) => v.clone(),
-        _ => Value::Null,
-    }
-}
-
-fn nullish(value: Option<&Value>) -> Value {
-    value.cloned().unwrap_or(Value::Null)
 }
 
 fn number(value: Option<&Value>) -> f64 {
@@ -817,29 +808,24 @@ pub fn cursor_unknown_field_record(a: &Args) -> Args {
     Row::new().copy(a, "sessionId").text("kind", "cursor_unknown_field").text("provider", "cursor").copy(a, "payload").done()
 }
 
-/// `browserTimingRow` (`browser-bridge/timing.mjs`); the caller applies the
-/// `MIXDOG_AGENT_TRACE_TIMING` / `_VERBOSE` gate (`TraceConfig::loop_rows`). Arguments:
-/// `context {sessionId, turnId, action}`, `bridgeMs`, `body`, `status`.
-pub fn browser_timing_record(a: &Args) -> Args {
-    const KEYS: [&str; 6] = ["commandMs", "waitMs", "snapshotMs", "targetMs", "actionabilityMs", "inputMs"];
-    fn numeric(source: Option<&Value>, keys: &[&str]) -> Map<String, Value> {
-        let mut out = Map::new();
-        for key in keys {
-            if let Some(v) = source.and_then(|s| s.get(*key))
-                && v.as_f64().is_some_and(|n| n.is_finite() && n >= 0.0)
-            {
-                out.insert((*key).to_string(), v.clone());
-            }
+fn finite_non_negative(source: Option<&Value>, keys: &[&str]) -> Map<String, Value> {
+    let mut out = Map::new();
+    for key in keys {
+        if let Some(v) = source.and_then(|s| s.get(*key))
+            && v.as_f64().is_some_and(|n| n.is_finite() && n >= 0.0)
+        {
+            out.insert((*key).to_string(), v.clone());
         }
-        out
     }
-    let body = a.get("body");
-    let ok_false = body.and_then(|b| b.get("ok")) == Some(&Value::Bool(false));
-    let timing = if ok_false { body.and_then(|b| b.get("timing")) } else { body.and_then(|b| b.get("value")).and_then(|v| v.get("timing")) };
+    out
+}
+
+fn browser_timing_phases(timing: Option<&Value>) -> Map<String, Value> {
+    const KEYS: [&str; 6] = ["commandMs", "waitMs", "snapshotMs", "targetMs", "actionabilityMs", "inputMs"];
     let mut keys = vec!["queueMs"];
     keys.extend(KEYS);
     keys.extend(["screenshotMs", "snapshots", "screenshots"]);
-    let mut phases = numeric(timing, &keys);
+    let mut phases = finite_non_negative(timing, &keys);
     if let Some(steps) = timing.and_then(|t| t.get("steps")).and_then(Value::as_array) {
         let mut step_keys = vec!["index"];
         step_keys.extend(KEYS);
@@ -847,20 +833,31 @@ pub fn browser_timing_record(a: &Args) -> Args {
             .iter()
             .take(6)
             .filter(|s| s.get("index").and_then(Value::as_f64).is_some_and(|i| i.fract() == 0.0 && (1.0..=6.0).contains(&i)))
-            .map(|s| Value::Object(numeric(Some(s), &step_keys)))
+            .map(|s| Value::Object(finite_non_negative(Some(s), &step_keys)))
             .collect();
         phases.insert("steps".into(), Value::Array(list));
     }
     if let Some(mouse) = timing.and_then(|t| t.get("mouseEvents")).filter(|m| truthy(m)) {
         let mut events = Map::new();
         for kind in ["mouseMoved", "mousePressed", "mouseReleased"] {
-            let event = numeric(mouse.get(kind), &["count", "totalMs"]);
+            let event = finite_non_negative(mouse.get(kind), &["count", "totalMs"]);
             if !event.is_empty() {
                 events.insert(kind.to_string(), Value::Object(event));
             }
         }
         phases.insert("mouseEvents".into(), Value::Object(events));
     }
+    phases
+}
+
+/// `browserTimingRow` (`browser-bridge/timing.mjs`); the caller applies the
+/// `MIXDOG_AGENT_TRACE_TIMING` / `_VERBOSE` gate (`TraceConfig::loop_rows`). Arguments:
+/// `context {sessionId, turnId, action}`, `bridgeMs`, `body`, `status`.
+pub fn browser_timing_record(a: &Args) -> Args {
+    let body = a.get("body");
+    let ok_false = body.and_then(|b| b.get("ok")) == Some(&Value::Bool(false));
+    let timing = if ok_false { body.and_then(|b| b.get("timing")) } else { body.and_then(|b| b.get("value")).and_then(|v| v.get("timing")) };
+    let phases = browser_timing_phases(timing);
     let context = a.get("context");
     let c = |key: &str| context.and_then(|c| c.get(key)).cloned();
     let mut row = Row::new().text("kind", "browser_timing");

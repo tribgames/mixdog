@@ -163,8 +163,12 @@ fn same_model_replay<'a>(message: &'a Message, provider: &'a ProviderId, model: 
 /// verbatim, any other turn's are normalized; a repeated id then gets a
 /// `_dupN` suffix and the next unanswered result of that id follows it.
 pub fn wire_tool_call_ids(messages: Vec<Message>, provider: &ProviderId, model: &str) -> Vec<Message> {
+    suffix_repeated_ids(normalize_foreign_ids(messages, provider, model))
+}
+
+fn normalize_foreign_ids(messages: Vec<Message>, provider: &ProviderId, model: &str) -> Vec<Message> {
     let mut normalized: HashMap<String, String> = HashMap::new();
-    let projected: Vec<Message> = messages
+    messages
         .into_iter()
         .map(|mut message| {
             match message.role {
@@ -188,11 +192,13 @@ pub fn wire_tool_call_ids(messages: Vec<Message>, provider: &ProviderId, model: 
             }
             message
         })
-        .collect();
+        .collect()
+}
 
+fn suffix_repeated_ids(messages: Vec<Message>) -> Vec<Message> {
     let mut seen: HashMap<String, usize> = HashMap::new();
     let mut pending: HashMap<String, Vec<Option<String>>> = HashMap::new();
-    projected
+    messages
         .into_iter()
         .map(|mut message| {
             match message.role {
@@ -760,6 +766,30 @@ mod tests {
                 "propertyOrdering": ["value"]
             })
         );
+    }
+
+    #[test]
+    fn foreign_tool_call_ids_are_normalized_and_a_repeated_id_gets_a_suffix_that_its_result_follows() {
+        use mixdog_core_api::domain::provider::ToolCall;
+
+        let call = |id: &str| ToolCall { id: id.into(), name: "read".into(), arguments: json!({}), native_type: None };
+        let assistant = |id: &str| {
+            let mut message = Message::new(Role::Assistant, Content::Text(String::new()));
+            message.tool_calls = vec![call(id)];
+            message
+        };
+        let result = |id: &str| {
+            let mut message = Message::new(Role::Tool, Content::Text("ok".into()));
+            message.tool_call_id = Some(id.into());
+            message
+        };
+        let wired = wire_tool_call_ids(
+            vec![assistant("a/b"), result("a/b"), assistant("x"), result("x"), assistant("x"), result("x")],
+            &ProviderId::from("devin-oauth"),
+            "m",
+        );
+        let ids: Vec<_> = wired.iter().map(|m| m.tool_calls.first().map(|c| c.id.clone()).or_else(|| m.tool_call_id.clone()).unwrap()).collect();
+        assert_eq!(ids, ["a_b", "a_b", "x", "x", "x_dup1", "x_dup1"]);
     }
 
     fn parts(parts: Vec<ContentPart>) -> Content {

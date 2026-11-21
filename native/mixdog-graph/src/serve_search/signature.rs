@@ -119,7 +119,7 @@ fn read_signature_header<R: Read>(reader: &mut R) -> io::Result<(usize, usize)> 
 /// One persisted signature: the file it describes, the size/mtime/identity it
 /// was computed from, and both trigram bit planes. A restored entry is
 /// complete by construction — only whole signatures are written.
-fn read_signature_entry<R: Read>(reader: &mut R) -> io::Result<(PathBuf, ContentSignatureEntry)> {
+pub(super) fn read_signature_entry<R: Read>(reader: &mut R) -> io::Result<(PathBuf, ContentSignatureEntry)> {
     let path_len = read_snapshot_u32(reader)? as usize;
     if path_len == 0 || path_len > CONTENT_SIGNATURE_SNAPSHOT_MAX_PATH_BYTES {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "signature snapshot path"));
@@ -202,11 +202,7 @@ pub(super) fn ensure_content_signature_cache_loaded() {
     CONTENT_SIGNATURE_CACHE_LOADED.store(true, Ordering::Release);
 }
 
-pub(super) fn persist_content_signature_cache() {
-    let dirty = CONTENT_SIGNATURE_CACHE_DIRTY.swap(0, Ordering::AcqRel);
-    if dirty == 0 {
-        return;
-    }
+fn sync_cached_signature_volumes() {
     let mut volumes = HashSet::new();
     for shard in content_signature_cache() {
         let cache = lock_recover(shard);
@@ -219,6 +215,40 @@ pub(super) fn persist_content_signature_cache() {
     for volume in volumes {
         apply_content_signature_journal_sync(crate::serve_search_usn::sync_volume(volume));
     }
+}
+
+/// Writes one entry unless its volume is untrusted or its path is unstorable;
+/// returns whether it was written.
+pub(super) fn write_signature_entry<W: Write>(writer: &mut W, path: &Path, entry: &ContentSignatureEntry, trusted_serials: &HashSet<u32>) -> io::Result<bool> {
+    let Some(identity) = entry.identity.filter(|identity| trusted_serials.contains(&identity.volume)) else {
+        return Ok(false);
+    };
+    let path_bytes = path.to_string_lossy();
+    let path_bytes = path_bytes.as_bytes();
+    if path_bytes.is_empty() || path_bytes.len() > CONTENT_SIGNATURE_SNAPSHOT_MAX_PATH_BYTES {
+        return Ok(false);
+    }
+    writer.write_all(&(path_bytes.len() as u32).to_le_bytes())?;
+    writer.write_all(path_bytes)?;
+    writer.write_all(&entry.size.to_le_bytes())?;
+    writer.write_all(&entry.modified_ns.to_le_bytes())?;
+    writer.write_all(&identity.volume.to_le_bytes())?;
+    writer.write_all(&identity.file_id.to_le_bytes())?;
+    for word in entry.signature.bits {
+        writer.write_all(&word.to_le_bytes())?;
+    }
+    for word in entry.signature.folded_bits {
+        writer.write_all(&word.to_le_bytes())?;
+    }
+    Ok(true)
+}
+
+pub(super) fn persist_content_signature_cache() {
+    let dirty = CONTENT_SIGNATURE_CACHE_DIRTY.swap(0, Ordering::AcqRel);
+    if dirty == 0 {
+        return;
+    }
+    sync_cached_signature_volumes();
     let checkpoints = crate::serve_search_usn::journal_checkpoints();
     if checkpoints.is_empty() {
         return;
@@ -245,27 +275,9 @@ pub(super) fn persist_content_signature_cache() {
         for shard in content_signature_cache() {
             let cache = lock_recover(shard);
             for (path, entry) in cache.iter() {
-                let Some(identity) = entry.identity.filter(|identity| trusted_serials.contains(&identity.volume)) else {
-                    continue;
-                };
-                let path_bytes = path.to_string_lossy();
-                let path_bytes = path_bytes.as_bytes();
-                if path_bytes.is_empty() || path_bytes.len() > CONTENT_SIGNATURE_SNAPSHOT_MAX_PATH_BYTES {
-                    continue;
+                if write_signature_entry(writer, path, entry, &trusted_serials)? {
+                    entry_count = entry_count.saturating_add(1);
                 }
-                writer.write_all(&(path_bytes.len() as u32).to_le_bytes())?;
-                writer.write_all(path_bytes)?;
-                writer.write_all(&entry.size.to_le_bytes())?;
-                writer.write_all(&entry.modified_ns.to_le_bytes())?;
-                writer.write_all(&identity.volume.to_le_bytes())?;
-                writer.write_all(&identity.file_id.to_le_bytes())?;
-                for word in entry.signature.bits {
-                    writer.write_all(&word.to_le_bytes())?;
-                }
-                for word in entry.signature.folded_bits {
-                    writer.write_all(&word.to_le_bytes())?;
-                }
-                entry_count = entry_count.saturating_add(1);
             }
         }
         writer.flush()?;
@@ -525,12 +537,7 @@ pub(super) fn remember_content_signature(path: &Path, signature: &TrigramSignatu
     if !signature.complete {
         return;
     }
-    // A watcher-trusted entry is reused without a stat, but the watcher only
-    // sees changes under the resolved paths it watches, never to the file a
-    // link (the file itself or any directory above it) points at, often
-    // outside every watched root. A path that is not its own resolved form is
-    // therefore never kept: it is rebuilt on each use, like any file the
-    // watcher does not cover.
+    // The watcher sees only resolved paths, never a link's target.
     if !is_canonical_path(path) {
         return;
     }
@@ -588,13 +595,6 @@ pub(super) fn schedule_signature_prewarm(files: Arc<Vec<PathBuf>>) {
     });
 }
 
-/// Drop cached entries for `paths` from one sharded path-keyed cache.
-///
-/// The two accessors are deliberately separate. A per-path removal only has to
-/// touch what is already in memory (`resident`), because a not-yet-loaded
-/// snapshot is validated against the USN journal when it loads. A recursive
-/// invalidation must reach the loading accessor (`whole`, called lazily), or a
-/// later load would resurrect entries this call was meant to drop.
 fn invalidate_path_keyed_shards<T>(
     resident: &'static [Mutex<HashMap<PathBuf, T>>; CONTENT_SIGNATURE_CACHE_SHARDS],
     whole: impl FnOnce() -> &'static [Mutex<HashMap<PathBuf, T>>; CONTENT_SIGNATURE_CACHE_SHARDS],

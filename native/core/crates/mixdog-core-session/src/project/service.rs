@@ -227,27 +227,10 @@ impl ProjectService {
         let start_point = input.get("startPoint").filter(|v| !v.is_null());
         let detach = input.get("detach").filter(|v| !v.is_null());
         if let Some(detach) = detach {
-            // A history entry checked out detached: the same guard, no branch.
             if input.contains_key("branch") || flag(&input, "create") || flag(&input, "remote") || start_point.is_some() {
                 return Err(plain("detach excludes branch, create, remote and startPoint."));
             }
-            let commit = require_text(Some(detach), "detach")?;
-            let facts = self.worktrees.inspect_repo(project, cancel).await?;
-            let _held = self.workspaces.hold_project_folder(&path_text(&facts.top_level))?;
-            return self
-                .worktrees
-                .checkout_project_branch(
-                    CheckoutRequest {
-                        project_path: project.to_path_buf(),
-                        branch: None,
-                        create: false,
-                        remote: false,
-                        start_point: None,
-                        detach: Some(commit),
-                    },
-                    cancel,
-                )
-                .await;
+            return self.select_detached(project, require_text(Some(detach), "detach")?, cancel).await;
         }
         let name = require_text(input.get("branch"), "branch")?;
         let (create, remote) = (flag(&input, "create"), flag(&input, "remote"));
@@ -266,6 +249,18 @@ impl ProjectService {
         self.worktrees
             .checkout_project_branch(
                 CheckoutRequest { project_path: project.to_path_buf(), branch: Some(name), create, remote, start_point, detach: None },
+                cancel,
+            )
+            .await
+    }
+
+    /// A history entry checked out detached in a Project folder: the same guard as a branch, no branch.
+    async fn select_detached(&self, project: &Path, commit: String, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+        let facts = self.worktrees.inspect_repo(project, cancel).await?;
+        let _held = self.workspaces.hold_project_folder(&path_text(&facts.top_level))?;
+        self.worktrees
+            .checkout_project_branch(
+                CheckoutRequest { project_path: project.to_path_buf(), branch: None, create: false, remote: false, start_point: None, detach: Some(commit) },
                 cancel,
             )
             .await

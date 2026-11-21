@@ -1,12 +1,3 @@
-//! The session seams over `mixdog-store` (WP-STORE): the record codec, the `LogWriter` as
-//! [`SessionLog`], and the thread open/create paths over the session logs, the blob store and
-//! the index.
-//!
-//! Open: J1 is the bounded log open (`log::open_log`: reverse scan, tail parse and fold); J2
-//! reads the UI window (`history_page_on_lane` + positioned frame reads), the open-set
-//! records and the prompt-history prefill; decode assembles the session's [`OpenedLog`]. The
-//! store's fold already covers the tail, so the opened log carries no tail records.
-
 // Transparent names for existing callback/record shapes; no ownership or ordering change.
 type StoredHistoryPage = (Vec<ItemRecord>, Vec<HistoryRow>, bool);
 
@@ -168,10 +159,6 @@ fn touches_retention(record: &mixdog_store::schema::record::Record) -> bool {
     }
 }
 
-/// The readers' side of a log rewrite (`log_rewrite`'s steps 4-8): every read of a session's log and index rows
-/// holds it shared for its lane job; a rewrite holds it exclusively from moving the old folder out to removing its
-/// parts, and moves the generation, so a read that spans jobs (the model context) sees that its earlier job read
-/// another log and starts again.
 type ReadGate = Arc<std::sync::RwLock<u64>>;
 
 /// What the writer of a thread needs to take a value marked sensitive out of what it wrote before the mark
@@ -194,10 +181,6 @@ struct Redaction {
     rewrites: Arc<Rewrites>,
 }
 
-/// The sensitive rewrites running now (each holds the projector and then the read gate): a read awaits none running
-/// ([`ThreadStore::unheld`]) before it takes an io-interactive thread, so reads issued meanwhile wait off the lane rather
-/// than holding its few threads blocked on the gate and filling its queue (where the next job, a row's commit included,
-/// would be refused).
 #[derive(Default)]
 struct Rewrites {
     running: std::sync::atomic::AtomicUsize,
@@ -220,14 +203,6 @@ pub trait SearchCopy: Send + Sync + 'static {
 /// The wait before the debts a failed discharge left are tried again.
 const SEARCH_DEBT_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// The rewrites an earlier process left owed ([`StoreThreads::owe_marks`]), run behind the serving core: what they have done
-/// and failed of how many, and the sessions a refused read asked for first.
-///
-/// `held` is the log reads' copy of the index's withheld state (`mixdog-store` `withheld`, which decides every index read):
-/// it holds a session from before the catalog withholds it until after the catalog's release has committed, so it never
-/// holds less than the catalog. A log read it lets through is of a session whose release committed, and a release commits
-/// only once the log was rewritten and its rows rebuilt from it; the release is never undone in a boot. So the copy can only
-/// refuse a read the catalog would answer, never answer one the catalog withholds.
 #[derive(Default)]
 struct OwedRewrites {
     asked: std::sync::Mutex<std::collections::VecDeque<String>>,
@@ -385,10 +360,6 @@ impl MarkRewrites {
         loop {
             // The log rewritten and the rows rebuilt from it, still withheld.
             let version = threads.rewrite_owed(self.durability, stop, marks, session).await?;
-            // The settlement on disk before the release: a crash after the release does not rewrite the session again, and a
-            // failed write leaves it withheld (refused and told failed), never readable and counted failed. A crash between
-            // the two leaves the catalog withholding a settled session: the next start's withholding, which owes it
-            // nothing, drops it.
             let (journal, held, owed) = (journal.clone(), session.to_owned(), settles.take());
             wait(threads.maintenance, &never, move |_lane| {
                 if let Some(owed) = owed {
@@ -799,11 +770,6 @@ mod projector_tests {
             other => panic!("at the bound the exact read answered {other:?}, not that the index is behind"),
         }
     }
-    /// Every exact read of the store (an operation's dedupe, the fences an activation restores, activation's window, prompt rows,
-    /// the whole history, the switch anchor's row, the compaction entry, the model's context, the purge) fails, saying the index is
-    /// behind, while an acknowledged write is still queued for the index past the bound: none answers absent, empty or stale. The
-    /// operation gate's read (`ThreadOpStore::get`) passes `thread_op`'s error on, so an acknowledged operation is never taken as
-    /// unseen. (The bound is zero here: the projection is stuck before any read starts.)
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn every_exact_read_fails_while_an_acknowledged_write_is_behind_the_bound() {
         let data = crate::session::testing::DataDir::default();
@@ -982,10 +948,6 @@ impl Projector {
         projector
     }
 
-    /// The forwarding task over `project`, which queues a projection at the index writer and resolves with the wait for its
-    /// commit. A projection is queued, in barrier order, as soon as it is sent, without waiting for the commits of those before it,
-    /// so the writer commits every projection queued meanwhile in one transaction (one sync of the index for them, not one each);
-    /// their answers are taken in barrier order.
     fn spawn_with<P, Q, C>(mut project: P) -> Self
     where
         P: FnMut(Projection) -> Q + Send + 'static,
@@ -1169,10 +1131,6 @@ impl Projector {
         Some(Box::pin(async move { projector.drained().await }))
     }
 
-    /// The exact class: every other store read that depends on the index (an operation's dedupe, fences, activation's window,
-    /// prompts, history, the context, the purge). `Ok` once every barrier acked so far has been through the index writer; an error
-    /// that says the index is behind when it has not within [`FENCE_BOUND`](super::thread_list::FENCE_BOUND), or when the projector
-    /// stopped with projections it never finished: such a read never answers from an index older than the write it depends on.
     async fn caught_up(&self) -> Result<(), CoreError> {
         let bound = self.bound;
         if mixdog_rt::time::timeout(bound, self.drained()).await.is_err() {
@@ -1445,11 +1403,6 @@ impl StoreThreads {
         self.projector.hold()
     }
 
-    /// The sessions whose favorite or archive write the index did not take (see [`Projector::marks_lost`]).
-    /// Every stored session's row as the index holds the marks, as one observation: valid only for the mark-projection state it
-    /// was read against. Once the index holds every write acknowledged so far, the rows are read; an `Err` (never cached by the
-    /// caller, the next ask reads again) when a mark write the index refused is still missing from them, or when that state
-    /// moved while the rows were read (a settlement or a restoring write between the snapshot and the check).
     pub(super) async fn marked_catalog(&self) -> Result<Vec<mixdog_store::sqlite::lead::LeadRow>, String> {
         use super::thread_list::ListFence as _;
         if let Some(wait) = self.pending() {
@@ -1655,10 +1608,6 @@ impl StoreThreads {
                 }
             }
         }
-        // The log reads' copy first, then the catalog: the copy never holds less than the catalog (`OwedRewrites`). The
-        // catalog is set to exactly these sessions, so whatever an earlier start left withheld and owes nothing now goes.
-        // This is the only place either set is added to, and it runs at boot, before any thread is served: the copy's
-        // safety rests on no session being withheld again after its release in the same boot.
         self.owed.begin(owed.owed.keys().cloned());
         self.index.withhold(owed.owed.keys().cloned().collect()).await.map_err(|e| internal("sensitive-marks-withhold", &e))?;
         if let Some(progress) = progress {
@@ -1864,20 +1813,6 @@ impl StoreThreads {
         Ok(opened)
     }
 
-    /// What the row reads take from `id`'s opened log. A count or a tail of an idle thread is asked again and again (an
-    /// agent row's message count on every status pass, the desktop's final-answer read while it waits), and each was a
-    /// bounded open: the newest file's tail read and every record in it parsed. It is opened again only when one of the
-    /// logs it was folded from (the thread's own and each base's) was written since in a way that may change the shape,
-    /// which `log_epoch` counts by the operations that write a log, not by what the files look like: a truncation grown
-    /// back or a rewrite in place leaves the files' listing, lengths and write times as they were. An append of records
-    /// that rewind nothing and delete nothing leaves the shape as it is (a running thread appends on every step, and each
-    /// status pass asks its message count), so the kept one answers, at the logs' versions of now. A deleted thread's
-    /// delete mark moves the shape's version and the open that follows refuses it.
-    ///
-    /// A shape is kept only when the shape versions of its logs, taken before the open, are the ones after it and no
-    /// operation that may change the shape ran either time: what was read is then the shape of that version, whichever
-    /// appends ran beside the read. The bases are known only once the log is read; a read that finds other logs than the
-    /// ones whose versions it took is made again over those.
     fn shape(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Arc<LogShape>, CoreError> {
         let lock = || self.shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let versions = |logs: &[String]| logs.iter().map(|log| mixdog_store::log_epoch::settled(log)).collect::<Option<Vec<u64>>>();
@@ -2139,10 +2074,6 @@ impl StoreThreads {
         }
     }
 
-    /// The [`RowDecor`] of each of `rows` (newest first, as paged; the result is oldest first): what
-    /// [`read_window`](ThreadStore::read_window) marks of the same rows. `complete` says no row is older than these.
-    /// A divider goes after the newest row older than it; one newer than every row is given to the last row only
-    /// when these rows end the history (`trailing`), else it belongs to a newer page.
     fn page_decor(
         &self,
         lane: &InLane<InteractiveIo>,
@@ -2189,12 +2120,6 @@ impl StoreThreads {
         Ok(item)
     }
 
-    /// The compaction dividers among the window's rows `rows` (newest first, as paged), each
-    /// with the window index it precedes. A divider of `lineage[level]` goes before that
-    /// level's first shown row at or above its boundary, else after the level's rows; the
-    /// window runs deepest level first, so that index counts the rows of deeper levels and this
-    /// level's rows below the boundary. With older rows unread, the oldest shown row bounds its
-    /// level and deeper levels show none.
     fn window_dividers(
         &self,
         lane: &InLane<InteractiveIo>,

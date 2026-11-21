@@ -1,11 +1,9 @@
-//! The progress watchdog's policy and its verdict texts (Node `agent-runtime/
-//! agent-progress-watchdog.mjs`, with the thresholds of `stall-policy.mjs`). It applies to
+//! The progress watchdog's policy and its verdict texts. It applies to
 //! unattended runs only (agent jobs, routines, schedules, goals); an attended run has a person
 //! who can stop it, and SPEC §4.9 keeps content timers off it.
 //!
-//! The deadlines are Node's: [`resolve_policy`] is `resolveAgentWatchdogPolicy` over the same
-//! environment keys. The verdict itself is [`super::progress::stale_report`]
-//! (`evaluateAgentWatchdogAbort`); the sweep that acts on it lives with the run host.
+//! [`resolve_policy`] reads the deadlines from the environment. The verdict itself is
+//! [`super::progress::stale_report`]; the sweep that acts on it lives with the run host.
 
 use mixdog_js::js_trim_start;
 

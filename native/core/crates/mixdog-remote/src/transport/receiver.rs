@@ -34,6 +34,20 @@ struct Candidate {
 }
 
 impl Candidate {
+    fn first(message: &RecordMessage, total: usize, now: u64) -> Self {
+        match message {
+            RecordMessage::App { box_bytes, .. } => Self { total, buffer: box_bytes.clone(), filled: None, count: 1, received: 1, progress_at: now },
+            RecordMessage::Chunk { index, count, data, .. } => {
+                let mut buffer = vec![0u8; total];
+                let at = *index as usize * CHUNK_BYTES;
+                buffer[at..at + data.len()].copy_from_slice(data);
+                let mut filled = vec![false; *count as usize];
+                filled[*index as usize] = true;
+                Self { total, buffer, filled: Some(filled), count: *count, received: 1, progress_at: now }
+            }
+        }
+    }
+
     fn complete(&self) -> bool {
         self.received == self.count
     }
@@ -171,7 +185,6 @@ impl Receiver {
     pub fn accept(&mut self, message: &RecordMessage, now: u64) -> AcceptResult {
         let sequence = message.sequence();
         if sequence <= self.delivered {
-            // The sender may have lost our ack: say it again.
             self.duplicates += 1;
             self.force_ack = true;
             self.unacked_since.get_or_insert(now);
@@ -191,68 +204,25 @@ impl Receiver {
             self.highest_arrived = sequence;
             self.note_evidence(sequence - 1, now);
         }
-        if let RecordMessage::Chunk { index, total, data, .. } = message {
-            let same = self
-                .slots
-                .get(&sequence)
-                .and_then(|slot| slot.candidates.iter().position(|candidate| candidate.filled.is_some() && candidate.total == *total as usize));
-            if let Some(position) = same {
-                let slot = self.slots.get_mut(&sequence).expect("slot");
-                let candidate = &mut slot.candidates[position];
-                let filled = candidate.filled.as_mut().expect("chunked");
-                if candidate.received == candidate.count || filled[*index as usize] {
-                    self.duplicates += 1;
-                    return AcceptResult::Duplicate;
-                }
-                let at = *index as usize * CHUNK_BYTES;
-                candidate.buffer[at..at + data.len()].copy_from_slice(data);
-                filled[*index as usize] = true;
-                candidate.received += 1;
-                candidate.progress_at = now;
-                // A complete assembly is exposed only when its box names this slot.
-                if candidate.complete() && !header_names(&candidate.buffer, sequence) {
-                    self.remove_candidate(sequence, position);
-                    self.discarded += 1;
-                    return AcceptResult::Mismatch;
-                }
-                return AcceptResult::Buffered;
-            }
-        } else if self.slots.get(&sequence).is_some_and(|slot| slot.candidates.iter().any(|c| c.filled.is_none())) {
-            self.duplicates += 1;
-            return AcceptResult::Duplicate;
+        if let Some(result) = self.join_existing(message, now) {
+            return result;
         }
         let total = match message {
             RecordMessage::App { box_bytes, .. } => box_bytes.len(),
             RecordMessage::Chunk { total, .. } => *total as usize,
         };
-        // A full slot makes room by evicting its least advanced incomplete rival.
-        let mut victim: Option<usize> = None;
-        if let Some(slot) = self.slots.get(&sequence)
-            && slot.candidates.len() >= CANDIDATES_PER_SLOT
-        {
-            for (position, candidate) in slot.candidates.iter().enumerate() {
-                if candidate.complete() {
-                    continue;
-                }
-                let better = victim.is_none_or(|v| {
-                    let current = &slot.candidates[v];
-                    candidate.received < current.received || (candidate.received == current.received && candidate.progress_at < current.progress_at)
-                });
-                if better {
-                    victim = Some(position);
-                }
-            }
+        let mut victim = None;
+        if self.slots.get(&sequence).is_some_and(|slot| slot.candidates.len() >= CANDIDATES_PER_SLOT) {
+            victim = self.least_advanced_incomplete(sequence);
             if victim.is_none() {
                 self.duplicates += 1;
                 return AcceptResult::Duplicate;
             }
         }
-        // Every candidate is charged at least one carrier message.
         let charge = record_charge(total);
         let freed = |this: &Self, victim: Option<usize>| victim.map_or(0, |position| record_charge(this.slots[&sequence].candidates[position].total));
         let slot_bytes = |this: &Self| this.slots.get(&sequence).map_or(0, |slot| slot.bytes);
         if !self.fits(sequence, slot_bytes(self), charge, freed(self, victim)) {
-            // `sweep` may remove the victim (and others): identify it by value afterwards.
             let victim_key = victim.map(|position| {
                 let candidate = &self.slots[&sequence].candidates[position];
                 (candidate.total, candidate.received, candidate.progress_at)
@@ -270,23 +240,63 @@ impl Receiver {
             self.repairs.insert(sequence);
             self.evicted += 1;
         }
-        // Reserved: allocate.
-        let candidate = match message {
-            RecordMessage::App { box_bytes, .. } => Candidate { total, buffer: box_bytes.clone(), filled: None, count: 1, received: 1, progress_at: now },
-            RecordMessage::Chunk { index, count, data, .. } => {
-                let mut buffer = vec![0u8; total];
-                let at = *index as usize * CHUNK_BYTES;
-                buffer[at..at + data.len()].copy_from_slice(data);
-                let mut filled = vec![false; *count as usize];
-                filled[*index as usize] = true;
-                Candidate { total, buffer, filled: Some(filled), count: *count, received: 1, progress_at: now }
-            }
-        };
         let slot = self.slots.entry(sequence).or_default();
-        slot.candidates.push(candidate);
+        slot.candidates.push(Candidate::first(message, total, now));
         slot.bytes += charge;
         self.bytes += charge;
         AcceptResult::Buffered
+    }
+
+    /// Adds the record to the assembly it belongs to; `None` when it starts a new candidate.
+    fn join_existing(&mut self, message: &RecordMessage, now: u64) -> Option<AcceptResult> {
+        let sequence = message.sequence();
+        let RecordMessage::Chunk { index, total, data, .. } = message else {
+            return self.slots.get(&sequence).is_some_and(|slot| slot.candidates.iter().any(|c| c.filled.is_none())).then(|| {
+                self.duplicates += 1;
+                AcceptResult::Duplicate
+            });
+        };
+        let position = self
+            .slots
+            .get(&sequence)
+            .and_then(|slot| slot.candidates.iter().position(|candidate| candidate.filled.is_some() && candidate.total == *total as usize))?;
+        let candidate = &mut self.slots.get_mut(&sequence).expect("slot").candidates[position];
+        let filled = candidate.filled.as_mut().expect("chunked");
+        if candidate.received == candidate.count || filled[*index as usize] {
+            self.duplicates += 1;
+            return Some(AcceptResult::Duplicate);
+        }
+        let at = *index as usize * CHUNK_BYTES;
+        candidate.buffer[at..at + data.len()].copy_from_slice(data);
+        filled[*index as usize] = true;
+        candidate.received += 1;
+        candidate.progress_at = now;
+        // A complete assembly is exposed only when its box names this slot.
+        if candidate.complete() && !header_names(&candidate.buffer, sequence) {
+            self.remove_candidate(sequence, position);
+            self.discarded += 1;
+            return Some(AcceptResult::Mismatch);
+        }
+        Some(AcceptResult::Buffered)
+    }
+
+    /// A full slot makes room by evicting this rival of the slot.
+    fn least_advanced_incomplete(&self, sequence: u64) -> Option<usize> {
+        let candidates = &self.slots.get(&sequence)?.candidates;
+        let mut victim: Option<usize> = None;
+        for (position, candidate) in candidates.iter().enumerate() {
+            if candidate.complete() {
+                continue;
+            }
+            let better = victim.is_none_or(|v| {
+                let current = &candidates[v];
+                candidate.received < current.received || (candidate.received == current.received && candidate.progress_at < current.progress_at)
+            });
+            if better {
+                victim = Some(position);
+            }
+        }
+        victim
     }
 
     fn head_candidate(&self) -> Option<&Candidate> {

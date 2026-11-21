@@ -163,10 +163,6 @@ struct SharedEdges {
     insert: String,
 }
 
-/// `sharedWordEdges(find, replacement)`: the words a replacement shares with its find at either end are not an edit: "86억 원으로"
-/// → "86억 원(잠정)으로" struck through the whole phrase and wrote it again, where a reviewer marks only "원으로" → "원(잠정)으로".
-/// The match is found whole; the revision covers the words between the shared ones. Word granularity, never characters: "22%" →
-/// "21.6%" reads as one changed figure, not "2" kept and "2" → "1.6".
 fn shared_word_edges(find: &str, replacement: &str) -> SharedEdges {
     let tokens = |value: &str| -> Vec<String> { compiled(r"\s+|\S+", "g").find_iter(value).map(|range| value[range].to_owned()).collect() };
     let before = tokens(find);
@@ -190,6 +186,70 @@ pub struct TrackedReplace {
     pub next_id: u64,
 }
 
+/// Where each match of `find` has its changed characters, as byte ranges of the joined text, and how many matches there are. A
+/// match whose shared edges leave nothing to change counts but has no range.
+fn replaced_intervals(joined: &str, find: &str, edges: &SharedEdges) -> (usize, Vec<(usize, usize)>) {
+    let mut intervals: Vec<(usize, usize)> = Vec::new();
+    let mut found = 0;
+    let mut cursor = 0;
+    while joined.len() >= find.len() && cursor <= joined.len() - find.len() {
+        let Some(at) = joined[cursor..].find(find) else { break };
+        let index = cursor + at;
+        found += 1;
+        let start = index + edges.lead;
+        let end = index + find.len() - edges.trail;
+        if end > start || !edges.insert.is_empty() {
+            intervals.push((start, end));
+        }
+        cursor = index + find.len();
+    }
+    (found, intervals)
+}
+
+/// Pushes one run cut by the intervals that touch it: the kept text, each deletion and the insertion that follows it; returns
+/// the next revision id.
+fn cut_run_pieces(
+    run: &ParagraphRun,
+    run_start: usize,
+    overlapping: &[&(usize, usize)],
+    replacement: &str,
+    mut next_id: u64,
+    author: &str,
+    output: &mut Vec<String>,
+) -> u64 {
+    let run_end = run_start + run.text.len();
+    let mut position = run_start;
+    for interval in overlapping {
+        let from = interval.0.max(run_start);
+        let to = interval.1.min(run_end);
+        let kept = &run.text[position - run_start..from - run_start];
+        if !kept.is_empty() {
+            output.push(text_run(run, kept));
+        }
+        let deleted = &run.text[from - run_start..to - run_start];
+        if !deleted.is_empty() {
+            output.push(format!(
+                "<w:del {}>{}{}<w:delText xml:space=\"preserve\">{}</w:delText></w:r></w:del>",
+                revision_attributes(next_id, author),
+                run.open,
+                run.properties,
+                xml_encode(deleted)
+            ));
+            next_id += 1;
+        }
+        if interval.1 <= run_end && !replacement.is_empty() {
+            output.push(format!("<w:ins {}>{}</w:ins>", revision_attributes(next_id, author), text_run(run, replacement)));
+            next_id += 1;
+        }
+        position = to;
+    }
+    let tail = &run.text[position - run_start..];
+    if !tail.is_empty() {
+        output.push(text_run(run, tail));
+    }
+    next_id
+}
+
 /// `trackedParagraphReplace(paragraphXml, find, fullReplacement, id, author)`: tracked find-and-replace at run granularity: only
 /// the matched characters are wrapped in `w:del` and the replacement follows them in `w:ins`, both wearing the formatting of the
 /// run they cut, so the rest of the paragraph keeps its runs untouched. `count` is 0 when no match lies entirely inside text-only
@@ -202,25 +262,9 @@ pub fn tracked_paragraph_replace(paragraph_xml: &str, find: &str, full_replaceme
     let joined: String = runs.iter().map(|run| run.text.as_str()).collect();
     let edges = shared_word_edges(find, full_replacement);
     let replacement = edges.insert.as_str();
-    let mut intervals: Vec<(usize, usize)> = Vec::new();
-    let mut found = 0;
-    let mut cursor = 0;
-    while joined.len() >= find.len() && cursor <= joined.len() - find.len() {
-        let Some(at) = joined[cursor..].find(find) else { break };
-        let index = cursor + at;
-        found += 1;
-        let start = index + edges.lead;
-        let end = index + find.len() - edges.trail;
-        if end > start || !replacement.is_empty() {
-            intervals.push((start, end));
-        }
-        cursor = index + find.len();
-    }
-    if found > 0 && intervals.is_empty() {
-        return Ok(TrackedReplace { xml: paragraph_xml.to_owned(), count: found, next_id: id });
-    }
+    let (found, intervals) = replaced_intervals(&joined, find, &edges);
     if intervals.is_empty() {
-        return Ok(TrackedReplace { xml: paragraph_xml.to_owned(), count: 0, next_id: id });
+        return Ok(TrackedReplace { xml: paragraph_xml.to_owned(), count: found, next_id: id });
     }
     let mut next_id = id;
     let mut output: Vec<String> = Vec::new();
@@ -246,36 +290,90 @@ pub fn tracked_paragraph_replace(paragraph_xml: &str, find: &str, full_replaceme
             output.push(run.xml.clone());
             continue;
         }
-        let mut position = run_start;
-        for interval in overlapping {
-            let from = interval.0.max(run_start);
-            let to = interval.1.min(run_end);
-            let kept = &run.text[position - run_start..from - run_start];
-            if !kept.is_empty() {
-                output.push(text_run(run, kept));
-            }
-            let deleted = &run.text[from - run_start..to - run_start];
-            if !deleted.is_empty() {
-                output.push(format!(
-                    "<w:del {}>{}{}<w:delText xml:space=\"preserve\">{}</w:delText></w:r></w:del>",
-                    revision_attributes(next_id, author),
-                    run.open,
-                    run.properties,
-                    xml_encode(deleted)
-                ));
-                next_id += 1;
-            }
-            if interval.1 <= run_end && !replacement.is_empty() {
-                output.push(format!("<w:ins {}>{}</w:ins>", revision_attributes(next_id, author), text_run(run, replacement)));
-                next_id += 1;
-            }
-            position = to;
-        }
-        let tail = &run.text[position - run_start..];
-        if !tail.is_empty() {
-            output.push(text_run(run, tail));
-        }
+        next_id = cut_run_pieces(run, run_start, &overlapping, replacement, next_id, author, &mut output);
     }
     output.push(paragraph_xml[source_cursor..].to_owned());
     Ok(TrackedReplace { xml: output.concat(), count: found, next_id })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(text: &str) -> String {
+        format!("<w:r><w:t>{text}</w:t></w:r>")
+    }
+
+    #[test]
+    fn a_replacement_marks_only_the_words_between_the_ones_it_shares_with_the_find() {
+        let paragraph = format!("<w:p>{}</w:p>", run("Sales were 86 won today"));
+        let replaced = tracked_paragraph_replace(&paragraph, "86 won today", "86 won tomorrow", 5, "Eve").expect("a replacement");
+        assert_eq!((replaced.count, replaced.next_id), (1, 7));
+        let xml = replaced.xml;
+        let kept = xml.find("Sales were 86 won </w:t>").expect("the shared lead stays a run of its own");
+        let deleted = xml.find("<w:del w:id=\"5\" w:author=\"Eve\"").expect("one deletion");
+        let inserted = xml.find("<w:ins w:id=\"6\" w:author=\"Eve\"").expect("one insertion");
+        assert!(kept < deleted && deleted < inserted, "{xml}");
+        assert!(xml.contains("<w:delText xml:space=\"preserve\">today</w:delText>"), "{xml}");
+        assert!(xml.contains("<w:t xml:space=\"preserve\">tomorrow</w:t>"), "{xml}");
+    }
+
+    #[test]
+    fn words_added_between_shared_ones_are_an_insertion_with_nothing_deleted() {
+        let paragraph = format!("<w:p>{}</w:p>", run("86 won today"));
+        let replaced = tracked_paragraph_replace(&paragraph, "86 won today", "86 won (est.) today", 1, "Eve").expect("a replacement");
+        assert_eq!((replaced.count, replaced.next_id), (1, 2));
+        assert!(!replaced.xml.contains("<w:del "), "{}", replaced.xml);
+        assert!(
+            replaced.xml.contains("<w:ins w:id=\"1\" w:author=\"Eve\"") && replaced.xml.contains("<w:t xml:space=\"preserve\">(est.) </w:t>"),
+            "{}",
+            replaced.xml
+        );
+    }
+
+    #[test]
+    fn every_match_is_replaced_and_a_find_that_is_absent_changes_nothing() {
+        let paragraph = format!("<w:p>{}</w:p>", run("a cat and a cat"));
+        let replaced = tracked_paragraph_replace(&paragraph, "cat", "dog", 1, "Eve").expect("a replacement");
+        assert_eq!((replaced.count, replaced.next_id), (2, 5));
+        assert_eq!(replaced.xml.matches("<w:del ").count(), 2);
+        assert_eq!(replaced.xml.matches("<w:ins ").count(), 2);
+        let absent = tracked_paragraph_replace(&paragraph, "bird", "dog", 1, "Eve").expect("no match is not an error");
+        assert_eq!((absent.xml.as_str(), absent.count, absent.next_id), (paragraph.as_str(), 0, 1));
+        assert_eq!(tracked_paragraph_replace(&paragraph, "", "dog", 1, "Eve").unwrap_err(), "replace_text requires non-empty find");
+    }
+
+    #[test]
+    fn text_in_a_run_that_carries_a_tab_is_not_searched() {
+        let paragraph = "<w:p><w:r><w:t>a cat</w:t><w:tab/></w:r></w:p>";
+        let replaced = tracked_paragraph_replace(paragraph, "cat", "dog", 1, "Eve").expect("no error");
+        assert_eq!((replaced.xml.as_str(), replaced.count), (paragraph, 0));
+    }
+
+    #[test]
+    fn a_phrase_split_across_runs_is_marked_around_exactly_its_characters() {
+        let paragraph = format!("<w:p>{}{}</w:p>", run("Hello wor"), run("ld here"));
+        let anchored = anchor_phrase_in_paragraph(&paragraph, "world", 3, None).expect("the phrase is anchored");
+        let start = anchored.find("<w:commentRangeStart w:id=\"3\"/>").expect("the range opens");
+        let end = anchored.find("<w:commentRangeEnd w:id=\"3\"/>").expect("the range closes");
+        let inside = &anchored[start..end];
+        assert!(inside.contains(">wor</w:t>") && inside.contains(">ld</w:t>") && !inside.contains("Hello") && !inside.contains("here"), "{anchored}");
+        assert!(anchored[..start].contains(">Hello </w:t>"), "{anchored}");
+        assert!(anchored[end..].contains("<w:commentReference w:id=\"3\"/>") && anchored[end..].contains("> here</w:t>"), "{anchored}");
+    }
+
+    #[test]
+    fn a_phrase_that_is_not_in_the_paragraph_is_not_anchored() {
+        assert_eq!(anchor_phrase_in_paragraph(&format!("<w:p>{}</w:p>", run("a b")), "missing", 1, None), None);
+    }
+
+    #[test]
+    fn a_replaced_phrase_leaves_only_the_markers_in_its_place() {
+        let paragraph = format!("<w:p>{}{}</w:p>", run("see Fig"), run(" 1 now"));
+        let markers = PhraseMarkers { start: Some("<LINK/>".to_owned()), end: Some("<END/>".to_owned()), replace: true };
+        let anchored = anchor_phrase_in_paragraph(&paragraph, "Fig 1", 1, Some(&markers)).expect("the phrase is replaced");
+        assert!(!anchored.contains("Fig") && !anchored.contains(">1<"), "{anchored}");
+        let link = anchored.find("<LINK/><END/>").expect("the markers stand where the phrase was");
+        assert!(anchored[..link].ends_with(">see </w:t></w:r>") && anchored.ends_with("> now</w:t></w:r></w:p>"), "{anchored}");
+    }
 }

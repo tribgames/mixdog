@@ -17,6 +17,7 @@ use super::js::re;
 use super::js::replace_first;
 use super::js::split_lines;
 use super::js::truthy;
+use crate::text_class::TaskNotification;
 use crate::text_class::parse_task_notification;
 
 /// A parsed envelope: the fields `restoredNotificationToolItem` reads.
@@ -223,29 +224,27 @@ fn is_background_error_only_body(body: &str, error: &str) -> bool {
     line == err || line == format!("Error: {err}") || js_trim(&stripped) == err
 }
 
-pub fn parse_background_task_envelope(text: &str) -> Option<Parsed> {
-    let value = js_trim(text);
-    if let Some(n) = parse_task_notification(value) {
-        let args = Obj::default()
-            .put("type", "result")
-            .put("status", n.status.clone())
-            .put("task_id", n.task_id.clone())
-            .put("surface", n.surface.clone())
-            .non_empty("tag", &n.tag)
-            .non_empty("label", &n.tag)
-            .non_empty("error", &n.error);
-        return Some(Parsed {
-            name: n.surface.clone(),
-            label: n.status.clone(),
-            args: args.0,
-            result: first(&[&n.result, &n.error, &n.summary]).to_owned(),
-            raw_result: Some(value.to_owned()),
-            is_error: Some(Value::Bool(is_error_tool_status(&n.status))),
-        });
+fn task_notification_card(n: TaskNotification, value: &str) -> Parsed {
+    let args = Obj::default()
+        .put("type", "result")
+        .put("status", n.status.clone())
+        .put("task_id", n.task_id.clone())
+        .put("surface", n.surface.clone())
+        .non_empty("tag", &n.tag)
+        .non_empty("label", &n.tag)
+        .non_empty("error", &n.error);
+    Parsed {
+        name: n.surface.clone(),
+        label: n.status.clone(),
+        args: args.0,
+        result: first(&[&n.result, &n.error, &n.summary]).to_owned(),
+        raw_result: Some(value.to_owned()),
+        is_error: Some(Value::Bool(is_error_tool_status(&n.status))),
     }
-    if !BACKGROUND_HEAD.is_match(value) {
-        return None;
-    }
+}
+
+/// The `key: value` lines before the first blank line of a background envelope, and the text after it.
+fn split_background_head(value: &str) -> (HashMap<String, String>, String) {
     let all_lines: Vec<&str> = value.split('\n').collect();
     let rest = &all_lines[1..];
     let blank = rest.iter().position(|line| js_trim(line).is_empty());
@@ -263,6 +262,18 @@ pub fn parse_background_task_envelope(text: &str) -> Option<Parsed> {
             fields.insert(lower(caps.get(1).unwrap_or_default()), js_trim(caps.get(2).unwrap_or_default()).to_owned());
         }
     }
+    (fields, body)
+}
+
+pub fn parse_background_task_envelope(text: &str) -> Option<Parsed> {
+    let value = js_trim(text);
+    if let Some(n) = parse_task_notification(value) {
+        return Some(task_notification_card(n, value));
+    }
+    if !BACKGROUND_HEAD.is_match(value) {
+        return None;
+    }
+    let (fields, body) = split_background_head(value);
     let field = |name: &str| fields.get(name).map(String::as_str).unwrap_or("");
     let surface = lower(first(&[field("surface"), field("operation"), "task"]));
     let name = if CARD_SURFACES.contains(&surface.as_str()) { surface.clone() } else { "task".into() };
@@ -599,4 +610,46 @@ pub fn card(parsed: Parsed, text: &str, error_label: &JsRegex) -> Value {
         .put("isError", is_error)
         .0
         .into()
+}
+
+#[cfg(test)]
+mod background_envelope_tests {
+    use serde_json::json;
+
+    use super::parse_background_task_envelope;
+
+    fn args(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+        value.as_object().cloned().unwrap()
+    }
+
+    #[test]
+    fn a_task_notification_becomes_a_card_of_its_surface() {
+        let text = "<task-notification>\n<task-id>t1</task-id>\n<status>completed</status>\n<summary>Shell task done</summary>\n</task-notification>";
+        let parsed = parse_background_task_envelope(text).unwrap();
+        assert_eq!((parsed.name.as_str(), parsed.label.as_str(), parsed.result.as_str()), ("shell", "completed", "Shell task done"));
+        assert_eq!(parsed.args, args(json!({ "type": "result", "status": "completed", "task_id": "t1", "surface": "shell" })));
+        assert_eq!(parsed.is_error, Some(json!(false)));
+    }
+
+    #[test]
+    fn a_background_head_with_a_body_reports_progress_and_its_error() {
+        let text = "Background task\nstatus: running\ntask_id: b7\nsurface: shell\nerror: boom\n\nbody text";
+        let parsed = parse_background_task_envelope(text).unwrap();
+        assert_eq!((parsed.name.as_str(), parsed.label.as_str(), parsed.result.as_str()), ("shell", "running", "body text"));
+        assert_eq!(parsed.args, args(json!({ "type": "progress", "status": "running", "task_id": "b7", "surface": "shell", "error": "boom" })));
+        assert_eq!(parsed.is_error, Some(json!(true)));
+    }
+
+    #[test]
+    fn a_background_head_without_a_body_shows_its_status_line() {
+        let parsed = parse_background_task_envelope("Background task\nstatus: completed\ntask_id: b8").unwrap();
+        assert_eq!((parsed.name.as_str(), parsed.label.as_str(), parsed.result.as_str()), ("task", "completed", "status: completed · task_id: b8"));
+        assert_eq!(parsed.args, args(json!({ "type": "status", "status": "completed", "task_id": "b8", "surface": "task" })));
+        assert_eq!(parsed.is_error, Some(json!(false)));
+    }
+
+    #[test]
+    fn other_text_is_not_a_background_envelope() {
+        assert!(parse_background_task_envelope("hello").is_none());
+    }
 }

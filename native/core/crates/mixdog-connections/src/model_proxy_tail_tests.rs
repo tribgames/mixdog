@@ -1,8 +1,3 @@
-//! A borrowed model's session request over the real relay, both ends: the session's core (`remote_send`) speaks
-//! `model/proxy/execute` frames on a mock server link and answers the PC's asks with `model/proxy/tail`; on the PC the real
-//! relay, the core's model-call service and the real Anthropic adapter run the call on a captured transport. Every POST is
-//! judged by the session's own book on the owner's clock, immediately before the PC writes it.
-
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};

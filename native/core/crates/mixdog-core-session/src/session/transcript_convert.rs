@@ -1,9 +1,3 @@
-//! Node-shaped rows as the protocol's typed thread items. Each row attribute with a typed home
-//! (`mixdog_protocol::ThreadItem`) goes there; the rest of the row stays in `ItemMeta.ext`, the
-//! core's exact row attributes (P §14.12). The same conversion serves a stored message's
-//! restored rows ([`super::transcript_rows`]) and a display record's verbatim row (an imported
-//! compaction-archive item), so both show the same item for the same row.
-
 // Transparent names for existing callback/record shapes; no ownership or ordering change.
 type StoredDetails = (Vec<String>, Vec<Option<String>>, Option<u32>, Vec<String>, Option<String>);
 
@@ -147,8 +141,7 @@ fn stored_details(message: &Value) -> StoredDetails {
     (strings("submissionIds"), consumed, hop, strings("botChain"), room_row)
 }
 
-/// The id a client holds for a row: a user row shows its submission id (Node's row id, `pushUserOrSyntheticItem(text, id)`;
-/// `rowOf` in `rows.ts`), every other row its item id.
+/// The id a client holds for a row: a user row shows its submission id, every other row its item id.
 pub(in crate::session) fn displayed_id(item: &ThreadItem) -> &str {
     match item {
         ThreadItem::UserMessage { client_submission_id: Some(id), .. } if !id.is_empty() => id,
@@ -156,7 +149,7 @@ pub(in crate::session) fn displayed_id(item: &ThreadItem) -> &str {
     }
 }
 
-/// The position of the row a client's id names, in Node's order (`rewind.mjs`: the displayed id is matched first): by displayed
+/// The position of the row a client's id names: by displayed
 /// id, then by the internal item id for a caller that read the id from the item itself.
 pub(in crate::session) fn position_of_id<'a>(mut items: impl Iterator<Item = &'a ThreadItem> + Clone, wanted: &str) -> Option<usize> {
     items.clone().position(|item| displayed_id(item) == wanted).or_else(|| items.position(|item| item.id().as_str() == wanted))
@@ -229,7 +222,7 @@ fn tool_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
     let name = take_str(&mut row, "name").unwrap_or_default();
     let input = row.shift_remove("args").unwrap_or(Value::Null);
     let call_id = take_str(&mut row, "callId");
-    // The item id is opaque (Node's `it_<run>_<n>`); the provider's call id rides `run.callId`, which a result's update finds the card by.
+    // The item id is opaque; the provider's call id rides `run.callId`, which a result's update finds the card by.
     let id = row_id;
     let result = blob_text(&mut row, "result");
     let is_error = take_bool(&mut row, "isError");
@@ -443,14 +436,14 @@ pub fn message_items(record: &ItemRecord, message: &Value) -> Vec<Shown> {
     message_shown(record, message).into_iter().map(|(shown, _)| shown).collect()
 }
 
-/// The item of a turn's live end row (`turnDoneItem`), the row Node's transcript holds when the turn closes. Not
+/// The item of a turn's live end row, the row the transcript holds when the turn closes. Not
 /// the restore of a completion: history shows that through [`message_items`].
 pub fn live_end(row: serde_json::Map<String, Value>, turn: &str) -> ThreadItem {
     item_of(row, &Ctx { turn: Some(turn), message: None, counts_prompt: false, source: None })
 }
 
 /// The items a stored message record shows, each with the byte length of the display row it
-/// stands for (`Buffer.byteLength(JSON.stringify(row))`, what Node's page budget counts); `None`
+/// stands for (`JSON.stringify(row)` in bytes, what the page budget counts); `None`
 /// for a result update, which is no row. A group-room line is built straight from the message,
 /// with no display row: its length is its typed item's.
 pub fn message_shown(record: &ItemRecord, message: &Value) -> Vec<(Shown, Option<usize>)> {
@@ -507,7 +500,7 @@ pub fn display_bytes(record: &ItemRecord, body: &Value) -> Option<usize> {
     }
     Some(row_bytes(&row))
 }
-/// The item of an imported display record: its body is the row Node showed, verbatim.
+/// The item of an imported display record: its body is the row shown, verbatim.
 pub fn display_item(record: &ItemRecord, body: &Value) -> Option<ThreadItem> {
     let mut row = body.as_object()?.clone();
     if !row.get("id").is_some_and(Value::is_string) {
@@ -584,8 +577,7 @@ mod tests {
     }
 
     /// The roster account that served an answer is stored on the row (`providerMetadata.accountRouting`) and rides only the
-    /// model proxy's history; the items a phone or remote peer is sent from that row carry none of it (Node's transcript
-    /// rows have no `providerMetadata`).
+    /// model proxy's history; the items a phone or remote peer is sent from that row carry none of it.
     #[test]
     fn the_account_that_served_an_answer_is_not_in_the_items_a_peer_gets() {
         let mut state = SessionState::new(16);
@@ -629,7 +621,7 @@ mod tests {
         assert_eq!(ext_of(json!("2")), None);
     }
 
-    /// Node's `pendingToolCalls` has no entry for a skipped wait call, so its result attaches
+    /// A skipped wait call has no pending entry, so its result attaches
     /// to nothing; here the stateless projection still names the call, and the view ignores it.
     #[test]
     fn a_result_whose_call_shows_no_card_changes_nothing() {
@@ -651,7 +643,7 @@ mod tests {
         assert!(run.result.is_some(), "a result with its card fills the run");
     }
 
-    /// A tool result row's `toolMeta` (the visualize owner) is on the card's run, as Node showed it.
+    /// A tool result row's `toolMeta` (the visualize owner) is on the card's run.
     #[test]
     fn a_result_rows_tool_meta_reaches_its_card() {
         let mut state = SessionState::new(16);

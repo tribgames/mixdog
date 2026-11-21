@@ -1,8 +1,3 @@
-//! When a session fires its user hooks (`lifecycle_hooks.rs`), as Node's session runtime does:
-//! `SessionStart` at a runtime's session create with its context stored ahead of the first turn,
-//! `StopFailure` for a turn that did not complete, `CwdChanged` for a folder that moved, and
-//! `SessionEnd` when the runtime closes.
-
 use std::sync::Arc;
 use std::sync::Mutex;
 

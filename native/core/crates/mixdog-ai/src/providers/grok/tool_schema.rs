@@ -1,10 +1,6 @@
-//! Grok's gRPC tool registry takes flat tool schemas: no `anyOf`/`oneOf`. This is `normalizeGrokToolSchemas` of
-//! the Node core (`providers/lib/grok-tool-schema.mjs` with `action-input-contract.mjs`, applied at
-//! `grok-oauth.mjs:438`), step for step, on the `parameters` of each tool of the encoded body, with the JavaScript
-//! semantics it relies on: the schema is a `JSON.parse` result (every number a double, every object listing its
-//! array-index keys first in ascending order, then the others in insertion order), `===` and `includes` compare as
-//! JavaScript compares, numbers put into text are written as JavaScript writes them, and the body goes out as
-//! `JSON.stringify` writes it. Where Node's code throws a `TypeError` on an input, so does this, and the send fails.
+//! Flattens Grok's tool schemas (its gRPC tool registry rejects `anyOf`/`oneOf`) as Node's `normalizeGrokToolSchemas`
+//! does, with the JavaScript semantics the output depends on: parsed-JSON key order, `===`/`includes` comparison,
+//! JavaScript number text and `JSON.stringify` output. Where Node throws a `TypeError`, so does this.
 
 use serde_json::Map;
 use serde_json::Value;
@@ -74,11 +70,8 @@ pub(crate) fn js_number(x: f64) -> String {
     }
 }
 
-/// `String(value)` / a template literal of a parsed JSON value. An object is `ToPrimitive`d: its `toString`, then its
-/// `valueOf`, whichever is a function and gives a primitive. A parsed object inherits both from `Object.prototype`
-/// (`"[object Object]"`) unless it has an own `toString` key: that one is never a function, so `toString` is skipped and
-/// `valueOf` (its own, never a function either, or `Object.prototype`'s, which gives the object back) gives no
-/// primitive, and V8 throws.
+/// `String(value)` of a parsed JSON value: an object is `ToPrimitive`d to `"[object Object]"`, unless it has an own
+/// `toString` key, where V8 throws.
 fn js_to_string(value: &Value) -> Js<String> {
     Ok(match value {
         Value::Null => "null".to_owned(),
@@ -156,12 +149,9 @@ fn js_ordered_deep(value: Value) -> Value {
     }
 }
 
-// A JavaScript string is UTF-16: `Object.entries` (and a spread) of a string takes it apart by code unit, so a character
-// outside the Basic Multilingual Plane becomes two strings of one lone surrogate each, which a Rust string cannot hold.
-// Such a string is written here as the flatten's marker followed by the unit's four lowercase hex digits, and
-// `JSON.stringify` writes it as JavaScript does (`"\ud83d"`). The marker is a run of U+F0000 longer than any run in the
-// body the flatten works on, so no string of the body, nor any text the flatten builds from them (always joined with
-// ASCII), is a marked one. The flatten's functions that take strings apart carry it as `marker`.
+// A JavaScript string is UTF-16, so `Object.entries` of a string splits a character outside the BMP into two lone
+// surrogates, which a Rust string cannot hold. Each is written as the flatten's marker (a run of U+F0000 longer than any
+// run in the body) plus the unit's four hex digits; `JSON.stringify` writes it as `"\ud83d"`.
 
 const MARK: char = '\u{F0000}';
 
@@ -599,18 +589,36 @@ fn not_iterable(value: &Value) -> TypeError {
     TypeError(format!("{what} is not iterable (cannot read property Symbol(Symbol.iterator))"))
 }
 
+fn action_enum(branch: &Value) -> Option<Vec<Value>> {
+    get(branch, "properties").and_then(|p| get(p, "action")).and_then(|a| get(a, "enum")).and_then(Value::as_array).cloned()
+}
+
+fn branch_input(branch: &Value) -> Option<Value> {
+    get(branch, "properties").and_then(|p| get(p, "input")).cloned()
+}
+
+fn input_properties(branch: &Value) -> Option<Value> {
+    branch_input(branch).and_then(|i| get(&i, "properties").cloned()).filter(|p| truthy(Some(p)))
+}
+
 /// The per-action input rules of a `oneOf`/`anyOf` of action/input branches, else empty.
 fn action_input_contract(schema: &Value, marker: &str) -> Js<String> {
     let one_of = get(schema, "oneOf");
     let chosen = if truthy(one_of) { one_of } else { get(schema, "anyOf") };
     let Some(branches) = chosen.and_then(Value::as_array).filter(|b| !b.is_empty()) else { return Ok(String::new()) };
-    let action_enum = |branch: &Value| get(branch, "properties").and_then(|p| get(p, "action")).and_then(|a| get(a, "enum")).and_then(Value::as_array).cloned();
-    let input = |branch: &Value| get(branch, "properties").and_then(|p| get(p, "input")).cloned();
-    let input_properties = |branch: &Value| input(branch).and_then(|i| get(&i, "properties").cloned()).filter(|p| truthy(Some(p)));
     if !branches.iter().all(|b| action_enum(b).is_some() && input_properties(b).is_some()) {
         return Ok(String::new());
     }
-    let mut variants: std::collections::HashMap<String, Vec<Vec<u8>>> = std::collections::HashMap::new();
+    let variants = field_variants(branches, marker)?;
+    let rows = branches.iter().map(|branch| contract_row(branch, &variants, marker)).collect::<Js<Vec<String>>>()?;
+    Ok(format!("Allowed input by action (* required): {}.", rows.join("; ")))
+}
+
+type FieldVariants = std::collections::HashMap<String, Vec<Vec<u8>>>;
+
+/// Each input field's distinct `enum`/`minimum`/`maximum` triples across the branches.
+fn field_variants(branches: &[Value], marker: &str) -> Js<FieldVariants> {
+    let mut variants = FieldVariants::new();
     for branch in branches {
         for (name, field) in entries(input_properties(branch).as_ref(), marker) {
             if field.is_null() {
@@ -624,38 +632,39 @@ fn action_input_contract(schema: &Value, marker: &str) -> Js<String> {
             }
         }
     }
-    let mut rows = Vec::new();
-    for branch in branches {
-        let input = input(branch).expect("every branch has an input");
-        // `new Set(input.required || [])`: a string is a set of its characters.
-        let required: Vec<String> = match get(&input, "required") {
-            required if !truthy(required) => Vec::new(),
-            Some(Value::Array(items)) => items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect(),
-            Some(Value::String(text)) => text.chars().map(String::from).collect(),
-            Some(other) => return Err(not_iterable(other)),
-            None => Vec::new(),
-        };
-        let mut fields = Vec::new();
-        for (name, field) in entries(input_properties(branch).as_ref(), marker) {
-            let mut label = format!("{name}{}", if required.contains(&name) { "*" } else { "" });
-            if variants[&name].len() > 1 {
-                match get(&field, "enum") {
-                    Some(Value::Array(values)) => label += &format!("={}", js_join(values, "|")?),
-                    values if truthy(values) => return Err(TypeError("field.enum.join is not a function".to_owned())),
-                    _ => {}
-                }
-                if let Some(minimum) = get(&field, "minimum") {
-                    label += &format!(">={}", js_to_string(minimum)?);
-                }
-                if let Some(maximum) = get(&field, "maximum") {
-                    label += &format!("<={}", js_to_string(maximum)?);
-                }
+    Ok(variants)
+}
+
+/// One branch's `action(field*,field=a|b>=1<=2)`: a field's constraints are named only where branches differ on it.
+fn contract_row(branch: &Value, variants: &FieldVariants, marker: &str) -> Js<String> {
+    let input = branch_input(branch).expect("every branch has an input");
+    // `new Set(input.required || [])`: a string is a set of its characters.
+    let required: Vec<String> = match get(&input, "required") {
+        required if !truthy(required) => Vec::new(),
+        Some(Value::Array(items)) => items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect(),
+        Some(Value::String(text)) => text.chars().map(String::from).collect(),
+        Some(other) => return Err(not_iterable(other)),
+        None => Vec::new(),
+    };
+    let mut fields = Vec::new();
+    for (name, field) in entries(input_properties(branch).as_ref(), marker) {
+        let mut label = format!("{name}{}", if required.contains(&name) { "*" } else { "" });
+        if variants[&name].len() > 1 {
+            match get(&field, "enum") {
+                Some(Value::Array(values)) => label += &format!("={}", js_join(values, "|")?),
+                values if truthy(values) => return Err(TypeError("field.enum.join is not a function".to_owned())),
+                _ => {}
             }
-            fields.push(label);
+            if let Some(minimum) = get(&field, "minimum") {
+                label += &format!(">={}", js_to_string(minimum)?);
+            }
+            if let Some(maximum) = get(&field, "maximum") {
+                label += &format!("<={}", js_to_string(maximum)?);
+            }
         }
-        rows.push(format!("{}({})", js_join(&action_enum(branch).unwrap_or_default(), "/")?, fields.join(",")));
+        fields.push(label);
     }
-    Ok(format!("Allowed input by action (* required): {}.", rows.join("; ")))
+    Ok(format!("{}({})", js_join(&action_enum(branch).unwrap_or_default(), "/")?, fields.join(",")))
 }
 
 // grok-tool-schema.mjs (continued)
@@ -714,6 +723,22 @@ fn union_required(root: &Value, object_branches: &[Value]) -> Vec<Value> {
     out
 }
 
+fn flatten_without_object_branches(root: Map<String, Value>, branches: &[Value]) -> Js<Value> {
+    let mut required = Vec::new();
+    for key in required_keys(&Value::Object(root.clone())).into_iter().chain(first_exclusive_required(branches)) {
+        push_unique(&mut required, key);
+    }
+    let mut out = root.clone();
+    out.insert("type".into(), json!("object"));
+    if !required.is_empty() {
+        out.insert("required".into(), Value::Array(required));
+    }
+    if !root.contains_key("additionalProperties") {
+        out.insert("additionalProperties".into(), Value::Bool(true));
+    }
+    normalize_property_schema(&Value::Object(out))
+}
+
 fn normalize_tool_schema(schema: &Value, marker: &str) -> Js<Value> {
     let Some(map) = schema.as_object().filter(|m| m.get("anyOf").is_some_and(Value::is_array) || m.get("oneOf").is_some_and(Value::is_array)) else {
         return normalize_property_schema(schema);
@@ -722,19 +747,7 @@ fn normalize_tool_schema(schema: &Value, marker: &str) -> Js<Value> {
     let branches: Vec<Value> = ["anyOf", "oneOf"].iter().flat_map(|key| map.get(*key).and_then(Value::as_array).cloned().unwrap_or_default()).collect();
     let object_branches: Vec<Value> = branches.iter().filter(|b| is_object_branch(b)).cloned().collect();
     if object_branches.is_empty() {
-        let mut required = Vec::new();
-        for key in required_keys(&Value::Object(root.clone())).into_iter().chain(first_exclusive_required(&branches)) {
-            push_unique(&mut required, key);
-        }
-        let mut out = root.clone();
-        out.insert("type".into(), json!("object"));
-        if !required.is_empty() {
-            out.insert("required".into(), Value::Array(required));
-        }
-        if !root.contains_key("additionalProperties") {
-            out.insert("additionalProperties".into(), Value::Bool(true));
-        }
-        return normalize_property_schema(&Value::Object(out));
+        return flatten_without_object_branches(root, &branches);
     }
     let mut properties = merged_schema_properties(&root, &object_branches, marker)?;
     let contract = action_input_contract(schema, marker)?;

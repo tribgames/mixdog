@@ -648,10 +648,6 @@ fn a_published_core_that_does_not_answer_is_not_attached_as_healthy() {
     let report = run(&args("1.4.6", "b6"), &host, &access, &env.exe).unwrap();
     assert!(!report.healthy && !report.core_current, "another core's answer proves nothing: {report:?}");
 }
-/// A run of `args` through the real `OsAccess` against a published core (`published`: version, build, state) whose
-/// process is `pid` and whose control listener is a real one. `answer` plays the core's side of the run's first
-/// connection, whose request head (already read) starts with `request`, on the run's clock, which moves only when it
-/// advances it; the core's state is a real lifecycle.
 fn served_through(
     args: ProgramArgs,
     pid: u32,

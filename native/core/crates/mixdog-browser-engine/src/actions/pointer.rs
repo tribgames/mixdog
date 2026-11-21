@@ -1,7 +1,3 @@
-//! Owner: s4-engine-actions-pointer
-//! Gestures aimed at a point: click, hover, drag, scroll and key presses (`actions/pointer.ts`). A point comes from a snapshot ref
-//! (with stale-ref recovery before anything is dispatched) or from image-pixel coordinates bound to the latest visual snapshot.
-//!
 //! The gesture itself is one `host/browser/input/batch` request carrying the page's precondition; the press of a click on a ref also
 //! carries a hit guard naming the element, which the host checks as the press lands. The engine never replays a gesture: only the
 //! read-only preflights (resolving a target, probing a ref's point, preparing a ref) run under recovery.
@@ -422,49 +418,63 @@ pub async fn scroll(cx: &mut ActionContext<'_>) -> Result<ActionOutput, ActionEr
         return Err(ActionError::Failed("scroll accepts only one target form".to_string()));
     }
     if !wanted.is_empty() {
-        // Bringing a known phrase into view without knowing where it sits.
-        let Some(found) = scroll_text_into_view(cx, &wanted).await? else {
-            return Err(ActionError::Failed(format!("scroll text {} was not found on this page; nothing was scrolled", json_string(&wanted))));
-        };
-        cx.page.invalidate_interaction();
-        // Name the line that was reached: the first match may not be the one meant.
-        let lead = if found.is_empty() { String::new() } else { format!("Scrolled to {}.\n\n", json_string(&redact_browser_text(&found))) };
-        return Ok(ActionOutput { lead, decorate_recovery: true, ..ActionOutput::default() });
+        return scroll_to_text(cx, &wanted).await;
     }
     if coordinate && (!truthy(cx.field("snapshotId")) || finite_number(cx.field("x")).is_none() || finite_number(cx.field("y")).is_none()) {
         return Err(ActionError::Failed("scroll coordinate target requires snapshotId, x, and y".to_string()));
     }
     if semantic {
-        let source = action_ref(cx).await?.ok_or_else(|| ActionError::Failed("the target resolved to nothing".to_string()))?;
-        let (host, cancel) = (cx.host, cx.cancel);
-        let page_id = cx.page.facts().page_id;
-        let declaration = scroll_within_ref_declaration(dx, effective_dy);
-        let page = cx.page;
-        let moved = mutate_ref(cx, &source, false, |ref_id| async move {
-            let expect = expect_for(page, Some(&ref_id));
-            let target = RefTarget { page_id: &page_id, snapshot_id: snapshot_of_ref(&ref_id), ref_id: &ref_id, expect: Some(&expect) };
-            call_ref_within(host, &target, &declaration, Vec::new(), Some(SCROLL_SCRIPT_TIMEOUT_MS), cancel.token()).await.map(|(value, _)| value)
-        })
-        .await?;
-        if moved.get("changed").and_then(Value::as_bool) == Some(true) {
-            cx.page.record_scroll();
-        }
-        cx.page.invalidate_interaction();
-        return Ok(ActionOutput { decorate_recovery: true, ..ActionOutput::default() });
+        return scroll_within_ref(cx, dx, effective_dy).await;
     }
     if coordinate {
-        let point = visual_point(cx, cx.field("x"), cx.field("y"), "scroll").await?;
-        cx.page.invalidate_interaction();
-        let mut step = pointer_step(BrowserPointerKind::Wheel, point);
-        step.delta_x = Some(dx as f64);
-        step.delta_y = Some(effective_dy.map_or_else(|| (f64::from(OFFSCREEN_VIEWPORT.1) * 0.8).round(), |dy| dy as f64));
-        let timing = send_input(cx, vec![InputStep::Pointer(step)], None).await?;
-        return Ok(finished(false, timing));
+        return scroll_at_coordinate(cx, dx, effective_dy).await;
     }
+    scroll_page(cx, dx, effective_dy).await
+}
+
+async fn scroll_to_text(cx: &mut ActionContext<'_>, wanted: &str) -> Result<ActionOutput, ActionError> {
+    let Some(found) = scroll_text_into_view(cx, wanted).await? else {
+        return Err(ActionError::Failed(format!("scroll text {} was not found on this page; nothing was scrolled", json_string(wanted))));
+    };
+    cx.page.invalidate_interaction();
+    let lead = if found.is_empty() { String::new() } else { format!("Scrolled to {}.\n\n", json_string(&redact_browser_text(&found))) };
+    Ok(ActionOutput { lead, decorate_recovery: true, ..ActionOutput::default() })
+}
+
+async fn scroll_within_ref(cx: &mut ActionContext<'_>, dx: i64, dy: Option<i64>) -> Result<ActionOutput, ActionError> {
+    let source = action_ref(cx).await?.ok_or_else(|| ActionError::Failed("the target resolved to nothing".to_string()))?;
+    let (host, cancel) = (cx.host, cx.cancel);
+    let page_id = cx.page.facts().page_id;
+    let declaration = scroll_within_ref_declaration(dx, dy);
+    let page = cx.page;
+    let moved = mutate_ref(cx, &source, false, |ref_id| async move {
+        let expect = expect_for(page, Some(&ref_id));
+        let target = RefTarget { page_id: &page_id, snapshot_id: snapshot_of_ref(&ref_id), ref_id: &ref_id, expect: Some(&expect) };
+        call_ref_within(host, &target, &declaration, Vec::new(), Some(SCROLL_SCRIPT_TIMEOUT_MS), cancel.token()).await.map(|(value, _)| value)
+    })
+    .await?;
+    if moved.get("changed").and_then(Value::as_bool) == Some(true) {
+        cx.page.record_scroll();
+    }
+    cx.page.invalidate_interaction();
+    Ok(ActionOutput { decorate_recovery: true, ..ActionOutput::default() })
+}
+
+async fn scroll_at_coordinate(cx: &mut ActionContext<'_>, dx: i64, dy: Option<i64>) -> Result<ActionOutput, ActionError> {
+    let point = visual_point(cx, cx.field("x"), cx.field("y"), "scroll").await?;
+    cx.page.invalidate_interaction();
+    let mut step = pointer_step(BrowserPointerKind::Wheel, point);
+    step.delta_x = Some(dx as f64);
+    step.delta_y = Some(dy.map_or_else(|| (f64::from(OFFSCREEN_VIEWPORT.1) * 0.8).round(), |dy| dy as f64));
+    let timing = send_input(cx, vec![InputStep::Pointer(step)], None).await?;
+    Ok(finished(false, timing))
+}
+
+async fn scroll_page(cx: &mut ActionContext<'_>, dx: i64, dy: Option<i64>) -> Result<ActionOutput, ActionError> {
     cx.page.invalidate_interaction();
     let params = HostBrowserPageEvalParams {
         page_id: cx.page.facts().page_id,
-        expression: scroll_page_expression(dx, effective_dy),
+        expression: scroll_page_expression(dx, dy),
         frame: None,
         await_promise: None,
         return_by_value: Some(true),

@@ -713,6 +713,60 @@ pub fn migrate_bots_to_own_store(
         }
     }
 }
+fn undo_run(bots_root: &Path, run_tag: &str, changes: Vec<Change>) {
+    for Change { target, old } in changes.into_iter().rev() {
+        let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let aside = bots_root.join(format!(".{name}.{run_tag}.staging"));
+        if std::fs::rename(&target, &aside).is_ok() {
+            if let Some(old) = old {
+                let _ = std::fs::rename(old, &target);
+            }
+            remove_best_effort(&aside);
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(bots_root) {
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy().ends_with(&format!(".{run_tag}.staging")) {
+                remove_best_effort(&entry.path());
+            }
+        }
+    }
+}
+fn copy_lead_files(lead_dir: &Path, staging: &Path, first_copy: bool) -> io::Result<()> {
+    for file in folder_files(lead_dir) {
+        let name = file.strip_prefix(lead_dir).unwrap_or(&file).to_path_buf();
+        if name == Path::new("agent.json") || (staging.join(&name).exists() && first_copy) {
+            continue;
+        }
+        if let Some(parent) = staging.join(&name).parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(&file, staging.join(&name))?;
+    }
+    Ok(())
+}
+fn mixy_manifest(lead_dir: &Path, current: &Map<String, Value>, first_copy: bool, facts: &Facts) -> Map<String, Value> {
+    let lead = read_json(&lead_dir.join("agent.json")).unwrap_or_default();
+    let mut manifest = Map::new();
+    for key in MIXY_IDENTITY_KEYS {
+        if let Some(value) = lead.get(key) {
+            manifest.insert(key.to_owned(), value.clone());
+        }
+    }
+    if first_copy {
+        manifest.extend(current.clone());
+    }
+    if let Some(created) = current.get("created").filter(|value| value.is_boolean()) {
+        manifest.insert("created".into(), created.clone());
+    }
+    if let Some(route) =
+        complete_route(current.get("route")).or_else(|| complete_route(facts.mixy_thread_route.as_ref())).or_else(|| complete_route(facts.lead_route.as_ref()))
+    {
+        manifest.insert("route".into(), route);
+    }
+    manifest.insert("homeSessionId".into(), Value::String(MIXY_HOME_SESSION_ID.into()));
+    manifest
+}
 fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, now_iso: &str, backup: &dyn Fn(&InLane<DurabilityIo>)) -> SplitReport {
     let bots_root = data.join(BOTS_DIR);
     let done = read_manifest_now(&bots_root);
@@ -828,38 +882,10 @@ fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, now_i
                 before_copy();
                 // A first copy fills what bots/mixy lacks (the host may have written its flag or route there); a
                 // re-sync takes agents/lead's identity.
-                let staging = stage(MIXY_BOT_ID, (mixy_dir.exists() && mixy_entry.is_none()).then_some(mixy_dir.as_path()))?;
-                for file in folder_files(&lead_dir) {
-                    let name = file.strip_prefix(&lead_dir).unwrap_or(&file).to_path_buf();
-                    if name == Path::new("agent.json") || (staging.join(&name).exists() && mixy_entry.is_none()) {
-                        continue;
-                    }
-                    if let Some(parent) = staging.join(&name).parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    std::fs::copy(&file, staging.join(&name))?;
-                }
-                let lead = read_json(&lead_dir.join("agent.json")).unwrap_or_default();
-                let mut manifest = Map::new();
-                for key in MIXY_IDENTITY_KEYS {
-                    if let Some(value) = lead.get(key) {
-                        manifest.insert(key.to_owned(), value.clone());
-                    }
-                }
-                if mixy_entry.is_none() {
-                    manifest.extend(current.clone());
-                }
-                if let Some(created) = current.get("created").filter(|value| value.is_boolean()) {
-                    manifest.insert("created".into(), created.clone());
-                }
-                if let Some(route) = complete_route(current.get("route"))
-                    .or_else(|| complete_route(facts.mixy_thread_route.as_ref()))
-                    .or_else(|| complete_route(facts.lead_route.as_ref()))
-                {
-                    manifest.insert("route".into(), route);
-                }
-                manifest.insert("homeSessionId".into(), Value::String(MIXY_HOME_SESSION_ID.into()));
-                write_plain_json(&staging.join("agent.json"), &manifest)?;
+                let first_copy = mixy_entry.is_none();
+                let staging = stage(MIXY_BOT_ID, (mixy_dir.exists() && first_copy).then_some(mixy_dir.as_path()))?;
+                copy_lead_files(&lead_dir, &staging, first_copy)?;
+                write_plain_json(&staging.join("agent.json"), &mixy_manifest(&lead_dir, &current, first_copy, facts))?;
                 swap_in(&mut changes, MIXY_BOT_ID, staging, true)?;
                 record(&mut copies, MIXY_BOT_ID, &lead_dir);
                 mixy = true;
@@ -890,24 +916,7 @@ fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, now_i
     let next = match outcome {
         Ok(next) => next,
         Err(error) => {
-            // Undo this run: what it added goes, what it replaced comes back.
-            for Change { target, old } in changes.drain(..).rev() {
-                let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                let aside = bots_root.join(format!(".{name}.{run_tag}.staging"));
-                if std::fs::rename(&target, &aside).is_ok() {
-                    if let Some(old) = old {
-                        let _ = std::fs::rename(old, &target);
-                    }
-                    remove_best_effort(&aside);
-                }
-            }
-            if let Ok(entries) = std::fs::read_dir(&bots_root) {
-                for entry in entries.flatten() {
-                    if entry.file_name().to_string_lossy().ends_with(&format!(".{run_tag}.staging")) {
-                        remove_best_effort(&entry.path());
-                    }
-                }
-            }
+            undo_run(&bots_root, &run_tag, std::mem::take(&mut changes));
             tracing::warn!("[bot-split] migration failed; the profile is unchanged: {error}");
             return SplitReport {
                 failed: true,
@@ -952,6 +961,57 @@ pub fn with_agent_kind_marker(text: &str) -> String {
 fn stamp_file(file: &Path) -> io::Result<()> {
     std::fs::write(file, with_agent_kind_marker(&read_text(file)))
 }
+fn plan_kind_stamps(data: &Path, facts: &Facts) -> (Vec<String>, Vec<String>) {
+    let agents_root = data.join("agents");
+    let bots_root = data.join(BOTS_DIR);
+    let split = read_manifest_now(&bots_root);
+    let delegated = delegated_agent_ids(data);
+    let (mut stamp, mut restore): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
+    for id in sub_dirs(&agents_root) {
+        if id.starts_with('.') || id == "lead" || facts.hidden.contains(&id) || STARTERS.contains(&id.as_str()) || OFF_ROSTER_EXTRA.contains(&id.as_str()) {
+            continue;
+        }
+        if facts.shipped.join("agents").join(&id).join("AGENT.md").exists() {
+            continue;
+        }
+        let dir = agents_root.join(&id);
+        let Some(file) = definition_file(&dir) else { continue };
+        let (frontmatter, body) = read_document(&read_text(&file));
+        // A split bot is judged on its bots/ copy, before the explicit-kind skip: an interrupted restore may
+        // already have stamped agents/<id> while bots/<id> is still there, and the next run must finish it.
+        if split.is_some() && bots_root.join(&id).exists() {
+            let bot_kind = definition_file(&bots_root.join(&id)).map(|bot_file| read_document(&read_text(&bot_file)).0.get("kind").cloned());
+            if delegated.contains(&id) && !bot_kind.as_ref().is_some_and(|kind| truthy(kind.as_ref())) {
+                restore.push(id);
+            }
+            continue;
+        }
+        if truthy(frontmatter.get("kind")) {
+            continue;
+        }
+        if split.as_ref().is_some_and(|split| strings(split.get("bots")).contains(&id)) {
+            continue;
+        }
+        let bot = evidence_kind(facts, &id, frontmatter.get("kind"), &manifest_of(&dir), &body).as_deref() == Some("bot");
+        if !bot || delegated.contains(&id) {
+            stamp.push(id);
+        }
+    }
+    (stamp, restore)
+}
+/// The bot's files (edited since the split) are the definition to keep; its route is returned for the config.
+fn restore_bot(bots_root: &Path, agents_root: &Path, id: &str) -> io::Result<Option<Value>> {
+    let (source, target) = (bots_root.join(id), agents_root.join(id));
+    copy_dir(&source, &target)?;
+    let route = read_json(&source.join("agent.json")).and_then(|manifest| manifest.get("route").cloned());
+    if let Some(mut manifest) = read_json(&target.join("agent.json")) {
+        for key in KIND_STORE_ONLY_KEYS {
+            manifest.shift_remove(key);
+        }
+        write_plain_json(&target.join("agent.json"), &manifest)?;
+    }
+    Ok(complete_route(route.as_ref()))
+}
 /// The first half of `migrateAgentKinds`, under the lock: the stamps are written, and each bot to bring back has its
 /// files copied to `agents/<id>`. The caller stores each returned route in the config and calls [`finish_kind_stamp`];
 /// a failure writes no record, so the next start retries (every step is idempotent).
@@ -963,39 +1023,7 @@ pub fn stamp_agent_kinds(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts
         }
         let agents_root = data.join("agents");
         let bots_root = data.join(BOTS_DIR);
-        let split = read_manifest_now(&bots_root);
-        let delegated = delegated_agent_ids(data);
-        let (mut stamp, mut restore): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
-        for id in sub_dirs(&agents_root) {
-            if id.starts_with('.') || id == "lead" || facts.hidden.contains(&id) || STARTERS.contains(&id.as_str()) || OFF_ROSTER_EXTRA.contains(&id.as_str()) {
-                continue;
-            }
-            if facts.shipped.join("agents").join(&id).join("AGENT.md").exists() {
-                continue;
-            }
-            let dir = agents_root.join(&id);
-            let Some(file) = definition_file(&dir) else { continue };
-            let (frontmatter, body) = read_document(&read_text(&file));
-            // A split bot is judged on its bots/ copy, before the explicit-kind skip: an interrupted restore may
-            // already have stamped agents/<id> while bots/<id> is still there, and the next run must finish it.
-            if split.is_some() && bots_root.join(&id).exists() {
-                let bot_kind = definition_file(&bots_root.join(&id)).map(|bot_file| read_document(&read_text(&bot_file)).0.get("kind").cloned());
-                if delegated.contains(&id) && !bot_kind.as_ref().is_some_and(|kind| truthy(kind.as_ref())) {
-                    restore.push(id);
-                }
-                continue;
-            }
-            if truthy(frontmatter.get("kind")) {
-                continue;
-            }
-            if split.as_ref().is_some_and(|split| strings(split.get("bots")).contains(&id)) {
-                continue;
-            }
-            let bot = evidence_kind(facts, &id, frontmatter.get("kind"), &manifest_of(&dir), &body).as_deref() == Some("bot");
-            if !bot || delegated.contains(&id) {
-                stamp.push(id);
-            }
-        }
+        let (mut stamp, restore) = plan_kind_stamps(data, facts);
         if !stamp.is_empty() || !restore.is_empty() {
             backup(lane);
         }
@@ -1004,19 +1032,10 @@ pub fn stamp_agent_kinds(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts
                 stamp_file(&file)?;
             }
         }
-        // The bot's files (edited since the split) are the definition to keep; its route goes to the config.
         let mut restoring = Vec::new();
         for id in restore {
-            let (source, target) = (bots_root.join(&id), agents_root.join(&id));
-            copy_dir(&source, &target)?;
-            let route = read_json(&source.join("agent.json")).and_then(|manifest| manifest.get("route").cloned());
-            if let Some(mut manifest) = read_json(&target.join("agent.json")) {
-                for key in KIND_STORE_ONLY_KEYS {
-                    manifest.shift_remove(key);
-                }
-                write_plain_json(&target.join("agent.json"), &manifest)?;
-            }
-            restoring.push((id, complete_route(route.as_ref())));
+            let route = restore_bot(&bots_root, &agents_root, &id)?;
+            restoring.push((id, route));
         }
         stamp.sort();
         Ok(KindStage { stamped: stamp, restore: restoring, ..Default::default() })

@@ -1,11 +1,5 @@
-//! Whether a stored OAuth document is a sign-in, per provider: the rules of the ten credential probes
-//! (`oauth-credential-probes.mjs`) over the document the provider's file holds
-//! (`fixtures/oauth-credential-validity/golden.json`, from the real `oauthCredentialProbeState`). A
-//! document the rule rejects reads absent, as a logout does; Node's probes are memoised for 3 s and
-//! keyed on the file, which changes nothing about the answer.
-//!
-//! Not here: Cursor's `CURSOR_ACCESS_TOKEN` environment token, which the provider reads itself
-//! (`providers::cursor::auth::FileAccess::with_env_token`).
+//! The ten credential probes of `oauth-credential-probes.mjs`
+//! (`fixtures/oauth-credential-validity/golden.json`, from the real `oauthCredentialProbeState`).
 
 use base64::Engine;
 use base64::engine::DecodePaddingMode;

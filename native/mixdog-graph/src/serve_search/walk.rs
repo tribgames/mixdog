@@ -136,10 +136,6 @@ impl<'a> WorkerWalkBatch<'a> {
         if self.files.is_empty() {
             return;
         }
-        // Recovered, never skipped: dropping this batch would answer with an
-        // inventory that is short by exactly these paths and still claims to
-        // be complete. The paths themselves are unaffected by whatever panic
-        // poisoned the collector, so they are published.
         lock_recover(&self.live.files).append(&mut self.files);
         self.last_flush = Some(Instant::now());
         self.live.files_cond.notify_all();
@@ -368,76 +364,56 @@ pub(super) fn start_live_walk(store: Arc<FileListStore>, key: WalkKey, live: Arc
             if !operand.is_dir() {
                 return Err(format!("no such path {}", operand.display()));
             }
-            let walk = configure_inventory_walk(&operand, &parsed);
-            // Publish the first candidate immediately, then amortize locking
-            // with size/time-bounded batches for every query shape.
-            let publish_batch = inventory_publish_batch();
-            walk.build_parallel().run(|| {
-                let live = &live;
-                let operand = &operand;
-                let mut batch = WorkerWalkBatch::new(live, publish_batch);
-                Box::new(move |entry| {
-                    batch.flush_due();
-                    if abandon_expired_idle_walk(live, serve_search_uptime_ms()) || live.cancelled.load(Ordering::Acquire) {
-                        return ignore::WalkState::Quit;
-                    }
-                    let entry = match entry {
-                        Ok(entry) => entry,
-                        Err(error) => {
-                            record_directory_error(live, &error);
-                            return ignore::WalkState::Continue;
-                        }
-                    };
-                    let Some((is_file, is_dir, is_symlink)) = walk_entry_kinds(live, &entry) else {
-                        return ignore::WalkState::Continue;
-                    };
-                    if !is_file && !(parsed.directories && ((is_dir && entry.path() != operand.as_path()) || is_symlink)) {
-                        return ignore::WalkState::Continue;
-                    }
-                    let path = entry.into_path();
-                    batch.push(path);
-                    ignore::WalkState::Continue
-                })
-            });
+            enumerate_inventory(&live, &operand, &parsed);
             if live.cancelled.load(Ordering::Acquire) {
                 return Err(CANCELLED.to_string());
             }
-            // Fuzzy consumers rank the published stream in discovery order and
-            // do not depend on inventory ordering. Let them return as soon as
-            // enumeration is complete while this worker finishes the
-            // deterministic sorted cache in the background.
             live.enumeration_done.store(true, Ordering::Release);
             live.files_cond.notify_all();
-            // THE ONE DELIBERATE EXCEPTION to the recover-a-poisoned-lock
-            // policy (`store.rs`), and the reason is what this read is for: it
-            // is not a cache read, it is the answer being published. Every
-            // other holder of this mutex recovers, because a poisoned lock
-            // says nothing about the paths already in it. Here the walk is
-            // about to install this vector as a CACHED, `complete` inventory
-            // that later requests reuse — and a panic inside a writer's
-            // critical section (`append`/`extend` above) can leave it short.
-            // An inventory that may be truncated must fail loudly once, not be
-            // cached as the whole answer: the next request restarts the walk.
-            let mut files = live.files.lock().map_err(|_| "parallel file collector poisoned".to_string())?.clone();
-            // Inventory order is deterministic but duplicate paths are
-            // equivalent, so stability buys nothing. Parallel unstable sort
-            // removes the single-core tail that cold broad finds previously
-            // paid after the parallel walk had already completed.
-            files.par_sort_unstable();
-            Ok(Arc::new(files))
+            sorted_inventory_unless_collector_poisoned(&live)
         });
-        match result {
-            Ok(files) => {
-                store.finish_live(key, &live, Ok(files));
-            }
-            Err(error) if error == CANCELLED => {
-                store.finish_live(key, &live, Err(None));
-            }
-            Err(error) => {
-                store.finish_live(key, &live, Err(Some(error)));
-            }
-        }
+        let completion = match result {
+            Ok(files) => Ok(files),
+            Err(error) if error == CANCELLED => Err(None),
+            Err(error) => Err(Some(error)),
+        };
+        store.finish_live(key, &live, completion);
     });
+}
+
+fn enumerate_inventory(live: &LiveWalk, operand: &Path, parsed: &ParsedArgs) {
+    let walk = configure_inventory_walk(operand, parsed);
+    let publish_batch = inventory_publish_batch();
+    walk.build_parallel().run(|| {
+        let mut batch = WorkerWalkBatch::new(live, publish_batch);
+        Box::new(move |entry| {
+            batch.flush_due();
+            if abandon_expired_idle_walk(live, serve_search_uptime_ms()) || live.cancelled.load(Ordering::Acquire) {
+                return ignore::WalkState::Quit;
+            }
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    record_directory_error(live, &error);
+                    return ignore::WalkState::Continue;
+                }
+            };
+            let Some((is_file, is_dir, is_symlink)) = walk_entry_kinds(live, &entry) else {
+                return ignore::WalkState::Continue;
+            };
+            if !is_file && !(parsed.directories && ((is_dir && entry.path() != operand) || is_symlink)) {
+                return ignore::WalkState::Continue;
+            }
+            batch.push(entry.into_path());
+            ignore::WalkState::Continue
+        })
+    });
+}
+
+fn sorted_inventory_unless_collector_poisoned(live: &LiveWalk) -> Result<Arc<Vec<PathBuf>>, String> {
+    let mut files = live.files.lock().map_err(|_| "parallel file collector poisoned".to_string())?.clone();
+    files.par_sort_unstable();
+    Ok(Arc::new(files))
 }
 
 pub(super) fn wait_live_complete(live: &LiveWalk, cancelled: &AtomicBool, deadline_at: Option<Instant>) -> Result<Option<Arc<Vec<PathBuf>>>, String> {

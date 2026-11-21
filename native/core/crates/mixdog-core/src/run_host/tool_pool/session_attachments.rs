@@ -1,10 +1,3 @@
-//! The `attachments` of a `session` (send, create) or `agent` (spawn, send) call, resolved as Node's
-//! `callerAttachmentParts` does (`workspace-tools.mjs`, `handoff-attachments.mjs`): each reference is an attachment the
-//! caller's own conversation shows (by id or by file name) or a file inside the caller's folders, and comes back as the
-//! stored reference part a forwarded prompt carries. A file is read once on the durability lane and stored in the
-//! attachment store under its content address; nothing but the reference travels on.
-//! Replayed against Node's answers by `mixdog-services` (`fixtures/session-activity/golden.json`, `handoff.resolve`).
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;

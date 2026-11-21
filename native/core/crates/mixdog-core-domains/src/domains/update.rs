@@ -1,8 +1,7 @@
 //! The `update` domain: `update/getUpdateStatus`, `update/checkForUpdate`,
 //! `update/runUpdateNow` and `update/desktop/command`.
 //!
-//! The first three are the self-update controller of the 1.4.5 daemon
-//! (`src/session-runtime/self-update.mjs`, `settings-system-api.mjs`): a registry check of
+//! The first three are the self-update controller: a registry check of
 //! the `latest` dist-tag cached in `update-check-cache.json` for 24 h, and a staged install
 //! of the version found. What stages and applies a version is the installer's
 //! ([`UpdateInstaller`]). `update/desktop/command` has the desktop updater check or install,
@@ -451,8 +450,7 @@ impl UpdateService {
         }
     }
 
-    /// `startBootCheck()` of the controller (`self-update.mjs`), run once right after boot: one
-    /// forced registry check (`checkLatestVersion({ force: true })`), remembered as the check
+    /// Run once right after boot: one forced registry check, remembered as the check
     /// state without touching the phase. When `update.auto` is on, this is not a dev install and
     /// a newer version was found, that version is staged in the background and announced once
     /// the staging is complete ([`Self::stage_and_announce`]).
@@ -472,10 +470,6 @@ impl UpdateService {
         })
     }
 
-    /// The staging half of `startBootCheck`: a version already staged is announced at once;
-    /// otherwise it is staged (best effort, like the detached `spawnStagedInstall`: a failure is
-    /// retried by the next launch) and its completion polled every 3 s for up to 10 min. The
-    /// notice goes out once, when the staging is complete, never upfront.
     async fn stage_and_announce(&self, version: &str) {
         if self.installer.is_staged(version).await {
             (self.config.ready_notice)(version);

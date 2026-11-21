@@ -296,10 +296,7 @@ impl Scheduler {
         let outcome = async {
             let Some(saved) = rename().await? else { return Ok(None) };
             if let Err(cause) = reload().await {
-                // The row moved but the reload that arms the new name failed: nothing may
-                // keep running under the old one.
-                // The refusal names the row's new name, the one that is armed on the next reload
-                // (`scheduler.mjs:541`).
+                // The refusal names the row's new name (`scheduler.mjs:541`).
                 self.inner.drop_schedule(name);
                 return Err(ScheduleError::RenameReloadFailed { name: new_name.into(), cause });
             }

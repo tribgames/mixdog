@@ -4,12 +4,6 @@
 use super::*;
 use std::sync::{MutexGuard, RwLockReadGuard, RwLockWriteGuard};
 
-/// Lock one of the search runtime's caches, recovering a poisoned lock
-/// instead of propagating it.
-///
-/// Every table behind these locks is a cache: a panic in one search must not
-/// disable caching for the rest of the process. This is the one place that
-/// decides that, for every mutex in the runtime.
 pub(super) fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|error| error.into_inner())
 }
@@ -69,10 +63,7 @@ pub(super) enum LiveState {
 pub(super) struct LiveWalk {
     pub(super) files: Mutex<Vec<PathBuf>>,
     pub(super) state: Mutex<LiveState>,
-    // `cond` pairs exclusively with the `state` mutex and `files_cond` with the
-    // `files` mutex. std::sync::Condvar panics when one condvar is waited on
-    // with two different mutexes, which killed searches whenever a streaming
-    // consumer and a complete-inventory waiter shared one walk.
+    // `cond` pairs only with `state`, `files_cond` only with `files`: std Condvar panics when waited on with two mutexes.
     pub(super) cond: Condvar,
     pub(super) files_cond: Condvar,
     pub(super) waiters: AtomicUsize,
@@ -245,15 +236,6 @@ impl FileListStore {
         }
     }
 
-    /// Drop every warm cache without tearing the server down.
-    ///
-    /// A standalone server reclaims by exiting and letting the OS take the
-    /// pages back. An in-process server has no exit to reclaim through — the
-    /// host owns the process — so the same idle window frees the inventory,
-    /// the fuzzy corpus, the trigram signatures and the OS watchers instead.
-    /// Only cached RESULTS are dropped: walks in flight hold their own Arc and
-    /// finish untouched, and everything persisted first is reloaded on demand,
-    /// exactly as a freshly spawned process would.
     pub(super) fn release_caches(&self) {
         persist_file_list_snapshot(&self.ready);
         persist_content_signature_cache();
@@ -261,9 +243,6 @@ impl FileListStore {
         lock_recover(&self.fuzzy).clear();
         lock_recover(&self.generations).clear();
         lock_recover(&self.pending_repairs).clear();
-        // Dropping the watcher unwatches every root at once. An idle server
-        // pinning one OS handle per watched root is exactly the cost this
-        // release exists to remove; the next search re-arms it.
         *lock_recover(&self.watcher) = None;
         self.watcher_healthy.store(false, Ordering::Release);
         lock_recover(&self.watched_roots).clear();
@@ -455,10 +434,6 @@ impl FileListStore {
         self.begin_live_with_inventory(key, keep_warm, 0)
     }
 
-    /// Join the live walk for `key`, starting it when this caller is the first.
-    /// An unwatched operand can never be invalidated, so its walk is marked
-    /// uncacheable. The returned guard keeps the walk alive while the caller
-    /// consumes it.
     pub(super) fn join_live_walk<'a>(
         self: &'a Arc<Self>,
         key: WalkKey,
@@ -545,6 +520,51 @@ impl FileListStore {
         }
     }
 
+    fn cache_finished_inventory(
+        &self,
+        key: WalkKey,
+        live: &Arc<LiveWalk>,
+        files: &Arc<Vec<PathBuf>>,
+        cacheable: bool,
+        current_generation: u64,
+        failures: Arc<Vec<DirectoryFailure>>,
+    ) {
+        if std::env::var_os("MIXDOG_SEARCH_CACHE_TRACE").is_some() {
+            eprintln!(
+                "inventory-cache root={} saved={} generation={}/{} watch={} errors={} retryable={}",
+                key.operand.display(),
+                cacheable,
+                live.generation,
+                current_generation,
+                live.cacheable.load(Ordering::Acquire),
+                live.walk_errors.load(Ordering::Acquire),
+                failures.len()
+            );
+        }
+        if cacheable {
+            self.remember_inventory(key, Arc::clone(files), live.generation, failures);
+        } else if live.cacheable.load(Ordering::Acquire)
+            && self.watcher_healthy.load(Ordering::Acquire)
+            && live.walk_errors.load(Ordering::Acquire) == failures.len()
+            && !live.cancelled.load(Ordering::Acquire)
+        {
+            // Serialize the cache repair with journal publication.
+            // Notifications queued during repair invalidate it after
+            // this guard is released, just like a fresh inventory.
+            let changes = lock_recover(&self.changes);
+            if let Some(paths) = changes.since(live.change_sequence, &key.operand).filter(|paths| !paths.is_empty()) {
+                if let Ok(repaired) = repair_inventory(&key, files, &paths) {
+                    if !live.cancelled.load(Ordering::Acquire) && self.watcher_healthy.load(Ordering::Acquire) {
+                        self.remember_inventory(key.clone(), repaired, self.generation(&key.operand), failures);
+                    }
+                }
+            }
+        }
+        if live.keep_warm.load(Ordering::Acquire) {
+            schedule_signature_prewarm(Arc::clone(files));
+        }
+    }
+
     pub(super) fn finish_live(&self, key: WalkKey, live: &Arc<LiveWalk>, result: Result<Arc<Vec<PathBuf>>, Option<String>>) -> bool {
         // Same ordering rule as begin_live: never lock generations under the
         // live-map lock. remember() re-checks the current generation, so a
@@ -565,40 +585,7 @@ impl FileListStore {
         // waiting requests can still observe deadlines and cancellation.
         let completed_state = match result {
             Ok(files) => {
-                if std::env::var_os("MIXDOG_SEARCH_CACHE_TRACE").is_some() {
-                    eprintln!(
-                        "inventory-cache root={} saved={} generation={}/{} watch={} errors={} retryable={}",
-                        key.operand.display(),
-                        cacheable,
-                        live.generation,
-                        current_generation,
-                        live.cacheable.load(Ordering::Acquire),
-                        live.walk_errors.load(Ordering::Acquire),
-                        failures.len()
-                    );
-                }
-                if cacheable {
-                    self.remember_inventory(key, Arc::clone(&files), live.generation, failures);
-                } else if live.cacheable.load(Ordering::Acquire)
-                    && self.watcher_healthy.load(Ordering::Acquire)
-                    && live.walk_errors.load(Ordering::Acquire) == failures.len()
-                    && !live.cancelled.load(Ordering::Acquire)
-                {
-                    // Serialize the cache repair with journal publication.
-                    // Notifications queued during repair invalidate it after
-                    // this guard is released, just like a fresh inventory.
-                    let changes = lock_recover(&self.changes);
-                    if let Some(paths) = changes.since(live.change_sequence, &key.operand).filter(|paths| !paths.is_empty()) {
-                        if let Ok(repaired) = repair_inventory(&key, &files, &paths) {
-                            if !live.cancelled.load(Ordering::Acquire) && self.watcher_healthy.load(Ordering::Acquire) {
-                                self.remember_inventory(key.clone(), repaired, self.generation(&key.operand), failures);
-                            }
-                        }
-                    }
-                }
-                if live.keep_warm.load(Ordering::Acquire) {
-                    schedule_signature_prewarm(Arc::clone(&files));
-                }
+                self.cache_finished_inventory(key, live, &files, cacheable, current_generation, failures);
                 LiveState::Done(files)
             }
             Err(Some(err)) => LiveState::Failed(err),

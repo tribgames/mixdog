@@ -1,11 +1,3 @@
-// Outline entries → the symbol records a FileRecord carries.
-//
-// The walk hands over items and members; this file decides which of them are
-// graph symbols, deduplicates the declarations two rules both matched, orders
-// them, resolves each one's parent from the SAME span list the call sites'
-// `inSymbol` uses, and assembles the v2 record. `extract` is the entry point
-// every consumer goes through.
-
 use std::collections::{HashMap, HashSet};
 
 use ast_grep_core::tree_sitter::StrDoc;
@@ -63,11 +55,6 @@ pub struct SymbolInfo {
     /// head carries nothing beyond the name.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub sig: String,
-    /// Name of the innermost enclosing SYMBOL. Omitted at top level — and a
-    /// container that is not itself a symbol cannot be one: a Rust `impl`
-    /// block is not extracted, so `impl Store { fn read() }` reports `read`
-    /// with NO parent (only a `mod` gives Rust methods one), and the same
-    /// holds for an anonymous `export default class { run() {} }`.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub parent: String,
 }
@@ -169,11 +156,6 @@ pub fn extract(text: &str, graph_lang: &str, lang: ScanLang) -> Extraction {
     map_items(walked, text, graph_lang)
 }
 
-/// Occurrences of `symbol` as an IDENTIFIER in `text`, as 1-based
-/// `(line, column)` pairs. The standalone `mixdog-graph <root> <symbol>`
-/// search mode is built on this: a match is a node of one of the grammar's
-/// identifier kinds whose text is exactly the symbol, so comments and string
-/// bodies can never produce one while a string INTERPOLATION still does.
 pub fn identifier_hits(text: &str, lang: ScanLang, symbol: &str) -> Vec<(u32, u32)> {
     if text.is_empty() || symbol.is_empty() {
         return Vec::new();
@@ -223,13 +205,6 @@ pub(super) fn map_items(walked: Walked<'_>, text: &str, graph_lang: &str) -> Ext
     }
 }
 
-/// One pass over the walked items: every item and member that is a graph
-/// symbol becomes a deduplicated `Candidate`, and every import item
-/// contributes its raw specs.
-///
-/// Both lists leave in a fixed order — imports by their byte offset in the
-/// source, candidates by `(start line, start col, name line, name)` — so the
-/// record does not depend on the traversal's own visit order.
 fn collect_declarations(items: &[WalkedItem<'_>], text: &str, graph_lang: &str) -> (Vec<String>, Vec<Candidate>) {
     // (byte offset, spec) so the emitted list stays in source order even
     // though the traversal visits siblings back to front.
@@ -281,12 +256,6 @@ fn push_candidate(candidate: Candidate, candidates: &mut Vec<Candidate>, by_key:
     }
 }
 
-/// Resolve each candidate's innermost enclosing candidate and the call sites'
-/// `inSymbol` from ONE span list, built from the same deduplicated candidates
-/// the record reports.
-///
-/// The parent comes back as an INDEX into `candidates`, not only as a name:
-/// the visibility rules need the enclosing declaration's KIND too.
 fn resolve_containment(candidates: &[Candidate], calls: Vec<crate::calls::RawCall>) -> (Vec<Option<usize>>, Vec<crate::calls::CallInfo>) {
     // Containment order: nesting is a byte-span relation, not a line one, so
     // the sweep runs over the candidates sorted by (start ASC, end DESC).
@@ -309,11 +278,6 @@ fn resolve_containment(candidates: &[Candidate], calls: Vec<crate::calls::RawCal
     (parent_of, crate::calls::finish(calls, &spans))
 }
 
-/// `(parent name, is local)` per candidate: a declaration with a
-/// FUNCTION-LIKE ancestor lives in that body and cannot be visible outside
-/// the file in ANY language, whatever its modifiers or the export clause
-/// say (`fun localHelper` inside a method, a C# local function, a `pub fn`
-/// inside a `fn`).
 fn parent_meta(candidates: &[Candidate], parent_of: &[Option<usize>], graph_lang: &str) -> Vec<(String, bool)> {
     (0..candidates.len())
         .map(|index| {
@@ -358,11 +322,6 @@ fn symbol_records(candidates: Vec<Candidate>, meta: Vec<(String, bool)>, text: &
         .collect()
 }
 
-/// One declaration can match two rules on nested nodes (a named function
-/// expression and the binding it is assigned to, a declaration node and the
-/// specifier inside it). The old tree-sitter queries kept the first match in
-/// document order, which is the node that STARTS EARLIEST, and — when two
-/// nodes start at the same byte — the OUTERMOST one, i.e. the longer span.
 fn keeps_existing(existing: &Candidate, candidate: &Candidate) -> bool {
     match existing.start_byte.cmp(&candidate.start_byte) {
         std::cmp::Ordering::Less => true,
@@ -440,11 +399,6 @@ mod tests {
         assert!(!keeps_existing(&at(4, 12), &at(4, 90)));
     }
 
-    /// A symbol name is an IDENTIFIER: something other code can write down to
-    /// reference the declaration. Solidity's `pragma solidity ^0.8.19;` was
-    /// the one rule that broke that — it reported the version expression, a
-    /// name with a space in it — so a `.sol` file must now declare no such
-    /// name, and no pragma symbol at all.
     #[test]
     fn solidity_declares_no_pragma_and_no_name_with_whitespace() {
         let source = "// SPDX-License-Identifier: MIT\n\
@@ -522,7 +476,7 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
     /// name is the property's — the only name a caller can reference. Data
     /// properties are not declarations and stay out.
     #[test]
-    fn object_literal_function_properties_are_methods() {
+    fn typescript_object_literal_function_properties_are_methods() {
         let source = r#"
 export function createHost() {
   const host = {
@@ -578,7 +532,10 @@ export function createHost() {
         assert_eq!(preflight.parent, "createHost");
         assert_eq!(preflight.sig, "preflightSteps: createInputPreflight({ retries: 2 })");
         assert_eq!(record(&ts, "fill").sig, "fill: async (ctx: string)");
+    }
 
+    #[test]
+    fn javascript_object_literal_function_properties_are_methods() {
         // The same shapes in JavaScript, where `pair` is the only form.
         let js = records(
             "javascript",
@@ -590,7 +547,10 @@ export function createHost() {
             vec![("variable", "actions"), ("method", "submit"), ("method", "reset"), ("method", "build"),]
         );
         assert_eq!(record(&js, "submit").parent, "actions");
+    }
 
+    #[test]
+    fn export_clause_names_the_declaration_not_a_method_of_the_same_word() {
         // An `export { name }` clause names the module-level declaration, not
         // a method that happens to share the word.
         let clash = records("typescript", "ts", "function run(): void {}\nconst api = { run: () => {} };\nexport { run };\n");

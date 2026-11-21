@@ -1,10 +1,6 @@
-//! Cancellation with a reason (the `controller.abort(new Error("…"))` of the Node runtime).
-//!
-//! A [`CancelSource`] owns a [`CancellationToken`] plus a write-once reason. The token is the
-//! ordinary one, so lanes, tasks and `select!` arms take it unchanged through
-//! [`CancelSource::token`]; a [`CancelView`] additionally reads the reason after the token
-//! fired. Children made with [`CancelSource::child`] are cancelled by their parent and report
-//! the parent's reason.
+//! Cancellation with a reason. A [`CancelSource`] owns a [`CancellationToken`] plus a write-once reason; [`CancelSource::token`]
+//! gives the ordinary token, a [`CancelView`] also reads the reason after the token fired, and children made with
+//! [`CancelSource::child`] are cancelled by their parent and report its reason.
 
 use std::sync::Arc;
 use std::sync::OnceLock;

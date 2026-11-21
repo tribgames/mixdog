@@ -1,8 +1,3 @@
-//! `recall` / `search_memories`: hybrid (lexical + semantic) search over the
-//! generated history, `#id` lookups, query-less browses, the session-grouped
-//! `last` browse and current-session recall. The text a model reads is
-//! assembled here exactly as callers have always seen it.
-
 pub mod browse;
 pub mod compact;
 pub mod filters;

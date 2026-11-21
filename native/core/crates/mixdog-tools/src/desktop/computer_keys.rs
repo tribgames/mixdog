@@ -592,6 +592,10 @@ mod tests {
         for keys in &blocked {
             assert_eq!(refusal(key(keys)), "blocked_input: destructive or session-ending key combination", "{keys}");
         }
+    }
+
+    #[test]
+    fn near_miss_chords_are_accepted() {
         for keys in [
             "win+r",
             "CTRL+DELETE",

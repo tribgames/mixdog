@@ -1,16 +1,8 @@
-//! `authoring/pptx-author-session.mjs`: where an authored document is staged, how it lands over its target and what a
-//! session that already holds the target does about it.
-//!
-//! Each call stages into a folder of its own on the target's filesystem, so a failed author never consumes a neighbour or
-//! another call's staged document; the staged file lands over the target only once the checks hold. A deck authored
-//! earlier and held in a hidden Microsoft Office process nobody else touches keeps that process and swaps only its document
-//! (quitting PowerPoint and starting it again costs about five seconds of every repeat cycle); anything attached, visible
-//! or mid-transaction is closed the old way.
-
 use std::fmt;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 
+use mixdog_office_author::html_browser::RunError;
 use mixdog_rt::CancellationToken;
 use serde_json::{Value, json};
 
@@ -57,6 +49,15 @@ impl From<String> for AuthorError {
 impl From<&str> for AuthorError {
     fn from(message: &str) -> Self {
         Self::Failed(message.to_owned())
+    }
+}
+
+impl From<RunError> for AuthorError {
+    fn from(error: RunError) -> Self {
+        match error {
+            RunError::Cancelled => Self::Abort("Office authoring was cancelled".to_owned()),
+            RunError::Failed(message) => Self::Failed(message),
+        }
     }
 }
 
@@ -121,9 +122,7 @@ pub async fn release_staging_target<H: StageHost>(host: &H, staging: &Path) {
 
 /// `swapAuthoredDocument(session, source, signal, { callOffice })`: the held process opens `source` in place of the document
 /// it had. Answers whether the swap happened; a host that refused leaves the session as it was and the caller lands the file
-/// the old way. A cancellation is not a recoverable failure (falling through would copy the staged deck over the target
-/// after the caller asked to stop), and a swap that already happened keeps its new identity even when the cancellation raced
-/// with the answer.
+/// the old way.
 pub async fn swap_authored_document<F, Fut>(
     handle: &SessionHandle,
     source: &Path,
@@ -153,32 +152,32 @@ where
         throw_if_authoring_cancelled(signal, Some(&result))?;
         return Ok(false);
     }
-    {
-        // A different document stands behind the same session now, so every cached reading of the old one goes and the
-        // render token stops matching until the new deck is rendered.
-        let mut session = lock(handle);
-        session.snapshot_version += 1;
-        session.caches.snapshot = None;
-        session.caches.render = None;
-        session.design_state = DesignState::empty(session.design_state.requires_visual_review, true);
-        if let Some(pid) = result.get("appPid") {
-            session.com.app_pid = Some(pid.clone());
-        }
-        if let Some(hwnd) = result.get("windowHwnd") {
-            session.com.window_hwnd = Some(hwnd.clone());
-        }
-        if let Some(id) = result.get("documentId") {
-            session.com.document_id = Some(id.clone());
-        }
-        if let Some(isolation) = result.get("backgroundIsolation") {
-            session.com.background_isolation = Some(isolation.clone());
-        }
-        session.opened_at = opened_at.to_owned();
-    }
-    // A successful answer means the replacement already happened: the identity and caches above are accurate even if the
-    // cancellation raced with it, so the cancellation is reported after them and the old deck is never pretended to survive.
+    adopt_swapped_document(handle, &result, opened_at);
     throw_if_authoring_cancelled(signal, None)?;
     Ok(true)
+}
+
+/// A different document stands behind the same session after a swap: every cached reading of the old one goes and the render
+/// token stops matching until the new deck is rendered.
+fn adopt_swapped_document(handle: &SessionHandle, answer: &Value, opened_at: &str) {
+    let mut session = lock(handle);
+    session.snapshot_version += 1;
+    session.caches.snapshot = None;
+    session.caches.render = None;
+    session.design_state = DesignState::empty(session.design_state.requires_visual_review, true);
+    if let Some(pid) = answer.get("appPid") {
+        session.com.app_pid = Some(pid.clone());
+    }
+    if let Some(hwnd) = answer.get("windowHwnd") {
+        session.com.window_hwnd = Some(hwnd.clone());
+    }
+    if let Some(id) = answer.get("documentId") {
+        session.com.document_id = Some(id.clone());
+    }
+    if let Some(isolation) = answer.get("backgroundIsolation") {
+        session.com.background_isolation = Some(isolation.clone());
+    }
+    session.opened_at = opened_at.to_owned();
 }
 
 /// `landStagedDeck(staging, target, signal)`: the staged file is copied over the target and removed. A staged file that is

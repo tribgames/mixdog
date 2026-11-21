@@ -1,9 +1,3 @@
-//! The terminal UI child on a pseudo-terminal, and the screen the test reads from what it writes.
-//!
-//! A reader thread feeds every byte the child writes into a [`VtGrid`] (and keeps the raw bytes, for the sequences a grid does
-//! not keep: the clipboard's OSC 52, the screen and cursor modes) and wakes the waiters; a wait is a predicate over the grid,
-//! checked after every chunk, so a measured time is the time of the chunk that made it true.
-
 use std::io::{Read, Write};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;

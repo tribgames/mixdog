@@ -35,6 +35,7 @@ pub use super::capture::SourceState;
 
 use super::convert::I420Buf;
 use super::encoder::DEFAULT_BITRATE_BPS;
+use super::encoder::EncodedFrame;
 use super::encoder::Vp8Encoder;
 
 /// Pictures a viewer may fall behind before it loses some.
@@ -272,19 +273,8 @@ impl Pipeline {
     /// keyframe request.
     fn encode(&mut self, frame: Option<&VideoFrame>, target_bps: u32) {
         let mut force_keyframe = std::mem::take(&mut lock(&self.shared.control).keyframe);
-        let captured_at = match frame {
-            Some(frame) => {
-                if let Err(error) = self.picture.fill(frame) {
-                    tracing::warn!(?error, "webrtc live view: frame refused");
-                    lock(&self.shared.stats).frames_failed += 1;
-                    return;
-                }
-                frame.captured_at
-            }
-            None => match self.picture_captured_at {
-                Some(at) => at,
-                None => return,
-            },
+        let Some(captured_at) = self.load_picture(frame) else {
+            return;
         };
         let (width, height) = (self.picture.width, self.picture.height);
         if !self.encoder.as_ref().is_some_and(|e| e.fits(width, height)) {
@@ -317,23 +307,36 @@ impl Pipeline {
             self.last_encoded = Some(captured_at);
         }
         self.picture_captured_at = Some(captured_at);
+        let bitrate_bps = encoder.bitrate_bps();
+        self.publish(encoded, duration, elapsed, bitrate_bps);
+    }
+
+    /// Fills `picture` from `frame`, or keeps the current one when `frame` is `None`; returns when it was captured.
+    fn load_picture(&mut self, frame: Option<&VideoFrame>) -> Option<Duration> {
+        let Some(frame) = frame else {
+            return self.picture_captured_at;
+        };
+        if let Err(error) = self.picture.fill(frame) {
+            tracing::warn!(?error, "webrtc live view: frame refused");
+            lock(&self.shared.stats).frames_failed += 1;
+            return None;
+        }
+        Some(frame.captured_at)
+    }
+
+    fn publish(&self, encoded: EncodedFrame, duration: Duration, elapsed: Duration, bitrate_bps: u32) {
+        let (width, height) = (self.picture.width as u32, self.picture.height as u32);
         {
             let mut stats = lock(&self.shared.stats);
             stats.frames_encoded += 1;
             stats.keyframes += u64::from(encoded.keyframe);
             stats.total_encode_time += elapsed;
-            stats.width = width as u32;
-            stats.height = height as u32;
-            stats.bitrate_bps = encoder.bitrate_bps();
+            stats.width = width;
+            stats.height = height;
+            stats.bitrate_bps = bitrate_bps;
         }
         // No receiver is normal (no viewer yet); the next subscriber asks for a keyframe.
-        let _ = self.shared.out.send(Arc::new(EncodedSample {
-            data: encoded.data,
-            keyframe: encoded.keyframe,
-            duration,
-            width: width as u32,
-            height: height as u32,
-        }));
+        let _ = self.shared.out.send(Arc::new(EncodedSample { data: encoded.data, keyframe: encoded.keyframe, duration, width, height }));
     }
 
     fn encoder_failed(&mut self, error: MediaError) {

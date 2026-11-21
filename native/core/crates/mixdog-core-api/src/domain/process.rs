@@ -237,10 +237,17 @@ pub trait ProcessManager: Send + Sync {
     async fn spawn_subscribed(&self, request: SpawnRequest) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
         let handle = request.handle.clone();
         let spawned = self.spawn(request).await?;
-        Ok((spawned, self.subscribe(&handle, Some(0))?))
+        Ok((spawned, self.subscribe_holding(&handle, Some(0))?))
     }
-    /// Events from `from_seq` (replayed from the ring) or from the next one.
+    /// Events from `from_seq` (replayed from the ring) or from the next one, for a live viewer. Once the process has ended or was
+    /// killed, a viewer that lags by the ring bound no longer holds the reader back: the ring may overtake it, and the gap in the
+    /// sequence numbers is the output it lost; the exit still reaches it.
     fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError>;
+    /// [`subscribe`](Self::subscribe) for a consumer that returns the process's output as its result: like
+    /// [`spawn_subscribed`](Self::spawn_subscribed)'s subscription it holds the reader back until it has taken the output, after
+    /// the end, a kill and a shutdown too, so the ring never overtakes it; it must read to the exit or be dropped. Only a live
+    /// viewer subscribes with [`subscribe`](Self::subscribe). A manager without a ring answers it as `subscribe`; a wrapper forwards it.
+    fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError>;
     /// Non-blocking write; also serves `process/input` notifications.
     async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError>;
     /// Writes the whole of `bytes`, of any size, waiting for room as the process reads (Node's `stdinWrite`, which hands

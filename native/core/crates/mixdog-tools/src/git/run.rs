@@ -280,6 +280,13 @@ mod tests {
         async fn spawn(&self, _request: p::SpawnRequest) -> Result<p::SpawnedProcess, p::ProcessError> {
             Err(p::ProcessError::PermissionDenied)
         }
+        fn subscribe_holding(
+            &self,
+            handle: &mixdog_protocol::ProcessHandle,
+            from_seq: Option<u64>,
+        ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<p::ProcessEvent>>, p::ProcessError> {
+            self.subscribe(handle, from_seq)
+        }
         fn subscribe(
             &self,
             _handle: &mixdog_protocol::ProcessHandle,

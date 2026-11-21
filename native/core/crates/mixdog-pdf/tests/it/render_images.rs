@@ -50,3 +50,38 @@ fn a_soft_mask_makes_the_image_transparent_where_it_is_zero() {
     assert!(opaque[0] <= 8 && opaque[2] >= 247, "{opaque:?}");
     assert_eq!(page.at(17, 10), WHITE);
 }
+
+#[test]
+fn a_decode_array_inverts_the_gray_levels_of_an_image() {
+    let page = render(FILL_PAGE, IMAGE, &[image("/Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 /Decode [1 0]", &[255])]);
+    assert!(page.at(10, 10)[0] <= 8, "{:?}", page.at(10, 10));
+}
+
+#[test]
+fn a_soft_mask_of_another_size_is_resampled_to_the_image() {
+    let smask = image("/Width 4 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8", &[255, 255, 0, 0]);
+    let colour = image("/Width 2 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 6 0 R", &[0, 0, 255, 0, 0, 255]);
+    let page = render(FILL_PAGE, IMAGE, &[colour, smask]);
+    let opaque = page.at(3, 10);
+    assert!(opaque[0] <= 8 && opaque[2] >= 247, "{opaque:?}");
+    assert_eq!(page.at(17, 10), WHITE);
+}
+
+#[test]
+fn a_one_bit_soft_mask_is_opaque_where_its_bit_is_one() {
+    let smask = image("/Width 2 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 1", &[0b1000_0000]);
+    let colour = image("/Width 2 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 6 0 R", &[0, 0, 255, 0, 0, 255]);
+    let page = render(FILL_PAGE, IMAGE, &[colour, smask]);
+    let opaque = page.at(3, 10);
+    assert!(opaque[0] <= 8 && opaque[2] >= 247, "{opaque:?}");
+    assert_eq!(page.at(17, 10), WHITE);
+}
+
+#[test]
+fn a_colour_key_mask_makes_the_pixels_inside_its_ranges_transparent() {
+    let samples = [255, 0, 0, 0, 0, 255];
+    let page = render(FILL_PAGE, IMAGE, &[image("/Width 2 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Mask [0 10 0 10 250 255]", &samples)]);
+    let opaque = page.at(3, 10);
+    assert!(opaque[0] >= 247 && opaque[2] <= 8, "{opaque:?}");
+    assert_eq!(page.at(17, 10), WHITE);
+}

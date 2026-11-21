@@ -152,11 +152,6 @@ fn list_open_shell_jobs(names: &[String]) -> OpenJobs {
             owner_by_job.insert(name[..at].to_owned(), pid);
         }
     }
-    // Session buckets are not pid-scoped. A desktop pane's background shell is published by the session shard that ran it,
-    // so the record's `.owner-<pid>` marker carries the shard pid while the desktop poller asks with its own host pid. The
-    // two never intersect, so every id is listed and the owner-wide aggregate alone honours the pid, keeping the CLI
-    // statusline and keep-awake counting only their own process. Session ids are globally unique, so bucketing by session
-    // needs no pid axis at all.
     let mut ids: Vec<String> = names.iter().filter_map(|name| name.strip_suffix(".json")).filter(|id| !done.contains(id)).map(str::to_owned).collect();
     ids.sort_by(|a, b| job_stamp_ms(b).partial_cmp(&job_stamp_ms(a)).unwrap_or(std::cmp::Ordering::Equal));
     // Scanning both scopes from one list doubles the worst-case window, so the per-refresh cap doubles with it; a live
@@ -182,6 +177,14 @@ fn bucket_of<'a>(buckets: &'a mut Vec<Bucket>, owner: &str) -> &'a mut Bucket {
     }
     buckets.push(Bucket { owner: owner.to_owned(), count: 0, oldest_ms: f64::INFINITY, jobs: Vec::new(), finished: Vec::new() });
     buckets.last_mut().expect("pushed")
+}
+
+struct Scan {
+    count: u64,
+    oldest_ms: f64,
+    jobs: Vec<Value>,
+    orphaned: Vec<Value>,
+    by_session: Vec<Bucket>,
 }
 
 fn elapsed_label(oldest_ms: f64, now: f64) -> String {
@@ -225,23 +228,19 @@ impl StatuslineSegments {
         let scope = js_trim(session_id.unwrap_or_default());
         let Some(owner) = owner else { return if scoped { empty_session() } else { empty_shell_jobs() } };
         let now = self.now();
-        let (kick, own, freshest) = {
+        let (kick, own, freshest_sessions) = {
             let mut state = self.lock();
             let cached = state.shell.iter().find(|entry| entry.owner == owner).map(|entry| (entry.at, entry.value.clone()));
             let fresh = cached.as_ref().is_some_and(|(at, _)| now - at < SHELL_JOBS_SEGMENT_CACHE_MS);
-            // Session buckets are not pid-scoped, so they come from the freshest scan of any owner. Reading them from
-            // this owner's own slot made the list follow that slot's age: an owner polled again after its entry was
-            // evicted (or went stale) answered with "no sessions", and the finished shells vanished until the next poll
-            // brought them back.
-            let mut freshest: Option<&ShellCacheEntry> = None;
+            let mut freshest_entry: Option<&ShellCacheEntry> = None;
             for entry in &state.shell {
-                if freshest.is_none_or(|best| entry.at >= best.at) {
-                    freshest = Some(entry);
+                if freshest_entry.is_none_or(|best| entry.at >= best.at) {
+                    freshest_entry = Some(entry);
                 }
             }
-            let freshest = freshest.and_then(|entry| entry.value.get("sessions").cloned());
+            let freshest_sessions = freshest_entry.and_then(|entry| entry.value.get("sessions").cloned());
             let kick = !fresh && state.shell_in_flight.insert(owner);
-            (kick, cached.map_or_else(empty_shell_jobs, |(_, value)| value), freshest)
+            (kick, cached.map_or_else(empty_shell_jobs, |(_, value)| value), freshest_sessions)
         };
         if kick {
             let this = Arc::clone(self);
@@ -250,7 +249,7 @@ impl StatuslineSegments {
                 this.lock().shell_in_flight.remove(&owner);
             }));
         }
-        let sessions = freshest.or_else(|| own.get("sessions").cloned()).unwrap_or_else(|| json!({}));
+        let sessions = freshest_sessions.or_else(|| own.get("sessions").cloned()).unwrap_or_else(|| json!({}));
         if !scoped {
             let mut aggregate = own;
             if let Some(map) = aggregate.as_object_mut() {
@@ -309,98 +308,89 @@ impl StatuslineSegments {
 
     fn scan_shell_jobs(&self, owner: u64) -> Option<Value> {
         let names = self.source.shell_job_names()?;
-        let OpenJobs { ids, owner_by_job, done_ids } = list_open_shell_jobs(&names);
-        let mut count: u64 = 0;
-        let mut oldest_ms = f64::INFINITY;
-        let mut jobs: Vec<Value> = Vec::new();
-        let mut orphaned: Vec<Value> = Vec::new();
-        // Jobs with no session stamp (legacy records, plain CLI runs) still count toward the owner total but belong to no
-        // pane, so they never light up a session's indicator.
-        let mut by_session: Vec<Bucket> = Vec::new();
-        for id in &ids {
-            let name = format!("{id}.json");
-            let Some(detail) = self.source.shell_job_text(&name).and_then(|text| json_parse(&text).ok()) else { continue };
-            // A killed command whose processes are not confirmed gone has already reported its result, so its tool card
-            // is closed: it is listed until its owner retires the record. An incomplete observation can leave no known
-            // survivors even after the owner session closes; only the owning runtime can confirm termination, so its
-            // liveness decides, not the root's.
-            let unconfirmed = is_true(detail.get("terminationUnconfirmed"));
-            let alive = if unconfirmed { owner_by_job.get(id).is_some_and(|pid| self.source.pid_alive(*pid)) } else { self.is_shell_job_alive(&detail, id) };
-            if !alive {
-                continue;
-            }
-            // A foreground command is awaited in its own tool card; listing it here made every short command flash in and
-            // out of the shell list. Only backgrounded jobs (including promoted ones) are background work.
-            if is_true(detail.get("foreground")) && !unconfirmed {
-                continue;
-            }
-            // Owner-wide totals stay this process's own; session buckets take every live job regardless of which host
-            // published it.
-            let owned_by_this_host = owner_by_job.get(id) == Some(&owner);
-            if owned_by_this_host {
-                count += 1;
-            }
-            let mut job_ms = f64::INFINITY;
-            if let Some(mtime) = self.source.shell_job_mtime_ms(&name) {
-                job_ms = mtime;
-                if owned_by_this_host && mtime < oldest_ms {
-                    oldest_ms = mtime;
-                }
-            }
-            let owner_session = js_trim(&text_nullish(detail.get("ownerSessionId"))).to_owned();
-            let job = Self::job_record(id, &detail, job_ms, unconfirmed);
-            if owned_by_this_host {
-                jobs.push(job.clone());
-            }
-            // Held by a session that has closed: every session that sees its folder lists it, not only the closed owner.
-            if unconfirmed && is_true(detail.get("ownerSessionClosed")) {
-                orphaned.push(job.clone());
-            }
-            if owner_session.is_empty() {
-                continue;
-            }
-            let bucket = bucket_of(&mut by_session, &owner_session);
-            bucket.count += 1;
-            if job_ms < bucket.oldest_ms {
-                bucket.oldest_ms = job_ms;
-            }
-            bucket.jobs.push(job);
+        let open = list_open_shell_jobs(&names);
+        let mut scan = Scan { count: 0, oldest_ms: f64::INFINITY, jobs: Vec::new(), orphaned: Vec::new(), by_session: Vec::new() };
+        for id in &open.ids {
+            self.scan_open_job(owner, id, &open.owner_by_job, &mut scan);
         }
-        // Recently finished background jobs ride in their session bucket only; they never touch the running counts.
-        let finished_cutoff = self.now() - FINISHED_SHELL_JOB_TTL_MS;
-        for id in &done_ids {
-            let Some(detail) = self.source.shell_job_text(&format!("{id}.json")).and_then(|text| json_parse(&text).ok()) else { continue };
-            if is_true(detail.get("foreground")) {
-                continue;
-            }
-            let owner_session = js_trim(&text_nullish(detail.get("ownerSessionId"))).to_owned();
-            if owner_session.is_empty() {
-                continue;
-            }
-            let finished_at = present(field(Some(&detail), "finishedAt")).or_else(|| present(field(Some(&detail), "recordedAt")));
-            let finished_ms = date_parse(&finished_at.map(value_to_string).unwrap_or_default());
-            if finished_ms.is_finite() && finished_ms < finished_cutoff {
-                continue;
-            }
-            let exit_code = match detail.get("exitCode") {
-                Some(Value::Number(n)) if n.as_f64().is_some_and(|n| n.fract() == 0.0 && n.is_finite()) => detail["exitCode"].clone(),
-                _ => Value::Null,
-            };
-            let mut record = Map::new();
-            record.insert("taskId".to_owned(), Value::String(id.clone()));
-            record.insert("command".to_owned(), Value::String(text_of(detail.get("command"))));
-            record.insert("cwd".to_owned(), Value::String(text_of(detail.get("cwd"))));
-            record.insert("startedAt".to_owned(), present(field(Some(&detail), "startedAt")).cloned().unwrap_or(Value::Null));
-            record.insert(
-                "status".to_owned(),
-                Value::String(if truthy(detail.get("status")) { detail.get("status").map(value_to_string).unwrap_or_default() } else { String::new() }),
-            );
-            record.insert("exitCode".to_owned(), exit_code);
-            record.insert("finishedAt".to_owned(), finished_at.cloned().unwrap_or(Value::Null));
-            bucket_of(&mut by_session, &owner_session).finished.push(Value::Object(record));
+        for id in &open.done_ids {
+            self.scan_finished_job(id, &mut scan.by_session);
         }
-        // A desktop pane's job lands in a session bucket while the owner-wide count stays 0 (its publisher is a shard, not
-        // this host), so an empty aggregate must not discard the session buckets.
+        Some(self.scan_value(scan))
+    }
+
+    fn scan_open_job(&self, owner: u64, id: &str, owner_by_job: &HashMap<String, u64>, scan: &mut Scan) {
+        let name = format!("{id}.json");
+        let Some(detail) = self.source.shell_job_text(&name).and_then(|text| json_parse(&text).ok()) else { return };
+        let unconfirmed = is_true(detail.get("terminationUnconfirmed"));
+        let alive = if unconfirmed { owner_by_job.get(id).is_some_and(|pid| self.source.pid_alive(*pid)) } else { self.is_shell_job_alive(&detail, id) };
+        if !alive || (is_true(detail.get("foreground")) && !unconfirmed) {
+            return;
+        }
+        let owned_by_this_host = owner_by_job.get(id) == Some(&owner);
+        if owned_by_this_host {
+            scan.count += 1;
+        }
+        let mut job_ms = f64::INFINITY;
+        if let Some(mtime) = self.source.shell_job_mtime_ms(&name) {
+            job_ms = mtime;
+            if owned_by_this_host && mtime < scan.oldest_ms {
+                scan.oldest_ms = mtime;
+            }
+        }
+        let owner_session = js_trim(&text_nullish(detail.get("ownerSessionId"))).to_owned();
+        let job = Self::job_record(id, &detail, job_ms, unconfirmed);
+        if owned_by_this_host {
+            scan.jobs.push(job.clone());
+        }
+        if unconfirmed && is_true(detail.get("ownerSessionClosed")) {
+            scan.orphaned.push(job.clone());
+        }
+        if owner_session.is_empty() {
+            return;
+        }
+        let bucket = bucket_of(&mut scan.by_session, &owner_session);
+        bucket.count += 1;
+        if job_ms < bucket.oldest_ms {
+            bucket.oldest_ms = job_ms;
+        }
+        bucket.jobs.push(job);
+    }
+
+    fn scan_finished_job(&self, id: &str, by_session: &mut Vec<Bucket>) {
+        let Some(detail) = self.source.shell_job_text(&format!("{id}.json")).and_then(|text| json_parse(&text).ok()) else { return };
+        if is_true(detail.get("foreground")) {
+            return;
+        }
+        let owner_session = js_trim(&text_nullish(detail.get("ownerSessionId"))).to_owned();
+        if owner_session.is_empty() {
+            return;
+        }
+        let finished_at = present(field(Some(&detail), "finishedAt")).or_else(|| present(field(Some(&detail), "recordedAt")));
+        let finished_ms = date_parse(&finished_at.map(value_to_string).unwrap_or_default());
+        if finished_ms.is_finite() && finished_ms < self.now() - FINISHED_SHELL_JOB_TTL_MS {
+            return;
+        }
+        let exit_code = match detail.get("exitCode") {
+            Some(Value::Number(n)) if n.as_f64().is_some_and(|n| n.fract() == 0.0 && n.is_finite()) => detail["exitCode"].clone(),
+            _ => Value::Null,
+        };
+        let mut record = Map::new();
+        record.insert("taskId".to_owned(), Value::String(id.to_owned()));
+        record.insert("command".to_owned(), Value::String(text_of(detail.get("command"))));
+        record.insert("cwd".to_owned(), Value::String(text_of(detail.get("cwd"))));
+        record.insert("startedAt".to_owned(), present(field(Some(&detail), "startedAt")).cloned().unwrap_or(Value::Null));
+        record.insert(
+            "status".to_owned(),
+            Value::String(if truthy(detail.get("status")) { detail.get("status").map(value_to_string).unwrap_or_default() } else { String::new() }),
+        );
+        record.insert("exitCode".to_owned(), exit_code);
+        record.insert("finishedAt".to_owned(), finished_at.cloned().unwrap_or(Value::Null));
+        bucket_of(by_session, &owner_session).finished.push(Value::Object(record));
+    }
+
+    fn scan_value(&self, scan: Scan) -> Value {
+        let Scan { count, oldest_ms, jobs, orphaned, by_session } = scan;
         let mut value = empty_shell_jobs();
         if count > 0 || !by_session.is_empty() {
             let now = self.now();
@@ -423,7 +413,7 @@ impl StatuslineSegments {
         {
             map.insert("orphaned".to_owned(), Value::Array(orphaned));
         }
-        Some(value)
+        value
     }
 
     /// `memoryCycleStatus()`: the render-path entry point, synchronous and cache-only. `{ kind: "running", startedAt }`

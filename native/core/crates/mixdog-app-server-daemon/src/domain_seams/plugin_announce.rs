@@ -1,10 +1,6 @@
-//! `plugins.announce`: `announceStoredStateChange('plugins')` (`runtime/shared/config.mjs`) —
-//! the registry changed, and the other processes of the data folder learn it from the secret
-//! change marker `mixdog-secrets-changed.json` beside the config file, under the reserved key
-//! `#plugins`, whose value is this change's token (`<pid>:<ms>:<uuid>`).
-//!
-//! Like Node's `publishSecretChange` it never fails the caller: the registry is already
-//! written, and a marker that could not be written only delays what the other processes see.
+//! `plugins.announce`: tells the other processes of the data folder that the registry changed, under the reserved key
+//! `#plugins` of the secret change marker `mixdog-secrets-changed.json` beside the config file; the value is a token `<pid>:<ms>:<uuid>`.
+//! Never fails the caller: the registry is already written.
 
 use std::path::PathBuf;
 use std::sync::Arc;

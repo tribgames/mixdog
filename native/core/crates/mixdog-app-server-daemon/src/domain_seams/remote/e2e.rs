@@ -1,9 +1,3 @@
-//! A paired phone reaches the core over the relay through the production wiring and drives it: the real `build_remote` runtime, the
-//! dialer bound as `serving::attach` binds it (the server's `spawn_drive`), `start_remote` at boot, the registered connections,
-//! `ScreenSessions` for the phone's notification, `register_local` and `phone_credential` as `ComposedCore` and `compose_flip` use
-//! them, and the close path of `ConnectionOwners`, over a mock thread directory (the composed core needs a bundled Postgres runtime).
-//! The relay is a local scripted peer; the phone is a real E2EE client.
-
 #[path = "../../../../mixdog-remote/tests/it/common/mod.rs"]
 mod common;
 
@@ -171,10 +165,6 @@ impl Frames for Phone {
 /// The clock Node's recorder started at (`record-unpair-access.mjs` `CLOCK_START`, 2031-01-01).
 const DOWNLOAD_CLOCK_START: i64 = 1_924_992_000_000;
 
-/// The frame the core's wire carries for what Node sent the phone: `{ id, ok: true, value }` becomes `{ id, result }`, and
-/// `{ id, ok: false, error }` becomes `{ id, error }` with the JSON-RPC error body of a remote domain error carrying that text (the body is
-/// the wire's own: code -32600, reason `domainError`). Any other recorded key is kept as it is, so a frame that is not exactly one of the
-/// two shapes is not equal to what the server writes.
 fn wire_of(node: &Value) -> Value {
     let mut frame = node.as_object().unwrap().clone();
     match frame.shift_remove("ok").unwrap().as_bool().unwrap() {
@@ -242,10 +232,6 @@ impl Desktop {
             .collect()
     }
 }
-/// The phone's screen control as `compose_screen` binds it where the screen is served, with the part these scenarios are about: the
-/// display list is the desktop's (asked of it at each read, `host/computer/displays`), and a connection's access is the live view's own
-/// rule, which asks this port for its grant only once it allowed the connection. The screen sessions themselves (input, capture, the
-/// pill) are not exercised here: no session is ever resolved.
 struct DesktopScreens(Arc<Desktop>);
 #[async_trait::async_trait]
 impl PhoneScreens for DesktopScreens {
@@ -338,9 +324,9 @@ impl CoreHandle for Core {
         self.closed.send_modify(|closed| closed.push(connection));
     }
 
-    fn connection_opened(&self, connection: ConnectionId, origin: Origin, device: &str, kind: ConnectionKind) {
-        register_local(&self.registry, connection, origin, device, kind);
+    fn connection_opened(&self, connection: ConnectionId, origin: Origin, device: &str, kind: ConnectionKind) -> String {
         self.mock.connection_opened(connection, origin, device, kind);
+        register_local(&self.registry, connection, origin, device, kind)
     }
 
     fn request_started(&self, method: &str, params: &serde_json::Value) -> RequestGuard {
@@ -750,6 +736,10 @@ impl Harness {
         assert_eq!(initialized["result"]["connection"]["origin"], "relay");
         let opened = self.core.mock.opened_connections();
         let connection = opened.last().expect("the core opened a connection").connection;
+        // The reply names the phone as its prompts are stamped: the paired device, not the title its client stated.
+        let paired = self.registry.describe(connection.0).expect("the paired phone is described").device;
+        assert_ne!(paired, "Mixdog Phone");
+        assert_eq!(initialized["result"]["connection"]["device"], json!(paired));
         (phone, connection)
     }
 
@@ -820,10 +810,6 @@ async fn an_unpaired_peer_is_refused_before_any_session_read_or_turn() {
     assert!(h.turns.lock().unwrap().is_empty(), "no turn was started");
     h.runtime.close().await;
 }
-/// A phone's browser stream ends at its device's unpair and at the relay's close, through the production wiring (the runtime's unpair
-/// and close → `PairedDeviceCleanup` → the live view): the unpair drops the device from its streams and the close disposes of them all,
-/// both through the streams' one `drop`. The unpair is refused by the relay, so the phone's connection stays open (the leak an unpair
-/// must not leave). What the desktop is told is the subscribe's request, then the drop's.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unpair_or_the_relay_closing_ends_the_phones_browser_stream_at_once() {
     let request = json!({ "maxWidth": 800, "maxHeight": 600 });
@@ -845,10 +831,6 @@ async fn an_unpair_or_the_relay_closing_ends_the_phones_browser_stream_at_once()
     h.runtime.close().await;
     assert_eq!(h.desktop.view_requests(), want, "the relay's close ended the stream");
 }
-/// An unpaired device whose connection the relay leaves open (it refused the revocation) is shown nothing more on any path of the live
-/// view, through the production wiring (the runtime's unpair → the registry's revocation and `PairedDeviceCleanup` → the live view): a
-/// WebRTC signal the host sent the phone before the unpair and that only goes out after it reaches nothing, a new `browser/stream` and
-/// a WebRTC `ready` are refused, and so is the device's next connection, admitted while the unpair is in force.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unpaired_device_left_open_is_shown_nothing_on_any_live_view_path() {
     let request = json!({ "maxWidth": 1200, "maxHeight": 900 });

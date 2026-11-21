@@ -1,5 +1,4 @@
-//! Text-entry prompts that write provider credentials: API key, OpenAI usage session key, OAuth code
-//! (`prompt-submit/provider-prompts.mjs`). Every write is a daemon call: the prompt may only close once the write is
+//! Text-entry prompts that write provider credentials: API key, OpenAI usage session key, OAuth code. Every write is a daemon call: the prompt may only close once the write is
 //! acknowledged; a rejection keeps the panel open with the entered value restored, so a transport hiccup never silently eats a
 //! credential.
 

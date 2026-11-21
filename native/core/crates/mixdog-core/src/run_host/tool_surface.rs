@@ -1,12 +1,3 @@
-//! The deferred tool surface (Node `runtime-core/tool-catalog.mjs`: `applyDeferredToolSurface`,
-//! `rebuildDeferredToolSurfaceForProvider`, with `tool-catalog-data.mjs`, the ordering and
-//! selection helpers of `tool-catalog-schema.mjs`, `deferred-tool-availability.mjs` and
-//! `filterModelEditTools` of `edit-tool-dialect.mjs`).
-//!
-//! A session is its stored object (`Value`) with its `tools` and `messages`, changed in place as
-//! Node's live session is; the caller turns the result into a header change (everything but
-//! `messages`) and the rewritten system messages.
-
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -97,17 +88,7 @@ pub trait SurfaceHost: Send + Sync {
     fn bridge_tools(&self) -> Vec<Value>;
     /// `getMcpServerInstructionsMap(scopeId)`: server name to its trimmed instructions.
     fn mcp_server_instructions(&self, scope: Option<&str>) -> Value;
-    /// Whether the build still defines `name`: its owner has not withdrawn it. A built-in is defined by membership in the
-    /// complete registered tool pool, whether it can run now or not; a connected server's or plugin's tool by the definition its
-    /// owner published, whatever the connection's state. Never answers from [`Self::runs`] or `Tool::runnable`, and a name's
-    /// prefix defines nothing: a session catalog is no authority that a built-in exists.
     fn defined(&self, name: &str) -> bool;
-    /// Whether the server `owner`, recorded with the stored definition of the MCP tool `name` when its owner published it, has
-    /// withdrawn it (published a catalog without it). A server that is down, a scope that moved and a tool with no recorded owner
-    /// withdraw nothing.
-    ///
-    /// One reading of what the owners have published, as a judgement `(name, owner)`: every judgement made from it is made against
-    /// the same state.
     fn withdrawal(&self) -> Withdrawal {
         Arc::new(|_, _| false)
     }
@@ -477,10 +458,6 @@ impl ToolSurface<'_> {
         format!("the {name} tool is not available in this environment: no host or backend for it is registered on this core.")
     }
 
-    /// Whether this stored entry leaves the session: its own publisher withdrew it, or it is a built-in this build no longer
-    /// defines. Retirement is judged by this alone, never by [`Self::runs`]: a tool that cannot run at this moment is only
-    /// unavailable, and keeps its definitions and selection. Judged by the entry alone: a publisher is never read off the name and
-    /// never withdraws another entry of the same name; an entry stored with no publisher is not withdrawn.
     fn entry_retired(&self, tool: &Value, withdrawal: &Withdrawal) -> bool {
         let name = tool_name(tool);
         let stored = StoredTool::decode(tool);
@@ -496,11 +473,6 @@ impl ToolSurface<'_> {
         }
     }
 
-    /// The one place a stored session is made valid against the running build: every built-in it holds that the build no
-    /// longer defines (removed by an upgrade the session outlived) leaves the loaded tools, both catalogs and the stored
-    /// name lists, written back into the session itself. A tool the build defines but the core cannot run now stays: what is
-    /// advertised and callable is computed from the stored lists through [`Self::runs`] at the moment of use.
-    /// Every apply and every rebuild starts here. Whether anything was removed.
     pub(super) fn repair(&self, session: &mut Value) -> bool {
         let withdrawal = self.host.withdrawal();
         let kept = surviving_entries(session, &|tool| self.entry_retired(tool, &withdrawal));
@@ -587,12 +559,6 @@ impl ToolSurface<'_> {
         sorted_names_by_measured_usage(out.map(tool_name).collect())
     }
 
-    /// The surface's catalog, rebuilt from the full catalog (current definitions before retained
-    /// ones). Bridge definitions belong to the exposure, never to the catalog. A stored definition missing the
-    /// `title`/`trigger` its whole definition (`extra`) declares takes them from it: a new session holds its standalone
-    /// tools projected without them, which Node's creation path keeps, so its deferred listing falls back to the tool's
-    /// cut description while its rebuild path lists the trigger; a declared trigger is always listed here
-    /// (decisions.md).
     fn surface_catalog(&self, session: &Value, extra: &[Value], options: &ApplyOptions) -> Vec<Value> {
         let model = options.model.clone().filter(|m| !m.is_empty()).unwrap_or_else(|| clean(session.get("model")));
         let whole = |tool: &Value| {
@@ -739,12 +705,6 @@ impl ToolSurface<'_> {
         self.apply_repaired(session, mode, extra, options, retired, false);
     }
 
-    /// [`Self::apply`] for a session whose definitions are not being built anew: resume and the exposure migration of a stored
-    /// surface. The stored `tools` are installed as stored (availability decides nothing here, so a session resumed while
-    /// Computer Use is off or before the desktop attached keeps the definitions its warm cache holds), and a name its owner
-    /// withdrew is not retired here either ([`Self::repair`] is the cold fold's). Availability decides installation only where the
-    /// definitions are built anew by an explicit act: creation, a provider, route or model change, compaction or clear
-    /// ([`Self::apply`], [`Self::rebuild_for_provider`]).
     pub fn restore(&self, session: &mut Value, mode: &str, extra: &[Value], options: &ApplyOptions) {
         if !session.get("tools").is_some_and(Value::is_array) {
             return;
@@ -1053,17 +1013,10 @@ mod tests {
         }
     }
 
-    /// Definition ownership and selection are durable: a tool the build defines but the core cannot run now (`computer`, and an
-    /// eager-only `eagerone` that no gate list names) is unavailable, not retired. An apply, a same-provider rebuild and a route
-    /// change keep its definitions (and, on the same provider, its selection); nothing advertised names it while it cannot run;
-    /// it is listed again once it can, with no reload. A name the build no longer defines (`machine`) is removed everywhere.
-    #[test]
-    fn an_unavailable_tool_keeps_its_definitions_and_selection_and_a_retired_one_does_not() {
-        let attached = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let surface = ToolSurface { host: &Attaching(attached.clone()), clock: &Fixed };
+    fn unavailable_tool_session() -> Value {
         let schema = json!({ "type": "object", "properties": {} });
         let tool = |name: &str| json!({ "name": name, "description": format!("{name}."), "inputSchema": schema });
-        let mut session = json!({
+        json!({
             "provider": "anthropic",
             "model": "smoke",
             "tools": [tool("read"), tool("eagerone"), tool("machine")],
@@ -1072,14 +1025,23 @@ mod tests {
             "deferredDiscoveredTools": ["computer", "machine"],
             "deferredSelectedTools": ["read", "computer", "machine"],
             "deferredCallableTools": ["read", "computer", "machine"],
-        });
+        })
+    }
+
+    fn held(session: &Value, key: &str, name: &str) -> bool {
+        session[key].as_array().expect("a list").iter().any(|entry| entry == name || tool_name(entry) == name)
+    }
+
+    #[test]
+    fn an_apply_a_rebuild_and_a_route_change_keep_an_unavailable_tools_definitions_and_remove_a_retired_one() {
+        let attached = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let surface = ToolSurface { host: &Attaching(attached.clone()), clock: &Fixed };
+        let mut session = unavailable_tool_session();
         assert_eq!(surface.retired_names(&session), ["machine"]);
         let (mut rebuilt, mut routed) = (session.clone(), session.clone());
         surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
         surface.rebuild_for_provider(&mut rebuilt, "anthropic");
         surface.rebuild_for_provider(&mut routed, "openai");
-        let held =
-            |session: &Value, key: &str, name: &str| session[key].as_array().expect("a list").iter().any(|entry| entry == name || tool_name(entry) == name);
         for (which, session) in [("apply", &session), ("rebuild", &rebuilt), ("route change", &routed)] {
             assert!(surface.retired_names(session).is_empty(), "{which}");
             assert!(held(session, "deferredToolCatalog", "computer") && held(session, "deferredToolCatalog", "eagerone"), "{which}: definitions stay");
@@ -1092,11 +1054,29 @@ mod tests {
                 "{which}"
             );
         }
+    }
+
+    #[test]
+    fn the_selection_of_an_unavailable_tool_stays_on_the_same_provider() {
+        let attached = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let surface = ToolSurface { host: &Attaching(attached.clone()), clock: &Fixed };
+        let mut session = unavailable_tool_session();
+        let mut rebuilt = session.clone();
+        surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
+        surface.rebuild_for_provider(&mut rebuilt, "anthropic");
         assert!(
             held(&session, "deferredDiscoveredTools", "computer") && held(&rebuilt, "deferredDiscoveredTools", "computer"),
             "the selection stays on the same provider"
         );
         assert!(held(&session, "deferredLateToolCatalog", "computer"), "and in the late catalog");
+    }
+
+    #[test]
+    fn an_unavailable_tool_is_advertised_again_once_it_can_run_with_no_reload() {
+        let attached = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let surface = ToolSurface { host: &Attaching(attached.clone()), clock: &Fixed };
+        let mut session = unavailable_tool_session();
+        surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
         let listed = |session: &mut Value| -> Value {
             serde_json::from_str(&super::super::deferred_select::render_tool_search(&surface, session, &json!({ "names": [] }), "lead", &[], &Value::Null))
                 .expect("json")
@@ -1106,7 +1086,6 @@ mod tests {
             !before.to_string().contains("computer") && !before["activeTools"].to_string().contains("eagerone"),
             "nothing advertised names it while it cannot run: {before}"
         );
-        // It becomes runnable: listed again with no new load, and a load finds it already known.
         attached.store(true, std::sync::atomic::Ordering::SeqCst);
         let after = listed(&mut session);
         assert!(after["discoveredTools"].to_string().contains("computer"), "{after}");
@@ -1132,11 +1111,6 @@ mod tests {
         }
     }
 
-    /// The tool definitions a session sends are fixed for its cache epoch: availability alone (a desktop attaching, a helper found
-    /// late) never edits `tools`. They are decided at a boundary (an apply: creation, route rebuild, resume), where a selected tool
-    /// that cannot run is left out of the install but kept in the selection; a model load changes them only as before (on a native
-    /// route a reference in `deferredDiscoveredTools`, not an edit of `tools`); and the one-time retirement of a withdrawn name
-    /// happens once.
     #[test]
     fn availability_never_edits_the_sent_definitions_between_boundaries() {
         let on = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1205,10 +1179,6 @@ mod tests {
         }
     }
 
-    /// Retirement judges each stored entry by its own recorded publisher; a withdrawal never transfers through a name. An old
-    /// session's boot catalog holds the ownerless entry, reconciliation keeps it frozen and installs the owner-bearing one in the
-    /// late catalog: that publisher withdrawing the name removes its own entry and leaves the legacy-unknown one, and the name
-    /// stays in the stored lists because an entry still holds it.
     #[test]
     fn a_withdrawal_removes_the_entry_of_its_publisher_and_never_another_of_the_same_name() {
         let session = || {
@@ -1248,23 +1218,12 @@ mod tests {
         }
     }
 
-    /// What a new Lead session offers of the tools a desktop bridge or the memory switch gates (`browser`, `browser_devtools`,
-    /// `computer`, `memory`, `recall`), as Node's `applyDeferredToolSurface` does: `DEFERRED_DEFAULT_LEAD_TOOLS` names none of
-    /// them, so no request of a new session defines one, whatever the provider. Each stays in the deferred catalog and is
-    /// listed by the roster (`deferredPoolToolNames`), reached through `load_tool` (a provider with native tool search) or
-    /// through `load_tool` and `call_tool` (the bridge exposure of every other provider, a custom OpenAI-compatible one
-    /// here); a tool a gate denies (`options.disallowed`, the feature denials of the creation path) is in no list.
-    #[test]
-    fn a_lead_surface_defers_the_bridge_and_memory_tools_and_leaves_a_denied_one_out() {
-        fn sorted<'a>(names: &[&'a str]) -> Vec<&'a str> {
-            let mut names = names.to_vec();
-            names.sort_unstable();
-            names
-        }
+    const GATED_LEAD_TOOLS: [&str; 4] = ["browser", "browser_devtools", "memory", "recall"];
+    const LEAD_PROVIDERS: [(&str, bool); 2] = [("custom-11111111-1111-4111-8111-111111111111", true), ("anthropic", false)];
+
+    fn new_lead_session(surface: &ToolSurface<'_>, provider: &str) -> Value {
         let schema = json!({ "type": "object", "properties": {} });
         let tool = |name: &str| json!({ "name": name, "description": format!("{name}."), "inputSchema": schema });
-        let host = Host(vec![tool("load_tool"), tool("call_tool")]);
-        let surface = ToolSurface { host: &host, clock: &Fixed };
         let eager = [
             "find",
             "glob",
@@ -1283,31 +1242,66 @@ mod tests {
             "Skill",
             "load_tool",
         ];
-        let gated = ["browser", "browser_devtools", "memory", "recall"];
-        for (provider, bridge) in [("custom-11111111-1111-4111-8111-111111111111", true), ("anthropic", false)] {
-            let held: Vec<Value> = eager.iter().chain(gated.iter()).chain(["computer"].iter()).map(|name| tool(name)).collect();
-            let mut session = json!({ "provider": provider, "model": "smoke", "toolSpec": "full", "tools": held });
-            // Computer Use is off here: the gate's denial reaches the surface as the creation path passes it.
-            surface.apply(&mut session, "lead", &[], &ApplyOptions { provider: None, model: None, disallowed: vec!["computer".to_owned()] });
-            let names = |key: &str| -> Vec<String> { session[key].as_array().expect("a tool list").iter().map(tool_name).collect() };
-            let (defined, catalog, roster) = (names("tools"), names("deferredToolCatalog"), surface.pool_tool_names(&session));
-            let holds = |list: &[String], name: &str| list.iter().any(|entry| entry == name);
-            for name in gated {
-                assert!(!holds(&defined, name), "{provider}: {name} is defined in no request of a new session");
-                assert!(holds(&catalog, name), "{provider}: {name} stays in the deferred catalog");
-                assert!(holds(&roster, name), "{provider}: the roster lists {name}");
+        let held: Vec<Value> = eager.iter().chain(GATED_LEAD_TOOLS.iter()).chain(["computer"].iter()).map(|name| tool(name)).collect();
+        let mut session = json!({ "provider": provider, "model": "smoke", "toolSpec": "full", "tools": held });
+        surface.apply(&mut session, "lead", &[], &ApplyOptions { provider: None, model: None, disallowed: vec!["computer".to_owned()] });
+        session
+    }
+
+    fn lead_host() -> Host {
+        let schema = json!({ "type": "object", "properties": {} });
+        Host(["load_tool", "call_tool"].iter().map(|name| json!({ "name": name, "description": format!("{name}."), "inputSchema": schema })).collect())
+    }
+
+    fn tool_names_of(session: &Value, key: &str) -> Vec<String> {
+        session[key].as_array().expect("a tool list").iter().map(tool_name).collect()
+    }
+
+    #[test]
+    fn a_lead_surface_defers_the_bridge_and_memory_tools() {
+        let host = lead_host();
+        let surface = ToolSurface { host: &host, clock: &Fixed };
+        for (provider, _) in LEAD_PROVIDERS {
+            let session = new_lead_session(&surface, provider);
+            let (defined, catalog, roster) =
+                (tool_names_of(&session, "tools"), tool_names_of(&session, "deferredToolCatalog"), surface.pool_tool_names(&session));
+            for name in GATED_LEAD_TOOLS {
+                assert!(!defined.iter().any(|entry| entry == name), "{provider}: {name} is defined in no request of a new session");
+                assert!(catalog.iter().any(|entry| entry == name), "{provider}: {name} stays in the deferred catalog");
+                assert!(roster.iter().any(|entry| entry == name), "{provider}: the roster lists {name}");
             }
-            for list in [&defined, &catalog, &roster] {
-                assert!(!holds(list, "computer"), "{provider}: a tool the gates deny is in no list");
+        }
+    }
+
+    #[test]
+    fn a_lead_surface_leaves_a_denied_tool_out_of_every_list() {
+        let host = lead_host();
+        let surface = ToolSurface { host: &host, clock: &Fixed };
+        for (provider, _) in LEAD_PROVIDERS {
+            let session = new_lead_session(&surface, provider);
+            let roster = surface.pool_tool_names(&session);
+            for list in [tool_names_of(&session, "tools"), tool_names_of(&session, "deferredToolCatalog"), roster] {
+                assert!(!list.iter().any(|entry| entry == "computer"), "{provider}: a tool the gates deny is in no list");
             }
-            assert!(holds(&defined, "load_tool"), "{provider}: load_tool is defined");
-            assert_eq!(holds(&defined, "call_tool"), bridge, "{provider}: call_tool belongs to the bridge exposure");
+        }
+    }
+
+    #[test]
+    fn a_lead_request_defines_the_eager_core_and_the_bridge_only_on_the_bridge_exposure() {
+        let host = lead_host();
+        let surface = ToolSurface { host: &host, clock: &Fixed };
+        for (provider, bridge) in LEAD_PROVIDERS {
+            let session = new_lead_session(&surface, provider);
+            let defined = tool_names_of(&session, "tools");
+            assert!(defined.iter().any(|entry| entry == "load_tool"), "{provider}: load_tool is defined");
+            assert_eq!(defined.iter().any(|entry| entry == "call_tool"), bridge, "{provider}: call_tool belongs to the bridge exposure");
             assert_eq!(session.get("toolExposureMode").and_then(Value::as_str) == Some(TOOL_EXPOSURE_BRIDGE), bridge, "{provider}: the exposure");
-            // The request defines the Lead's eager core and nothing else (the bridge's `call_tool` aside).
-            let core: Vec<&str> = defined.iter().map(String::as_str).filter(|name| *name != "call_tool").collect();
-            let mut expected: Vec<&str> = vec!["find", "glob", "list", "grep", "code_graph", "read", "edit", "git", "shell", "task", "agent", "web_search"];
+            let mut core: Vec<&str> = defined.iter().map(String::as_str).filter(|name| *name != "call_tool").collect();
+            core.sort_unstable();
+            let mut expected = vec!["find", "glob", "list", "grep", "code_graph", "read", "edit", "git", "shell", "task", "agent", "web_search"];
             expected.extend(["Skill", "ask_user", "load_tool", "todo"]);
-            assert_eq!(sorted(&core), sorted(&expected), "{provider}: the tools a new Lead session's request defines");
+            expected.sort_unstable();
+            assert_eq!(core, expected, "{provider}: the tools a new Lead session's request defines");
         }
     }
 

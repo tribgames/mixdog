@@ -115,6 +115,15 @@ enum Node {
     Tag { class: Option<String>, children: Vec<Node> },
 }
 
+fn close_top(stack: &mut Vec<(Option<String>, Vec<Node>)>) {
+    if stack.len() > 1
+        && let Some((class, children)) = stack.pop()
+        && let Some(parent) = stack.last_mut()
+    {
+        parent.1.push(Node::Tag { class, children });
+    }
+}
+
 /// `parse5.parseFragment` of the markup highlight.js writes: `<span class="...">`, `</span>` and the five
 /// entities `escapeHTML` produces. Line breaks are normalised (CR LF and CR become LF) and U+0000 is dropped,
 /// as the HTML input stream and the body insertion mode do.
@@ -145,12 +154,7 @@ fn parse_fragment(html: &str) -> Vec<Node> {
         }
         if rest.starts_with(CLOSE) {
             flush(&mut text, &mut stack);
-            if stack.len() > 1
-                && let Some((class, children)) = stack.pop()
-                && let Some(parent) = stack.last_mut()
-            {
-                parent.1.push(Node::Tag { class, children });
-            }
+            close_top(&mut stack);
             i += CLOSE.len();
             continue;
         }
@@ -175,13 +179,8 @@ fn parse_fragment(html: &str) -> Vec<Node> {
         i += c.len_utf8();
     }
     flush(&mut text, &mut stack);
-    // Tags left open at the end close with the document.
     while stack.len() > 1 {
-        if let Some((class, children)) = stack.pop()
-            && let Some(parent) = stack.last_mut()
-        {
-            parent.1.push(Node::Tag { class, children });
-        }
+        close_top(&mut stack);
     }
     stack.pop().map(|(_, children)| children).unwrap_or_default()
 }

@@ -1,7 +1,3 @@
-//! The cells of a worksheet as the reader sees them: a COM value as the PowerShell value the host wrote (`Cell-Value`,
-//! `Excel-MatrixValue`), column letters, a range's cell address, and where a chart or a picture sits on the
-//! grid (`Excel-DrawingAnchor`, `Excel-FrozenSplit`), with the casts the host's code applies to what a property answers.
-//!
 //! A VT_ERROR cell (`#N/A` and the rest) reads as the Int32 of its scode and a VT_NULL as `DBNull`, as PowerShell
 //! presented them; a VT_EMPTY is `$null`.
 

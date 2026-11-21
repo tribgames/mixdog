@@ -212,6 +212,36 @@ pub fn loaded_skill(summary: &str) -> bool {
     summary.starts_with("Loaded skill: ") || summary.starts_with("Loaded built-in skill: ")
 }
 
+fn record_selection_result(transcript: &mut Vec<AgentMessage>, id: String, name: &str, summary: &str, native: Option<JsonValue>) {
+    let new_native = native.and_then(|native| {
+        let mut seen = mixdog_agent::native_search::NativeDefinitions::default();
+        for payload in transcript.iter().filter_map(|entry| entry.message.native_tool_search.as_ref()) {
+            seen.record(payload);
+        }
+        seen.take_new(native)
+    });
+    match new_native {
+        Some(native) => {
+            let call = ToolCall { id: id.clone(), name: "Skill".to_owned(), arguments: json!({ "name": name }), native_type: None };
+            let mut call_turn = AgentMessage::assistant(String::new(), vec![call]);
+            call_turn.source = Some(Source::SkillSelection);
+            transcript.push(call_turn);
+            let mut result = AgentMessage::tool_text(id, summary.to_owned(), ToolKind::Normal);
+            result.message.native_tool_search = Some(native);
+            transcript.push(result);
+        }
+        None => transcript.push(AgentMessage::sourced(
+            Source::SkillContext,
+            format!(
+                "<system-reminder>
+Explicit skill selection result:
+{summary}
+</system-reminder>"
+            ),
+        )),
+    }
+}
+
 #[async_trait]
 impl SkillSelector for ExplicitSkillSelector {
     async fn select(&self, content: &Content, initial: bool, transcript: &mut Vec<AgentMessage>) -> Vec<String> {
@@ -256,32 +286,7 @@ impl SkillSelector for ExplicitSkillSelector {
                 .and_then(JsonValue::as_str)
                 .filter(|text| !text.is_empty())
                 .map_or(summary, str::to_owned);
-            match native.and_then(|native| {
-                let mut seen = mixdog_agent::native_search::NativeDefinitions::default();
-                for payload in transcript.iter().filter_map(|entry| entry.message.native_tool_search.as_ref()) {
-                    seen.record(payload);
-                }
-                seen.take_new(native)
-            }) {
-                Some(native) => {
-                    let call = ToolCall { id: id.clone(), name: "Skill".to_owned(), arguments: json!({ "name": name }), native_type: None };
-                    let mut call_turn = AgentMessage::assistant(String::new(), vec![call]);
-                    call_turn.source = Some(Source::SkillSelection);
-                    transcript.push(call_turn);
-                    let mut result = AgentMessage::tool_text(id, summary.clone(), ToolKind::Normal);
-                    result.message.native_tool_search = Some(native);
-                    transcript.push(result);
-                }
-                None => transcript.push(AgentMessage::sourced(
-                    Source::SkillContext,
-                    format!(
-                        "<system-reminder>
-Explicit skill selection result:
-{summary}
-</system-reminder>"
-                    ),
-                )),
-            }
+            record_selection_result(transcript, id, &name, &summary, native);
             transcript.extend(follow_ups.into_iter().map(|m| AgentMessage::sourced(Source::Skill, m.text)));
             if loaded_skill(&summary) {
                 applied.push(name);

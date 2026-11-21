@@ -7,9 +7,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_agent::compact::blob_reads::turn_cancel;
 use mixdog_core_api::domain::tool::ToolIo;
 use mixdog_core_prompt::prompt::compose::ProfileSkip;
 use mixdog_core_prompt::prompt::real_sources::RealSources;
+use mixdog_core_prompt::prompt::real_sources::SourceWants;
 use mixdog_core_session::session::UserCwd;
 use mixdog_core_session::session::thread_switches::WorkflowTarget;
 use mixdog_mcp::skill_catalog::SkillCatalog;
@@ -30,6 +32,8 @@ use super::prompt_session::PromptPaths;
 use super::prompt_session::SessionPrompt;
 use super::prompt_session::SessionPromptInput;
 use super::prompt_session::compose_session_prompt;
+use super::prompt_session::read_session_prompt_files;
+use super::prompt_session::session_prompt_wants;
 use super::route_surface::is_agent_owner;
 use super::tool_pool::model_surface::workflow_disallows_agent_tool;
 use super::tool_surface::unused_model_edit_tool_name;
@@ -83,8 +87,8 @@ impl PromptSkills for CatalogPromptSkills {
     }
 }
 
-/// [`PromptRebuild`] over the prompt composition, run on the interactive lane with the startup
-/// probes (`prewarm::compose`).
+/// [`PromptRebuild`] over the prompt composition with the startup probes (`prewarm::compose`): read on
+/// the io-interactive lane, assembled on the cpu-interactive lane, under the token of the turn it runs in.
 pub struct ComposedPrompt {
     pub io: ToolIo,
     pub probes: Arc<StartupProbes>,
@@ -98,7 +102,7 @@ pub struct ComposedPrompt {
     pub user_cwd: UserCwd,
 }
 
-/// The composition input, owned so the lane job can borrow it.
+/// The composition input, owned so the lane jobs can borrow it.
 struct Owned {
     request: RebuildRequest,
     config: Value,
@@ -193,22 +197,21 @@ impl PromptRebuild for ComposedPrompt {
             config,
             request,
         });
-        let job: ComposeJob<SessionPrompt> = Arc::new(move |lane, host, observed| {
-            let paths = PromptPaths { plugin_root: host.plugin_root, data_dir: host.data_dir };
-            let sources = RealSources::new(lane, host, observed);
-            // The profile the prompt is composed from, read first: an edit landing during composition leaves the stamp
-            // behind, never ahead. An agent's own session keeps no stamp.
-            let profile_revision = owned
-                .agent
-                .as_deref()
-                .filter(|_| !owned.owner_is_agent)
-                .map(|agent| sources.agent_profile_revision(agent, owned.agent_mode))
-                .unwrap_or_default();
-            let mut prompt = compose_session_prompt(&owned.input(), &paths, &sources);
+        let reads = {
+            let owned = owned.clone();
+            Arc::new(move |paths: PromptPaths<'_>| read_session_prompt_files(&owned.input(), &paths))
+        };
+        // The stamp of the profile the prompt is composed from. An agent's own session keeps no stamp.
+        let stamp = owned.agent.clone().filter(|_| !owned.owner_is_agent).map(|agent| (agent, owned.agent_mode));
+        let wants = SourceWants { profile_revision: stamp.clone(), ..session_prompt_wants(&owned.input()) };
+        let assemble = Arc::new(move |paths: PromptPaths<'_>, sources: &RealSources<'_>| {
+            let profile_revision = stamp.as_ref().map(|(agent, mixy)| sources.agent_profile_revision(agent, *mixy)).unwrap_or_default();
+            let mut prompt = compose_session_prompt(&owned.input(), &paths, sources);
             prompt.profile_revision = profile_revision;
             prompt
         });
-        let mut composed = compose(&self.io, &self.probes, &self.observed, self.facts.clone(), job).await?;
+        let job: ComposeJob<SessionPrompt> = ComposeJob { wants, reads, assemble };
+        let mut composed = compose(&self.io, &self.probes, &self.observed, self.facts.clone(), &turn_cancel(), job).await?;
         composed.sections.workflow_name = workflow_name;
         Ok(composed)
     }

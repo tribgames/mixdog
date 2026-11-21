@@ -1,15 +1,3 @@
-//! A user Stop is the terminal disposition of the work it stops (`session/stop.rs`): that work never runs again without a new
-//! user action, and unrelated work that arrives later still runs.
-//!
-//! The order of one Stop: at its linearization point (the actor's step that takes it) the identities of the work it targets are
-//! frozen and latched ([`super::super::stop::StopBook`]), so no stage of this process runs them again; execution is aborted at once
-//! where there is any; the Stop's one record (`work_stop{stopped}`, carrying the whole target set and what is still owed) is
-//! appended through the control reserve behind every record already accepted; its caller is answered success only once that record
-//! is durable (`Effect::MarkAck`, which a failed barrier, a retained unit's rollback or a shutdown fails and never holds), else
-//! with the storage failure; the owed outcome (the hand-back, or the cancelled outcome) is finished by the ordinary path and settled
-//! by `work_stop{settled}`, or after a restart by [`SessionActor::recover_stops`]. Nothing here waits on a held input read or the
-//! stopped run's end, and nothing holds the actor or the prompt's lock while the record is saved.
-
 use super::*;
 use mixdog_store::schema::record::WorkStopPhase;
 use mixdog_store::schema::record::WorkStopRecord;
@@ -73,11 +61,6 @@ impl SessionActor {
                 .is_some_and(|id| self.stopped_identity(&work_stops::submission(id)))
     }
 
-    /// Freezes `work` under a Stop and appends its record, or joins the Stop that already froze it. Answers the Stop's id and its
-    /// durable-only waiter.
-    /// A hand-back (`restore`) is owed until its rewind is done and it was offered ([`super::super::stop::OwedHandback`]): `row`
-    /// is the stopped run's input row its rewind takes out (none for work that never ran), `by_reply` whether the Stop's own
-    /// reply carries it. The record stamps the restore's `at` (the Stop's time), from which its id is derived on every path.
     pub(super) fn record_stop(
         &mut self,
         work: &WorkRef,
@@ -203,10 +186,6 @@ impl SessionActor {
         }
     }
 
-    /// A Stop while the scheduled compaction holds the session ([`Ctl::StopQueued`]): the newest editable queued prompt goes back to
-    /// the canceller in the Stop's reply, and is frozen under the Stop, so it leaves the queue and never runs too. Answers the
-    /// hand-back's id (which the reply carries) and the Stop's durable-only waiter. Nothing is rewound: the hand-back is offered
-    /// by the reply and its Stop settles with its record.
     pub(super) fn stop_queued(&mut self, qid: &str, canceller: &str) -> Option<(Option<String>, StopWait)> {
         let queued = self.projected.queue.iter().find(|queued| queued.qid == qid && !self.queued_stopped(queued)).cloned()?;
         let submissions =
@@ -241,11 +220,6 @@ impl SessionActor {
         self.start_next_queued();
     }
 
-    /// A user Stop of exactly the work submitted under `submissions` ([`Ctl::StopWork`], a room's Stop of its exchange's member
-    /// submissions): each is found by its identity wherever it is (running, a start deferred or being read, queued) and frozen
-    /// under its own Stop record with a cancelled disposition, never a composer hand-back. A submission not here yet is frozen all
-    /// the same (a tombstone): its later admission meets the terminal identity and never runs (`turn_start`'s check). A run is
-    /// aborted only when it owns a targeted submission; unrelated queued work is untouched; a repeat joins the Stop that froze it.
     pub(super) fn stop_submissions(&mut self, submissions: &[String]) -> Vec<StopWait> {
         let mut waits = Vec::new();
         for id in submissions.iter().filter(|id| !id.is_empty()) {
@@ -288,23 +262,6 @@ impl SessionActor {
         waits
     }
 
-    /// A targeted Stop of submission `id`, which the running turn owns (it started for it, or took it at a boundary).
-    ///
-    /// The targeted prompt is already in the run's model context and cannot be taken out of a model call in flight, so the only
-    /// way it does not continue is that the run does not continue: the run is aborted at once with the user's cancel. That is the
-    /// smallest correct effect on the rest of the run:
-    /// The run owns units of work: the one it started for (its base: a prompt, a queued entry, a completion batch) and each entry
-    /// it took at a boundary. Only the unit that carries `id` is ever frozen:
-    /// - A run whose only unit is the one carrying `id` (nothing injected) is stopped as any user Stop stops a run
-    ///   ([`Self::stop_active_run`], its whole work, which is that unit, frozen, cancelled, never a hand-back).
-    /// - A run that owns anything else (any other unit: a completion batch's queue identities, another prompt) is aborted, and
-    ///   only the targeted unit (its queue id and submission) is frozen under the Stop's record. The other units end as an
-    ///   interruption ends them: what they already committed stays, they are not re-run (their queue copies were consumed when
-    ///   the run took them, and an interrupted run is never requeued), and their identities stay non-terminal (no stopped mark,
-    ///   no completion receipt), so their owners may still deliver or send them again: a targeted Stop never makes another
-    ///   owner's work terminal.
-    ///
-    /// Either way the record does not wait for the run to end; the Stop settles after the run's close.
     fn stop_owned_by_run(&mut self, id: &str) -> StopWait {
         let run = self.run.as_ref().expect("a running turn");
         if run.injected.is_empty() {
@@ -365,12 +322,6 @@ impl SessionActor {
         RunStop::Busy(self.stop_busy())
     }
 
-    /// Stops the running turn (a model call, tools, waits): the prompt's disposition is decided under its lock (an output commit
-    /// lands wholly before or after), the run is aborted at once, and the run's owned work (the inputs it claimed, nothing queued
-    /// beside it) is frozen with what the decision owes. The record does not wait for the run to end; its settlement follows the
-    /// run's close.
-    /// Answers the decision, the Stop's durable-only waiter and the id of the hand-back it owes (which a reply carrying the
-    /// restored text names).
     pub(super) fn stop_active_run(
         &mut self,
         restore_prompt: Option<bool>,
@@ -405,18 +356,6 @@ impl SessionActor {
         (decision, wait, id)
     }
 
-    /// A Stop with no published run (`abortRuntime` over Node's whole `busy` span): it applies to exactly the work busy when the
-    /// actor takes it.
-    /// - A run the caller did not see published yet: stopped as [`Self::stop_active_run`] stops one, its prompt handed to its
-    ///   device's composer when it may go back.
-    /// - A start pending (deferred, or reading its provenance or its input row): its work is frozen. A deferred start finishes at once;
-    ///   one being read finishes when its read comes back ([`Self::start_run_read`]), never running the model.
-    /// - A compaction is aborted with the user's cancel.
-    /// - A settlement (or an end parked behind a row being read): the completions queued now for the wake that would follow are
-    ///   frozen and consumed; none queued, nothing is prohibited. The finished turn's outcome is not rewritten, and a completion
-    ///   that arrives later is unrelated work that runs.
-    ///
-    /// Only the Goal check and a quota resume have no owner here to cancel.
     pub(super) fn stop_busy(&mut self) -> BusyStop {
         let mut waits = Vec::new();
         let mut stopped = false;
@@ -469,12 +408,6 @@ impl SessionActor {
         }
     }
 
-    /// The Stops a restart found owed (`owedStops`), after the crashed runs were finalized: their work is terminal already (the fold
-    /// removed its queue copies and keyed its identities), so what is left is the outcome, finished as the live path would have.
-    /// A cancelled outcome is final with the Stop (a stopped run was closed interrupted by the crash recovery) and settles. A
-    /// hand-back first takes the stopped turn's prompt row out of the transcript and the model context (a no-op when the live
-    /// close already did), then is offered once more in the session state, under the id its record stores (the one the live path
-    /// used), and settles: nothing waits for an acknowledgement.
     pub(super) fn recover_stops(&mut self) {
         for (sid, body) in work_stops::owed(&self.acked.header) {
             #[cfg(any(test, feature = "test-support"))]

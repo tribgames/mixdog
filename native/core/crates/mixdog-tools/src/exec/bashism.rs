@@ -1,6 +1,5 @@
-//! Pre-execution rewrite of bash-isms that ALWAYS fail in Windows PowerShell
-//! (`bash-tool/bashism-rewrite.mjs`), so the first attempt succeeds instead of costing a failed
-//! call and a retry. Rewritten, only outside quotes, here-strings and comments:
+//! Pre-execution rewrite of bash-isms that ALWAYS fail in Windows PowerShell, so the first
+//! attempt succeeds instead of costing a failed call and a retry. Rewritten, only outside quotes, here-strings and comments:
 //!   `<cmd> <<'EOF'\n…\nEOF` → `@'\n…\n'@ | <cmd>` (python/python3/py/node only)
 //!   `2>/dev/null` `>/dev/null` `&>/dev/null` → `2>$null` `>$null` `*>$null`
 //!   `</dev/null` → removed (the shell's stdin is already at EOF)
@@ -166,6 +165,42 @@ fn char_at_byte(s: &str, byte: usize) -> usize {
     s[..byte].chars().count()
 }
 
+/// Where the stage of the opener line starts (after the last live `;` / `&&`); `None` when a live pipe or `&` precedes
+/// the heredoc or the line cannot be tokenised.
+fn stage_start(before: &[char]) -> Option<usize> {
+    let before_mask = code_mask(before)?;
+    let mut stage_from = 0;
+    let mut i = 0;
+    while i < before.len() {
+        if before_mask[i] {
+            if before[i] == ';' {
+                stage_from = i + 1;
+            } else if before[i] == '&' && before.get(i + 1) == Some(&'&') {
+                i += 1;
+                stage_from = i + 1;
+            } else if before[i] == '|' || before[i] == '&' {
+                return None;
+            }
+        }
+        i += 1;
+    }
+    Some(stage_from)
+}
+
+/// The first line from `body_start` that is exactly `delimiter`, as the offsets of its start and end.
+fn find_terminator(text: &[char], body_start: usize, delimiter: &str) -> Option<(usize, usize)> {
+    let mut cursor = body_start;
+    while cursor <= text.len() {
+        let nl = index_of_char(text, '\n', cursor);
+        let stop = nl.unwrap_or(text.len());
+        if string_of(ends_with_cr(&text[cursor.min(stop)..stop])) == delimiter {
+            return Some((cursor, stop));
+        }
+        cursor = nl? + 1;
+    }
+    None
+}
+
 enum Heredoc {
     Skip,
     Done(Vec<char>, String),
@@ -190,44 +225,15 @@ fn rewrite_one_heredoc(text: &[char], at: usize) -> Heredoc {
     if lazy_re!(r#"['"`$<]"#, "").is_match(&rest) || line_end >= text.len() {
         return Heredoc::Skip;
     }
-    // The stage is what follows the last live `;` / `&&` on the opener line.
-    let Some(before_mask) = code_mask(before) else { return Heredoc::Skip };
-    let mut stage_from = 0;
-    let mut i = 0;
-    while i < before.len() {
-        if before_mask[i] {
-            if before[i] == ';' {
-                stage_from = i + 1;
-            } else if before[i] == '&' && before.get(i + 1) == Some(&'&') {
-                i += 1;
-                stage_from = i + 1;
-            } else if before[i] == '|' || before[i] == '&' {
-                return Heredoc::Skip;
-            }
-        }
-        i += 1;
-    }
+    let Some(stage_from) = stage_start(before) else { return Heredoc::Skip };
     let stage = mixdog_js::js_trim(&string_of(&before[stage_from..])).to_owned();
     let python = lazy_re!(r"^(?:python3?|py)(?:\.exe)?(?:\s+-[uBsSEIOqbd]+)*(?:\s+-)?$", "i");
     let node = lazy_re!(r"^node(?:\.exe)?(?:\s+--[\w-]+(?:=[\w.-]+)?)*(?:\s+-)?$", "i");
     if !python.is_match(&stage) && !node.is_match(&stage) {
         return Heredoc::Skip;
     }
-    // The body: the lines up to the first line that is exactly the delimiter.
     let body_start = line_end + 1;
-    let (mut cursor, mut term_start, mut term_end) = (body_start, None, text.len());
-    while cursor <= text.len() {
-        let nl = index_of_char(text, '\n', cursor);
-        let stop = nl.unwrap_or(text.len());
-        if string_of(ends_with_cr(&text[cursor.min(stop)..stop])) == delimiter {
-            term_start = Some(cursor);
-            term_end = stop;
-            break;
-        }
-        let Some(nl) = nl else { break };
-        cursor = nl + 1;
-    }
-    let Some(term_start) = term_start else { return Heredoc::Skip };
+    let Some((term_start, term_end)) = find_terminator(text, body_start, &delimiter) else { return Heredoc::Skip };
     let mut body = string_of(&text[body_start..term_start]);
     if let Some(stripped) = body.strip_suffix("\r\n").or_else(|| body.strip_suffix('\n')) {
         body = stripped.to_owned();

@@ -110,7 +110,6 @@ pub async fn invalidate_damaged(dir: &Path, manifest: &Manifest, lane: CpuBulk) 
         }
     }
     if !bad.is_empty() {
-        // `rmSync(.., { force: true })` (`model-install.mjs:68`): only an absent stamp is fine.
         remove_forced(lane, &dir.join(STAMP)).await?;
     }
     Ok(bad)

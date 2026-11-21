@@ -63,7 +63,8 @@ pub fn all_text_content(content: Option<&Value>) -> String {
     }
 }
 
-fn truthy(value: Option<&Value>) -> bool {
+/// JS truthiness of an optional field.
+pub fn truthy(value: Option<&Value>) -> bool {
     match value {
         None | Some(Value::Null) => false,
         Some(Value::Bool(flag)) => *flag,
@@ -71,6 +72,11 @@ fn truthy(value: Option<&Value>) -> bool {
         Some(Value::Number(n)) => n.as_f64().is_some_and(|n| n != 0.0),
         Some(_) => true,
     }
+}
+
+/// `m.ts ?? m.timestamp`.
+pub fn raw_ts(message: &Value) -> Option<&Value> {
+    message.get("ts").filter(|v| !v.is_null()).or_else(|| message.get("timestamp"))
 }
 
 /// JS `String(number)` for the integer-valued numbers timestamps are.
@@ -102,8 +108,7 @@ fn tool_identity_ids(message: &Value) -> Vec<String> {
 /// and the shaped content. An untimestamped message folds in its ordinal so
 /// genuine textual repeats stay distinct rows.
 pub fn stable_session_source_ref(session_id: &str, message: &Value, role: &str, content: &str, ordinal: usize) -> String {
-    let raw_ts = message.get("ts").filter(|v| !v.is_null()).or_else(|| message.get("timestamp"));
-    let original_ts = match raw_ts {
+    let original_ts = match raw_ts(message) {
         Some(Value::Number(n)) => number_string(n),
         Some(Value::String(text)) if !js_trim(text).is_empty() => text.clone(),
         _ => String::new(),

@@ -289,10 +289,6 @@ impl EmbeddingProvider {
 
     /// Loads the model, once however many callers ask. `Ok(None)` when it is
     /// not installed; `Err` is this host's load failure.
-    ///
-    /// The host's end is read from its lifecycle (Rule B): a `Stopping` host (its output closed, a write failed, a kill was asked) is not classified;
-    /// the call waits for the reaper's `Ended` outside the provider's lock and reads the cell again. The end of the host the cell holds is
-    /// accounted once, under the cell's lock, with the cell's replacement: a later end of an older host never touches the cell's replacement.
     pub(crate) async fn warmup(&self) -> Result<Option<Embedder>, String> {
         loop {
             let stopping = {

@@ -1,5 +1,4 @@
-//! Owner: s4-engine-reply
-//! How a command's outcome becomes the reply the agent reads (`reply.ts`). Actions produce facts; this module turns them into
+//! How a command's outcome becomes the reply the agent reads. Actions produce facts; this module turns them into
 //! text: it waits for nothing and calls no host method. The runner has already let the page settle, checked the postcondition and
 //! captured the snapshot and the screenshot, and hands the results over; what is decided here is the words: the page report with
 //! the downloads and diagnostics the caller has not heard about yet, what the gesture did or did not change, the postcondition
@@ -266,7 +265,7 @@ pub fn format_evaluation_value(ctx: &ReplyContext<'_>, value: Option<&Value>, ma
     format!("{}\n[truncated: {} more characters]", mixdog_js::slice_utf16(&redacted, max_chars), length - max_chars)
 }
 
-/// Whether the documents behind two observation revisions differ (`browserDocumentChanged`): a new document, a different viewport,
+/// Whether the documents behind two observation revisions differ: a new document, a different viewport,
 /// a DOM mutation or a control's value, or, when asked, the scroll position (the page's, a nested scroller's, an explicit scroll).
 /// Pointer and key activity alone does not count. A revision is one entry per frame, `|`-separated, each
 /// `timeOrigin:version:innerWidth:innerHeight:scrollX:scrollY:dom[:scroller[:explicit]]`. `None` when a revision is missing or
@@ -347,8 +346,8 @@ fn effect_notes(request: &ReplyRequest<'_>, page: &mut ReplyPage<'_>, capture: &
     notes
 }
 
-/// The reply of a command that observed the page (`snapshotResult` after its wait): the page report, what the gesture did, and the
-/// screenshot bound to the snapshot. Without a snapshot it is the page report alone (`reportPage`), which may be empty.
+/// The reply of a command that observed the page: the page report, what the gesture did, and the
+/// screenshot bound to the snapshot. Without a snapshot it is the page report alone, which may be empty.
 ///
 /// A postcondition that did not hold is an error that carries the snapshot, so the agent sees the page the action left behind.
 pub async fn build_reply(

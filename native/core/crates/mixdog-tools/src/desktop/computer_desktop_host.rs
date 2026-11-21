@@ -60,6 +60,7 @@ use super::computer_screen::Screen;
 pub const BACKEND_NAME: &str = "desktopHost";
 
 const METHOD: &str = "host/computer/command";
+const FATE_METHOD: &str = "host/computer/processFate";
 /// A host that does not know `host/computer/command` (JSON-RPC "method not found"): the desktop is not running the legacy host.
 const METHOD_NOT_FOUND: i64 = -32601;
 /// `REQUEST_TIMEOUT_MS`, `SESSION_ABORT_TIMEOUT_MS` of the client.
@@ -219,14 +220,7 @@ fn canonical_text(reply: &str, action: &str, input: &Value) -> String {
         return reply.to_owned();
     }
     value.insert("action".into(), json!(action));
-    let set = |value: &mut Map<String, Value>, key: &str, found: Option<Value>| match found {
-        Some(found) => {
-            value.insert(key.into(), found);
-        }
-        None => {
-            value.shift_remove(key);
-        }
-    };
+    let set = set_or_remove;
     match action {
         "list" => set(&mut value, "kind", input.get("kind").cloned()),
         "capture" => {
@@ -260,31 +254,29 @@ fn canonical_text(reply: &str, action: &str, input: &Value) -> String {
     value.to_string()
 }
 
+fn set_or_remove(map: &mut Map<String, Value>, key: &str, found: Option<Value>) {
+    match found {
+        Some(found) => {
+            map.insert(key.into(), found);
+        }
+        None => {
+            map.shift_remove(key);
+        }
+    }
+}
+
 fn canonicalize_act(value: &mut Map<String, Value>, input: &Value) {
     const STATUSES: [&str; 5] = ["succeeded", "failed", "skipped", "pending", "uncertain"];
     for (to, from) in [("completed_actions", "completed_steps"), ("total_actions", "total_steps")] {
-        match value.get(from).cloned() {
-            Some(found) => {
-                value.insert(to.into(), found);
-            }
-            None => {
-                value.shift_remove(to);
-            }
-        }
+        let found = value.get(from).cloned();
+        set_or_remove(value, to, found);
     }
     let steps = value.get("steps").cloned();
     let step = |index: usize, row: &Value| {
         let mut normalized = row.as_object().cloned().unwrap_or_default();
         let named = input.get("actions").and_then(|actions| actions.get(index)).and_then(|row| row.get("type")).filter(|kind| truthy(kind));
-        // `type || action`: the step's own action, whatever it is, when the call named none.
-        match named.or_else(|| normalized.get("action")).cloned() {
-            Some(kind) => {
-                normalized.insert("type".into(), kind);
-            }
-            None => {
-                normalized.shift_remove("type");
-            }
-        }
+        let kind = named.or_else(|| normalized.get("action")).cloned();
+        set_or_remove(&mut normalized, "type", kind);
         if !normalized.get("status").and_then(Value::as_str).is_some_and(|status| STATUSES.contains(&status)) {
             let status = if normalized.get("ok") == Some(&Value::Bool(false)) { "failed" } else { "succeeded" };
             normalized.insert("status".into(), json!(status));
@@ -297,14 +289,7 @@ fn canonicalize_act(value: &mut Map<String, Value>, input: &Value) {
         Some(Value::Array(rows)) => Some(Value::Array(rows.iter().enumerate().map(|(index, row)| step(index, row)).collect())),
         other => other.clone(),
     };
-    match actions {
-        Some(actions) => {
-            value.insert("actions".into(), actions);
-        }
-        None => {
-            value.shift_remove("actions");
-        }
-    }
+    set_or_remove(value, "actions", actions);
     // A single-window act reports the same transition on the act and its step.
     if let Some(transition) = value.get("window_transition").map(Value::to_string)
         && let Some(Value::Array(rows)) = value.get_mut("actions")
@@ -529,6 +514,11 @@ impl ComputerSecretHost for DesktopHostBackend {
         if !self.desktop.serves(HostCapability::Computer) {
             return Err(message(bridge_unavailable()));
         }
+        // The owner's pid proof is no command of a session: the desktop reads the process through its own method, so the public
+        // command policy never sees it.
+        if text(&command, "action") == "process_fate" {
+            return self.process_fate(&command).await;
+        }
         self.hold_for_secret(&command).map_err(message)?;
         if !js_trim(&self.session_id).is_empty() {
             command.insert("session_id".into(), json!(self.session_id));
@@ -645,7 +635,7 @@ mod tests {
     #[async_trait]
     impl HostChannel for FakeHost {
         async fn request(&self, capability: HostCapability, method: Method, params: Value) -> Result<Value, HostError> {
-            assert_eq!((capability, method.as_str()), (HostCapability::Computer, METHOD));
+            assert!(capability == HostCapability::Computer && [METHOD, FATE_METHOD].contains(&method.as_str()));
             self.seen.lock().unwrap().push(params);
             let answer = self.script.lock().unwrap().pop_front();
             match answer {
@@ -695,6 +685,23 @@ mod tests {
             ComputerError::Failed { code, message } => (code, message),
             other => panic!("{other:?}"),
         }
+    }
+
+    /// The owner's pid proof is the desktop's own method with the process alone: never a session's command.
+    #[tokio::test]
+    async fn a_process_read_goes_to_its_own_method_and_not_as_a_command() {
+        let host = FakeHost::new(vec![Answer::Reply(json!({ "state": "running", "created": "133" })), Answer::Rpc(-32000, "no host")]);
+        let read = |pid: u64| {
+            let mut command = Map::new();
+            command.insert("action".into(), json!("process_fate"));
+            command.insert("pid".into(), json!(pid));
+            command.insert("created".into(), json!(""));
+            command
+        };
+        let answer = ComputerSecretHost::execute(&backend(&host), read(4321)).await.unwrap();
+        assert_eq!((answer["state"].clone(), answer["created"].clone()), (json!("running"), json!("133")));
+        assert_eq!(ComputerSecretHost::execute(&backend(&host), read(1)).await, Err("no host".to_owned()));
+        assert_eq!(host.commands(), vec![json!({ "pid": 4321, "created": "" }), json!({ "pid": 1, "created": "" })]);
     }
 
     #[tokio::test]
@@ -1012,6 +1019,19 @@ impl DesktopHostBackend {
         command.insert("session_id".into(), json!(id));
         command.extend(extra);
         matches!(self.post(command, &CancellationToken::new(), timeout).await, Ok(Posted::Reply(_)))
+    }
+
+    /// `host/computer/processFate`: the desktop's own reading of `pid` (and its creation time `created`, when given).
+    async fn process_fate(&self, command: &Map<String, Value>) -> Result<Map<String, Value>, String> {
+        let params = json!({ "pid": command.get("pid").cloned().unwrap_or(Value::Null), "created": text(command, "created") });
+        let asked = mixdog_rt::time::timeout(REQUEST_TIMEOUT, self.desktop.request(HostCapability::Computer, Method(FATE_METHOD), params)).await;
+        match asked {
+            Ok(Ok(Value::Object(answer))) => Ok(answer),
+            Ok(Ok(_)) => Err("the desktop answered the process read with a malformed value".to_owned()),
+            Ok(Err(HostError::Rpc { message, .. })) => Err(message),
+            Ok(Err(HostError::Core(_))) => Err(format!("Error: {BRIDGE_UNAVAILABLE_MESSAGE}")),
+            Err(_) => Err("the desktop did not answer the process read in time".to_owned()),
+        }
     }
 
     /// One `host/computer/command` request and the host's answer, with the failures worded as the client worded them.

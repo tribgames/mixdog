@@ -348,6 +348,42 @@ impl Inner {
         self.record_turn_diff_changes(session_id, measured, &mut budget);
     }
 
+    fn tracker_with_owner(&self, id: &str) -> (Arc<Tracker>, Option<Arc<Tracker>>) {
+        let mut reg = self.reg();
+        let tracker = match reg.trackers.get(id) {
+            Some(tracker) => tracker.clone(),
+            None => {
+                let tracker = Tracker::new(TrackerMeta::default());
+                reg.trackers.insert(id.to_owned(), tracker.clone());
+                tracker
+            }
+        };
+        let owner_tracker = match &tracker.meta.owner_session_id {
+            Some(owner) => reg.trackers.get(owner).cloned(),
+            None => Some(tracker.clone()),
+        };
+        (tracker, owner_tracker)
+    }
+
+    /// Git reports the turn's root canonically (macOS /var -> /private/var): each written path is
+    /// spelled the same way, or it never relates to it.
+    fn canonical_changes(&self, changes: Vec<TrackedChange>) -> Vec<TrackedChange> {
+        changes
+            .into_iter()
+            .map(|mut raw| {
+                if nodepath::is_absolute_host(clean(&raw.path)) {
+                    raw.path = self.worktrees.canonical_path(&raw.path);
+                }
+                if let Some(new_path) = &raw.new_path
+                    && nodepath::is_absolute_host(clean(new_path))
+                {
+                    raw.new_path = Some(self.worktrees.canonical_path(new_path));
+                }
+                raw
+            })
+            .collect()
+    }
+
     /// Fold exact committed before/after file states into a session's current turn.
     pub(super) fn record_turn_diff_changes(&self, session_id: &str, changes: Vec<TrackedChange>, budget: &mut LineDiffBudget) {
         if self.cfg.disabled {
@@ -357,46 +393,10 @@ impl Inner {
         if id.is_empty() {
             return;
         }
-        let (tracker, owner_tracker) = {
-            let mut reg = self.reg();
-            let tracker = match reg.trackers.get(id) {
-                Some(tracker) => tracker.clone(),
-                None => {
-                    let tracker = Tracker::new(TrackerMeta::default());
-                    reg.trackers.insert(id.to_owned(), tracker.clone());
-                    tracker
-                }
-            };
-            let owner_tracker = match &tracker.meta.owner_session_id {
-                Some(owner) => reg.trackers.get(owner).cloned(),
-                None => Some(tracker.clone()),
-            };
-            (tracker, owner_tracker)
-        };
+        let (tracker, owner_tracker) = self.tracker_with_owner(id);
         let owner_root = owner_tracker.as_ref().map(|t| t.meta.worktree_root.clone());
         let snapshot = owner_tracker.and_then(|t| t.snapshot());
-        // Git reports the turn's root canonically (macOS /var -> /private/var): each written path
-        // is spelled the same way, or it never relates to it.
-        let list: Vec<TrackedChange> = if snapshot.as_ref().is_some_and(|s| !s.root().is_empty()) {
-            changes
-                .into_iter()
-                .map(|mut raw| {
-                    if nodepath::is_absolute_host(clean(&raw.path)) {
-                        raw.path = self.worktrees.canonical_path(&raw.path);
-                    }
-                    if let Some(new_path) = &raw.new_path
-                        && nodepath::is_absolute_host(clean(new_path))
-                    {
-                        raw.new_path = Some(self.worktrees.canonical_path(new_path));
-                    }
-                    raw
-                })
-                .collect()
-        } else {
-            changes
-        };
-        // Independent of this tracker's validity: the session review needs every write's
-        // first-seen state even once the turn's buffers are gone.
+        let list = if snapshot.as_ref().is_some_and(|s| !s.root().is_empty()) { self.canonical_changes(changes) } else { changes };
         self.capture_review_baselines(session_id, &tracker, owner_root.as_deref(), snapshot.as_ref(), &list);
         let root = tracker.patch_root("");
         let mut state = tracker.lock();
@@ -1012,7 +1012,6 @@ impl Inner {
     /// The synchronous half of a seal: it reads the turn's workers and registers the seal in
     /// flight at the moment it is asked for, before any turn replaces them.
     pub(super) fn seal_begin(self: &Arc<Self>, reg: &mut Reg, owner: &str, tracker: &Arc<Tracker>) -> SealStep {
-        // Its history was deleted (clearSessionChangeHistory): never written again.
         if tracker.discarded() {
             return SealStep::Done;
         }
@@ -1031,41 +1030,40 @@ impl Inner {
         let owner = owner.to_owned();
         mixdog_rt::spawn("turn_review.seal", mixdog_rt::TaskClass::Work, async move {
             if let Some(snapshot) = run_tracker.snapshot() {
-                // Best-effort refresh: seal with the last captured worktree state.
                 snapshot.refresh(true).await;
             }
             if !run_tracker.discarded() && run_tracker.seal_epoch() == epoch {
                 run_tracker.set_sealed(true);
                 run_inner.persist_turn_snapshot_record(&owner, &run_tracker).await;
                 if !run_tracker.discarded() {
-                    // The change record adds Undo history; it never fails a turn.
                     let _ = run_inner.freeze_turn_changes(&owner, &run_tracker, agents).await;
                 }
-                // The bounded own before/after content stays until the next turn: a completion
-                // wake reopening it and an Undo/Reapply of this turn fold into it.
             }
-            {
-                let mut slot = run_tracker.freezing.lock().unwrap_or_else(|e| e.into_inner());
-                if slot.as_ref().is_some_and(|f| f.id == id) {
-                    *slot = None;
-                }
-            }
-            let mut reg = run_inner.reg();
-            match reg.pending_freezes.get(&key).copied().unwrap_or(1) {
-                0 | 1 => {
-                    reg.pending_freezes.remove(&key);
-                }
-                count => {
-                    reg.pending_freezes.insert(key.clone(), count - 1);
-                }
-            }
-            for read in reg.change_reads.get(&key).into_iter().flatten() {
-                read.store(true, Ordering::SeqCst);
-            }
-            drop(reg);
+            run_inner.release_freeze(&run_tracker, id, &key);
             let _ = tx.send(true);
         });
         SealStep::Started(done)
+    }
+
+    fn release_freeze(&self, tracker: &Tracker, id: u64, key: &str) {
+        {
+            let mut slot = tracker.freezing.lock().unwrap_or_else(|e| e.into_inner());
+            if slot.as_ref().is_some_and(|f| f.id == id) {
+                *slot = None;
+            }
+        }
+        let mut reg = self.reg();
+        match reg.pending_freezes.get(key).copied().unwrap_or(1) {
+            0 | 1 => {
+                reg.pending_freezes.remove(key);
+            }
+            count => {
+                reg.pending_freezes.insert(key.to_owned(), count - 1);
+            }
+        }
+        for read in reg.change_reads.get(key).into_iter().flatten() {
+            read.store(true, Ordering::SeqCst);
+        }
     }
 
     pub(super) fn seal_finish(self: &Arc<Self>, owner: String, tracker: Arc<Tracker>, step: SealStep) -> BoxFuture<'static, ()> {

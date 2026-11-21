@@ -439,6 +439,33 @@ fn rows_render_the_snapshot_values_in_the_parity_order() {
 }
 
 #[test]
+fn the_auto_clear_row_names_where_its_window_comes_from_and_the_disabled_state() {
+    let hour = fd(3_600_000.0);
+    let cases = [
+        (
+            json!({"enabled": true, "unlimited": true, "providerCustom": true, "provider": "x"}),
+            "On (Unlimited)".to_owned(),
+            "Never clear idle sessions (x override). Enter for options.".to_owned(),
+        ),
+        (
+            json!({"enabled": true, "idleMs": 3_600_000, "custom": true}),
+            format!("On ({hour})"),
+            format!("Clear idle sessions after {hour} (global). Enter for options."),
+        ),
+        (json!({"enabled": false}), "Off".to_owned(), "Idle auto-clear disabled. Enter for options.".to_owned()),
+    ];
+    for (auto_clear, meta, description) in cases {
+        let mut answer = snapshot();
+        answer["autoClear"] = auto_clear;
+        let mut host = settings_host();
+        host.answer("getSettingsSnapshot", answer);
+        open_settings(&mut host);
+        let row = host.row("autoclear");
+        assert_eq!((row.meta.clone(), row.description.clone()), (meta, description));
+    }
+}
+
+#[test]
 fn the_voice_row_shows_the_core_state_and_a_failed_read_is_off() {
     let mut host = settings_host();
     host.answer("getVoiceStatus", json!({"enabled": true, "busy": false}));

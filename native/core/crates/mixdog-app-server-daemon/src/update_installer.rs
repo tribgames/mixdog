@@ -232,62 +232,66 @@ mod tests {
     /// `platform` false: npm installed the main package but not the platform package of this host (optional dependencies omitted).
     fn fake_npm_script_with(version: Option<&str>, platform: bool) -> String {
         let key = blocking::host_keys().remove(0);
-        if cfg!(windows) {
-            let programs = if platform {
-                let folder = format!("%PREFIX%\\node_modules\\mixdog-{key}");
-                vec![
-                    format!("mkdir \"{folder}\\bin\""),
-                    format!("> \"{folder}\\package.json\" echo {{}}"),
-                    format!("type nul > \"{folder}\\bin\\mixdog.exe\""),
-                    format!("type nul > \"{folder}\\bin\\mixdogd.exe\""),
-                    format!("type nul > \"{folder}\\bin\\mixdog-askpass.exe\""),
-                ]
-            } else {
-                Vec::new()
-            };
-            let version = version
-                .map_or_else(|| "for /f \"tokens=2 delims=@\" %%v in (\"%SPEC%\") do set \"V=%%v\"".to_owned(), |version| format!("set \"V={version}\""));
-            let mut lines: Vec<String> = [
-                "@echo off",
-                "if \"%1\"==\"config\" (echo https://registry.example.test/& exit /b 0)",
-                "set \"SPEC=%~2\"",
-                "set \"PREFIX=%~4\"",
-                &version,
-                "set \"PKG=%PREFIX%\\node_modules\\mixdog\"",
-                "mkdir \"%PKG%\\bin\"",
-                "> \"%PKG%\\package.json\" echo {\"name\":\"mixdog\",\"version\":\"%V%\"}",
-                "type nul > \"%PKG%\\bin\\mixdog.mjs\"",
-                "type nul > \"%PKG%\\bin\\native-layout.mjs\"",
-                "mkdir \"%PREFIX%\\node_modules\\dep\"",
+        if cfg!(windows) { fake_npm_cmd(version, platform, &key) } else { fake_npm_sh(version, platform, &key) }
+    }
+
+    fn fake_npm_cmd(version: Option<&str>, platform: bool, key: &str) -> String {
+        let programs = if platform {
+            let folder = format!("%PREFIX%\\node_modules\\mixdog-{key}");
+            vec![
+                format!("mkdir \"{folder}\\bin\""),
+                format!("> \"{folder}\\package.json\" echo {{}}"),
+                format!("type nul > \"{folder}\\bin\\mixdog.exe\""),
+                format!("type nul > \"{folder}\\bin\\mixdogd.exe\""),
+                format!("type nul > \"{folder}\\bin\\mixdog-askpass.exe\""),
             ]
-            .map(str::to_owned)
-            .into();
-            lines.extend(programs);
-            lines.push(String::new());
-            lines.join("\r\n")
         } else {
-            let version = version.map_or_else(|| "V=${2#*@}".to_owned(), |version| format!("V={version}"));
-            let mut lines: Vec<String> = [
-                "#!/bin/sh",
-                "if [ \"$1\" = config ]; then echo https://registry.example.test/; exit 0; fi",
-                &version,
-                "PKG=\"$4/node_modules/mixdog\"",
-                "mkdir -p \"$PKG/bin\" \"$4/node_modules/dep\"",
-                "printf '{\"name\":\"mixdog\",\"version\":\"%s\"}' \"$V\" > \"$PKG/package.json\"",
-                ": > \"$PKG/bin/mixdog.mjs\"",
-                ": > \"$PKG/bin/native-layout.mjs\"",
-            ]
-            .map(str::to_owned)
-            .into();
-            if platform {
-                let folder = format!("$4/node_modules/mixdog-{key}");
-                lines.push(format!("mkdir -p \"{folder}/bin\""));
-                lines.push(format!("echo '{{}}' > \"{folder}/package.json\""));
-                lines.push(format!(": > \"{folder}/bin/mixdog\" && : > \"{folder}/bin/mixdogd\" && : > \"{folder}/bin/mixdog-askpass\""));
-            }
-            lines.push(String::new());
-            lines.join("\n")
+            Vec::new()
+        };
+        let version =
+            version.map_or_else(|| "for /f \"tokens=2 delims=@\" %%v in (\"%SPEC%\") do set \"V=%%v\"".to_owned(), |version| format!("set \"V={version}\""));
+        let mut lines: Vec<String> = [
+            "@echo off",
+            "if \"%1\"==\"config\" (echo https://registry.example.test/& exit /b 0)",
+            "set \"SPEC=%~2\"",
+            "set \"PREFIX=%~4\"",
+            &version,
+            "set \"PKG=%PREFIX%\\node_modules\\mixdog\"",
+            "mkdir \"%PKG%\\bin\"",
+            "> \"%PKG%\\package.json\" echo {\"name\":\"mixdog\",\"version\":\"%V%\"}",
+            "type nul > \"%PKG%\\bin\\mixdog.mjs\"",
+            "type nul > \"%PKG%\\bin\\native-layout.mjs\"",
+            "mkdir \"%PREFIX%\\node_modules\\dep\"",
+        ]
+        .map(str::to_owned)
+        .into();
+        lines.extend(programs);
+        lines.push(String::new());
+        lines.join("\r\n")
+    }
+
+    fn fake_npm_sh(version: Option<&str>, platform: bool, key: &str) -> String {
+        let version = version.map_or_else(|| "V=${2#*@}".to_owned(), |version| format!("V={version}"));
+        let mut lines: Vec<String> = [
+            "#!/bin/sh",
+            "if [ \"$1\" = config ]; then echo https://registry.example.test/; exit 0; fi",
+            &version,
+            "PKG=\"$4/node_modules/mixdog\"",
+            "mkdir -p \"$PKG/bin\" \"$4/node_modules/dep\"",
+            "printf '{\"name\":\"mixdog\",\"version\":\"%s\"}' \"$V\" > \"$PKG/package.json\"",
+            ": > \"$PKG/bin/mixdog.mjs\"",
+            ": > \"$PKG/bin/native-layout.mjs\"",
+        ]
+        .map(str::to_owned)
+        .into();
+        if platform {
+            let folder = format!("$4/node_modules/mixdog-{key}");
+            lines.push(format!("mkdir -p \"{folder}/bin\""));
+            lines.push(format!("echo '{{}}' > \"{folder}/package.json\""));
+            lines.push(format!(": > \"{folder}/bin/mixdog\" && : > \"{folder}/bin/mixdogd\" && : > \"{folder}/bin/mixdog-askpass\""));
         }
+        lines.push(String::new());
+        lines.join("\n")
     }
 
     /// The name of an `npm` shim file on this platform.

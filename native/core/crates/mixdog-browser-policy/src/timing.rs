@@ -1,8 +1,5 @@
-//! Per-command diagnostics only (`timing.ts`). Parallel pages never share a collector; phases may overlap, so their durations must
-//! not be added to `commandMs`. [`CommandTiming`] is the `BrowserCommandTiming` wire record, byte for byte in its JSON shape.
-//!
-//! The collector takes the time as an argument (milliseconds on any monotonic clock, as `performance.now()`), so a caller holds one
-//! per command and a test drives it with a clock it controls.
+//! [`CommandTiming`] is the `BrowserCommandTiming` wire record, byte for byte in its JSON shape (`timing.ts`).
+//! Phases may overlap, so their durations must not be added to `commandMs`.
 
 use serde::Deserialize;
 use serde::Serialize;

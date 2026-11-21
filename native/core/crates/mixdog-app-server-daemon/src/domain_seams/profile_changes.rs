@@ -1,11 +1,3 @@
-//! `session-runtime/agent-profile-changes.mjs`: the in-process fan-out of bot changes that reach
-//! prompts, and `InstructionsChanged` (`announce()` of `instruction-files.mjs`) over it.
-//!
-//! The runtime that rebuilds a session's prompt for the saved bots (`refreshAgentProfile`)
-//! subscribes a [`ProfileListener`]; with none subscribed a publication reaches nobody, as in
-//! Node with no runtime open. `AgentEffects::agents_changed` (agent saves) publishes through the
-//! same [`AgentProfileChanges`].
-
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;

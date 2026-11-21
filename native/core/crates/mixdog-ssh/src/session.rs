@@ -1,9 +1,3 @@
-//! One remote server per desktop process: bootstrap of the core there, the tunnel to it, and the check that the process
-//! behind the tunnel is the core the bootstrap found, before the core's token is used.
-//!
-//! The session is shared by every protocol connection generation, so a restart reuses the supervised tunnel. It never
-//! starts or touches a local core. Its tests are in `session_tests.rs`.
-
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -530,10 +524,6 @@ impl RemoteSession {
 
     /// Detach: closes the tunnel, leaves the remote core running.
     pub async fn close(&self) {
-        // Closed first, under the lock: from here no attempt installs a tunnel or publishes anything. What is stopping (a
-        // reconnect's replaced tunnel) and what is active are both stopped before this returns, each stop run once.
-        // A notification being delivered finishes first, before the session is marked closed: a Ready callback never sees a closed
-        // session, and none is delivered after (each checks the session is open while it holds the delivery lock).
         let delivering = self.delivery.lock().unwrap_or_else(PoisonError::into_inner);
         let stopping = {
             let mut state = self.lock();
@@ -711,12 +701,6 @@ impl RemoteSession {
         let Some((discovery, _)) = report.serving() else {
             return Err(SshError::said(crate::said::SERVER_NOT_READY.said([("name", self.display.as_str())]), FailureClass::Transient).into());
         };
-        // The ssh listener, never the ordinary `rpc` one: what it accepts is what the core counts as an ssh client. A core without
-        // it is not attached to through the local listener. The ensure run only reports a core as current when it is this build
-        // (version, build and model mode), and every serving core of this build publishes the ssh listener beside the ordinary one,
-        // so this is a server that did not finish starting, not a state the user can only leave by cleaning up: connecting again
-        // runs the ensure again, which replaces or restarts what is there. (A server is saved only after a connect succeeded, so a
-        // first connection has no cleanup to offer either.)
         let Some(ssh_rpc_port) = discovery.ssh_rpc_port else {
             return Err(SshError::said(crate::said::SERVER_NOT_READY.said([("name", self.display.as_str())]), FailureClass::Transient).into());
         };

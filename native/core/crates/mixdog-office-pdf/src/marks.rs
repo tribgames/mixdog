@@ -1,12 +1,5 @@
 //! Where a mark lands (`pdf/pdf-marks.mjs`): the display to user space mapping on rotated pages and the text-measured
 //! target boxes that `highlight` and `add_link` draw on.
-//!
-//! `highlight` and `add_link` take a box in bottom-left points, or `find`, which measures every match on the selected
-//! pages of the document as it stands in this batch (earlier operations included) so the boxes land on the real text.
-//! Measuring means serializing the document; the measurement carries the bytes and the pages already measured, and
-//! because marks do not move text, consecutive marks share one measurement (the adapter drops it at any other
-//! operation). Saving here leaves the document as it is, so the batch continues on the same value: the reload Node did
-//! after pdf-lib cached what it serialized has nothing to repair.
 
 use std::collections::HashMap;
 
@@ -19,9 +12,9 @@ use serde_json::{Map, Value};
 use crate::analysis::layout::{LayoutOptions, PageLayout, PdfLayout, extract_pdf_text_layout};
 use crate::analysis::round2;
 use crate::document::{AnalysisError, PdfSource};
-use crate::edit_document::{js_string, selected_edit_pages};
+use crate::edit_document::{SelectedPage, js_string, selected_edit_pages};
 use crate::limits::MAX_PDF_ANALYSIS_PAGES;
-use crate::search::{SearchOptions, find_pdf_text};
+use crate::search::{SearchMatch, SearchOptions, find_pdf_text};
 
 /// A mark's target in user space: the 0-based page, the box in bottom-left points, and the text it measured (a match;
 /// a box given by number has none).
@@ -67,38 +60,46 @@ pub fn display_to_user(transform: &[f64; 6], x: f64, top: f64, width: f64, heigh
     (low_x, low_y, high_x - low_x, high_y - low_y)
 }
 
+/// Why a mark has no target: its text is nowhere on the selected pages, or the request or the measuring failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TargetError {
+    NoText(AnalysisError),
+    Failed(AnalysisError),
+}
+
+impl From<AnalysisError> for TargetError {
+    fn from(error: AnalysisError) -> Self {
+        TargetError::Failed(error)
+    }
+}
+
+impl From<TargetError> for AnalysisError {
+    fn from(error: TargetError) -> Self {
+        match error {
+            TargetError::NoText(error) | TargetError::Failed(error) => error,
+        }
+    }
+}
+
 /// `targetBoxes(document, operation, measure)`: the boxes a mark draws on, and the measurement to hand to the next one.
 pub fn target_boxes<P: ReadProof>(
     proof: &P,
     document: &PdfDocument,
     operation: &Value,
     measure: Option<Measure>,
-) -> Result<(Vec<MarkBox>, Option<Measure>), AnalysisError> {
+) -> Result<(Vec<MarkBox>, Option<Measure>), TargetError> {
     let op = js_string(operation.get("op"));
     let find = operation.get("find").filter(|value| !value.is_null()).map(value_to_string).unwrap_or_default();
     let find = js_trim(&find).to_owned();
     if find.is_empty() {
-        let [x, y, width, height] = ["x", "y", "width", "height"].map(|key| to_number_of(operation.get(key)));
-        let named = operation.get("page").is_some_and(truthy);
-        if !named || [x, y, width, height].iter().any(|value| !value.is_finite()) || width <= 0.0 || height <= 0.0 {
-            return Err(AnalysisError::plain(format!("{op} needs find, or page with x, y, width, height in points")));
-        }
-        let page = selected_edit_pages(document, &serde_json::json!({ "page": operation["page"] }))?[0];
-        return Ok((vec![MarkBox { index: page.index, x, y, width, height, text: None }], measure));
+        return Ok((vec![numbered_box(document, operation, &op)?], measure));
     }
     let selected = selected_edit_pages(document, operation)?;
     let mut next = match measure {
         Some(held) => held,
         None => Measure { bytes: document.save(SaveOptions::default()), pages: HashMap::new() },
     };
-    let missing: Vec<usize> = selected.iter().map(|page| page.index + 1).filter(|page| !next.pages.contains_key(page)).collect();
-    for chunk in missing.chunks(MAX_PDF_ANALYSIS_PAGES) {
-        let options = LayoutOptions { pages: Some(chunk.iter().map(|page| *page as f64).collect()), max_items: 500_000, shapes: false, cancel: None };
-        let layout = extract_pdf_text_layout(proof, PdfSource::Bytes(&next.bytes), &options)?;
-        for page in layout.pages {
-            next.pages.insert(page.page, page);
-        }
-    }
+    measure_pages(proof, &mut next, &selected)?;
     let measured: Vec<PageLayout> = selected.iter().filter_map(|page| next.pages.get(&(page.index + 1)).cloned()).collect();
     let layout = PdfLayout { page_count: document.page_count() as i64, pages: measured, truncated: false };
     let options = SearchOptions {
@@ -115,14 +116,43 @@ pub fn target_boxes<P: ReadProof>(
             let numbers: Vec<String> = selected.iter().map(|page| (page.index + 1).to_string()).collect();
             format!("{noun} {}", numbers.join(", "))
         };
-        return Err(AnalysisError::plain(format!(
+        return Err(TargetError::NoText(AnalysisError::plain(format!(
             "{op} found no text matching \"{find}\" in {scope}; check the snapshot text or pass page, x, y, width, height"
-        )));
+        ))));
     }
-    // A phrase that wraps comes back as one rect per line, and each is marked on its own; `first` selects a match, so
-    // its lines stay together.
+    let first_only = operation.get("first") == Some(&Value::Bool(true));
+    Ok((match_boxes(&layout, &found, first_only), Some(next)))
+}
+
+/// The box a mark was given by number: a page with `x`, `y`, `width` and `height` in points.
+fn numbered_box(document: &PdfDocument, operation: &Value, op: &str) -> Result<MarkBox, AnalysisError> {
+    let [x, y, width, height] = ["x", "y", "width", "height"].map(|key| to_number_of(operation.get(key)));
+    let named = operation.get("page").is_some_and(truthy);
+    if !named || [x, y, width, height].iter().any(|value| !value.is_finite()) || width <= 0.0 || height <= 0.0 {
+        return Err(AnalysisError::plain(format!("{op} needs find, or page with x, y, width, height in points")));
+    }
+    let page = selected_edit_pages(document, &serde_json::json!({ "page": operation["page"] }))?[0];
+    Ok(MarkBox { index: page.index, x, y, width, height, text: None })
+}
+
+/// Reads the layout of the selected pages that the measurement does not hold yet.
+fn measure_pages<P: ReadProof>(proof: &P, measure: &mut Measure, selected: &[SelectedPage]) -> Result<(), AnalysisError> {
+    let missing: Vec<usize> = selected.iter().map(|page| page.index + 1).filter(|page| !measure.pages.contains_key(page)).collect();
+    for chunk in missing.chunks(MAX_PDF_ANALYSIS_PAGES) {
+        let options = LayoutOptions { pages: Some(chunk.iter().map(|page| *page as f64).collect()), max_items: 500_000, shapes: false, cancel: None };
+        let layout = extract_pdf_text_layout(proof, PdfSource::Bytes(&measure.bytes), &options)?;
+        for page in layout.pages {
+            measure.pages.insert(page.page, page);
+        }
+    }
+    Ok(())
+}
+
+/// A phrase that wraps comes back as one rect per line, and each is marked on its own; `first` selects a match, so its
+/// lines stay together.
+fn match_boxes(layout: &PdfLayout, found: &[SearchMatch], first_only: bool) -> Vec<MarkBox> {
     let mut all: Vec<Vec<MarkBox>> = Vec::new();
-    for hit in &found {
+    for hit in found {
         let Some(page) = layout.pages.iter().find(|entry| entry.page == hit.page) else {
             continue;
         };
@@ -130,8 +160,6 @@ pub fn target_boxes<P: ReadProof>(
             Some(rects) if !rects.is_empty() => rects.clone(),
             _ => vec![hit.rect],
         };
-        // The layout is measured on the page as displayed (rotation and crop box applied); inverting the page's
-        // transform puts the box back into user space.
         all.push(
             rects
                 .iter()
@@ -142,9 +170,8 @@ pub fn target_boxes<P: ReadProof>(
                 .collect(),
         );
     }
-    let take = if operation.get("first") == Some(&Value::Bool(true)) { 1 } else { all.len() };
-    let boxes = all.into_iter().take(take).flatten().collect();
-    Ok((boxes, Some(next)))
+    let take = if first_only { 1 } else { all.len() };
+    all.into_iter().take(take).flatten().collect()
 }
 
 /// `reportBoxes(boxes)`: the first few boxes go back in bottom-left points so a caller can check a mark against the
@@ -209,11 +236,12 @@ mod tests {
             json!({ "op": "highlight", "page": 1, "x": 5, "y": 6, "width": 0, "height": 8 }),
             json!({ "op": "highlight", "page": 1, "x": "a", "y": 6, "width": 7, "height": 8 }),
         ] {
-            let error = target_boxes(&proof, &document, &operation, None).expect_err("refused");
+            let error = AnalysisError::from(target_boxes(&proof, &document, &operation, None).expect_err("refused"));
             assert_eq!(error.message, "highlight needs find, or page with x, y, width, height in points");
         }
-        let error =
-            target_boxes(&proof, &document, &json!({ "op": "add_link", "page": 4, "x": 5, "y": 6, "width": 7, "height": 8 }), None).expect_err("out of range");
+        let error = AnalysisError::from(
+            target_boxes(&proof, &document, &json!({ "op": "add_link", "page": 4, "x": 5, "y": 6, "width": 7, "height": 8 }), None).expect_err("out of range"),
+        );
         assert_eq!(error.message, "PDF page out of range: 4");
     }
 

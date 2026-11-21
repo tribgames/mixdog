@@ -137,6 +137,131 @@ fn utf16_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     a.encode_utf16().cmp(b.encode_utf16())
 }
 
+/// One `(unit key, before, after)` per baseline: a renamed file pairs with the path it came from
+/// when that one is gone, every other entry stands alone.
+fn pair_renames<'a>(loaded: &Loaded, entries: &IndexMap<String, &'a Entry>, current: &IndexMap<String, CurrentFile>) -> Vec<(String, &'a Entry, &'a Entry)> {
+    let mut paired: IndexSet<String> = IndexSet::new();
+    let mut units: Vec<(String, &'a Entry, &'a Entry)> = Vec::new();
+    for (destination_key, origin_key) in &loaded.renames {
+        let (Some(&destination), Some(&origin)) = (entries.get(destination_key), entries.get(origin_key)) else { continue };
+        if paired.contains(destination_key) || paired.contains(origin_key) {
+            continue;
+        }
+        if destination.state != "absent" || origin.state == "absent" {
+            continue;
+        }
+        if matches!(current[destination_key], CurrentFile::Absent) || !matches!(current[origin_key], CurrentFile::Absent) {
+            continue;
+        }
+        paired.insert(destination_key.clone());
+        paired.insert(origin_key.clone());
+        units.push((format!("{origin_key}\0{destination_key}"), origin, destination));
+    }
+    for &entry in entries.values() {
+        if !paired.contains(&entry.key) {
+            units.push((entry.key.clone(), entry, entry));
+        }
+    }
+    units
+}
+
+struct LegacyGroup {
+    key: String,
+    abs: String,
+    root: String,
+    file: Obj,
+    first: Obj,
+    turns: u32,
+    old_abs: Option<String>,
+    old_root: Option<String>,
+}
+
+/// The retained records' files no baseline lists, one group per path across turns, plus the keys
+/// of listed paths a record older than `since` touched.
+fn group_legacy_files(
+    records: &[SharedRecord],
+    kinds: &[&str],
+    listed: &IndexSet<String>,
+    covered: &(dyn Fn(&str) -> bool + Sync),
+    since: f64,
+) -> (IndexMap<String, LegacyGroup>, IndexSet<String>) {
+    let mut groups: IndexMap<String, LegacyGroup> = IndexMap::new();
+    let mut late: IndexSet<String> = IndexSet::new();
+    for record in records {
+        let root = clean(obj_str(record, "root")).to_owned();
+        let mut entries: Vec<Obj> = Vec::new();
+        if kinds.contains(&obj_str(record, "kind")) {
+            entries.extend(record.get("files").and_then(Value::as_array).into_iter().flatten().filter_map(|v| v.as_object().cloned()));
+        }
+        entries.extend(record.get("outside").and_then(Value::as_array).into_iter().flatten().filter_map(|v| v.as_object().cloned()));
+        for file in entries {
+            if obj_str(&file, "path").is_empty() || obj_str(&file, "state") == "reverted" {
+                continue;
+            }
+            let abs = absolute_path(&root, obj_str(&file, "path"));
+            let key = change_path_key(&abs);
+            let old_abs = (!obj_str(&file, "oldPath").is_empty()).then(|| absolute_path(&root, obj_str(&file, "oldPath")));
+            if covered(&abs) {
+                continue;
+            }
+            if listed.contains(&key) || old_abs.as_ref().is_some_and(|o| listed.contains(&change_path_key(o))) {
+                let created = mixdog_js::to_number_of(record.get("createdAt"));
+                if !matches!(created.partial_cmp(&since), Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)) {
+                    late.insert(key);
+                }
+                continue;
+            }
+            let prior_key =
+                if groups.contains_key(&key) { Some(key.clone()) } else { old_abs.as_ref().map(|o| change_path_key(o)).filter(|k| groups.contains_key(k)) };
+            let prior = prior_key.and_then(|k| groups.shift_remove(&k));
+            let (origin_abs, origin_root) = match (&prior, &old_abs) {
+                (Some(p), _) => (p.old_abs.clone(), p.old_root.clone()),
+                (None, Some(o)) => (Some(o.clone()), Some(root.clone())),
+                _ => (None, None),
+            };
+            groups.insert(
+                key.clone(),
+                LegacyGroup {
+                    key,
+                    abs,
+                    root: root.clone(),
+                    first: prior.as_ref().map_or_else(|| file.clone(), |p| p.first.clone()),
+                    turns: prior.as_ref().map_or(0, |p| p.turns) + 1,
+                    file,
+                    old_abs: origin_abs,
+                    old_root: origin_root,
+                },
+            );
+        }
+    }
+    (groups, late)
+}
+
+/// A single-turn legacy record file as the review measures it.
+fn legacy_change(file: &Obj, measured: &Obj) -> Change {
+    let record_patch = patch_of(measured);
+    let additions = mixdog_js::to_number_of(measured.get("additions"));
+    let deletions = mixdog_js::to_number_of(measured.get("deletions"));
+    let (additions, deletions) = (if additions.is_nan() { 0.0 } else { additions } as u64, if deletions.is_nan() { 0.0 } else { deletions } as u64);
+    let binary = measured.get("binary").is_some_and(|b| b != &Value::Bool(false) && b != &Value::Null);
+    let unmeasured = record_patch.is_empty() && additions + deletions == 0 && !binary;
+    let reason = clean(obj_str(file, "reason"));
+    Change {
+        status: obj_str(file, "status").to_owned(),
+        additions,
+        deletions,
+        binary,
+        record_name: slash_path(obj_str(file, "path")),
+        partial: true,
+        baseline: Some("missing".into()),
+        unmeasured,
+        reason: unmeasured.then(|| if reason.is_empty() { baseline_reason("missing").to_owned() } else { reason.to_owned() }),
+        patch_omitted: record_patch.is_empty() && file.get("patchOmitted") == Some(&Value::Bool(true)),
+        record_patch,
+        ..Change::default()
+    }
+}
+
 /// A unit the review names, measured or not.
 struct Unit {
     key: String,
@@ -246,29 +371,7 @@ impl Inner {
         for entry in entries.values() {
             current.insert(entry.key.clone(), self.current_of(&entry.root, &entry.path).await);
         }
-        let mut paired: IndexSet<String> = IndexSet::new();
-        // (before, after) per unit.
-        let mut units: Vec<(String, &Entry, &Entry)> = Vec::new();
-        for (destination_key, origin_key) in &loaded.renames {
-            let (Some(destination), Some(origin)) = (entries.get(destination_key), entries.get(origin_key)) else { continue };
-            if paired.contains(destination_key) || paired.contains(origin_key) {
-                continue;
-            }
-            if destination.state != "absent" || origin.state == "absent" {
-                continue;
-            }
-            if matches!(current[destination_key], CurrentFile::Absent) || !matches!(current[origin_key], CurrentFile::Absent) {
-                continue;
-            }
-            paired.insert(destination_key.clone());
-            paired.insert(origin_key.clone());
-            units.push((format!("{origin_key}\0{destination_key}"), origin, destination));
-        }
-        for entry in entries.values() {
-            if !paired.contains(&entry.key) {
-                units.push((entry.key.clone(), entry, entry));
-            }
-        }
+        let units = pair_renames(loaded, &entries, &current);
         let mut out = Vec::new();
         for (unit_key, before, after) in units {
             let renamed = before.key != after.key;
@@ -351,65 +454,7 @@ impl Inner {
         since: f64,
         budget: &mut LineDiffBudget,
     ) -> (Vec<Unit>, IndexSet<String>) {
-        struct Group {
-            key: String,
-            abs: String,
-            root: String,
-            file: Obj,
-            first: Obj,
-            turns: u32,
-            old_abs: Option<String>,
-            old_root: Option<String>,
-        }
-        let mut groups: IndexMap<String, Group> = IndexMap::new();
-        let mut late: IndexSet<String> = IndexSet::new();
-        for record in records {
-            let root = clean(obj_str(record, "root")).to_owned();
-            let mut entries: Vec<Obj> = Vec::new();
-            if kinds.contains(&obj_str(record, "kind")) {
-                entries.extend(record.get("files").and_then(Value::as_array).into_iter().flatten().filter_map(|v| v.as_object().cloned()));
-            }
-            entries.extend(record.get("outside").and_then(Value::as_array).into_iter().flatten().filter_map(|v| v.as_object().cloned()));
-            for file in entries {
-                if obj_str(&file, "path").is_empty() || obj_str(&file, "state") == "reverted" {
-                    continue;
-                }
-                let abs = absolute_path(&root, obj_str(&file, "path"));
-                let key = change_path_key(&abs);
-                let old_abs = (!obj_str(&file, "oldPath").is_empty()).then(|| absolute_path(&root, obj_str(&file, "oldPath")));
-                if covered(&abs) {
-                    continue;
-                }
-                if listed.contains(&key) || old_abs.as_ref().is_some_and(|o| listed.contains(&change_path_key(o))) {
-                    let created = mixdog_js::to_number_of(record.get("createdAt"));
-                    if !matches!(created.partial_cmp(&since), Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)) {
-                        late.insert(key);
-                    }
-                    continue;
-                }
-                let prior_key =
-                    if groups.contains_key(&key) { Some(key.clone()) } else { old_abs.as_ref().map(|o| change_path_key(o)).filter(|k| groups.contains_key(k)) };
-                let prior = prior_key.and_then(|k| groups.shift_remove(&k));
-                let (origin_abs, origin_root) = match (&prior, &old_abs) {
-                    (Some(p), _) => (p.old_abs.clone(), p.old_root.clone()),
-                    (None, Some(o)) => (Some(o.clone()), Some(root.clone())),
-                    _ => (None, None),
-                };
-                groups.insert(
-                    key.clone(),
-                    Group {
-                        key,
-                        abs,
-                        root: root.clone(),
-                        first: prior.as_ref().map_or_else(|| file.clone(), |p| p.first.clone()),
-                        turns: prior.as_ref().map_or(0, |p| p.turns) + 1,
-                        file,
-                        old_abs: origin_abs,
-                        old_root: origin_root,
-                    },
-                );
-            }
-        }
+        let (groups, late) = group_legacy_files(records, kinds, listed, covered, since);
         let mut changes = Vec::new();
         for group in groups.into_values() {
             let (file, first) = (&group.file, &group.first);
@@ -434,28 +479,7 @@ impl Inner {
                 continue;
             }
             let measured = self.measure_legacy_change_file(file.clone(), &group.root, budget).await;
-            let record_patch = patch_of(&measured);
-            let additions = mixdog_js::to_number_of(measured.get("additions"));
-            let deletions = mixdog_js::to_number_of(measured.get("deletions"));
-            let (additions, deletions) = (if additions.is_nan() { 0.0 } else { additions } as u64, if deletions.is_nan() { 0.0 } else { deletions } as u64);
-            let binary = measured.get("binary").is_some_and(|b| b != &Value::Bool(false) && b != &Value::Null);
-            let counts = additions + deletions;
-            let unmeasured = record_patch.is_empty() && counts == 0 && !binary;
-            let reason = clean(obj_str(file, "reason"));
-            unit.change = Some(Change {
-                status: obj_str(file, "status").to_owned(),
-                additions,
-                deletions,
-                binary,
-                record_patch: record_patch.clone(),
-                record_name: slash_path(obj_str(file, "path")),
-                partial: true,
-                baseline: Some("missing".into()),
-                unmeasured,
-                reason: unmeasured.then(|| if reason.is_empty() { baseline_reason("missing").to_owned() } else { reason.to_owned() }),
-                patch_omitted: record_patch.is_empty() && file.get("patchOmitted") == Some(&Value::Bool(true)),
-                ..Change::default()
-            });
+            unit.change = Some(legacy_change(file, &measured));
             changes.push(unit);
         }
         (changes, late)
@@ -549,111 +573,12 @@ impl Inner {
             Vec::new()
         };
         let base_patch = if git_backed { base.get("patch").and_then(Value::as_str).unwrap_or("").to_owned() } else { String::new() };
-        // A relative name shared by different roots (or with a Git file) is shown absolute, so
-        // each file stays distinct.
-        let name_of = |abs: &str, root: &str| {
-            if !root.is_empty() && inside_directory(root, abs) { slash_path(&nodepath::relative_host(root, abs)) } else { slash_path(abs) }
-        };
-        let mut owners: IndexMap<String, IndexSet<String>> = IndexMap::new();
-        let mut claim = |name: &str, abs: &str| {
-            if is_outside_path(name) {
-                return;
-            }
-            owners.entry(change_path_key(name)).or_default().insert(change_path_key(abs));
-        };
-        for file in &base_files {
-            let path = obj_str(file, "path");
-            if !path.is_empty() {
-                claim(path, &nodepath::resolve_host(&[&base_root, path]));
-            }
-        }
-        for unit in changes.iter().chain(named_only.iter()) {
-            claim(&name_of(&unit.abs, &unit.root), &unit.abs);
-            if let (Some(old_abs), Some(old_root)) = (&unit.old_abs, &unit.old_root) {
-                claim(&name_of(old_abs, old_root), old_abs);
-            }
-        }
-        let show = |abs: &str, root: &str| {
-            let name = name_of(abs, root);
-            if is_outside_path(&name) || owners.get(&change_path_key(&name)).map_or(0, IndexSet::len) <= 1 { name } else { slash_path(abs) }
-        };
-        let mut rows: Vec<(Obj, String)> = Vec::new();
-        for unit in &changes {
-            let Some(change) = &unit.change else { continue };
-            let path = show(&unit.abs, &unit.root);
-            let old_name = match (&unit.old_abs, &unit.old_root) {
-                (Some(a), Some(r)) => show(a, r),
-                _ => path.clone(),
-            };
-            let mut patch = String::new();
-            if !change.text.is_empty() {
-                patch = name_measured_patch(&change.text, &old_name, &path);
-            } else if !change.record_patch.is_empty() && change.record_name == path {
-                patch = change.record_patch.clone();
-            }
-            let mut row = Obj::new();
-            row.insert("path".into(), path.clone().into());
-            row.insert("id".into(), slash_path(&unit.abs).into());
-            row.insert("outside".into(), Value::Bool(unit.root.is_empty() || !inside_directory(&unit.root, &unit.abs)));
-            if old_name != path {
-                row.insert("oldPath".into(), old_name.into());
-            }
-            row.insert("status".into(), change.status.clone().into());
-            row.insert("additions".into(), Value::from(change.additions));
-            row.insert("deletions".into(), Value::from(change.deletions));
-            if change.binary {
-                row.insert("binary".into(), Value::Bool(true));
-            }
-            if let Some(reason) = &change.reason {
-                row.insert("reason".into(), reason.clone().into());
-            }
-            if let Some(baseline) = &change.baseline {
-                row.insert("baseline".into(), baseline.clone().into());
-            }
-            if change.unmeasured {
-                row.insert("unmeasured".into(), Value::Bool(true));
-            }
-            // Its patch is past what can be kept or read: listed too large.
-            if change.patch_omitted && patch.is_empty() {
-                row.insert("patchOmitted".into(), Value::Bool(true));
-                row.insert("reason".into(), PATCH_TOO_LARGE.into());
-            }
-            rows.push((row, patch));
-        }
+        let mut rows = change_rows(&base_files, &base_root, &changes, &named_only);
         rows.sort_by(|a, b| utf16_cmp(obj_str(&a.0, "path"), obj_str(&b.0, "path")));
         if !clean(target).is_empty() {
-            let key = change_path_key(target);
-            let row = rows.iter().find(|(r, _)| change_path_key(obj_str(r, "id")) == key || change_path_key(obj_str(r, "path")) == key);
-            if let Some((row, patch)) = row
-                && row.get("patchOmitted") == Some(&Value::Bool(true))
-                && patch.is_empty()
-            {
-                let mut reply = file_patch_reply(obj_str(row, "path"), "", REVIEW_FILE_PATCH_SHOW_MAX_BYTES);
-                for (k, v) in patch_omitted_file(Obj::new()) {
-                    reply.insert(k, v);
-                }
-                return reply;
-            }
-            return file_patch_reply(
-                &row.map_or_else(|| slash_path(target), |(r, _)| obj_str(r, "path").to_owned()),
-                row.map_or("", |(_, p)| p.as_str()),
-                REVIEW_FILE_PATCH_SHOW_MAX_BYTES,
-            );
+            return target_patch_reply(&rows, target);
         }
-        // The merged response stays bounded: a file past the per-file cap or the total left is
-        // listed with its counts but without its diff.
-        let mut budget = ReviewPatchBudget::new(REVIEW_PATCH_MAX_BYTES as i64 - base_patch.len() as i64);
-        let mut files: Vec<Obj> = Vec::new();
-        let mut patches: Vec<String> = Vec::new();
-        for (file, patch) in rows {
-            let mut file = file;
-            if !patch.is_empty() && budget.admit(patch.len()) {
-                patches.push(patch);
-            } else if !patch.is_empty() {
-                file = patch_omitted_file(file);
-            }
-            files.push(file);
-        }
+        let (files, patches) = admit_patches(rows, REVIEW_PATCH_MAX_BYTES as i64 - base_patch.len() as i64);
         // A baseline first seen after an older recorded edit was not the session's first state:
         // even with no row it cannot vouch for the set. Baselines the disk refused (`unsaved`)
         // are known only to this process.
@@ -702,6 +627,124 @@ impl Inner {
         }
         kept
     }
+}
+
+fn target_patch_reply(rows: &[(Obj, String)], target: &str) -> Obj {
+    let key = change_path_key(target);
+    let row = rows.iter().find(|(r, _)| change_path_key(obj_str(r, "id")) == key || change_path_key(obj_str(r, "path")) == key);
+    if let Some((row, patch)) = row
+        && row.get("patchOmitted") == Some(&Value::Bool(true))
+        && patch.is_empty()
+    {
+        let mut reply = file_patch_reply(obj_str(row, "path"), "", REVIEW_FILE_PATCH_SHOW_MAX_BYTES);
+        for (k, v) in patch_omitted_file(Obj::new()) {
+            reply.insert(k, v);
+        }
+        return reply;
+    }
+    file_patch_reply(
+        &row.map_or_else(|| slash_path(target), |(r, _)| obj_str(r, "path").to_owned()),
+        row.map_or("", |(_, p)| p.as_str()),
+        REVIEW_FILE_PATCH_SHOW_MAX_BYTES,
+    )
+}
+
+/// The rows within `limit` patch bytes: a file past the per-file cap or the total left is listed
+/// with its counts but without its diff.
+fn admit_patches(rows: Vec<(Obj, String)>, limit: i64) -> (Vec<Obj>, Vec<String>) {
+    let mut budget = ReviewPatchBudget::new(limit);
+    let mut files: Vec<Obj> = Vec::new();
+    let mut patches: Vec<String> = Vec::new();
+    for (file, patch) in rows {
+        let mut file = file;
+        if !patch.is_empty() && budget.admit(patch.len()) {
+            patches.push(patch);
+        } else if !patch.is_empty() {
+            file = patch_omitted_file(file);
+        }
+        files.push(file);
+    }
+    (files, patches)
+}
+
+/// One row and patch text per measured change, each named by its root-relative path unless another file would
+/// share that name.
+fn change_rows(base_files: &[Obj], base_root: &str, changes: &[Unit], named_only: &[Unit]) -> Vec<(Obj, String)> {
+    // A relative name shared by different roots (or with a Git file) is shown absolute, so
+    // each file stays distinct.
+    let name_of = |abs: &str, root: &str| {
+        if !root.is_empty() && inside_directory(root, abs) { slash_path(&nodepath::relative_host(root, abs)) } else { slash_path(abs) }
+    };
+    let mut owners: IndexMap<String, IndexSet<String>> = IndexMap::new();
+    let mut claim = |name: &str, abs: &str| {
+        if is_outside_path(name) {
+            return;
+        }
+        owners.entry(change_path_key(name)).or_default().insert(change_path_key(abs));
+    };
+    for file in base_files {
+        let path = obj_str(file, "path");
+        if !path.is_empty() {
+            claim(path, &nodepath::resolve_host(&[base_root, path]));
+        }
+    }
+    for unit in changes.iter().chain(named_only.iter()) {
+        claim(&name_of(&unit.abs, &unit.root), &unit.abs);
+        if let (Some(old_abs), Some(old_root)) = (&unit.old_abs, &unit.old_root) {
+            claim(&name_of(old_abs, old_root), old_abs);
+        }
+    }
+    let show = |abs: &str, root: &str| {
+        let name = name_of(abs, root);
+        if is_outside_path(&name) || owners.get(&change_path_key(&name)).map_or(0, IndexSet::len) <= 1 { name } else { slash_path(abs) }
+    };
+    let mut rows: Vec<(Obj, String)> = Vec::new();
+    for unit in changes {
+        let Some(change) = &unit.change else { continue };
+        let path = show(&unit.abs, &unit.root);
+        let old_name = match (&unit.old_abs, &unit.old_root) {
+            (Some(a), Some(r)) => show(a, r),
+            _ => path.clone(),
+        };
+        let mut patch = String::new();
+        if !change.text.is_empty() {
+            patch = name_measured_patch(&change.text, &old_name, &path);
+        } else if !change.record_patch.is_empty() && change.record_name == path {
+            patch = change.record_patch.clone();
+        }
+        rows.push((change_row(unit, change, &path, old_name, patch.is_empty()), patch));
+    }
+    rows
+}
+
+fn change_row(unit: &Unit, change: &Change, path: &str, old_name: String, patch_empty: bool) -> Obj {
+    let mut row = Obj::new();
+    row.insert("path".into(), path.into());
+    row.insert("id".into(), slash_path(&unit.abs).into());
+    row.insert("outside".into(), Value::Bool(unit.root.is_empty() || !inside_directory(&unit.root, &unit.abs)));
+    if old_name != path {
+        row.insert("oldPath".into(), old_name.into());
+    }
+    row.insert("status".into(), change.status.clone().into());
+    row.insert("additions".into(), Value::from(change.additions));
+    row.insert("deletions".into(), Value::from(change.deletions));
+    if change.binary {
+        row.insert("binary".into(), Value::Bool(true));
+    }
+    if let Some(reason) = &change.reason {
+        row.insert("reason".into(), reason.clone().into());
+    }
+    if let Some(baseline) = &change.baseline {
+        row.insert("baseline".into(), baseline.clone().into());
+    }
+    if change.unmeasured {
+        row.insert("unmeasured".into(), Value::Bool(true));
+    }
+    if change.patch_omitted && patch_empty {
+        row.insert("patchOmitted".into(), Value::Bool(true));
+        row.insert("reason".into(), PATCH_TOO_LARGE.into());
+    }
+    row
 }
 
 /// A list measurement as a reply keeps it: text past the per-file inline cap is dropped at once,

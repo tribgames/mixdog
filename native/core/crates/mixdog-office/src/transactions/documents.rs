@@ -154,55 +154,61 @@ fn is_set(number: f64) -> bool {
 
 /// `operationDocumentPaths(format, operation, result)`: the document paths one operation touches.
 pub fn operation_document_paths(format: &str, operation: &Value, result: &Value) -> Vec<String> {
-    let number = |name: &str| field(operation, name).map(number_text).unwrap_or_default();
     match format {
-        "docx" => {
-            if field(operation, "paragraph").is_some() {
-                return vec![format!("/body/p[{}]", number("paragraph"))];
-            }
-            if field(operation, "table").is_some() && field(operation, "row").is_some() && field(operation, "col").is_some() {
-                return vec![format!("/body/tbl[{}]/row[{}]/cell[{}]", number("table"), number("row"), number("col"))];
-            }
-            if field(operation, "table").is_some() && field(operation, "row").is_some() {
-                return vec![format!("/body/tbl[{}]/row[{}]", number("table"), number("row"))];
-            }
-            if field(operation, "table").is_some() {
-                return vec![format!("/body/tbl[{}]", number("table"))];
-            }
-            if field(operation, "comment").is_some() {
-                return vec![format!("/body/comment[{}]", number("comment"))];
-            }
-            if field(operation, "revision").is_some() {
-                return vec![format!("/body/revision[{}]", number("revision"))];
-            }
-            vec!["/body".to_owned()]
-        }
+        "docx" => docx_paths(operation),
         "xlsx" => workbook_paths(operation, result),
         _ if is_tabular_format(format) => workbook_paths(operation, result),
-        "pptx" => {
-            let slide = first_number(operation.get("slide"), result.get("slide"));
-            let shape = operation.get("shape").map_or(f64::NAN, to_number);
-            if is_set(slide) && is_set(shape) {
-                return vec![format!("/slide[{}]/shape[{}]", number_to_string(slide), number_to_string(shape))];
-            }
-            if is_set(slide) {
-                return vec![format!("/slide[{}]", number_to_string(slide))];
-            }
-            vec!["/".to_owned()]
-        }
-        "pdf" => {
-            let pages: Vec<&Value> = match (operation.get("pages"), field(operation, "page")) {
-                (Some(Value::Array(pages)), _) => pages.iter().collect(),
-                (_, Some(page)) => vec![page],
-                _ => Vec::new(),
-            };
-            if pages.is_empty() {
-                return vec!["/".to_owned()];
-            }
-            pages.into_iter().map(|page| format!("/page[{}]", number_text(page))).collect()
-        }
+        "pptx" => pptx_paths(operation, result),
+        "pdf" => pdf_paths(operation),
         _ => vec!["/".to_owned()],
     }
+}
+
+fn docx_paths(operation: &Value) -> Vec<String> {
+    let number = |name: &str| field(operation, name).map(number_text).unwrap_or_default();
+    if field(operation, "paragraph").is_some() {
+        return vec![format!("/body/p[{}]", number("paragraph"))];
+    }
+    if field(operation, "table").is_some() && field(operation, "row").is_some() && field(operation, "col").is_some() {
+        return vec![format!("/body/tbl[{}]/row[{}]/cell[{}]", number("table"), number("row"), number("col"))];
+    }
+    if field(operation, "table").is_some() && field(operation, "row").is_some() {
+        return vec![format!("/body/tbl[{}]/row[{}]", number("table"), number("row"))];
+    }
+    if field(operation, "table").is_some() {
+        return vec![format!("/body/tbl[{}]", number("table"))];
+    }
+    if field(operation, "comment").is_some() {
+        return vec![format!("/body/comment[{}]", number("comment"))];
+    }
+    if field(operation, "revision").is_some() {
+        return vec![format!("/body/revision[{}]", number("revision"))];
+    }
+    vec!["/body".to_owned()]
+}
+
+fn pptx_paths(operation: &Value, result: &Value) -> Vec<String> {
+    let slide = first_number(operation.get("slide"), result.get("slide"));
+    let shape = operation.get("shape").map_or(f64::NAN, to_number);
+    if is_set(slide) && is_set(shape) {
+        return vec![format!("/slide[{}]/shape[{}]", number_to_string(slide), number_to_string(shape))];
+    }
+    if is_set(slide) {
+        return vec![format!("/slide[{}]", number_to_string(slide))];
+    }
+    vec!["/".to_owned()]
+}
+
+fn pdf_paths(operation: &Value) -> Vec<String> {
+    let pages: Vec<&Value> = match (operation.get("pages"), field(operation, "page")) {
+        (Some(Value::Array(pages)), _) => pages.iter().collect(),
+        (_, Some(page)) => vec![page],
+        _ => Vec::new(),
+    };
+    if pages.is_empty() {
+        return vec!["/".to_owned()];
+    }
+    pages.into_iter().map(|page| format!("/page[{}]", number_text(page))).collect()
 }
 
 /// The paths of a sheet operation (a workbook, a csv or a tsv).

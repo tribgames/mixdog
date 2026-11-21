@@ -1,16 +1,5 @@
-//! The provider setup picker and the first-run onboarding wizard (`app/provider-setup-picker.mjs`, `provider-usable.mjs`,
-//! `provider-setup/{provider-items, api-key-actions, oauth-actions}.mjs`, `onboarding-steps.mjs`,
-//! `onboarding/{step-data, models-step, role-model-picker, persist}.mjs`, `use-onboarding-start.mjs`).
-//!
-//! - [`format`]: the usable rule, the row labels, the status footer, the key-console address;
-//! - [`items`]: the rows of the main list;
-//! - [`panel`]: the panel the flows paint and what each row means;
-//! - [`setup`]: the provider list, the API-key and OAuth action panels, the sign-in flow, credential removal;
-//! - [`onboarding`]: the four-step wizard, its persistence and the first-run gate.
-//!
-//! The Node factories took the store, the surface and React setters as an injected bag and answered keys with closures stored
-//! on the panel. Here [`ProviderHost`] is the application's side, and the application answers a key by calling [`select`],
-//! [`cancel`], [`highlight`] or [`confirm`] with the panel's [`PanelOwner`]. Store calls are the host's synchronous
+//! [`ProviderHost`] is the application's side of the provider setup picker and the onboarding wizard: it answers a key by calling
+//! [`select`], [`cancel`], [`highlight`] or [`confirm`] with the panel's [`PanelOwner`]. Store calls are the host's synchronous
 //! `store_call`; the one wait that is not a call, a sign-in the user finishes in a browser, is a flow the host watches
 //! ([`ProviderHost::watch_oauth_flow`]) and answers with [`oauth_settled`].
 

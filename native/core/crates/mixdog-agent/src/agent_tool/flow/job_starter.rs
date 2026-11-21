@@ -50,6 +50,41 @@ fn non_empty(value: &Option<String>) -> Option<String> {
     value.as_deref().map(clean_str).filter(|s| !s.is_empty())
 }
 
+fn publish_status_after_tick(changed: Arc<dyn Fn() + Send + Sync>) {
+    let check_phase = mixdog_rt::time::check_phase();
+    drop(mixdog_rt::spawn("agent-status-changed", TaskClass::Work, async move {
+        check_phase.await;
+        changed()
+    }));
+}
+
+fn close_cancelled_session(sessions: Arc<dyn Sessions>, session: String) {
+    let mut closing = Box::pin(async move {
+        sessions.close_session(&session, "agent-task-cancel", CloseOptions { tombstone: false, owner_close: false }).await;
+    });
+    let mut cx = std::task::Context::from_waker(futures::task::noop_waker_ref());
+    if closing.as_mut().poll(&mut cx).is_pending() {
+        drop(mixdog_rt::spawn("agent-task-cancel", TaskClass::Work, closing));
+    }
+}
+
+fn cancel_hook(
+    token: Cancel,
+    sessions: Arc<dyn Sessions>,
+    started_session: Option<String>,
+    status_changed: Arc<dyn Fn() + Send + Sync>,
+    handle: Arc<OnceLock<Arc<JobHandle>>>,
+) -> Arc<dyn Fn() + Send + Sync> {
+    Arc::new(move || {
+        token.abort(JOB_CANCELLED);
+        let current = handle.get().and_then(|job| job.snapshot()).and_then(|s| s.meta.session_id).filter(|s| !s.is_empty());
+        if let Some(session) = current.or_else(|| started_session.clone()) {
+            close_cancelled_session(sessions.clone(), session);
+        }
+        publish_status_after_tick(status_changed.clone());
+    })
+}
+
 impl JobStarter {
     pub fn new(
         board: JobBoard,
@@ -83,36 +118,7 @@ impl JobStarter {
         let admission_cancel = Cancel::new();
         let session = meta.session_id.clone().filter(|s| !s.is_empty());
         let handle: Arc<OnceLock<Arc<JobHandle>>> = Arc::default();
-        // The session a cancel closes is the one the job holds when it is cancelled: a spawn gets its session while it
-        // runs (`mergeJobMeta`), so the one it started with is none (`task?.meta || jobMeta`, job-start.mjs).
-        let cancel: Arc<dyn Fn() + Send + Sync> = {
-            let (token, sessions, session, changed, handle) =
-                (admission_cancel.clone(), self.sessions.clone(), session.clone(), self.status_changed.clone(), handle.clone());
-            Arc::new(move || {
-                token.abort(JOB_CANCELLED);
-                let current = handle.get().and_then(|job| job.snapshot()).and_then(|s| s.meta.session_id).filter(|s| !s.is_empty());
-                let session = current.or_else(|| session.clone());
-                let (changed, sessions) = (changed.clone(), sessions.clone());
-                if let Some(session) = session {
-                    // `mgr.closeSession(...)` runs up to its first await on the spot; the rest of it goes on as its own task.
-                    let mut closing = Box::pin(async move {
-                        sessions.close_session(&session, "agent-task-cancel", CloseOptions { tombstone: false, owner_close: false }).await;
-                    });
-                    let mut cx = std::task::Context::from_waker(futures::task::noop_waker_ref());
-                    if closing.as_mut().poll(&mut cx).is_pending() {
-                        drop(mixdog_rt::spawn("agent-task-cancel", TaskClass::Work, closing));
-                    }
-                }
-                // `setImmediate(notifyStatusChange)`: the status goes out on the next turn of the loop, not after the close.
-                let check_phase = mixdog_rt::time::check_phase();
-                drop(mixdog_rt::spawn("agent-status-changed", TaskClass::Work, async move {
-                    check_phase.await;
-                    changed()
-                }));
-            })
-        };
-        // The job's work waits for its first status to go out: a caller sees the running card
-        // before any agent work begins.
+        let cancel = cancel_hook(admission_cancel.clone(), self.sessions.clone(), session.clone(), self.status_changed.clone(), handle.clone());
         let (published, announced) = tokio::sync::oneshot::channel::<()>();
         let id = {
             let (board, admission, status_changed, handle) = (self.board.clone(), self.admission.clone(), self.status_changed.clone(), handle.clone());
@@ -139,29 +145,17 @@ impl JobStarter {
                     async move {
                         let _ = announced.await;
                         let lease = admission.acquire(&label, owner_key.as_deref(), &admission_cancel).await?;
-                        // Yield before doing agent work, so a caller sees the `running` card first (`job-start.mjs:78`, one
-                        // `setImmediate`).
                         job.set_slot(lease.yielder());
                         mixdog_rt::time::immediate().await;
                         let outcome = if job.is_cancelled() { Ok(None) } else { run(job, notify_for_run).await };
                         lease.release().await;
-                        // The board stamps the terminal state in its next continuation; publish after it
-                        // (`job-start.mjs:85`, `setImmediate(notifyStatusChange)`).
-                        let check_phase = mixdog_rt::time::check_phase();
-                        drop(mixdog_rt::spawn("agent-status-changed", TaskClass::Work, async move {
-                            check_phase.await;
-                            status_changed()
-                        }));
+                        publish_status_after_tick(status_changed);
                         outcome.map(|value| value.map(|v| TaskResult::Json(v.value)))
                     }
                 },
             )?
         };
         let job = handle.get().cloned().ok_or_else(|| "agent job did not start".to_owned())?;
-        // Success, failure or cancellation: the report names what the agent's own todo list
-        // leaves undone. The owner never receives the list otherwise.
-        // A spawn gets its session while it runs (`mergeJobMeta`), so the session is read when the report is built:
-        // `task.meta?.sessionId || jobMeta?.sessionId`.
         let turns = self.turns.clone();
         self.board.set_report_appendix(
             &id,

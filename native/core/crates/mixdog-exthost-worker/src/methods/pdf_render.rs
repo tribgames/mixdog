@@ -1,9 +1,7 @@
 //! `pdf.render` (`pdfRender` of `src/ext-host/methods.mjs`): a PDF's pages as PNG images, over a file inside the approved paths.
 //!
-//! The rasteriser runs on the lanes of a process that boots them on the first call (a worker has no daemon to hand it tokens) and
-//! draws page numbers and sheet labels with the system fonts, scanned once. Nothing is written beside the PDF: each image's
-//! bytes travel as chunks in `images` order, and its entry carries `{bytes: n}` in place of `data`. This module also holds the
-//! lanes, the font registry and the error mapping `pdf.ocr` shares.
+//! Nothing is written beside the PDF: each image's bytes travel as chunks in `images` order, and its entry carries `{bytes: n}` in
+//! place of `data`.
 
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};

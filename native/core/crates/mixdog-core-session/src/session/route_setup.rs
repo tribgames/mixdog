@@ -369,19 +369,22 @@ mod tests {
         value.as_object().cloned().unwrap()
     }
 
-    /// `createSessionTargets` / `routeControl` over the sessions held here.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn sessions_held_here_and_the_configure_lane() {
-        let rig = Rig::new();
+    async fn held_setup(rig: &Rig) -> (SessionRouteSetup, Arc<Calls>) {
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
-        let header = |value: Value| obj(value);
-        directory.create_with_id(ThreadId::from("sess_home_scout"), header(json!({ "provider": "openai", "model": "gpt-a" })), json!({})).await.expect("home");
+        directory.create_with_id(ThreadId::from("sess_home_scout"), obj(json!({ "provider": "openai", "model": "gpt-a" })), json!({})).await.expect("home");
         directory
-            .create_with_id(ThreadId::from("sess_w1"), header(json!({ "owner": "agent", "agent": " reviewer ", "closed": true })), json!({}))
+            .create_with_id(ThreadId::from("sess_w1"), obj(json!({ "owner": "agent", "agent": " reviewer ", "closed": true })), json!({}))
             .await
             .expect("worker");
         let calls = Arc::new(Calls::default());
-        let setup = SessionRouteSetup::new(directory.clone(), Arc::new(NoBots), calls.clone());
+        (SessionRouteSetup::new(directory, Arc::new(NoBots), calls.clone()), calls)
+    }
+
+    /// `createSessionTargets` over the sessions held here.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn sessions_held_here_are_found_by_id_and_agent() {
+        let rig = Rig::new();
+        let (setup, _) = held_setup(&rig).await;
         let config = Obj::new();
 
         let home = setup.session("sess_home_scout", &config).await.unwrap().expect("held");
@@ -392,7 +395,13 @@ mod tests {
         let ids: Vec<String> = setup.agent_sessions("scout", &config).await.unwrap().into_iter().map(|s| s.id).collect();
         assert_eq!(ids, ["sess_home_scout"]);
         assert!(setup.caller_chain(&ThreadId::from("sess_home_scout"), &config).await.unwrap().is_none(), "no own agent, no chain");
+    }
 
+    /// `routeControl` over the configure lane.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn route_control_goes_through_the_configure_lane() {
+        let rig = Rig::new();
+        let (setup, calls) = held_setup(&rig).await;
         let caller = ThreadId::from("sess_lead");
         let route = obj(json!({ "provider": "anthropic", "model": "claude-x", "fast": null, "extra": 1 }));
         assert_eq!(setup.control(&caller, "sess_home_scout", "setRoute", Some(&route)).await.unwrap(), json!(true));
@@ -422,9 +431,6 @@ mod tests {
         );
     }
 
-    /// The facade's route getters read off the thread's route cell: a requested effort the model does not take is shown as the
-    /// one it does (`high`), with the model's own options and the context percent; a route never refreshed shows its effort as
-    /// asked and no options. The `model` status is printed from the same properties.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_route_facade_reads_the_route_cell_and_shows_the_effort_the_model_takes() {
         use mixdog_core_agents::setup::ModelStatus;
@@ -460,10 +466,6 @@ mod tests {
             assert_eq!((&printed["route"]["effort"], &printed["route"]["model"]), (&facade["effort"], &facade["model"]), "{name}");
         }
     }
-    /// What the held sessions say of their fallback chains to a caller outside them: a bot at home and an agent worker with a
-    /// chain or a hop are listed in the order they were held, with the chain from the settings or from the session, the place
-    /// they stand on and the next one; a closed session, one with no agent, a lead that never left its primary and a worker
-    /// with no chain and no hop are not.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn held_sessions_list_their_fallback_positions_in_the_order_held() {
         let failure = |provider: &str, model: &str, kind: &str, error: &str| json!({ "provider": provider, "model": model, "kind": kind, "error": error });
@@ -514,12 +516,6 @@ mod tests {
         ]);
         assert_eq!(Value::Array(rows), want);
     }
-    /// The `model` status over the held sessions, row by row: the Lead preset's chain on the route, the caller's own place (a Lead,
-    /// a bot or a worker; none for a caller with no agent, one not held, or none), the other Lead conversations' places, and the
-    /// agents' sessions beside it; each in the order the sessions were held (`loaded_handles` sorts by `loaded_seq`, the order
-    /// they were loaded). A chain comes from the settings (the Lead preset, an agent's own) or from the session; a Lead preset with
-    /// no chain, or none at all, gives the route no fallbacks and its sessions no "other Lead" rows; a bot's chain is its own
-    /// configured route's whatever the Lead preset is (`owner_configured_route`, `route_chain.rs:174`), so its place stays "settings".
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_model_status_table_lists_the_callers_place_and_the_others_by_the_rules() {
         use mixdog_core_agents::setup::ModelStatus;

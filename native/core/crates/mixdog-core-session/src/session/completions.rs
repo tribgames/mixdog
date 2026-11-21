@@ -112,6 +112,44 @@ pub fn input_row(entry: &Value) -> Value {
     json!({ "role": "user", "content": text(entry), "meta": meta })
 }
 
+fn consumed_execution_ids(entries: &[Value]) -> Vec<Value> {
+    entries
+        .iter()
+        .map(|entry| {
+            execution(entry)
+                .and_then(|execution| execution.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(|id| json!(id)))
+                .unwrap_or(Value::Null)
+        })
+        .collect()
+}
+
+/// Where each non-blank entry sits in the batch's joined text, in UTF-16 offsets (the unit a JavaScript client slices by), so a
+/// client shows one card per completion without cutting the text: a result may quote an envelope.
+fn completion_spans(entries: &[Value]) -> Vec<Value> {
+    let mut at = 0usize;
+    let mut delivered: Vec<Value> = Vec::new();
+    for entry in entries {
+        let own = text(entry);
+        if mixdog_js::js_trim(&own).is_empty() {
+            continue;
+        }
+        let end = at + mixdog_js::utf16_len(&own);
+        let execution = execution(entry);
+        let field = |key: &str| execution.as_ref().and_then(|e| e.get(key)).and_then(Value::as_str).filter(|v| !v.is_empty()).map(|v| json!(v));
+        let mut one = Map::new();
+        for (key, value) in [("executionId", field("id")), ("surface", field("surface")), ("status", field("status"))] {
+            if let Some(value) = value {
+                one.insert(key.into(), value);
+            }
+        }
+        one.insert("start".into(), json!(at));
+        one.insert("end".into(), json!(end));
+        delivered.push(Value::Object(one));
+        at = end + 1;
+    }
+    delivered
+}
+
 /// The input row of the one turn a batch of queued completions starts (`drain.mjs` `presentBatch`): the texts merged in queue order,
 /// the row's own execution the first one's. A batch of several also records every execution it delivers, `null` for an entry that
 /// names none (`consumedExecutionIds`, `completionWakeTranscriptMeta`), which the task reports read to account for consumed results.
@@ -119,10 +157,6 @@ pub fn batch_row(entries: &[Value]) -> Value {
     let mut row = input_row(&entries[0]);
     let merged: Vec<String> = entries.iter().map(text).filter(|text| !mixdog_js::js_trim(text).is_empty()).collect();
     row["content"] = Value::String(merged.join("\n"));
-    // The batch's transcript metadata is the first entry's (`completionWakeTranscriptMeta`, `tui/session/session-flow/drain.mjs:99`:
-    // `batch[0]?.transcriptMeta`, then `consumedExecutionIds`): so the turn that takes a batch of completions starts at the hop of the
-    // first one's job, whatever the others' (`stampTurnHop` reads `meta.transcript.hop`, `ask-turn-execute.mjs:171`).
-    // `persistedUserTranscriptMetadata` gives every persisted prompt a stable id first.
     let mut transcript = Map::new();
     transcript.insert("messageId".into(), json!(format!("msg_{}", uuid::Uuid::new_v4().simple())));
     if let Some(first) = entries[0].get("transcriptMeta").filter(|meta| meta.is_object()) {
@@ -134,40 +168,9 @@ pub fn batch_row(entries: &[Value]) -> Value {
     }
     // Always, one entry included (`{ ...meta, consumedExecutionIds }` for every task-notification batch): the turn's input row then
     // carries `meta.transcript`, which the turn's assistant rows take their message id, time and route from (`TurnStamp::of`).
-    let consumed: Vec<Value> = entries
-        .iter()
-        .map(|entry| {
-            execution(entry)
-                .and_then(|execution| execution.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(|id| json!(id)))
-                .unwrap_or(Value::Null)
-        })
-        .collect();
-    transcript.insert("consumedExecutionIds".into(), json!(consumed));
-    // A batch of several keeps its entries as data, each located in the joined text above (UTF-16 offsets, the unit a JavaScript
-    // client slices by), so a client shows one card per completion without cutting the text: a result may quote an envelope.
+    transcript.insert("consumedExecutionIds".into(), json!(consumed_execution_ids(entries)));
     if entries.len() > 1 {
-        let mut at = 0usize;
-        let mut delivered: Vec<Value> = Vec::new();
-        for entry in entries {
-            let own = text(entry);
-            if mixdog_js::js_trim(&own).is_empty() {
-                continue;
-            }
-            let end = at + mixdog_js::utf16_len(&own);
-            let execution = execution(entry);
-            let field = |key: &str| execution.as_ref().and_then(|e| e.get(key)).and_then(Value::as_str).filter(|v| !v.is_empty()).map(|v| json!(v));
-            let mut one = Map::new();
-            for (key, value) in [("executionId", field("id")), ("surface", field("surface")), ("status", field("status"))] {
-                if let Some(value) = value {
-                    one.insert(key.into(), value);
-                }
-            }
-            one.insert("start".into(), json!(at));
-            one.insert("end".into(), json!(end));
-            delivered.push(Value::Object(one));
-            at = end + 1;
-        }
-        transcript.insert("completions".into(), Value::Array(delivered));
+        transcript.insert("completions".into(), Value::Array(completion_spans(entries)));
     }
     // `userTurnMeta` (`ask-turn-prepare.mjs`) lists `transcript` before the prompt source and its execution.
     let mut meta = Map::new();

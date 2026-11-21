@@ -87,45 +87,10 @@ impl Page {
     /// been written by Node; `None` when it lacks the fields a result needs.
     pub(super) fn from_node(payload: &serde_json::Value) -> Option<Self> {
         let text = |key: &str| payload.get(key).and_then(serde_json::Value::as_str).map(str::to_string);
-        let failures = payload
-            .get("failures")?
-            .as_array()?
-            .iter()
-            .map(|item| {
-                Some(Failure {
-                    extractor: item.get("extractor")?.as_str()?.to_string(),
-                    error: item.get("error")?.as_str()?.to_string(),
-                    code: item.get("code").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
-                    status: item.get("status").and_then(serde_json::Value::as_u64).and_then(|n| u16::try_from(n).ok()),
-                })
-            })
-            .collect::<Option<Vec<_>>>()?;
-        let attempts = payload
-            .get("attempts")?
-            .as_array()?
-            .iter()
-            .map(|item| {
-                let code = item.get("code").and_then(serde_json::Value::as_str).map(str::to_string);
-                Some(Attempt {
-                    stage: item.get("stage")?.as_str()?.to_string(),
-                    ok: item.get("status")?.as_str()? == "success",
-                    elapsed_ms: u128::from(item.get("elapsedMs").and_then(serde_json::Value::as_u64).unwrap_or(0)),
-                    code,
-                })
-            })
-            .collect::<Option<Vec<_>>>()?;
+        let failures = failures_from_node(payload.get("failures")?.as_array()?)?;
+        let attempts = attempts_from_node(payload.get("attempts")?.as_array()?)?;
         let redirects = match payload.get("redirects") {
-            Some(serde_json::Value::Array(hops)) => Some(
-                hops.iter()
-                    .map(|hop| {
-                        Some(Redirect {
-                            url: hop.get("url")?.as_str()?.to_string(),
-                            status: hop.get("status").and_then(serde_json::Value::as_u64).and_then(|n| u16::try_from(n).ok()),
-                            location: hop.get("location")?.as_str()?.to_string(),
-                        })
-                    })
-                    .collect::<Option<Vec<_>>>()?,
-            ),
+            Some(serde_json::Value::Array(hops)) => Some(redirects_from_node(hops)?),
             _ => None,
         };
         let excerpt = text("excerpt").unwrap_or_default();
@@ -143,6 +108,46 @@ impl Page {
             attempts,
         })
     }
+}
+
+fn failures_from_node(items: &[serde_json::Value]) -> Option<Vec<Failure>> {
+    items
+        .iter()
+        .map(|item| {
+            Some(Failure {
+                extractor: item.get("extractor")?.as_str()?.to_string(),
+                error: item.get("error")?.as_str()?.to_string(),
+                code: item.get("code").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                status: item.get("status").and_then(serde_json::Value::as_u64).and_then(|n| u16::try_from(n).ok()),
+            })
+        })
+        .collect()
+}
+
+fn attempts_from_node(items: &[serde_json::Value]) -> Option<Vec<Attempt>> {
+    items
+        .iter()
+        .map(|item| {
+            Some(Attempt {
+                stage: item.get("stage")?.as_str()?.to_string(),
+                ok: item.get("status")?.as_str()? == "success",
+                elapsed_ms: u128::from(item.get("elapsedMs").and_then(serde_json::Value::as_u64).unwrap_or(0)),
+                code: item.get("code").and_then(serde_json::Value::as_str).map(str::to_string),
+            })
+        })
+        .collect()
+}
+
+fn redirects_from_node(hops: &[serde_json::Value]) -> Option<Vec<Redirect>> {
+    hops.iter()
+        .map(|hop| {
+            Some(Redirect {
+                url: hop.get("url")?.as_str()?.to_string(),
+                status: hop.get("status").and_then(serde_json::Value::as_u64).and_then(|n| u16::try_from(n).ok()),
+                location: hop.get("location")?.as_str()?.to_string(),
+            })
+        })
+        .collect()
 }
 
 #[derive(Debug)]

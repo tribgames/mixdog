@@ -2,10 +2,10 @@
 //! lists, the state changes of the threads this client follows, the agent pool, the approvals the server waits on, and a turn's
 //! final answer. The feed only observes: a held approval is never answered here (the window's own card answers it).
 //!
-//! Sources (the ones `ServerNotifierSources` and `ReattachReportSources` of the desktop's main process took from the service client):
+//! Sources:
 //! - sessions: `thread/list` pages, then the app feed's `thread/started`, `thread/summary/updated`, `thread/deleted`,
-//!   `thread/archived` and `thread/unarchived`, laid over the listing as the roster feed of the phone laid them (an edge outranks
-//!   the listing it overlaps); listed again after every reconnect.
+//!   `thread/archived` and `thread/unarchived`, laid over the listing (an edge outranks the listing it overlaps); listed again
+//!   after every reconnect.
 //! - session states: the client store's thread folds, one change per fold, in fold order, with the host's shell jobs and remote
 //!   channel laid over each (and said again when either changes).
 //! - agent pool: the `agentPool` section, or `agent/pool/list` while the section is stubbed or absent.

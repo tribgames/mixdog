@@ -17,6 +17,8 @@ pub mod refine;
 pub mod symbols;
 pub mod text;
 
+use std::borrow::Cow;
+
 use self::generic::GenericRegion;
 use self::huffman::HuffmanTable;
 use self::image::{ComposeOp, Image};
@@ -141,6 +143,14 @@ impl<'a> BitStream<'a> {
     /// Moves to byte `offset`, at most the end of the data.
     pub fn set_byte_index(&mut self, offset: u32) {
         self.byte_index = offset.min(self.length());
+    }
+
+    /// Moves past arithmetic-coded data that ended at byte `end`: to the next byte boundary, then over the two bytes
+    /// of the closing marker.
+    pub fn end_arith(&mut self, end: u32) {
+        self.set_byte_index(end);
+        self.align_byte();
+        self.add_offset(2);
     }
 
     /// Moves `offset` bytes on, at most to the end of the data.
@@ -291,34 +301,18 @@ impl<'a> Context<'a> {
 
     /// `ParseSegmentData`.
     fn parse_data(&mut self, segment: &mut Segment, globals: Option<&Context<'_>>, page: Option<&mut Page>) -> Result<Flow, Failure> {
+        let is_region = matches!(segment.kind, 4 | 6 | 7 | 20 | 22 | 23 | 36 | 38 | 39 | 40 | 42 | 43);
+        if is_region && !self.in_page {
+            return Err(Failure);
+        }
         match segment.kind {
             0 => self.parse_symbol_dict(segment, globals),
-            4 | 6 | 7 => {
-                if !self.in_page {
-                    return Err(Failure);
-                }
-                self.parse_text_region(segment, globals, page)
-            }
+            4 | 6 | 7 => self.parse_text_region(segment, globals, page),
             16 => self.parse_pattern_dict(segment),
-            20 | 22 | 23 => {
-                if !self.in_page {
-                    return Err(Failure);
-                }
-                self.parse_halftone_region(segment, globals, page)
-            }
+            20 | 22 | 23 => self.parse_halftone_region(segment, globals, page),
             53 => self.parse_table(segment),
-            36 | 38 | 39 => {
-                if !self.in_page {
-                    return Err(Failure);
-                }
-                self.parse_generic_region(segment, page)
-            }
-            40 | 42 | 43 => {
-                if !self.in_page {
-                    return Err(Failure);
-                }
-                self.parse_refinement_region(segment, globals, page)
-            }
+            36 | 38 | 39 => self.parse_generic_region(segment, page),
+            40 | 42 | 43 => self.parse_refinement_region(segment, globals, page),
             48 => {
                 let info = PageInfo::read(&mut self.stream).ok_or(Failure)?;
                 match page {
@@ -394,9 +388,7 @@ impl<'a> Context<'a> {
             let mut contexts = vec![ArithCx::default(); generic::context_count(template)];
             let mut decoder = ArithDecoder::new(self.stream.data(), self.stream.byte_index());
             let decoded = region.decode_arith(&mut decoder, &mut contexts).ok_or(Failure)?;
-            self.stream.set_byte_index(decoder.byte_index());
-            self.stream.align_byte();
-            self.stream.add_offset(2);
+            self.stream.end_arith(decoder.byte_index());
             (decoded.image, decoded.rows)
         };
         if segment.kind == 36 {
@@ -422,45 +414,42 @@ impl<'a> Context<'a> {
         if !Image::is_valid_region_size(info.width, info.height) {
             return Err(Failure);
         }
-        let blank;
-        let page_reference;
-        let reference: &Image = if segment.referred.is_empty() {
-            // the part of the page the region covers
-            page_reference = match page.as_deref() {
-                Some(page) => page.image().sub_image(info.x, info.y, info.width, info.height).ok_or(Failure)?,
-                None => {
-                    blank = Image::new(info.width, info.height).ok_or(Failure)?;
-                    blank
-                }
-            };
-            &page_reference
-        } else {
-            let mut found = None;
-            for &number in &segment.referred {
-                let referred = find_segment(globals, &self.segments, number).ok_or(Failure)?;
-                if matches!(referred.kind, 4 | 20 | 36 | 40) {
-                    found = Some(referred);
-                    break;
-                }
-            }
-            match &found.ok_or(Failure)?.result {
-                SegmentResult::Image(image) => image,
-                _ => return Err(Failure),
-            }
-        };
-        let region = RefinementRegion { width: info.width, height: info.height, template, tpgron, reference, dx: 0, dy: 0, at };
+        let reference = self.refinement_reference(segment, globals, page.as_deref(), &info)?;
+        let region = RefinementRegion { width: info.width, height: info.height, template, tpgron, reference: &reference, dx: 0, dy: 0, at };
         let mut contexts = vec![ArithCx::default(); refine::context_count(template)];
         let mut decoder = ArithDecoder::new(self.stream.data(), self.stream.byte_index());
         let image = region.decode(&mut decoder, &mut contexts).ok_or(Failure)?;
-        self.stream.set_byte_index(decoder.byte_index());
-        self.stream.align_byte();
-        self.stream.add_offset(2);
-        if segment.kind == 40 {
-            segment.result = SegmentResult::Image(image);
-        } else if let Some(page) = page {
-            page.compose(&image, info.x, info.y, ComposeOp::from_flags(info.flags), 0..info.height);
-        }
+        drop(reference);
+        self.stream.end_arith(decoder.byte_index());
+        Self::finish_region(segment, image, &info, page, 40);
         Ok(Flow::Continue)
+    }
+
+    /// The image a refinement region refines: the first intermediate region it refers to, or the part of the page it
+    /// covers.
+    fn refinement_reference<'s>(
+        &'s self,
+        segment: &Segment,
+        globals: Option<&'s Context<'_>>,
+        page: Option<&Page>,
+        info: &RegionInfo,
+    ) -> Result<Cow<'s, Image>, Failure> {
+        if segment.referred.is_empty() {
+            return Ok(Cow::Owned(match page {
+                Some(page) => page.image().sub_image(info.x, info.y, info.width, info.height).ok_or(Failure)?,
+                None => Image::new(info.width, info.height).ok_or(Failure)?,
+            }));
+        }
+        for &number in &segment.referred {
+            let referred = find_segment(globals, &self.segments, number).ok_or(Failure)?;
+            if matches!(referred.kind, 4 | 20 | 36 | 40) {
+                return match &referred.result {
+                    SegmentResult::Image(image) => Ok(Cow::Borrowed(image)),
+                    _ => Err(Failure),
+                };
+            }
+        }
+        Err(Failure)
     }
 }
 

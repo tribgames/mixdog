@@ -494,14 +494,6 @@ impl<P: ReadProof> BodyWriter<'_, P> {
     fn table(&mut self, table: &Value) -> Result<String, String> {
         let columns: Vec<f64> = array(table, "columns").iter().map(|width| num(Some(width))).collect();
         let total: f64 = columns.iter().sum();
-        let mut properties = format!("<w:tblW w:w=\"{}\" w:type=\"dxa\"/>", tw(total));
-        if is_true(table, "indent") {
-            properties.push_str(&format!("<w:tblInd w:w=\"{}\" w:type=\"dxa\"/>", tw(field(table, "indent"))));
-        }
-        let nil: String = SIDES.iter().chain(["insideH", "insideV"].iter()).map(|side| format!("<w:{side} w:val=\"nil\"/>")).collect();
-        properties.push_str(&format!("<w:tblBorders>{nil}</w:tblBorders><w:tblLayout w:type=\"fixed\"/>"));
-        let margins: String = SIDES.iter().map(|side| format!("<w:{side} w:w=\"0\" w:type=\"dxa\"/>")).collect();
-        properties.push_str(&format!("<w:tblCellMar>{margins}</w:tblCellMar>"));
         let grid: String = columns.iter().map(|width| format!("<w:gridCol w:w=\"{}\"/>", tw(*width))).collect();
         // A short table (six rows or fewer), one asked to stay whole, or a layout grid moves to the next page whole: each
         // row's text keeps with the row after it. A long data table breaks between rows, its header repeated.
@@ -514,61 +506,88 @@ impl<P: ReadProof> BodyWriter<'_, P> {
         let mut written = Vec::new();
         for (at, row) in rows.iter().enumerate() {
             if is_true(row, "spacer") {
-                let span = if columns.len() > 1 { format!("<w:gridSpan w:val=\"{}\"/>", columns.len()) } else { String::new() };
-                written.push(format!(
-                    "<w:tr><w:trPr><w:cantSplit/><w:trHeight w:val=\"{}\" w:hRule=\"exact\"/></w:trPr><w:tc><w:tcPr><w:tcW w:w=\"{}\" w:type=\"dxa\"/>{span}</w:tcPr>{}</w:tc></w:tr>",
-                    tw(field(row, "height")),
-                    tw(total),
-                    tiny_paragraph(1.0, false)
-                ));
-                continue;
+                written.push(spacer_row(row, columns.len(), total));
+            } else {
+                let keep_rows = keep_whole && Some(at) != last_row;
+                written.push(self.table_row(row, &columns, data && !keep_together, keep_rows)?);
             }
-            // A layout row (cards) stays whole; a data table breaks between rows as Word breaks it, its header repeated.
-            let height = to_number_of(row.get("height")) - 0.5;
-            let mut row_properties = String::new();
-            if !(data && !keep_together) {
-                row_properties.push_str("<w:cantSplit/>");
-            }
-            if height > 1.0 {
-                row_properties.push_str(&format!("<w:trHeight w:val=\"{}\" w:hRule=\"atLeast\"/>", tw(height)));
-            }
-            if is_true(row, "header") {
-                row_properties.push_str("<w:tblHeader/>");
-            }
-            let mut cells = Vec::new();
-            let mut column = 0_usize;
-            for cell in array(row, "cells") {
-                let span = cell.get("span").map_or(1.0, |span| num(Some(span))).max(0.0) as usize;
-                let width: f64 = columns.iter().skip(column).take(span).sum();
-                column += span;
-                let mut cell_properties = format!("<w:tcW w:w=\"{}\" w:type=\"dxa\"/>", tw(width));
-                if span > 1 {
-                    cell_properties.push_str(&format!("<w:gridSpan w:val=\"{span}\"/>"));
-                }
-                cell_properties.push_str(&cell_borders(cell.get("borders")));
-                if is_true(cell, "fill") {
-                    cell_properties.push_str(&shading(text(cell, "fill")));
-                }
-                cell_properties.push_str(&cell_margins(cell.get("padding")));
-                cell_properties.push_str(&format!("<w:vAlign w:val=\"{}\"/>", if is_true(cell, "vAlign") { text(cell, "vAlign") } else { "top" }));
-                let mut content = if is_true(cell, "empty") || array(cell, "blocks").is_empty() {
-                    tiny_paragraph(1.0, false)
-                } else {
-                    let blocks = cell_blocks(cell);
-                    self.blocks(&blocks, keep_whole && Some(at) != last_row)?
-                };
-                if !content.ends_with("</w:p>") {
-                    content.push_str(&tiny_paragraph(1.0, false));
-                }
-                cells.push(format!("<w:tc><w:tcPr>{cell_properties}</w:tcPr>{content}</w:tc>"));
-            }
-            let row_properties = if row_properties.is_empty() { String::new() } else { format!("<w:trPr>{row_properties}</w:trPr>") };
-            written.push(format!("<w:tr>{row_properties}{}</w:tr>", cells.concat()));
         }
-        Ok(format!("<w:tbl><w:tblPr>{properties}</w:tblPr><w:tblGrid>{grid}</w:tblGrid>{}</w:tbl>", written.concat()))
+        Ok(format!("<w:tbl><w:tblPr>{}</w:tblPr><w:tblGrid>{grid}</w:tblGrid>{}</w:tbl>", table_properties(table, total), written.concat()))
+    }
+
+    // A layout row (cards) stays whole; a data table breaks between rows as Word breaks it, its header repeated.
+    fn table_row(&mut self, row: &Value, columns: &[f64], may_split: bool, keep_rows: bool) -> Result<String, String> {
+        let mut cells = Vec::new();
+        let mut column = 0_usize;
+        for cell in array(row, "cells") {
+            let span = cell.get("span").map_or(1.0, |span| num(Some(span))).max(0.0) as usize;
+            let width: f64 = columns.iter().skip(column).take(span).sum();
+            column += span;
+            let mut content = if is_true(cell, "empty") || array(cell, "blocks").is_empty() {
+                tiny_paragraph(1.0, false)
+            } else {
+                let blocks = cell_blocks(cell);
+                self.blocks(&blocks, keep_rows)?
+            };
+            if !content.ends_with("</w:p>") {
+                content.push_str(&tiny_paragraph(1.0, false));
+            }
+            cells.push(format!("<w:tc><w:tcPr>{}</w:tcPr>{content}</w:tc>", cell_properties(cell, width, span)));
+        }
+        Ok(format!("<w:tr>{}{}</w:tr>", row_properties(row, may_split), cells.concat()))
     }
 }
 
+fn table_properties(table: &Value, total: f64) -> String {
+    let mut properties = format!("<w:tblW w:w=\"{}\" w:type=\"dxa\"/>", tw(total));
+    if is_true(table, "indent") {
+        properties.push_str(&format!("<w:tblInd w:w=\"{}\" w:type=\"dxa\"/>", tw(field(table, "indent"))));
+    }
+    let nil: String = SIDES.iter().chain(["insideH", "insideV"].iter()).map(|side| format!("<w:{side} w:val=\"nil\"/>")).collect();
+    properties.push_str(&format!("<w:tblBorders>{nil}</w:tblBorders><w:tblLayout w:type=\"fixed\"/>"));
+    let margins: String = SIDES.iter().map(|side| format!("<w:{side} w:w=\"0\" w:type=\"dxa\"/>")).collect();
+    properties.push_str(&format!("<w:tblCellMar>{margins}</w:tblCellMar>"));
+    properties
+}
+
+fn spacer_row(row: &Value, column_count: usize, total: f64) -> String {
+    let span = if column_count > 1 { format!("<w:gridSpan w:val=\"{column_count}\"/>") } else { String::new() };
+    format!(
+        "<w:tr><w:trPr><w:cantSplit/><w:trHeight w:val=\"{}\" w:hRule=\"exact\"/></w:trPr><w:tc><w:tcPr><w:tcW w:w=\"{}\" w:type=\"dxa\"/>{span}</w:tcPr>{}</w:tc></w:tr>",
+        tw(field(row, "height")),
+        tw(total),
+        tiny_paragraph(1.0, false)
+    )
+}
+
+fn row_properties(row: &Value, may_split: bool) -> String {
+    let height = to_number_of(row.get("height")) - 0.5;
+    let mut properties = String::new();
+    if !may_split {
+        properties.push_str("<w:cantSplit/>");
+    }
+    if height > 1.0 {
+        properties.push_str(&format!("<w:trHeight w:val=\"{}\" w:hRule=\"atLeast\"/>", tw(height)));
+    }
+    if is_true(row, "header") {
+        properties.push_str("<w:tblHeader/>");
+    }
+    if properties.is_empty() { properties } else { format!("<w:trPr>{properties}</w:trPr>") }
+}
+
+fn cell_properties(cell: &Value, width: f64, span: usize) -> String {
+    let mut properties = format!("<w:tcW w:w=\"{}\" w:type=\"dxa\"/>", tw(width));
+    if span > 1 {
+        properties.push_str(&format!("<w:gridSpan w:val=\"{span}\"/>"));
+    }
+    properties.push_str(&cell_borders(cell.get("borders")));
+    if is_true(cell, "fill") {
+        properties.push_str(&shading(text(cell, "fill")));
+    }
+    properties.push_str(&cell_margins(cell.get("padding")));
+    properties.push_str(&format!("<w:vAlign w:val=\"{}\"/>", if is_true(cell, "vAlign") { text(cell, "vAlign") } else { "top" }));
+    properties
+}
 /// The face a measured run or body names, as the writer's style and font operations take it.
 fn face_of(source: &Value) -> Map<String, Value> {
     let mut face = Map::new();
@@ -634,40 +653,10 @@ fn running_operations(kind: &str, running: &Value) -> Vec<Value> {
 
 /// The page, document font, styles and running lines of the flow as the operations that write them.
 fn setup_operations(flow: &Value, page: &DocxPage) -> Vec<Value> {
-    let first_heading = |level: u64| {
-        array(flow, "blocks")
-            .iter()
-            .find(|block| block.get("heading").is_some_and(|heading| heading.as_u64() == Some(level)) && !array(block, "runs").is_empty())
-    };
-    let mut heading_styles = Map::new();
-    for level in 1..=3_u64 {
-        let Some(run) = first_heading(level).and_then(|block| array(block, "runs").iter().find(|run| is_true(run, "text"))) else { continue };
-        let mut style = face_of(run);
-        for key in ["size", "bold", "color"] {
-            if let Some(value) = run.get(key).filter(|value| !value.is_null()) {
-                style.insert(key.into(), value.clone());
-            }
-        }
-        style.insert("keepWithNext".into(), json!(true));
-        heading_styles.insert(format!("Heading {level}"), Value::Object(style));
-    }
-    let body = flow.get("body").filter(|body| truthy(body)).cloned().unwrap_or_else(|| json!({}));
-    let face = face_of(&body);
-    let mut font = face.clone();
-    let mut normal = face;
-    if is_true(&body, "size") {
-        font.insert("size".into(), body["size"].clone());
-        normal.insert("size".into(), body["size"].clone());
-    }
-    if is_true(&body, "color") {
-        font.insert("color".into(), body["color"].clone());
-    }
-    normal.insert("spacingBefore".into(), json!(0));
-    normal.insert("spacingAfter".into(), json!(0));
-    normal.insert("alignment".into(), json!("left"));
+    let (font, normal) = body_faces(flow);
     let mut styles = Map::new();
     styles.insert("Normal".into(), Value::Object(normal));
-    styles.extend(heading_styles);
+    styles.extend(heading_styles(flow));
     let mut operations = vec![
         json!({
             "op": "set_page",
@@ -686,6 +675,47 @@ fn setup_operations(flow: &Value, page: &DocxPage) -> Vec<Value> {
     operations.extend(running_operations("header", &flow["header"]));
     operations.extend(running_operations("footer", &flow["footer"]));
     operations
+}
+
+/// `Heading 1` to `Heading 3` styled as the first measured heading of each level.
+fn heading_styles(flow: &Value) -> Map<String, Value> {
+    let first_heading = |level: u64| {
+        array(flow, "blocks")
+            .iter()
+            .find(|block| block.get("heading").is_some_and(|heading| heading.as_u64() == Some(level)) && !array(block, "runs").is_empty())
+    };
+    let mut heading_styles = Map::new();
+    for level in 1..=3_u64 {
+        let Some(run) = first_heading(level).and_then(|block| array(block, "runs").iter().find(|run| is_true(run, "text"))) else { continue };
+        let mut style = face_of(run);
+        for key in ["size", "bold", "color"] {
+            if let Some(value) = run.get(key).filter(|value| !value.is_null()) {
+                style.insert(key.into(), value.clone());
+            }
+        }
+        style.insert("keepWithNext".into(), json!(true));
+        heading_styles.insert(format!("Heading {level}"), Value::Object(style));
+    }
+    heading_styles
+}
+
+/// The document font properties and the `Normal` style as the measured body names them.
+fn body_faces(flow: &Value) -> (Map<String, Value>, Map<String, Value>) {
+    let body = flow.get("body").filter(|body| truthy(body)).cloned().unwrap_or_else(|| json!({}));
+    let face = face_of(&body);
+    let mut font = face.clone();
+    let mut normal = face;
+    if is_true(&body, "size") {
+        font.insert("size".into(), body["size"].clone());
+        normal.insert("size".into(), body["size"].clone());
+    }
+    if is_true(&body, "color") {
+        font.insert("color".into(), body["color"].clone());
+    }
+    normal.insert("spacingBefore".into(), json!(0));
+    normal.insert("spacingAfter".into(), json!(0));
+    normal.insert("alignment".into(), json!("left"));
+    (font, normal)
 }
 
 /// Writes the measured flow as a .docx. `captures` are the picture files of the captured elements (an SVG, a chart, a
@@ -872,9 +902,49 @@ mod tests {
     }
 
     #[test]
+    fn the_setup_names_the_page_the_body_face_and_the_first_heading_of_each_level() {
+        let flow = json!({
+            "blocks": [{ "kind": "p", "heading": 1, "runs": [{ "text": "T", "font": "Georgia", "fontEastAsia": "Batang", "size": 20, "bold": true, "color": "112233" }] }],
+            "body": { "font": "Georgia", "size": 11, "color": "333333" },
+        });
+        let operations = setup_operations(&flow, &PAGE);
+        assert_eq!(operations.len(), 3);
+        assert_eq!(operations[0]["op"], json!("set_page"));
+        assert_eq!(
+            operations[1],
+            json!({ "op": "set_document_font", "properties": { "name": "Georgia", "nameEastAsia": "Georgia", "size": 11, "color": "333333" } })
+        );
+        assert_eq!(
+            operations[2]["styles"],
+            json!({
+                "Normal": { "name": "Georgia", "nameEastAsia": "Georgia", "size": 11, "spacingBefore": 0, "spacingAfter": 0, "alignment": "left" },
+                "Heading 1": { "name": "Georgia", "nameEastAsia": "Batang", "size": 20, "bold": true, "color": "112233", "keepWithNext": true },
+            })
+        );
+    }
+
+    #[test]
+    fn a_layout_row_stays_whole_its_cell_spans_the_grid_and_a_spacer_row_is_exact() {
+        let table = json!({ "kind": "table", "columns": [100, 100], "rows": [
+            { "height": 20, "cells": [{ "span": 2, "fill": "EEEEEE", "vAlign": "center", "blocks": [paragraph("x")] }] },
+            { "spacer": true, "height": 10 },
+        ] });
+        let (package, _) = built(&json!({ "blocks": [table] }));
+        let document = package.text(DOCUMENT_PART);
+        assert!(document.contains("<w:trPr><w:cantSplit/><w:trHeight w:val=\"390\" w:hRule=\"atLeast\"/></w:trPr>"), "{document}");
+        assert!(document.contains("<w:tcW w:w=\"4000\" w:type=\"dxa\"/><w:gridSpan w:val=\"2\"/>"), "{document}");
+        assert!(document.contains("<w:vAlign w:val=\"center\"/>"), "{document}");
+        assert!(document.contains("<w:trHeight w:val=\"200\" w:hRule=\"exact\"/>"), "{document}");
+        assert_eq!(document.matches("<w:gridSpan w:val=\"2\"/>").count(), 2, "{document}");
+    }
+
+    #[test]
+    fn a_payload_with_a_line_break_is_not_an_inline_picture() {
+        assert!(inline_parts("data:image/jpeg;base64,AAEC\n").is_none());
+    }
+
+    #[test]
     fn a_data_picture_is_decoded_once_and_other_sources_are_not_pictures() {
-        let src = "data:image/jpeg;base64,AAEC\n";
-        assert!(inline_parts(src).is_none(), "a payload with a line break does not match");
         let flow = json!({ "blocks": [
             { "kind": "image", "src": "data:image/jpeg;base64,AAEC" },
             { "kind": "table", "rows": [{ "cells": [{ "blocks": [{ "kind": "image", "src": "data:image/jpeg;base64,AAEC" }, { "kind": "image", "src": "data:image/PNG;base64,AAEC", "capture": 1 }] }] }] },

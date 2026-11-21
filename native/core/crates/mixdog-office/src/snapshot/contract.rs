@@ -109,6 +109,11 @@ fn check_docx(document: &Value, violations: &mut Vec<Violation>) {
     if !is_bool(document.get("trackChanges")) {
         push(violations, "/", "trackChanges must be a boolean");
     }
+    check_docx_paragraphs(document, violations);
+    check_docx_tables(document, violations);
+}
+
+fn check_docx_paragraphs(document: &Value, violations: &mut Vec<Violation>) {
     for paragraph in items(document.get("paragraphs")) {
         let index = paragraph.get("index");
         if is_integer(index).is_none_or(|number| number < 1.0) {
@@ -131,6 +136,9 @@ fn check_docx(document: &Value, violations: &mut Vec<Violation>) {
             push(violations, &at, "paragraph.inTable must be a boolean");
         }
     }
+}
+
+fn check_docx_tables(document: &Value, violations: &mut Vec<Violation>) {
     for table in items(document.get("tables")) {
         let index = table.get("index");
         if is_integer(index).is_none_or(|number| number < 1.0) {

@@ -96,8 +96,7 @@ fn any_of(automation: &IUIAutomation, conditions: Vec<IUIAutomationCondition>) -
     Ok(combined)
 }
 
-/// Whether a field hides what is typed into it (Test-FocusMasked,
-/// Test-RecordMasked): UIA's IsPassword first, then MSAA's PROTECTED state of
+/// Whether a field hides what is typed into it: UIA's IsPassword first, then MSAA's PROTECTED state of
 /// the field's own window, which a legacy edit raises instead. `None` is a
 /// read that failed, and anything unreadable counts as a password.
 pub(super) fn masked(password: Option<bool>, native: impl FnOnce() -> Option<Wid>, protected: impl Fn(Wid) -> Option<bool>) -> bool {

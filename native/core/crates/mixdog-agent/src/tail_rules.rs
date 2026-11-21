@@ -1,4 +1,4 @@
-//! Tail reminder rules (`session/tail-reminder-rules.mjs`): short per-model,
+//! Tail reminder rules: short per-model,
 //! per-language nudges appended to the very end of an outgoing request, fresh
 //! on every request and never stored as a message of their own. The assistant
 //! turn a request produces keeps its reminder text (`AgentMessage::turn_reminder`);

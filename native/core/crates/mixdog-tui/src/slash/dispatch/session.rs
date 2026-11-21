@@ -185,41 +185,50 @@ fn shells(host: &mut dyn SlashHost, arg: &str) -> bool {
     let mut words = js_words(arg);
     let (action, task_id, flag) = (words.next(), words.next(), words.next());
     let Some(action) = action else {
-        match host.store_call("listShellJobs", json!([])) {
-            Ok(result) => {
-                let jobs = job_jobs(&result);
-                if jobs.is_empty() {
-                    host.push_notice("No shells are running.", Tone::Info);
-                    return true;
-                }
-                let held_of = |job: &Value| job.get("terminationUnconfirmed").is_some_and(truthy);
-                let mut lines: Vec<String> = jobs
-                    .iter()
-                    .map(|job| {
-                        let state = if held_of(job) { "termination unconfirmed" } else { "running" };
-                        format!("{}  {state}  {}", job_text(job, "taskId"), job_text(job, "command"))
-                    })
-                    .collect();
-                let held = jobs.iter().any(held_of);
-                if held {
-                    lines.push("Release a held shell with /shells release <task_id>.".to_owned());
-                }
-                host.push_notice(&lines.join("\n"), if held { Tone::Warn } else { Tone::Info });
-            }
-            Err(error) => report_failure(host, "Couldn\u{2019}t list shells", &error),
-        }
+        list_shells(host);
         return true;
     };
     let Some(task_id) = task_id.filter(|_| action == "release") else {
         host.push_notice("usage: /shells [release <task_id> [--confirm]]", Tone::Warn);
         return true;
     };
-    if flag != Some("--confirm") {
+    release_shell(host, task_id, flag == Some("--confirm"));
+    true
+}
+
+fn list_shells(host: &mut dyn SlashHost) {
+    match host.store_call("listShellJobs", json!([])) {
+        Ok(result) => {
+            let jobs = job_jobs(&result);
+            if jobs.is_empty() {
+                host.push_notice("No shells are running.", Tone::Info);
+                return;
+            }
+            let held_of = |job: &Value| job.get("terminationUnconfirmed").is_some_and(truthy);
+            let mut lines: Vec<String> = jobs
+                .iter()
+                .map(|job| {
+                    let state = if held_of(job) { "termination unconfirmed" } else { "running" };
+                    format!("{}  {state}  {}", job_text(job, "taskId"), job_text(job, "command"))
+                })
+                .collect();
+            let held = jobs.iter().any(held_of);
+            if held {
+                lines.push("Release a held shell with /shells release <task_id>.".to_owned());
+            }
+            host.push_notice(&lines.join("\n"), if held { Tone::Warn } else { Tone::Info });
+        }
+        Err(error) => report_failure(host, "Couldn\u{2019}t list shells", &error),
+    }
+}
+
+fn release_shell(host: &mut dyn SlashHost, task_id: &str, confirmed: bool) {
+    if !confirmed {
         host.push_notice(
             &format!("Releasing {task_id} unlocks its folder although its processes may still be running. To proceed, run /shells release {task_id} --confirm"),
             Tone::Warn,
         );
-        return true;
+        return;
     }
     match host.store_call("releaseShellJob", json!([task_id])) {
         Ok(result) if result.get("released").is_some_and(truthy) => {
@@ -231,7 +240,6 @@ fn shells(host: &mut dyn SlashHost, arg: &str) -> bool {
         }
         Err(error) => report_failure(host, &format!("Couldn\u{2019}t release {task_id}"), &error),
     }
-    true
 }
 
 fn stop_all(host: &mut dyn SlashHost) {

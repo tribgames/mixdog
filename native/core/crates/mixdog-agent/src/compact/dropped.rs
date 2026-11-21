@@ -1,5 +1,4 @@
-//! The ids a compaction took out of the model context (Node
-//! `compactionArchiveProjection` + `droppedIdentitySummary`): the stable ids of
+//! The ids a compaction took out of the model context: the stable ids of
 //! the messages whose text left, and the tool calls that left, in `before`
 //! order. The log keeps every pre-compaction item; these ids tell the store
 //! which rows to show as archived.
@@ -66,10 +65,9 @@ fn push_unique(list: &mut Vec<String>, id: &str) {
     }
 }
 
-/// Node's `droppedMessages` (messages with an id absent from `after`) and `droppedIdentities`,
-/// reported only when the transcript shows a row for what left (`prepareCompactionArchive`
-/// returns null otherwise, so Node reports 0 and null). The rows are redacted first and then
-/// classified by the transcript's own visibility rule.
+/// The count of messages with an id absent from `after` and the identities of what left,
+/// reported only when the transcript shows a row for it (otherwise 0 and `None`). The rows are
+/// redacted first and then classified by the transcript's own visibility rule.
 pub fn dropped_summary(
     before: &[AgentMessage],
     after: &[AgentMessage],

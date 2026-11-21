@@ -1,23 +1,4 @@
-//! The producer of the `usage` section (desktop-services §15 P7), for both entries the renderer reads.
-//!
-//! The statistics dialog and the usage dashboard of a remote client do not re-read on a timer: the
-//! core publishes the answer the service gives to the renderer's own question, as the `usage` section.
-//!
-//! * key [`STATS_KEY`]: what `usage/getUsageStats` answers to `{ view: 'hour' }`, the reading
-//!   `refreshStatsDataCache` makes (queued writes settled, unpriced records refreshed, then read);
-//! * key [`DASHBOARD_KEY`]: what `usage/getUsageDashboard` answers to `{ refresh: true, refreshSetup: false }`,
-//!   the reading `usage-dashboard-store` makes (`{ rows, .. }`).
-//!
-//! The ledger writer says when the figures moved ([`UsageChanged`], after a commit, once the queue is idle).
-//! Node re-read changed usage no sooner than an interval after its previous read began, and only when
-//! something changed: [`REFRESH_INTERVAL`] (`REMOTE_STATS_REFRESH_INTERVAL_MS`) for the statistics,
-//! [`DASHBOARD_INTERVAL`] (`USAGE_DASHBOARD_REFRESH_INTERVAL_MS`, the live provider quota sweep) for the
-//! dashboard. Each feed keeps both: the first change after a quiet interval is published at once, further
-//! changes wait for the end of the interval and coalesce into one read, and an unchanged ledger is never read.
-//!
-//! The first value does not wait for a change: each feed reads when it starts (the ledger opening), and the
-//! dashboard feed waits for its source to be bound ([`DashboardSlot::bind`]) and reads then. A failed read is
-//! never retried by itself, as in Node; it counts in the interval like any read (`run`).
+//! Intervals follow Node's `REMOTE_STATS_REFRESH_INTERVAL_MS` ([`REFRESH_INTERVAL`]) and `USAGE_DASHBOARD_REFRESH_INTERVAL_MS` ([`DASHBOARD_INTERVAL`]).
 
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
@@ -200,11 +181,6 @@ pub fn spawn<S: SectionSource>(
 ) {
     tokio::spawn(run(source, key, changes, bindings, push, interval));
 }
-/// A read is due from the start, once the source can be read. Node cleared its dirty state when a re-read started and
-/// never retried a failure by itself, and so does this: a read, answered or failed, clears what was pending and stamps
-/// the interval from when it began; a failure schedules nothing. The next trigger (a ledger change, the binding)
-/// reads again, no sooner than `interval` after that stamp, and changes inside the interval coalesce into one read at
-/// its end. So every read, failed ones included, is inside the bound, and with no trigger there is no read.
 async fn run<S: SectionSource>(
     source: Weak<S>,
     key: &'static str,

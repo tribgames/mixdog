@@ -1,21 +1,4 @@
-//! Values a tool call marked sensitive — a browser `fill` with `sensitive: true`,
-//! such as a verification code read from a mail — remembered per session and
-//! replaced by a marker wherever the session's transcript is stored: the
-//! session file, the crash-recovery checkpoint and the search copy, earlier
-//! records that carried the value included. The live transcript the provider
-//! sees is left as sent (its prefix must not change).
-//!
-//! A value stays known for the life of the process — as long as any plaintext
-//! copy of it (the loaded session) can still be written — and is never
-//! evicted. In text, replacement is the exact substring, longest spelling
-//! first, so a shorter value never splits a longer one.
-//!
-//! A marker is opaque to every redaction (the one written here, and the one
-//! the desktop writes for a saved login): a value is matched whole against
-//! the text and replaced unless that occurrence lies entirely inside markers
-//! already there, so redacting twice is redacting once and a value such as `e`
-//! never rewrites a marker's letters, while a value that contains or spans
-//! marker text is still replaced.
+//! The live transcript the provider sees is left as sent: its prefix must not change.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -200,10 +183,6 @@ fn redact_spelling(text: &str, spelling: &str) -> String {
     next
 }
 
-/// Every spelling (longest first) replaced, passes repeated until no spelling
-/// occurs outside the markers: a replacement can join a spelling that holds
-/// marker text (`a[redacted]`) to the text before it. Each replacement lowers
-/// the number of characters outside the markers, so the repetition ends.
 fn redact_text(text: &str, spellings: &[String]) -> String {
     let mut out = text.to_owned();
     loop {
@@ -311,10 +290,6 @@ fn redact_json_value(store: &SensitiveStore, session: &str, value: &Value) -> Va
     }
 }
 
-/// Text redacted as text, or — when it is a JSON object, array or string — as
-/// the JSON document it is, so it still parses afterwards. A JSON document is
-/// judged by its decoded values, never its raw text: an escape spells a value
-/// the raw text does not contain.
 fn redact_text_or_json(store: &SensitiveStore, session: &str, text: &str) -> String {
     if matches!(js_trim_start(text).chars().next(), Some('{' | '[' | '"'))
         && let Ok(parsed @ (Value::Object(_) | Value::Array(_) | Value::String(_))) = serde_json::from_str::<Value>(text)
@@ -499,11 +474,6 @@ impl SensitiveStore {
         self.spread(session, &[session.to_owned()], values)
     }
 
-    /// `values` reach every session of `targets` and, from each that gains one, its own carries; never back to
-    /// `origin` unless it is a target, nor to a session reached already. The journal is told every session that gained
-    /// one before any listener is; the carried listener hears each but an `origin` a listener of its own (a running turn)
-    /// hears: a mark with none (a restored one, or one made outside a turn) has no barrier to rewrite its log, and its
-    /// journal entry holds the value until every listed session's log was rewritten. True when one gained.
     fn spread(&self, origin: &str, targets: &[String], values: Vec<String>) -> bool {
         let mut seen: BTreeSet<String> = BTreeSet::new();
         if !targets.iter().any(|t| t == origin) {
@@ -648,6 +618,37 @@ impl SensitiveStore {
         }
     }
 
+    fn redact_tool_calls(&self, session: &str, calls: &[Value]) -> Option<Value> {
+        let next: Vec<Value> = calls
+            .iter()
+            .map(|call| match call.get("arguments") {
+                Some(args) if call.is_object() => {
+                    let redacted = redact_json_value(self, session, args);
+                    if redacted == *args {
+                        call.clone()
+                    } else {
+                        let mut map = call.as_object().cloned().unwrap_or_default();
+                        map.insert("arguments".into(), redacted);
+                        Value::Object(map)
+                    }
+                }
+                _ => call.clone(),
+            })
+            .collect();
+        (next != calls).then_some(Value::Array(next))
+    }
+
+    fn redact_task_card(&self, session: &str, message: &Value) -> Option<Value> {
+        let card = message.get("meta").and_then(|meta| meta.get("taskCard"))?;
+        let next = redact_json_value(self, session, card);
+        if next == *card {
+            return None;
+        }
+        let mut meta = message["meta"].as_object().cloned().unwrap_or_default();
+        meta.insert("taskCard".into(), next);
+        Some(Value::Object(meta))
+    }
+
     /// A message as it is stored for `session`.
     pub fn redact_message(&self, session: &str, message: &Value) -> Value {
         if self.version(session) == 0 || !message.is_object() {
@@ -660,38 +661,15 @@ impl SensitiveStore {
             changed = next != *content;
             out.insert("content".into(), next);
         }
-        if let Some(Value::Array(calls)) = message.get("toolCalls") {
-            let next: Vec<Value> = calls
-                .iter()
-                .map(|call| match call.get("arguments") {
-                    Some(args) if call.is_object() => {
-                        let redacted = redact_json_value(self, session, args);
-                        if redacted == *args {
-                            call.clone()
-                        } else {
-                            let mut map = call.as_object().cloned().unwrap_or_default();
-                            map.insert("arguments".into(), redacted);
-                            Value::Object(map)
-                        }
-                    }
-                    _ => call.clone(),
-                })
-                .collect();
-            if next != *calls {
-                out.insert("toolCalls".into(), Value::Array(next));
-                changed = true;
-            }
+        if let Some(Value::Array(calls)) = message.get("toolCalls")
+            && let Some(next) = self.redact_tool_calls(session, calls)
+        {
+            out.insert("toolCalls".into(), next);
+            changed = true;
         }
-        // The core keeps a completion's card on its message (`meta.taskCard`: the report as the card shows it, and the
-        // raw notification); Node's message has no card, its text is the content alone.
-        if let Some(card) = message.get("meta").and_then(|meta| meta.get("taskCard")) {
-            let next = redact_json_value(self, session, card);
-            if next != *card {
-                let mut meta = message["meta"].as_object().cloned().unwrap_or_default();
-                meta.insert("taskCard".into(), next);
-                out.insert("meta".into(), Value::Object(meta));
-                changed = true;
-            }
+        if let Some(meta) = self.redact_task_card(session, message) {
+            out.insert("meta".into(), meta);
+            changed = true;
         }
         let replay_holds = has_replay_state(message) && self.contains(session, &replay_state_text(message));
         if !changed && !replay_holds {

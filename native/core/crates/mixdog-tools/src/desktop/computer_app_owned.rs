@@ -1,12 +1,3 @@
-//! Mixdog's own windows (`host/computer/appWindows`) and the input the desktop delivers into them (`host/computer/appInput`):
-//! what `canUseAppOwnedInput` + `dispatchElectronInput` / `dispatchElectronText` did in the Node host
-//! (`host/input-dispatch.ts`, `host/input-dispatch-electron-*.ts`). A window the desktop names takes `key`, `type` and `scroll`
-//! steps through its renderer's own input channel, so it is never raised and the user's foreground window stays
-//! where it is; any other window, and a desktop that does not serve the two methods, keep the helper path.
-//!
-//! The list is read together with the internal windows (`computer_internal_windows::filter`) and kept for a short while, the
-//! desktop's windows belonging to its process, not to one session.
-
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::MutexGuard;

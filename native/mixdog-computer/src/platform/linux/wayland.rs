@@ -1,7 +1,4 @@
-//! The Wayland desktop. The compositor names and controls windows, a
-//! uinput device carries pointer and keyboard input, and AT-SPI carries the
-//! accessibility tree and every semantic action. Wayland lets no client send
-//! input to one window, so there is no background pixel route.
+//! Wayland lets no client send input to one window, so there is no background pixel route.
 
 use super::atspi::Atspi;
 use super::compositor::Compositor;

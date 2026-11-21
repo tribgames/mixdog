@@ -152,9 +152,12 @@ fn aligned_tables(page: &PageLayout) -> Vec<PdfTable> {
     if rows.len() < 2 {
         return Vec::new();
     }
-    // Rows far apart on the page are not a table. A form's field labels and the footer under them line up in two
-    // columns, and taken together by position alone they came back as a two-row table of a label and a page number. A
-    // table's rows follow each other by about a line, so the block ends where that stops being true.
+    row_blocks(rows).iter().filter_map(|block| table_of_block(page, block)).collect()
+}
+
+/// The rows that follow each other by about a line. A form's field labels and the footer under them line up in two
+/// columns, and taken together by position alone they came back as a two-row table of a label and a page number.
+fn row_blocks(rows: Vec<Row>) -> Vec<Vec<Row>> {
     let mut blocks: Vec<(Vec<Row>, f64)> = Vec::new();
     for row in rows {
         let height = row.cells.iter().fold(1.0, |height, cell| js_max(height, if cell.height.is_nan() { 0.0 } else { cell.height }));
@@ -167,47 +170,42 @@ fn aligned_tables(page: &PageLayout) -> Vec<PdfTable> {
             blocks.push((vec![row], bottom));
         }
     }
-    let mut tables = Vec::new();
-    for (block, _) in blocks {
-        if block.len() < 2 {
-            continue;
-        }
-        let mut counts: Vec<(usize, usize)> = Vec::new();
-        for row in &block {
-            match counts.iter_mut().find(|entry| entry.0 == row.cells.len()) {
-                Some(entry) => entry.1 += 1,
-                None => counts.push((row.cells.len(), 1)),
-            }
-        }
-        // The most common row width; the first met wins a tie (the sort is stable).
-        let (columns, repeated) = counts.iter().fold((0, 0), |best, entry| if entry.1 > best.1 { *entry } else { best });
-        let total = block.len();
-        let selected: Vec<&Row> = block.iter().filter(|row| row.cells.len().abs_diff(columns) <= 1).collect();
-        if columns < 2 || selected.len() < 2 {
-            continue;
-        }
-        tables.push(PdfTable {
-            page: page.page,
-            columns,
-            confidence: round_to(repeated as f64 / total as f64, 3),
-            source: TableSource::Alignment,
-            header: false,
-            merges: Vec::new(),
-            rows: selected.iter().map(|row| row.cells.iter().map(|cell| cell.text.clone()).collect()).collect(),
-            geometry: selected
-                .iter()
-                .map(|row| GeometryRow {
-                    top: row.top,
-                    cells: row
-                        .cells
-                        .iter()
-                        .map(|cell| GeometryCell { text: Some(cell.text.clone()), x: cell.x, width: cell.width, height: cell.height })
-                        .collect(),
-                })
-                .collect(),
-        });
+    blocks.into_iter().map(|(block, _)| block).collect()
+}
+
+/// The table a block of rows makes: the most common row width sets the columns and rows one cell off it stay.
+fn table_of_block(page: &PageLayout, block: &[Row]) -> Option<PdfTable> {
+    if block.len() < 2 {
+        return None;
     }
-    tables
+    let mut counts: Vec<(usize, usize)> = Vec::new();
+    for row in block {
+        match counts.iter_mut().find(|entry| entry.0 == row.cells.len()) {
+            Some(entry) => entry.1 += 1,
+            None => counts.push((row.cells.len(), 1)),
+        }
+    }
+    let (columns, repeated) = counts.iter().fold((0, 0), |best, entry| if entry.1 > best.1 { *entry } else { best });
+    let selected: Vec<&Row> = block.iter().filter(|row| row.cells.len().abs_diff(columns) <= 1).collect();
+    if columns < 2 || selected.len() < 2 {
+        return None;
+    }
+    Some(PdfTable {
+        page: page.page,
+        columns,
+        confidence: round_to(repeated as f64 / block.len() as f64, 3),
+        source: TableSource::Alignment,
+        header: false,
+        merges: Vec::new(),
+        rows: selected.iter().map(|row| row.cells.iter().map(|cell| cell.text.clone()).collect()).collect(),
+        geometry: selected
+            .iter()
+            .map(|row| GeometryRow {
+                top: row.top,
+                cells: row.cells.iter().map(|cell| GeometryCell { text: Some(cell.text.clone()), x: cell.x, width: cell.width, height: cell.height }).collect(),
+            })
+            .collect(),
+    })
 }
 
 // ruled: rows of cell rectangles

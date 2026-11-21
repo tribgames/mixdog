@@ -1,44 +1,24 @@
-//! The session helper (`mixdog-secure-desktop helper <shutdown-token> <service-pid>`).
+//! The session helper (`mixdog-secure-desktop helper <shutdown-token>`).
 //!
 //! Launched by the service as SYSTEM in the active console session, it owns the
 //! app-facing named pipe, captures the current input desktop, and injects the
-//! input the app requests — all gated on an explicit remote-control session.
+//! input the app requests.
 //!
-//! The loop is single-threaded on purpose: GDI capture and `SendInput` both act
-//! on the thread's attached desktop, so keeping capture, injection, and the
-//! desktop re-attach on one thread means they can never disagree about which
-//! desktop is live. No pipe operation blocks the loop on its peer (see
-//! [`ServerPipe`]): inbound bytes are taken only when already buffered, output
-//! is queued and written overlapped under a total per-frame deadline, and the
-//! accept and every sleep also wake on the service's stop event. On stop the
-//! helper releases everything it holds, acknowledges, and exits
-//! ([`crate::shutdown`]).
+//! The loop is single-threaded because GDI capture and `SendInput` both act on
+//! the thread's attached desktop. No pipe operation blocks it on its peer (see
+//! [`ServerPipe`]), and accept and every sleep also wake on the service's stop
+//! event.
 //!
-//! Security posture enforced here: frames stream only while the app has sent
-//! `control { active: true }`; new input and `sas` additionally need a live
-//! **control grant** — a challenge this helper issued on this connection,
-//! signed by the paired phone's enrolled key for the current video run
-//! ([`crate::security::GrantBook`]) — because the pipe admits every process of
-//! the installing user, and input from this SYSTEM helper is not subject to
-//! UIPI (a same-user process must not be able to click "Yes" on its own UAC
-//! prompt). Without a grant, only an in-place release of a button/key this
-//! connection still holds is applied. A connection can never release input it
-//! did not press; the handshake rejects a wrong protocol version or a bad
-//! secret before anything else happens; the pipe's DACL (built from the
-//! installing user's SID) is applied at creation; and before the handshake,
-//! the connecting client is verified to be the installing user running in the
-//! console session this helper serves. Held pointer/keyboard input is tracked
-//! and released on every transition — including a grant's lapse — so a press
-//! can never be stranded on the (possibly secure) desktop. No message is
-//! logged with the secret, and no frame pixels are ever logged.
-//!
-//! The service instance that launched this helper is watched as its parent
-//! ([`HelperEnd`]): if it dies, the helper releases everything and exits like
-//! on a stop request.
+//! Frames stream only while the app has sent `control { active: true }`. New
+//! input and `sas` also need a live control grant: a challenge this helper
+//! issued on this connection, signed by an enrolled phone key
+//! ([`crate::security::GrantBook`]). The pipe admits every process of the
+//! installing user and SYSTEM input is not subject to UIPI, so without a grant
+//! only an in-place release of a button or key this connection still holds is
+//! applied. Held input is released on every transition, including a grant's
+//! lapse. Neither the secret nor frame pixels are logged.
 
 use std::time::{Duration, Instant};
-
-use windows::Win32::System::RemoteDesktop::WTSGetActiveConsoleSessionId;
 
 use crate::ipc::{Accept, SendError, ServerPipe};
 use crate::protocol::{self, Decoded, FrameHeader, InputEvent, Message, PROTOCOL_VERSION};
@@ -47,7 +27,7 @@ use crate::security::{
     is_shutdown_token, sas_policy, secret_matches, server_auth_tag,
 };
 use crate::shutdown::HelperEnd;
-use crate::winutil::{client_user_sid, now_ms};
+use crate::winutil::{OwnedDesktop, client_user_sid, now_ms};
 use crate::{capture, desktop, inject, ipc, log, paths};
 
 /// Target capture cadence while active. The WebRTC transport drives real pacing;
@@ -56,46 +36,21 @@ const CAPTURE_INTERVAL: Duration = Duration::from_millis(66);
 const IDLE_SLEEP: Duration = Duration::from_millis(50);
 const ACTIVE_SLEEP: Duration = Duration::from_millis(8);
 
-/// How long a connected client may take to complete the challenge-response handshake
-/// before it is dropped. Decision (not derived from the capture cadence, which
-/// paces a steady stream, whereas the handshake is a single local round-trip
-/// that completes in well under a millisecond): a 10-second human-scale ceiling
-/// frees the single pipe instance from a stuck or hostile peer without any risk
-/// of a false timeout on a healthy client.
 const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(10);
 
-/// The **total** time one frame may take, in either direction:
-///
-/// - inbound: from the frame's first byte until it is dispatched — checked at
-///   dispatch, so a frame completing late is dropped unexecuted;
-/// - outbound: from when the frame is queued until its write completes. That
-///   bounds *backpressure* (the write's bytes reached the small outbound pipe
-///   buffer), not delivery — there are no frame acks — and because that buffer
-///   is far smaller than any video frame, a client that stops reading stalls
-///   the next write and trips it.
-///
-/// Same 10-second ceiling and reasoning as the handshake: a local frame
-/// transfers in a continuous write, so one still incomplete after 10 s means a
-/// stalled or hostile peer (one that dribbles bytes, or one that stopped
-/// reading). It is a total deadline, not an inactivity timer, so trickling a
-/// byte at a time cannot extend it.
+/// The **total** time one frame may take, in either direction: inbound from its
+/// first byte until it is dispatched, outbound from being queued until its write
+/// completes (backpressure through the small outbound pipe buffer, not delivery).
+/// It is not an inactivity timer, so trickling bytes cannot extend it.
 pub(crate) const FRAME_DEADLINE: Duration = Duration::from_secs(10);
 
-/// How long the service waits for this helper to acknowledge a stop and exit
-/// before force-killing it. It is the frame deadline, reused rather than a new
-/// number: no step of the helper's loop blocks on its peer for longer — accept
-/// and every sleep also wake on the stop event, and writes are overlapped and
-/// polled — so a helper that has not acknowledged within it is wedged.
+/// How long the service waits for this helper to acknowledge a stop before force-killing it.
 pub const SHUTDOWN_DEADLINE: Duration = FRAME_DEADLINE;
 
 /// Per-iteration read size. Matches the pipe's buffer so a full buffer drains
 /// in one read.
 const READ_CHUNK: usize = 1 << 16;
 
-/// While the input desktop cannot be attached, attaching is retried once per
-/// frame interval: that is when a frame would next be captured, so retrying
-/// faster gains nothing and retrying slower would delay the first frame of
-/// the new desktop.
 const REATTACH_INTERVAL: Duration = CAPTURE_INTERVAL;
 
 /// The shutdown token of `helper <shutdown-token>`: exactly one argument, a
@@ -199,12 +154,6 @@ fn serve(shutdown: &HelperEnd) -> i32 {
     }
 }
 
-/// Confirm the connected client is the installing user, running in the console
-/// session this helper serves. This is the per-connection half of the session
-/// policy: the DACL already limits the pipe to the installing user and SYSTEM,
-/// and this additionally rejects any client whose session is not the serviced
-/// console session (so a client left over in a fast-user-switched-away session
-/// cannot be served) and whose token user is not the installing user.
 fn verify_client(server: &ServerPipe, state: &InstallState) -> Result<(), String> {
     let serviced = session_id();
     match ipc::client_session_id(server.handle()) {
@@ -225,7 +174,111 @@ fn load_state() -> Result<InstallState, String> {
 }
 
 fn session_id() -> u32 {
-    unsafe { WTSGetActiveConsoleSessionId() }
+    desktop::active_console_session()
+}
+
+fn send_control(io: &mut impl std::io::Write, message: &Message) {
+    let _ = protocol::write_all(io, &protocol::encode_control(message));
+}
+
+/// The thread's attachment to the input desktop, with the lock state reported alongside it.
+struct DesktopWatch {
+    _attached: OwnedDesktop,
+    name: String,
+    locked: Option<bool>,
+    launch_session: u32,
+    next_reattach: Instant,
+    reattach_failures: u32,
+}
+
+impl DesktopWatch {
+    fn attach() -> windows::core::Result<Self> {
+        let (attached, name) = desktop::attach_to_input_desktop()?;
+        let launch_session = session_id();
+        Ok(DesktopWatch {
+            _attached: attached,
+            name,
+            locked: desktop::session_locked(launch_session),
+            launch_session,
+            next_reattach: Instant::now(),
+            reattach_failures: 0,
+        })
+    }
+
+    fn announce(&self, server: &mut ServerPipe) {
+        send_control(server, &Message::DesktopChanged { desktop: self.name.clone(), session: session_id(), locked: self.locked });
+    }
+
+    /// Follows the input desktop across UAC / lock transitions, releasing held input before
+    /// re-attaching. While it cannot be attached, capture and injection stop and attaching is
+    /// retried once per [`REATTACH_INTERVAL`].
+    fn follow_input(&mut self, injector: &mut inject::Injector, control: &mut Control, server: &mut ServerPipe, now: Instant) {
+        let input_name = desktop::input_desktop_name();
+        let current = control.desktop_available && input_name.as_deref() == Some(self.name.as_str());
+        if current || now < self.next_reattach {
+            return;
+        }
+        injector.release_all();
+        let _ = injector.take_desktop_lost();
+        match desktop::attach_to_input_desktop() {
+            Ok((owned, name)) => {
+                self._attached = owned;
+                let changed_name = name != self.name || !control.desktop_available;
+                self.name = name;
+                control.desktop_available = true;
+                if self.reattach_failures > 0 {
+                    log::event("helper", &format!("input desktop attached again after {} failed attempts", self.reattach_failures));
+                    self.reattach_failures = 0;
+                }
+                if changed_name {
+                    self.announce(server);
+                    log::event("helper", &format!("desktop changed to {}", self.name));
+                }
+            }
+            Err(error) => {
+                if control.desktop_available {
+                    control.desktop_available = false;
+                    send_control(server, &Message::error("desktop_unavailable", error.to_string()));
+                }
+                if self.reattach_failures == 0 {
+                    log::event("helper", &format!("input desktop unavailable: {error}; retrying"));
+                }
+                self.reattach_failures = self.reattach_failures.saturating_add(1);
+                self.next_reattach = now + REATTACH_INTERVAL;
+            }
+        }
+    }
+
+    /// The WTS lock state tells the lock screen apart from UAC, which share the Winlogon desktop.
+    fn refresh_lock(&mut self, server: &mut ServerPipe) {
+        let current = desktop::session_locked(self.launch_session);
+        if current != self.locked {
+            self.locked = current;
+            self.announce(server);
+        }
+    }
+}
+
+fn send_capture(server: &mut ServerPipe, seq: &mut u64, desktop_name: &str) {
+    match capture::capture_virtual_screen() {
+        Ok(frame) => {
+            *seq += 1;
+            let header = FrameHeader {
+                seq: *seq,
+                width: frame.width,
+                height: frame.height,
+                stride: frame.stride,
+                format: "bgra".to_string(),
+                timestamp_ms: now_ms(),
+                origin_x: frame.origin_x,
+                origin_y: frame.origin_y,
+                desktop: desktop_name.to_string(),
+                dirty: Vec::new(),
+            };
+            let _ = protocol::write_all(server, &protocol::encode_video(&header, &frame.pixels));
+        }
+        Err(error) => send_control(server, &Message::error("capture_failed", format!("{error} on {desktop_name}"))),
+    }
 }
 
 /// Serve one connected client until it disconnects, a fatal write fails, the
@@ -243,17 +296,16 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
 
     // Attach to the current input desktop before the handshake so the first
     // ServerHello already names the right desktop.
-    let (mut _attached, mut attached_name) = match desktop::attach_to_input_desktop() {
-        Ok(pair) => pair,
+    let mut watch = match DesktopWatch::attach() {
+        Ok(watch) => watch,
         Err(error) => {
             log::event("helper", &format!("desktop attach failed: {error}"));
-            let _ = protocol::write_all(server, &protocol::encode_control(&Message::error("desktop_attach_failed", error.to_string())));
+            send_control(server, &Message::error("desktop_attach_failed", error.to_string()));
             linger(server, shutdown);
             return;
         }
     };
 
-    let launch_session = session_id();
     let mut acc = protocol::FrameAccumulator::new();
     let mut buffer = vec![0u8; READ_CHUNK];
     let mut handshake = Handshake::new();
@@ -261,22 +313,8 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
     let mut control: Option<Control> = None;
     let mut replies: Vec<Message> = Vec::new();
     let mut seq: u64 = 0;
-    let mut locked = desktop::session_locked(launch_session);
-    let mut next_reattach = Instant::now();
-    // Failed attempts of the current outage, logged once when it ends.
-    let mut reattach_failures: u32 = 0;
     let connected_at = Instant::now();
     let mut next_capture = Instant::now();
-    // The committed key set reaches this live connection by re-reading the
-    // protected state file before every authorization-bearing step — right
-    // after the handshake, before each post-handshake control frame (input,
-    // `sas`, grant; [`dispatch_refreshed`]) and before each pass's grant upkeep
-    // (challenges, lapse) — and comparing its *bytes* with the last good load
-    // (never its mtime, which can collide or be preserved by a replace): a
-    // small, OS-cached file read, parsed only when the content changed. The
-    // write side is atomic, so a reader never sees partial JSON; an
-    // unreadable/unparseable state suspends authorization (fail closed) until a
-    // good read. `loaded_state` advances only after a successful load.
     let mut loaded_state: Option<Vec<u8>> = None;
     let mut read_state = || std::fs::read(paths::state_file());
     // Set when the connection ends with an error frame the client should get
@@ -290,7 +328,7 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
         }
         // Revoke immediately if the console session changed under us (fast user
         // switch): this helper serves exactly one console session.
-        if session_id() != launch_session {
+        if session_id() != watch.launch_session {
             log::event("helper", "console session changed; ending client");
             break 'serve;
         }
@@ -331,7 +369,7 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
                             request_sas(&mut injector, control, crate::service::software_sas_generation, || shutdown.request_sas(), &mut replies);
                         }
                     } else {
-                        match handshake.advance(server, state, &attached_name, message) {
+                        match handshake.advance(server, state, &watch.name, message) {
                             HandshakeStep::Fail => {
                                 // A rejection may have queued an error frame.
                                 farewell = !server.is_idle();
@@ -352,16 +390,12 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
             }
         }
 
-        // Grant upkeep: a lapse releases held input, a fresh challenge is
-        // issued on cadence, and a failed injection is reported. The committed
-        // key set is refreshed first, so a revoke on an idle connection (no
-        // frames this pass) still ends its grant and releases held input.
         if let Some(control) = control.as_mut() {
             apply_refresh(&mut injector, control, &mut loaded_state, read_state(), &mut replies);
             tick(&mut injector, control, Instant::now(), &mut replies);
         }
         for reply in replies.drain(..) {
-            let _ = protocol::write_all(server, &protocol::encode_control(&reply));
+            send_control(server, &reply);
         }
 
         // Move queued output along. Never blocks; a client that stopped reading
@@ -390,91 +424,14 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
 
         if let Some(control) = control.as_mut() {
             let now = Instant::now();
-            // Follow the input desktop across UAC / lock transitions, releasing
-            // any held input first so nothing is stranded on the old desktop.
-            // An input desktop that cannot be named or attached is an outage:
-            // the client is told once (`desktop_unavailable`), capture and
-            // injection stop rather than act on the old desktop, and attaching
-            // is retried once per frame interval (REATTACH_INTERVAL). Injection
-            // can find the outage first (a blocked insert whose re-attach
-            // fails): it suspends at once (`suspend_if_desktop_lost`) and
-            // recovery is this same path. The log gets a line when the outage
-            // is found and one when it ends.
-            let input_name = desktop::input_desktop_name();
-            let current = control.desktop_available && input_name.as_deref() == Some(attached_name.as_str());
-            if !current && now >= next_reattach {
-                injector.release_all();
-                // This path attaches next; a loss those releases met is its own.
-                let _ = injector.take_desktop_lost();
-                match desktop::attach_to_input_desktop() {
-                    Ok((owned, name)) => {
-                        _attached = owned;
-                        let changed_name = name != attached_name || !control.desktop_available;
-                        attached_name = name;
-                        control.desktop_available = true;
-                        if reattach_failures > 0 {
-                            log::event("helper", &format!("input desktop attached again after {reattach_failures} failed attempts"));
-                            reattach_failures = 0;
-                        }
-                        if changed_name {
-                            let changed = Message::DesktopChanged { desktop: attached_name.clone(), session: session_id(), locked };
-                            let _ = protocol::write_all(server, &protocol::encode_control(&changed));
-                            log::event("helper", &format!("desktop changed to {attached_name}"));
-                        }
-                    }
-                    Err(error) => {
-                        if control.desktop_available {
-                            control.desktop_available = false;
-                            let message = Message::error("desktop_unavailable", error.to_string());
-                            let _ = protocol::write_all(server, &protocol::encode_control(&message));
-                        }
-                        if reattach_failures == 0 {
-                            log::event("helper", &format!("input desktop unavailable: {error}; retrying"));
-                        }
-                        reattach_failures = reattach_failures.saturating_add(1);
-                        next_reattach = now + REATTACH_INTERVAL;
-                    }
-                }
-            }
-
-            // The lock state (WTS) tells the lock screen apart from UAC, which
-            // share the Winlogon desktop. It is re-read when the service
-            // relays a lock / unlock notification for this session.
+            watch.follow_input(&mut injector, control, server, now);
             if shutdown.session_state_changed() {
-                let current = desktop::session_locked(launch_session);
-                if current != locked {
-                    locked = current;
-                    let changed = Message::DesktopChanged { desktop: attached_name.clone(), session: session_id(), locked };
-                    let _ = protocol::write_all(server, &protocol::encode_control(&changed));
-                }
+                watch.refresh_lock(server);
             }
 
-            // Capture only when the previous output's writes completed: a slow
-            // reader gets fewer frames instead of a growing backlog.
+            // A slow reader gets fewer frames instead of a growing backlog.
             if control.active && control.desktop_available && server.is_idle() && Instant::now() >= next_capture {
-                match capture::capture_virtual_screen() {
-                    Ok(frame) => {
-                        seq += 1;
-                        let header = FrameHeader {
-                            seq,
-                            width: frame.width,
-                            height: frame.height,
-                            stride: frame.stride,
-                            format: "bgra".to_string(),
-                            timestamp_ms: now_ms(),
-                            origin_x: frame.origin_x,
-                            origin_y: frame.origin_y,
-                            desktop: attached_name.clone(),
-                            dirty: Vec::new(),
-                        };
-                        let _ = protocol::write_all(server, &protocol::encode_video(&header, &frame.pixels));
-                    }
-                    Err(error) => {
-                        // Log the OS error and the desktop name only — never pixels.
-                        let message = Message::error("capture_failed", format!("{error} on {attached_name}"));
-                        let _ = protocol::write_all(server, &protocol::encode_control(&message));
-                    }
-                }
+                send_capture(server, &mut seq, &watch.name);
                 next_capture = Instant::now() + CAPTURE_INTERVAL;
             }
         }
@@ -519,13 +476,6 @@ enum HandshakeStep {
     Fail,
 }
 
-/// Server side of the mutual HMAC-SHA256 challenge-response. The per-install
-/// secret never crosses the wire. The server proves it knows the secret first —
-/// so a client that lacks the secret only ever sees a nonce and a MAC it cannot
-/// forge — and the client must then prove the same before any session info or
-/// frame is sent. Fresh per-connection nonces and domain-separated labels
-/// ("server" vs "client") stop a captured tag from being replayed in either
-/// direction.
 enum Handshake {
     /// Waiting for the client's opening `client-hello` (its nonce).
     AwaitingHello,
@@ -563,10 +513,7 @@ impl Handshake {
                     return HandshakeStep::Fail;
                 };
                 if version != PROTOCOL_VERSION {
-                    let _ = protocol::write_all(
-                        io,
-                        &protocol::encode_control(&Message::error("protocol_mismatch", format!("helper speaks protocol {PROTOCOL_VERSION}"))),
-                    );
+                    send_control(io, &Message::error("protocol_mismatch", format!("helper speaks protocol {PROTOCOL_VERSION}")));
                     log::event("helper", "handshake rejected: protocol mismatch");
                     return HandshakeStep::Fail;
                 }
@@ -598,7 +545,7 @@ impl Handshake {
                 };
                 let expected = client_auth_tag(&state.secret, &server_nonce, &client_nonce);
                 if !secret_matches(&expected, &mac) {
-                    let _ = protocol::write_all(io, &protocol::encode_control(&Message::error("unauthorized", "authentication failed")));
+                    send_control(io, &Message::error("unauthorized", "authentication failed"));
                     log::event("helper", "handshake rejected: client authentication failed");
                     return HandshakeStep::Fail;
                 }
@@ -622,12 +569,6 @@ impl Handshake {
     }
 }
 
-/// While remote control is inactive or has no live grant, the only input
-/// applied is a **release of a button or key this connection pressed and still holds** — performed in
-/// place: no pointer movement, and the event's coordinates are ignored. Any
-/// other event, and a release of anything this connection does not hold, is
-/// dropped. (A release can only end this connection's own press, so it cannot
-/// move, click, or type on the — possibly secure — desktop.)
 fn release_while_inactive<S: inject::InputSink>(injector: &mut inject::Injector<S>, event: InputEvent) {
     match event {
         InputEvent::PointerButton { button, down: false, .. } => {
@@ -646,11 +587,6 @@ struct Control {
     /// solicited, only while true.
     active: bool,
     grants: GrantBook,
-    /// The enrolled phone keys (one per paired phone); empty refuses every
-    /// grant (`grant_key_missing`). A grant is accepted when any one of these
-    /// verifies it. Refreshed from the committed install state before every
-    /// post-handshake dispatch ([`dispatch_refreshed`]), so an enroll/revoke
-    /// takes effect on the live connection without a reconnect.
     keys: Vec<[u8; CONTROLLER_KEY_BYTES]>,
     /// A grant was live at the last check, so its lapse is noticed once.
     granted: bool,
@@ -697,16 +633,6 @@ enum Effect {
     Sas,
 }
 
-/// Apply one post-handshake control message at `now`. Replies (advisory
-/// `error`s) are appended to `replies`. A grant that lapsed before `now` is
-/// settled first ([`settle_lapse`]), so a renewal later in the same batch
-/// can never hide the lapse. Deactivating, and declaring a new video run,
-/// release held input and revoke the grant on the spot; input without a live
-/// grant is dropped except for an in-place release of this connection's own
-/// press; an injection that finds the input desktop gone suspends at once
-/// ([`suspend_if_desktop_lost`]). A desktop loss still pending from anything
-/// done since the last message (e.g. the releases of a `sas`) is settled
-/// before this message is dispatched, like a lapse.
 fn apply_control<S: inject::InputSink>(
     injector: &mut inject::Injector<S>,
     control: &mut Control,
@@ -726,13 +652,6 @@ fn apply_control<S: inject::InputSink>(
 /// file; tests substitute an in-memory one they can change between dispatches.
 type ReadState<'a> = &'a mut dyn FnMut() -> std::io::Result<Vec<u8>>;
 
-/// Refresh the committed key set, then dispatch one post-handshake control
-/// message. **Every** post-handshake message goes through here — each input,
-/// `sas` and grant, one frame at a time, even within one read's batch — so a
-/// revoke committed before this call returns ends the removed key's grant
-/// before the message acts, and an unreadable state suspends it (fail closed).
-/// There is no change signal to miss: the check is the read itself (bytes
-/// compared with the last good load, parsed only when they differ).
 #[allow(clippy::too_many_arguments)]
 fn dispatch_refreshed<S: inject::InputSink>(
     injector: &mut inject::Injector<S>,
@@ -746,6 +665,37 @@ fn dispatch_refreshed<S: inject::InputSink>(
 ) -> Effect {
     apply_refresh(injector, control, last, read_state(), replies);
     apply_control(injector, control, message, now, verify, replies)
+}
+
+fn accept_grant(control: &mut Control, challenge: &str, epoch: u64, signature: &str, now: Instant, verify: Verify<'_>, replies: &mut Vec<Message>) {
+    if control.suspended {
+        replies.push(Message::error("grant_key_missing", "control is suspended; the install state is unreadable"));
+        return;
+    }
+    if control.keys.is_empty() {
+        replies.push(Message::error("grant_key_missing", "no phone key is enrolled"));
+        return;
+    }
+    let keys = &control.keys;
+    let mut signer: Option<[u8; CONTROLLER_KEY_BYTES]> = None;
+    let verdict = control.grants.accept(now, challenge, epoch, signature, |payload, signature| {
+        signer = keys.iter().find(|key| verify(key, payload, signature)).copied();
+        signer.is_some()
+    });
+    match verdict {
+        Ok(()) => {
+            if !control.granted || control.granted_key != signer {
+                log::event("helper", "control grant accepted");
+            }
+            control.granted = true;
+            control.granted_key = signer;
+            control.refusal_reported = false;
+        }
+        Err(refusal) => {
+            log::event("helper", &format!("control grant refused: {}", refusal.code()));
+            replies.push(Message::error(refusal.code(), "control grant refused"));
+        }
+    }
 }
 
 fn dispatch_control<S: inject::InputSink>(
@@ -776,10 +726,6 @@ fn dispatch_control<S: inject::InputSink>(
             log::event("helper", if on { "remote control active" } else { "remote control idle" });
         }
         Message::VideoRun { epoch } => {
-            // A new run ends the grant here, not at the next `tick`: what was
-            // pressed under the old run is released and every open challenge
-            // revoked before a later message of the same batch is dispatched,
-            // so no grant can make control live again while that input is held.
             if control.grants.set_epoch(epoch) {
                 injector.release_all();
                 control.grants.revoke();
@@ -789,44 +735,7 @@ fn dispatch_control<S: inject::InputSink>(
                 }
             }
         }
-        Message::Grant { challenge, epoch, signature } => {
-            if control.suspended {
-                replies.push(Message::error("grant_key_missing", "control is suspended; the install state is unreadable"));
-            } else if control.keys.is_empty() {
-                replies.push(Message::error("grant_key_missing", "no phone key is enrolled"));
-            } else {
-                // Try every enrolled key; the first that verifies accepts the
-                // grant and is the key it is bound to. `accept` consumes the
-                // challenge once, so the loop runs inside the single call.
-                let keys = &control.keys;
-                let mut signer: Option<[u8; CONTROLLER_KEY_BYTES]> = None;
-                let verdict = control.grants.accept(now, &challenge, epoch, &signature, |payload, signature| {
-                    for key in keys {
-                        if verify(key, payload, signature) {
-                            signer = Some(*key);
-                            return true;
-                        }
-                    }
-                    false
-                });
-                match verdict {
-                    Ok(()) => {
-                        // Log a fresh grant, and a mid-session switch to a
-                        // different paired phone's key.
-                        if !control.granted || control.granted_key != signer {
-                            log::event("helper", "control grant accepted");
-                        }
-                        control.granted = true;
-                        control.granted_key = signer;
-                        control.refusal_reported = false;
-                    }
-                    Err(refusal) => {
-                        log::event("helper", &format!("control grant refused: {}", refusal.code()));
-                        replies.push(Message::error(refusal.code(), "control grant refused"));
-                    }
-                }
-            }
-        }
+        Message::Grant { challenge, epoch, signature } => accept_grant(control, &challenge, epoch, &signature, now, verify, replies),
         Message::Input { event } => {
             if control.authorized(now) {
                 inject_event(injector, event);
@@ -864,12 +773,6 @@ enum KeyRefresh {
     Suspend,
 }
 
-/// Decide a key-set refresh from a fresh read of the state file and the bytes
-/// last successfully loaded. Compares **content**, so a timestamp-preserving
-/// replace is still seen; an `Err` read or an unparseable body suspends
-/// authorization. Pure; unit-tested. `last` is advanced by the caller only on
-/// [`KeyRefresh::Loaded`], never on a failure, so one bad read cannot suppress
-/// the next retry.
 fn decide_refresh(read: std::io::Result<Vec<u8>>, last: &Option<Vec<u8>>) -> KeyRefresh {
     let bytes = match read {
         Ok(bytes) => bytes,
@@ -896,28 +799,23 @@ fn apply_refresh<S: inject::InputSink>(
 ) {
     match decide_refresh(read, last) {
         // Identical to the last good load: still valid, so an outage ends.
-        KeyRefresh::Unchanged => {
-            if control.suspended {
-                control.suspended = false;
-                log::event("helper", "install state readable again; authorization resumed");
-            }
-        }
+        KeyRefresh::Unchanged => resume_authorization(control),
         KeyRefresh::Loaded { keys, bytes } => {
             *last = Some(bytes);
-            if control.suspended {
-                control.suspended = false;
-                log::event("helper", "install state readable again; authorization resumed");
-            }
+            resume_authorization(control);
             apply_key_set(injector, control, keys, replies);
         }
         KeyRefresh::Suspend => suspend_authorization(injector, control, replies),
     }
 }
 
-/// Fail closed: the install state could not be read or parsed, so no set can be
-/// trusted. Revoke any live grant, release everything held, and refuse new
-/// grants and input/SAS ([`Control::authorized`] and the grant branch both
-/// gate on `suspended`) until a good read resumes it. Acts once per outage.
+fn resume_authorization(control: &mut Control) {
+    if control.suspended {
+        control.suspended = false;
+        log::event("helper", "install state readable again; authorization resumed");
+    }
+}
+
 fn suspend_authorization<S: inject::InputSink>(injector: &mut inject::Injector<S>, control: &mut Control, replies: &mut Vec<Message>) {
     if control.suspended {
         return;
@@ -931,11 +829,6 @@ fn suspend_authorization<S: inject::InputSink>(injector: &mut inject::Injector<S
     replies.push(Message::error("grant_key_missing", "the install state is unreadable; control is suspended until it recovers"));
 }
 
-/// Install the current enrolled key set on a live connection. If the key that
-/// signed the live grant is no longer enrolled (the phone was unpaired), the
-/// grant is revoked and everything held released before any further input or
-/// SAS — authority ends at once, without a reconnect or restart. A newly
-/// enrolled key simply becomes verifiable for the next grant. Pure; unit-tested.
 fn apply_key_set<S: inject::InputSink>(
     injector: &mut inject::Injector<S>,
     control: &mut Control,
@@ -966,11 +859,6 @@ fn settle_lapse<S: inject::InputSink>(injector: &mut inject::Injector<S>, contro
     }
 }
 
-/// An injection found the input desktop gone (its re-attach failed): capture
-/// and new input stop at once (`desktop_available = false`), everything held
-/// is released, and the client is told `desktop_unavailable` — once per
-/// outage. Recovery is the serve loop's frame-paced attach path, whose next
-/// success ends the outage with a `desktop-changed`.
 fn suspend_if_desktop_lost<S: inject::InputSink>(injector: &mut inject::Injector<S>, control: &mut Control, replies: &mut Vec<Message>) {
     let Some(reason) = injector.take_desktop_lost() else {
         return;
@@ -986,11 +874,6 @@ fn suspend_if_desktop_lost<S: inject::InputSink>(injector: &mut inject::Injector
     replies.push(Message::error("desktop_unavailable", reason));
 }
 
-/// Per-loop grant upkeep at `now`: a lapse is settled ([`settle_lapse`]);
-/// while control is active a fresh challenge is issued on the refresh
-/// cadence; a failed injection is reported (`input_failed`, once per failure
-/// streak — see [`inject::Injector::take_failure`]); and a desktop lost by a
-/// release on this pass suspends ([`suspend_if_desktop_lost`]).
 fn tick<S: inject::InputSink>(injector: &mut inject::Injector<S>, control: &mut Control, now: Instant, replies: &mut Vec<Message>) {
     settle_lapse(injector, control, now, replies);
     suspend_if_desktop_lost(injector, control, replies);
@@ -1004,16 +887,6 @@ fn tick<S: inject::InputSink>(injector: &mut inject::Injector<S>, control: &mut 
     }
 }
 
-/// Ask the service for Ctrl+Alt+Del, unless an administrator's policy
-/// excludes services — then the client is told `sas_disabled_by_policy` and
-/// nothing is changed. Everything this connection holds (the Ctrl and Alt of
-/// the combo) is released first so no modifier rides into the SAS screen. If
-/// those releases find the input desktop gone, the outage is settled on the
-/// spot ([`suspend_if_desktop_lost`]: suspended, `desktop_unavailable`) and no
-/// SAS is raised — nothing acts while the desktop is unavailable — so the
-/// next message of the same batch is already refused. The service re-reads
-/// the policy before it acts; `policy` (the registry read) only lets the
-/// client learn the outcome. `raise` sets the SAS-request event.
 fn request_sas<S: inject::InputSink>(
     injector: &mut inject::Injector<S>,
     control: &mut Control,
@@ -1507,12 +1380,6 @@ mod tests {
         assert!(codes(&accepted).is_empty() && control.authorized(t1), "control works again");
     }
 
-    /// Two control frames that arrive in **one read**: encoded into one buffer,
-    /// fed to the real accumulator with a single `extend`, and drained one frame
-    /// at a time through [`dispatch_refreshed`] — as `serve_client` does. The
-    /// injected hook `commit` replaces the committed state *between* the first
-    /// and the second dispatch (a revoke whose command returns mid-batch).
-    /// Returns each dispatch's effect and replies.
     fn batch_with_commit_between(
         injector: &mut inject::Injector<Recorder>,
         control: &mut Control,
@@ -1790,8 +1657,6 @@ mod tests {
         feed_gate(&mut injector, &mut control, input(InputEvent::Key { down: true, vk: 0xa2, scan: 0x1d, extended: false }), t0);
         assert_eq!(gate.inserted.borrow().len(), 1, "Ctrl went in");
 
-        // One batch, no tick: sas → its release meets a desktop that cannot
-        // be re-attached → input.
         *gate.blocked.borrow_mut() = true;
         *gate.desktop_gone.borrow_mut() = true;
         let mut replies = Vec::new();

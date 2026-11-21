@@ -56,18 +56,10 @@ pub fn gemini() -> RetryPolicy {
     policy
 }
 
-/// Antigravity (`antigravity-retry-policy.mjs`): one same-host ladder of three
-/// retries at 1/2/4 s ±10 %, with a capacity schedule and a one-shot rate
-/// limit schedule that each start the ladder afresh. Spent quota is never
-/// retried; recovery cycles are off.
 pub fn antigravity() -> RetryPolicy {
     antigravity_with(&FirstByteSettings::process())
 }
 
-/// [`antigravity`] with the same-host ladder of `settings` (`MIXDOG_ANTIGRAVITY_RETRY_MAX_ATTEMPTS` and
-/// `MIXDOG_ANTIGRAVITY_RETRY_BACKOFF_MS`, `ANTIGRAVITY_RETRY`): everything that is not a 429. Node's backoff list holds the
-/// wait before attempt n at index n, its first value the duplicate `withRetry` expects; the schedule's steps are the rest,
-/// and a single value serves every attempt.
 pub fn antigravity_with(settings: &FirstByteSettings) -> RetryPolicy {
     let mut policy = RetryPolicy::codex_default();
     let steps = || ladder(&[1, 2, 4]);

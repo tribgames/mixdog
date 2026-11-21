@@ -6,11 +6,10 @@
 //!   ([`supplement::run`]), then adopts the moved user editor file's Markdown preference into live config.
 //!   It never runs the first pass's late profile pass.
 //!
-//! Both methods are Local-only, and `adopt` is refused to a Window (the core reads and moves files from the directory
-//! named). The directory must be absolute and exist. Once a profile is recorded (`migration/profile-gen.json`, else the
-//! migration's late manifest, else its manifest), only that profile may be named again, so a different directory is never
-//! read from or deleted in. Only the files [`supplement`] lists are ever opened. A repeated adopt of the same profile
-//! changes nothing.
+//! Both methods are Local-only, and `adopt` is refused to a Window. The directory must be absolute and exist. Once a
+//! profile is recorded (`migration/profile-gen.json`, else the migration's late manifest, else its manifest), only that
+//! profile may be named again, so a different directory is never read from or deleted in. Only the files [`supplement`]
+//! lists are ever opened. A repeated adopt of the same profile changes nothing.
 
 #![allow(clippy::disallowed_methods, reason = "every file read here is the body of a job of an interactive-io or durability-io lane")]
 

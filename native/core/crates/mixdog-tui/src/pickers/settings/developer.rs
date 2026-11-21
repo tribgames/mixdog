@@ -1,4 +1,4 @@
-//! Settings, Developer (`maintenance-pickers/developer-picker.mjs`): level 1 lists the developer sections, level 2 the selected
+//! Settings, Developer: level 1 lists the developer sections, level 2 the selected
 //! section's options as On/Off toggles. Both levels render from `getDeveloperSettings`, so a new section or option needs no
 //! code here. Turning on an option that carries a `warning` goes through a confirmation panel showing that warning; turning
 //! an option off never asks.

@@ -174,6 +174,49 @@ impl Mouse {
         self.last_click = Some(LastClick { x, y, t_ms: now_ms, count: 1 });
     }
 
+    /// A press outside every selectable region drops the selection of whichever region held one.
+    fn on_press_outside_regions<H: MouseHost + ?Sized>(&mut self, host: &mut H, now_ms: u64) {
+        self.last_click = None;
+        self.drag.active = false;
+        self.drag.region = None;
+        self.drag.anchor_span = None;
+        if let Some(prompt) = host.prompt() {
+            prompt.clear();
+        }
+        self.apply_selection_rect(host, None, now_ms);
+        self.finish_windows_mouse_gesture(host);
+    }
+
+    /// The word (2 clicks) or line (3) under the cell, recorded as the drag's anchor span so a following drag extends by whole
+    /// words or lines from it. The drag stays armed: a release without motion keeps this highlight, any motion extends.
+    /// False when the host has no span there and the press falls back to a plain one.
+    fn select_word_or_line<H: MouseHost + ?Sized>(
+        &mut self,
+        host: &mut H,
+        at: Point,
+        region: Region,
+        anchor_scroll: f64,
+        click_count: u32,
+        now_ms: u64,
+    ) -> bool {
+        let Point { x, y } = at;
+        let kind = if click_count == 2 { SpanKind::Word } else { SpanKind::Line };
+        let found = match kind {
+            SpanKind::Word => host.word_rect_at(x, y),
+            SpanKind::Line => host.line_rect_at(y),
+        };
+        let Some(found) = found else { return false };
+        let lo = Point { x: found.x1, y: found.y1 };
+        let hi = Point { x: found.x2, y: found.y2 };
+        let rect = linear_selection(lo, hi);
+        host.stop_smooth_scroll();
+        self.clear_stitch_buffer();
+        self.drag = Drag::pressed(x, y, true, region, anchor_scroll, Some(AnchorSpan { lo, hi, kind }));
+        self.apply_selection_rect(host, Some(rect), now_ms);
+        self.last_click = Some(LastClick { x, y, t_ms: now_ms, count: click_count });
+        true
+    }
+
     /// `onLeftPress`: the region router. A press decides which surface owns the selection: the prompt box first (it overlaps no
     /// transcript rows), then the transcript viewport, then the bottom statusline band. A press anywhere else clears any prior
     /// selection.
@@ -185,16 +228,7 @@ impl Mouse {
             return;
         }
         let Some(region) = self.press_region(y) else {
-            self.last_click = None;
-            self.drag.active = false;
-            self.drag.region = None;
-            self.drag.anchor_span = None;
-            // Whichever selection is active, the grid rect and the prompt engine's, goes.
-            if let Some(prompt) = host.prompt() {
-                prompt.clear();
-            }
-            self.apply_selection_rect(host, None, now_ms);
-            self.finish_windows_mouse_gesture(host);
+            self.on_press_outside_regions(host, now_ms);
             return;
         };
         // A press always clears the prompt box selection (a single active region).
@@ -211,26 +245,8 @@ impl Mouse {
         // Works for transcript and status rows alike, the word and line rects are grid based. Copy still happens on Ctrl+C.
         let click_count = multi_click_count(self.last_click.as_ref(), x, y, now_ms);
         let anchor_scroll = if region == Region::Transcript { host.scroll_target() } else { 0.0 };
-        if click_count == 2 || click_count == 3 {
-            // The word (2) or line (3) under the cell. The span is recorded on the drag so a following drag extends by whole
-            // words or lines from it. The drag stays armed: a release without motion keeps this highlight, any motion extends.
-            let kind = if click_count == 2 { SpanKind::Word } else { SpanKind::Line };
-            let found = match kind {
-                SpanKind::Word => host.word_rect_at(x, y),
-                SpanKind::Line => host.line_rect_at(y),
-            };
-            if let Some(found) = found {
-                let lo = Point { x: found.x1, y: found.y1 };
-                let hi = Point { x: found.x2, y: found.y2 };
-                let rect = linear_selection(lo, hi);
-                host.stop_smooth_scroll();
-                // A fresh word or line anchor resets the stitch buffer, as a character drag does.
-                self.clear_stitch_buffer();
-                self.drag = Drag::pressed(x, y, true, region, anchor_scroll, Some(AnchorSpan { lo, hi, kind }));
-                self.apply_selection_rect(host, Some(rect), now_ms);
-                self.last_click = Some(LastClick { x, y, t_ms: now_ms, count: click_count });
-                return;
-            }
+        if (click_count == 2 || click_count == 3) && self.select_word_or_line(host, Point { x, y }, region, anchor_scroll, click_count, now_ms) {
+            return;
         }
         self.last_click = Some(LastClick { x, y, t_ms: now_ms, count: 1 });
         // A new selection is anchored here. Nothing is painted yet: a plain single click must not flash a one-cell highlight,

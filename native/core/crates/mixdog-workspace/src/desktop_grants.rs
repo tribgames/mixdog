@@ -224,6 +224,30 @@ fn owning_project<'a>(projects: &'a [PathBuf], file: &Path) -> Option<(&'a PathB
     Some((project, rel))
 }
 
+/// The row for one stat-ed path, and whether it is a file outside every project (one that a grant would cover).
+fn path_entry(absolute: &Path, dir: bool, size: u64, projects: &[PathBuf]) -> (LocalPathEntry, bool) {
+    let mut row = LocalPathEntry {
+        absolute_path: absolute.to_string_lossy().into_owned(),
+        name: base_name(absolute).unwrap_or_else(|| absolute.to_string_lossy().into_owned()),
+        dir,
+        size,
+        project_path: None,
+        rel_path: None,
+        access_token: None,
+    };
+    if dir {
+        return (row, false);
+    }
+    if let Some((project, rel)) = owning_project(projects, absolute) {
+        row.project_path = Some(project.to_string_lossy().into_owned());
+        row.rel_path = Some(rel);
+        return (row, false);
+    }
+    row.project_path = Some(dir_name(absolute).to_string_lossy().into_owned());
+    row.rel_path = base_name(absolute);
+    (row, true)
+}
+
 /// `selectedFileGrantKey`: the SHA-256 of the token, in hex.
 fn token_hash(token: &str) -> String {
     Sha256::digest(token.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
@@ -586,6 +610,17 @@ impl DesktopGrantStore {
         })
     }
 
+    async fn stat_all(&self, absolutes: &[PathBuf]) -> WsResult<Vec<(bool, u64)>> {
+        let absolutes = absolutes.to_vec();
+        run_in(self.lanes.interactive, &CancellationToken::new(), move |proof| {
+            absolutes
+                .iter()
+                .map(|path| mixdog_fsio::metadata(proof, path).at("stat", path).map(|info| (info.is_dir(), info.len())))
+                .collect::<WsResult<Vec<_>>>()
+        })
+        .await?
+    }
+
     /// Describes each path (1..=100). `mint` is false for a chat link: a file outside every project is then addressed as its own
     /// folder's file with no token, so nothing is granted, persisted or capped. The picker and drop mint.
     pub async fn describe(&self, paths: &[String], mint: bool, projects: &[PathBuf]) -> WsResult<Vec<LocalPathEntry>> {
@@ -593,47 +628,19 @@ impl DesktopGrantStore {
             return Err(WsError::invalid("paths are invalid."));
         }
         let absolutes = paths.iter().map(|raw| absolute_local_path(raw)).collect::<WsResult<Vec<_>>>()?;
-        let stats = {
-            let absolutes = absolutes.clone();
-            run_in(self.lanes.interactive, &CancellationToken::new(), move |proof| {
-                absolutes
-                    .iter()
-                    .map(|path| mixdog_fsio::metadata(proof, path).at("stat", path).map(|info| (info.is_dir(), info.len())))
-                    .collect::<WsResult<Vec<_>>>()
-            })
-            .await??
-        };
+        let stats = self.stat_all(&absolutes).await?;
         let mut rows = Vec::with_capacity(absolutes.len());
-        // The files that need a grant: the index of their row, and the file.
         let mut minted: Vec<(usize, PathBuf)> = Vec::new();
         for (absolute, (dir, size)) in absolutes.iter().zip(stats) {
-            let mut row = LocalPathEntry {
-                absolute_path: absolute.to_string_lossy().into_owned(),
-                name: base_name(absolute).unwrap_or_else(|| absolute.to_string_lossy().into_owned()),
-                dir,
-                size,
-                project_path: None,
-                rel_path: None,
-                access_token: None,
-            };
-            if !dir {
-                if let Some((project, rel)) = owning_project(projects, absolute) {
-                    row.project_path = Some(project.to_string_lossy().into_owned());
-                    row.rel_path = Some(rel);
-                } else {
-                    row.project_path = Some(dir_name(absolute).to_string_lossy().into_owned());
-                    row.rel_path = base_name(absolute);
-                    if mint {
-                        minted.push((rows.len(), absolute.clone()));
-                    }
-                }
+            let (row, ungranted) = path_entry(absolute, dir, size, projects);
+            if ungranted && mint {
+                minted.push((rows.len(), absolute.clone()));
             }
             rows.push(row);
         }
         if minted.is_empty() {
             return Ok(rows);
         }
-        // Inspection is complete before entering the grant book's ordered transaction queue.
         let (reply, answer) = oneshot::channel();
         self.queue().send(Command::Mint { rows, minted, reply }).map_err(|_| actor_closed())?;
         answer.await.map_err(|_| actor_closed())?

@@ -1,9 +1,3 @@
-//! Host-key pre-check. The ssh options used for the real connection check host keys strictly
-//! (`StrictHostKeyChecking=yes`), so a new key can only get into known_hosts through this module: before the first
-//! connection the server's key (and the key of every ProxyJump hop on the way) is read, compared with Mixdog's own,
-//! the user's and the system-wide known_hosts, and shown. The connection only follows once the user has confirmed a
-//! new key, and that exact key is written to known_hosts first, so ssh then checks the server against what was shown.
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
@@ -337,10 +331,6 @@ async fn private_scan_dir(env: &SshEnv) -> std::io::Result<PathBuf> {
     create_private_dir(env, &root, "mxk-").await
 }
 
-/// Reads the key of one server behind ProxyJump / ProxyCommand: ssh dials through the route with a throwaway
-/// known_hosts. The server being read gets no login at all (no authentication method, no keys, no passwords) and its
-/// key is accepted unseen so it can be recorded; every hop on the way is checked strictly against the keys already
-/// trusted. The remote command is a plain `true`, and nothing is trusted until the user confirms.
 pub async fn scan_through_ssh(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget, scope: &ScanScope) -> Result<ScanOutput, SshError> {
     if scope.open != "*" && !safe_host(&scope.open) {
         return Err(said(crate::said::PROXY_HOST_UNREADABLE.plain()));

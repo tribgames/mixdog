@@ -441,10 +441,6 @@ fn queue_rig() -> (super::testing::Rig, std::sync::Arc<super::SessionDeps>, std:
     (rig, deps, gate, seen)
 }
 
-/// A message that lost two of its originals (one kept, two missing under one digest) waits behind a running turn, is taken
-/// back to its composer, and is sent again from there: the composer gets the message as it was sent, the originals
-/// included, so the core finds them missing again, and the message that runs shows exactly one note, of two. The entry
-/// taken back showed none of its own.
 #[tokio::test(start_paused = true)]
 async fn a_queued_message_taken_back_and_sent_again_is_told_its_missing_originals_once() {
     let (_rig, deps, gate, seen) = queue_rig();

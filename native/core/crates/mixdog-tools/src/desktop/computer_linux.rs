@@ -140,6 +140,24 @@ pub struct Readiness {
     pub capabilities: Capabilities,
 }
 
+/// An X11 session with every capability ready, and the environment that names it: a stand-in for a probed machine, so no probe runs.
+/// Development only (`test-support`).
+#[cfg(any(test, feature = "test-support"))]
+pub fn ready_x11_desktop() -> (Env, Readiness) {
+    let ready = || Cap::of(State::Ready);
+    let capabilities = Capabilities {
+        capture: ready(),
+        windows: ready(),
+        accessibility: ready(),
+        semantic_actions: ready(),
+        pointer: ready(),
+        keyboard: ready(),
+        clipboard: ready(),
+        ocr: ready(),
+    };
+    (Env::from([("DISPLAY".to_owned(), ":0".to_owned())]), Readiness { session: "x11".into(), desktop: "other".into(), capabilities })
+}
+
 /// What the disk and the shell settings say of the GNOME extension (not whether the shell loaded it).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HelperStatus {
@@ -551,7 +569,12 @@ fn reset_probe() {
 /// and says nothing ran. The caller skips it on a platform that is not Linux.
 pub async fn preflight(command: &Map<String, Value>, check: impl FnOnce() -> BoxFuture<'static, Readiness>) -> Option<Refusal> {
     let readiness = shared_readiness(check).await;
-    let missing = missing_capabilities(&readiness, command);
+    preflight_on(command, &readiness)
+}
+
+/// [preflight] against a readiness already in hand: the shared probe is neither read nor filled.
+pub fn preflight_on(command: &Map<String, Value>, readiness: &Readiness) -> Option<Refusal> {
+    let missing = missing_capabilities(readiness, command);
     if missing.is_empty() {
         return None;
     }
@@ -586,6 +609,14 @@ pub async fn capture_fallback(command: &Map<String, Value>, check: impl FnOnce()
         return None;
     }
     let readiness = shared_readiness(check).await;
+    capture_fallback_on(command, &readiness)
+}
+
+/// [capture_fallback] against a readiness already in hand: the shared probe is neither read nor filled.
+pub fn capture_fallback_on(command: &Map<String, Value>, readiness: &Readiness) -> Option<Fallback> {
+    if !is_foreground_window_capture(command) {
+        return None;
+    }
     if !readiness.capabilities.windows.state.blocks() {
         return None;
     }
@@ -625,7 +656,7 @@ pub(super) async fn run_short(manager: &dyn ProcessManager, env: &Env, program: 
         time_limit: None,
     };
     manager.spawn(request).await.ok()?;
-    let mut events = manager.subscribe(&handle, Some(0)).ok()?;
+    let mut events = manager.subscribe_holding(&handle, Some(0)).ok()?;
     let read = async {
         let mut out = Vec::new();
         while let Some(event) = events.next().await {

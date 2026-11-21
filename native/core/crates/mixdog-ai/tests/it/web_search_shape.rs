@@ -1,8 +1,3 @@
-//! The hosted web-search tool of each provider family, the allowed-domain filter, the tool types a route tries, the
-//! prompt and the flattening of the cited sources (Node 1.4.5 `session-runtime/native-web-search/tool-shape.mjs`).
-//! The tables are the rules written out: each row is one input and the exact text it must give, so the key order of a
-//! wire body is compared too.
-
 use mixdog_ai::service::web_search::flatten_sources;
 use mixdog_ai::service::web_search::native_web_search_messages;
 use mixdog_ai::service::web_search::native_web_search_tool;
@@ -185,6 +180,10 @@ fn the_tool_of_each_family_takes_its_own_fields_in_the_wire_order() {
         }
         assert_eq!(native_web_search_tool(&args, " google_search ", "gemini"), json!({"type": "google_search"}), "gemini {args}");
     }
+}
+
+#[test]
+fn a_preview_or_blank_tool_type_changes_only_what_its_family_carries() {
     // A preview type carries no context size; Anthropic names its own type whatever was asked; a blank type is `web_search`.
     let args = json!({"site": "a.com OR b.com"});
     assert_eq!(native_web_search_tool(&args, "web_search_preview", "openai"), json!({"type": "web_search_preview"}));

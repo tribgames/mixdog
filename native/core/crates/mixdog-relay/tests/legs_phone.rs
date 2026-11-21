@@ -18,10 +18,13 @@ use mixdog_relay::legs::watchdog::HandshakeTiming;
 use mixdog_relay::rate_limit::RateLimiter;
 use mixdog_relay::store::{DeviceStore, ProfileInput};
 use mixdog_relay::ws::{FlushCallback, HandshakeRequest, ServerOptions, WebSocketServer};
-use mixdog_rt::time::{Instant, sleep, timeout};
+use mixdog_rt::time::{Instant, timeout};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 use url::Url;
+
+mod support;
+use support::eventually;
 
 const DEVICE: &str = "6f1d3c2e-8a4b-4c5d-9e7f-0a1b2c3d4e5f";
 const SECRET: &str = "0123456789abcdef";
@@ -290,14 +293,6 @@ fn masked_frame(first: u8, payload: &[u8]) -> Vec<u8> {
     out.extend_from_slice(&MASK);
     out.extend(payload.iter().enumerate().map(|(index, byte)| byte ^ MASK[index % 4]));
     out
-}
-
-async fn eventually(what: &str, mut condition: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while !condition() {
-        assert!(Instant::now() < deadline, "timed out waiting for: {what}");
-        sleep(Duration::from_millis(10)).await;
-    }
 }
 
 // ---- rigs ----

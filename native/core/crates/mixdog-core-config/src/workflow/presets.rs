@@ -1,8 +1,3 @@
-//! The effective presets and the workflow-route summary of the config
-//! (`orchestrator/config-presets.mjs`, `runtime-core/workflow.mjs` `createWorkflowRouteHelpers`):
-//! the shipped presets laid under the stored ones, and the Lead / agent / memory routes the
-//! onboarding status reports.
-
 use mixdog_ai::service::admin_route::Obj;
 use mixdog_ai::service::admin_route::clean_model_parameters;
 use mixdog_ai::service::admin_route::find_preset;

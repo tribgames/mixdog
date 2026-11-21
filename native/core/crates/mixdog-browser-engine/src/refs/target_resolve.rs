@@ -1,5 +1,4 @@
-//! Owner: s4-engine-target-points
-//! Snapshot-free element targeting (`target-resolve.ts`). A caller that already knows what it wants ("the Save button", "the
+//! Snapshot-free element targeting. A caller that already knows what it wants ("the Save button", "the
 //! Email field") names it by role and accessible name or by a CSS selector; the engine takes the observation itself, insists
 //! on exactly one match, and hands back a live ref. An ambiguous target fails with its candidates and their fresh refs, so the
 //! next call can pick one without another observation.
@@ -375,23 +374,12 @@ pub struct ResolvedTarget {
     pub minted: Option<BrowserSnapshotElement>,
 }
 
-/// `selectorCandidates`: the elements a selector names, with how many nodes the page matched. The count is final past the
-/// limit: a truncated list would hide a second match.
-async fn selector_candidates(
-    cx: &TargetContext<'_>,
-    selector: &str,
-    snapshot: &HostBrowserSnapshotResult,
-) -> Result<(Vec<BrowserSnapshotElement>, usize), TargetError> {
+/// Ask the top document what a selector matches and refuse a selector the page rejects or one with too many matches.
+async fn query_selector(cx: &TargetContext<'_>, selector: &str, snapshot_id: &str, expect: Option<Precondition>) -> Result<SelectorReport, TargetError> {
     let expression = SELECTOR_QUERY
         .replace("__LIMIT__", &MAX_SELECTOR_MATCHES.to_string())
-        .replace("__SNAPSHOT_ID__", &json_string(&snapshot.snapshot_id))
+        .replace("__SNAPSHOT_ID__", &json_string(snapshot_id))
         .replace("__SELECTOR__", &json_string(selector));
-    // The caller's `expect` names the snapshot the page held before this resolution; the observation just taken replaced it, so the
-    // selector's own calls are bound to the one they were made against (the old id would refuse every one as a changed page).
-    let expect = cx.expect.cloned().map(|mut expect| {
-        expect.snapshot_id = Some(snapshot.snapshot_id.clone());
-        expect
-    });
     let params = HostBrowserPageEvalParams {
         page_id: cx.page_id.to_string(),
         expression,
@@ -400,7 +388,7 @@ async fn selector_candidates(
         return_by_value: Some(true),
         world: None,
         timeout_ms: u32::try_from(CDP_REQUEST_TIMEOUT.as_millis()).unwrap_or(u32::MAX),
-        expect: expect.clone(),
+        expect,
         check_unchanged: None,
     };
     let answer = cx.host.page_eval(params, cx.cancel).await?;
@@ -409,25 +397,31 @@ async fn selector_candidates(
     }
     let report: SelectorReport = serde_json::from_value(answer.value.unwrap_or(Value::Null))
         .map_err(|_| TargetError::Failed("the page did not answer the selector query".to_string()))?;
-    if let Some(reason) = report.invalid {
-        return Err(TargetError::Invalid(format!("target.selector is not a valid CSS selector: {}", redact_browser_text(&reason))));
+    if let Some(reason) = &report.invalid {
+        return Err(invalid_selector(reason));
     }
-    if report.count > MAX_SELECTOR_MATCHES {
-        return Err(TargetError::Failed(format!(
-            "target.selector matched {} elements, exceeding the limit of {MAX_SELECTOR_MATCHES}; narrow target.selector before acting",
-            report.count
-        )));
-    }
+    check_match_count(report.count)?;
+    Ok(report)
+}
+
+/// `selectorCandidates`: the elements a selector names, with how many nodes the page matched. The count is final past the
+/// limit: a truncated list would hide a second match.
+async fn selector_candidates(
+    cx: &TargetContext<'_>,
+    selector: &str,
+    snapshot: &HostBrowserSnapshotResult,
+) -> Result<(Vec<BrowserSnapshotElement>, usize), TargetError> {
+    // The caller's `expect` names the snapshot the page held before this resolution; the observation just taken replaced it, so the
+    // selector's own calls are bound to the one they were made against (the old id would refuse every one as a changed page).
+    let expect = cx.expect.cloned().map(|mut expect| {
+        expect.snapshot_id = Some(snapshot.snapshot_id.clone());
+        expect
+    });
+    let report = query_selector(cx, selector, &snapshot.snapshot_id, expect.clone()).await?;
     let listed = &snapshot.payload.elements;
     if report.table {
-        let candidates: Vec<BrowserSnapshotElement> = report
-            .matches
-            .into_iter()
-            .filter_map(|found| {
-                let ref_id = found.ref_id?;
-                Some(listed.iter().find(|element| element.ref_id == ref_id).cloned().unwrap_or_else(|| css_element(ref_id, found.role, found.name)))
-            })
-            .collect();
+        let candidates: Vec<BrowserSnapshotElement> =
+            report.matches.into_iter().filter_map(|found| Some(listed_or_css(listed, found.ref_id?, found.role, found.name))).collect();
         return Ok((candidates, report.count));
     }
     // The refs of the nodes the selector names, in document order: a node the snapshot lists keeps its ref, any other gets one
@@ -445,20 +439,29 @@ async fn selector_candidates(
         Err(error) => return Err(error.into()),
     };
     if let Some(reason) = minted.invalid {
-        return Err(TargetError::Invalid(format!("target.selector is not a valid CSS selector: {}", redact_browser_text(&reason))));
+        return Err(invalid_selector(&reason));
     }
     let count = minted.count as usize;
+    check_match_count(count)?;
+    let candidates = minted.matches.into_iter().map(|found| listed_or_css(listed, found.ref_id, found.role, found.name)).collect();
+    Ok((candidates, count))
+}
+
+fn invalid_selector(reason: &str) -> TargetError {
+    TargetError::Invalid(format!("target.selector is not a valid CSS selector: {}", redact_browser_text(reason)))
+}
+
+fn check_match_count(count: usize) -> Result<(), TargetError> {
     if count > MAX_SELECTOR_MATCHES {
         return Err(TargetError::Failed(format!(
             "target.selector matched {count} elements, exceeding the limit of {MAX_SELECTOR_MATCHES}; narrow target.selector before acting"
         )));
     }
-    let candidates = minted
-        .matches
-        .into_iter()
-        .map(|found| listed.iter().find(|element| element.ref_id == found.ref_id).cloned().unwrap_or_else(|| css_element(found.ref_id, found.role, found.name)))
-        .collect();
-    Ok((candidates, count))
+    Ok(())
+}
+
+fn listed_or_css(listed: &[BrowserSnapshotElement], ref_id: String, role: String, name: String) -> BrowserSnapshotElement {
+    listed.iter().find(|element| element.ref_id == ref_id).cloned().unwrap_or_else(|| css_element(ref_id, role, name))
 }
 
 /// `resolveTargetRefs`: every target resolved against ONE fresh observation. A lone name-only target narrows the observation

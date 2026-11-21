@@ -1,7 +1,3 @@
-//! A thread's address and close fences, as a client observes them on a real directory: `thread/start`, the thread's open and
-//! `thread/resume`, `thread/delete` (the canonical close of a session a client asks for: its tombstone fences admission
-//! before the work stops) and `TaskNotifier::finished` (a background job's completion). A thread opens and resumes
-//! (`open`), is refused while its close runs (`closing`) or is not there (`terminal`).
 use std::sync::Arc;
 
 use mixdog_core_api::CoreError;
@@ -545,10 +541,6 @@ async fn closing_for_an_agent_task_cancel_records_the_cancellation() {
     assert_eq!((&header["closedReason"], &header["cancelStatus"], &header["cancelledAt"]), (&json!("agent-task-cancel"), &json!("cancelled"), &json!(2000)));
 }
 
-/// A save issued for an expected generation (`saveSessionAsync(session, { expectedGeneration })`) is decided against the stored
-/// record by `close::drops_against`: an open record drops it when the record's generation is past the expected one; a closed
-/// record also drops it at an equal generation (a tombstone at least as new); a save that names no generation is never dropped.
-/// The rows are the states a late save meets: `(barriers applied, expected offset from the start, outcome)`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_late_save_is_dropped_only_when_the_record_moved_past_the_ownership_it_was_issued_for() {
     #[derive(Clone, Copy)]

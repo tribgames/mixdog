@@ -1143,6 +1143,29 @@ mod worker_index_tests {
 /// (a 1.4.5 log repeats the whole history in every `compacted` record and reaches hundreds of
 /// MB). The result is the fold of the bytes read, not yet proven to be the manifest's: the
 /// caller `verify`s the handle before it uses it.
+fn chained_length(record: &Map<String, Value>, expected: usize, t: &str, length: u64) -> Option<u64> {
+    let misplaced = count_of(record.get("s")) != Some(expected as u64)
+        || (expected == 0 && t != "session")
+        || (expected == 1 && t != "compacted")
+        || (expected > 0 && t == "session");
+    if misplaced {
+        return None;
+    }
+    let len = count_of(record.get("len"));
+    let mlen = record.get("messages").and_then(Value::as_array).map_or(0, |m| m.len() as u64);
+    match t {
+        "compacted" => len,
+        "append" => len.filter(|l| *l == length + mlen),
+        "edit" => {
+            let at = count_of(record.get("at")).unwrap_or(0);
+            let del = count_of(record.get("del")).unwrap_or(0);
+            len.filter(|l| at + del <= length && *l + del == length + mlen)
+        }
+        "rollback" => len.filter(|l| *l <= length),
+        _ => Some(length),
+    }
+}
+
 pub fn fold_log(id: &str, log: &mut durable::OpenFile, replaced: &mut u64) -> R<LogFold> {
     let mut line = Vec::new();
     // Lines accepted so far, which is also the sequence number the next one must carry.
@@ -1163,35 +1186,10 @@ pub fn fold_log(id: &str, log: &mut durable::OpenFile, replaced: &mut u64) -> R<
         let Ok(parsed) = json::parse_source(text.as_bytes()) else { continue };
         let value = parsed.value;
         let Some(record) = decode_record(&value) else { continue };
-        let expected = accepted;
-        let t = record["t"].as_str().unwrap_or("");
-        let misplaced = count_of(record.get("s")) != Some(expected as u64)
-            || (expected == 0 && t != "session")
-            || (expected == 1 && t != "compacted")
-            || (expected > 0 && t == "session");
-        let len = count_of(record.get("len"));
-        let mlen = record.get("messages").and_then(Value::as_array).map_or(0, |m| m.len() as u64);
-        let next = if misplaced {
-            None
-        } else {
-            match t {
-                "compacted" => len,
-                "append" => len.filter(|l| *l == length + mlen),
-                "edit" => {
-                    let at = count_of(record.get("at")).unwrap_or(0);
-                    let del = count_of(record.get("del")).unwrap_or(0);
-                    len.filter(|l| at + del <= length && *l + del == length + mlen)
-                }
-                "rollback" => len.filter(|l| *l <= length),
-                _ => Some(length),
-            }
-        };
-        // A record that does not follow the history before it is where Node's replay stops (`damage`):
-        // the records before it are the log, the rest is not read.
-        let Some(next) = next else { break };
+        let t = record["t"].as_str().unwrap_or("").to_owned();
+        let Some(next) = chained_length(record, accepted, &t, length) else { break };
         length = next;
         *replaced += parsed.replaced_surrogates;
-        let t = t.to_owned();
         let Value::Object(mut record) = value else {
             unreachable!("decode_record admits only objects");
         };
@@ -1250,57 +1248,83 @@ fn archive_rows(
     damage: &mut Vec<Value>,
 ) -> R<(Vec<Row>, Vec<u64>)> {
     let range = archive_range(header);
-    let mut entries: Vec<(u64, u8, Vec<Row>)> = Vec::new();
-    let mut segment_seqs = BTreeSet::new();
-    if let Some(text) = archive {
-        for (n, line) in text.split(|&b| b == b'\n').enumerate() {
-            if line.is_empty() {
-                continue;
-            }
-            let what = format!("archive line {}", n + 1);
-            match segment_rows(line, &what, range, replaced) {
-                Ok((seq, rows)) => {
-                    segment_seqs.insert(seq);
-                    entries.push((seq, 0, rows));
-                }
-                Err(Fail::Quarantine(_, detail)) => damage.push(skipped("archive", n + 1, &detail, line)),
-                Err(blocked) => return Err(blocked),
-            }
-        }
-    }
-    let mut superseded = Vec::new();
-    if let Some(text) = pending {
-        match parse(text, QuarantineCode::ArchiveParseError, "pending jobs", replaced) {
-            Err(Fail::Quarantine(_, detail)) => damage.push(skipped("pending", 0, &detail, text)),
-            Err(blocked) => return Err(blocked),
-            // The sidecar is one unit, as the earlier version read it (`parsePendingJobs`): one
-            // damaged job sets the whole file aside.
-            Ok(doc) => match pending_jobs(&doc) {
-                Ok(jobs) => {
-                    let committed = committed_seq(header);
-                    for (n, job) in jobs.iter().enumerate() {
-                        let part = |why: &str| skipped("pending", n + 1, why, job.to_string().as_bytes());
-                        // `recoverPending`: a job its session record does not commit was never saved
-                        // with its compaction and is discarded, whatever its number.
-                        if integer_seq(job.get("seq")).is_some_and(|seq| seq >= committed) {
-                            damage.push(part("its compaction was never saved in the session record"));
-                            continue;
-                        }
-                        match pending_job_rows(id, job, range) {
-                            Ok((seq, _)) if segment_seqs.contains(&seq) => superseded.push(seq),
-                            Ok((seq, rows)) => entries.push((seq, 1, rows)),
-                            Err(Fail::Quarantine(_, detail)) => damage.push(part(&detail)),
-                            Err(blocked) => return Err(blocked),
-                        }
-                    }
-                }
-                Err(Fail::Quarantine(_, detail)) => damage.push(skipped("pending", 0, &detail, text)),
-                Err(blocked) => return Err(blocked),
-            },
-        }
-    }
+    let mut entries = Vec::new();
+    let segment_seqs = segment_entries(archive, range, replaced, damage, &mut entries)?;
+    let superseded = pending_entries(id, header, pending, range, &segment_seqs, replaced, damage, &mut entries)?;
     entries.sort_by_key(|(seq, kind, _)| (*seq, *kind));
     Ok((entries.into_iter().flat_map(|(_, _, rows)| rows).collect(), superseded))
+}
+
+type ArchiveEntries = Vec<(u64, u8, Vec<Row>)>;
+
+fn segment_entries(
+    archive: Option<&[u8]>,
+    range: Option<(f64, f64)>,
+    replaced: &mut u64,
+    damage: &mut Vec<Value>,
+    entries: &mut ArchiveEntries,
+) -> R<BTreeSet<u64>> {
+    let mut segment_seqs = BTreeSet::new();
+    let Some(text) = archive else { return Ok(segment_seqs) };
+    for (n, line) in text.split(|&b| b == b'\n').enumerate() {
+        if line.is_empty() {
+            continue;
+        }
+        let what = format!("archive line {}", n + 1);
+        match segment_rows(line, &what, range, replaced) {
+            Ok((seq, rows)) => {
+                segment_seqs.insert(seq);
+                entries.push((seq, 0, rows));
+            }
+            Err(Fail::Quarantine(_, detail)) => damage.push(skipped("archive", n + 1, &detail, line)),
+            Err(blocked) => return Err(blocked),
+        }
+    }
+    Ok(segment_seqs)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn pending_entries(
+    id: &str,
+    header: &Header,
+    pending: Option<&[u8]>,
+    range: Option<(f64, f64)>,
+    segment_seqs: &BTreeSet<u64>,
+    replaced: &mut u64,
+    damage: &mut Vec<Value>,
+    entries: &mut ArchiveEntries,
+) -> R<Vec<u64>> {
+    let mut superseded = Vec::new();
+    let Some(text) = pending else { return Ok(superseded) };
+    match parse(text, QuarantineCode::ArchiveParseError, "pending jobs", replaced) {
+        Err(Fail::Quarantine(_, detail)) => damage.push(skipped("pending", 0, &detail, text)),
+        Err(blocked) => return Err(blocked),
+        // The sidecar is one unit, as the earlier version read it (`parsePendingJobs`): one
+        // damaged job sets the whole file aside.
+        Ok(doc) => match pending_jobs(&doc) {
+            Ok(jobs) => {
+                let committed = committed_seq(header);
+                for (n, job) in jobs.iter().enumerate() {
+                    let part = |why: &str| skipped("pending", n + 1, why, job.to_string().as_bytes());
+                    // `recoverPending`: a job its session record does not commit was never saved
+                    // with its compaction and is discarded, whatever its number.
+                    if integer_seq(job.get("seq")).is_some_and(|seq| seq >= committed) {
+                        damage.push(part("its compaction was never saved in the session record"));
+                        continue;
+                    }
+                    match pending_job_rows(id, job, range) {
+                        Ok((seq, _)) if segment_seqs.contains(&seq) => superseded.push(seq),
+                        Ok((seq, rows)) => entries.push((seq, 1, rows)),
+                        Err(Fail::Quarantine(_, detail)) => damage.push(part(&detail)),
+                        Err(blocked) => return Err(blocked),
+                    }
+                }
+            }
+            Err(Fail::Quarantine(_, detail)) => damage.push(skipped("pending", 0, &detail, text)),
+            Err(blocked) => return Err(blocked),
+        },
+    }
+    Ok(superseded)
 }
 #[derive(Deserialize)]
 struct Workers<'a> {

@@ -176,6 +176,9 @@ pub(super) mod testing {
             Ok(SpawnedProcess { handle: request.handle, pid: 1 })
         }
 
+        fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            self.subscribe(handle, from_seq)
+        }
         fn subscribe(&self, handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
             let receive = locked(&self.receivers).remove(&handle.0).ok_or(ProcessError::UnknownHandle)?;
             Ok(Box::new(Feed(receive)))

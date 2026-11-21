@@ -1,11 +1,4 @@
-//! The keychain as the provider setup flow sees it ([`KeychainLive`]): the health
-//! `mixdog_secrets::StatusTracker` keeps (Node's `keychainStatus()`), and the retry and passive
-//! re-check of `shared/config.mjs` (`retryKeychain`, `refreshKeychainStatus`).
-//!
-//! Node's retry and refresh exist only on Linux (`platform() !== 'linux'` answers false). There they
-//! drive a snapshot cache (`prewarmSecrets`, a TTL, background retries) that the Rust store does not
-//! have: it asks the keyring per call and never caches a credential here. Focus checks the
-//! collection without prompting; an explicit retry may ask Secret Service to unlock it.
+//! Focus checks the keyring collection without prompting; an explicit retry may ask Secret Service to unlock it.
 
 use std::path::PathBuf;
 use std::sync::Arc;

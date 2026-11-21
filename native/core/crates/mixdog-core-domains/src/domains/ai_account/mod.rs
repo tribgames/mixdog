@@ -2,6 +2,8 @@
 
 pub mod account;
 pub mod admin;
+#[cfg(test)]
+mod admin_tests;
 pub mod auth_refresh;
 pub mod collaborators;
 pub mod custom_admin;

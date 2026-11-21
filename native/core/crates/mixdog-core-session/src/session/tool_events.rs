@@ -1,9 +1,3 @@
-//! The close metric of `<data>/tool-events.log` (`lifecycle-barriers.mjs:_logSessionCloseMetric`
-//! through `createAsyncLogAppender`): `append` only queues the line; one drain per file writes the
-//! batch on a maintenance-lane job, and once the file would pass its cap it is cut down to its
-//! last `KEEP` bytes (whole lines) before the next batch lands. Best effort: a failed write drops
-//! its batch and never fails the close.
-
 use std::collections::VecDeque;
 use std::path::Path;
 use std::path::PathBuf;

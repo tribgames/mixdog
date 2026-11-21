@@ -5,6 +5,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_mcp::setup_actions::SetupRuntime;
+use mixdog_mcp::setup_actions::mcp_rows;
 use mixdog_mcp::setup_actions::run;
 use serde_json::Value;
 use serde_json::json;
@@ -175,7 +176,7 @@ async fn an_added_server_needs_a_name_and_a_command_or_a_url() {
 }
 
 #[tokio::test]
-async fn a_server_input_holds_no_credential_values_and_one_transport() {
+async fn a_server_input_holds_no_credential_values() {
     assert_eq!(
         refusal("add_mcp_server", json!({"server": {"name": "a", "command": "x", "env": {"API_KEY": "secret"}}})).await,
         "setup: env.API_KEY must use an environment-variable reference, not a credential value"
@@ -192,6 +193,10 @@ async fn a_server_input_holds_no_credential_values_and_one_transport() {
         refusal("add_mcp_server", json!({"server": {"name": "a", "url": "https://h.example/m?token=1"}})).await,
         "MCP URL credentials are not accepted; use environment-variable references"
     );
+}
+
+#[tokio::test]
+async fn a_server_input_selects_one_transport_with_a_supported_url() {
     assert_eq!(refusal("add_mcp_server", json!({"server": {"name": "a", "url": "ftp://h.example/m"}})).await, "MCP URL must use HTTP(S) or WS(S)");
     assert_eq!(
         refusal("add_mcp_server", json!({"server": {"name": "a", "command": "x", "url": "https://h.example/m"}})).await,
@@ -275,4 +280,47 @@ async fn an_unknown_action_and_an_unknown_connector_are_refused() {
     assert_eq!(refusal("teleport", json!({})).await, "setup: teleport is not an MCP, skills, plugins or connectors action");
     assert!(refusal("connect_connector", json!({"connector": "nope"})).await.starts_with("connector must be one of "));
     assert_eq!(refusal("connect_connector", json!({})).await, "connector is required");
+}
+
+#[tokio::test]
+async fn a_connect_connector_answers_the_card_note_or_the_connected_server() {
+    let waiting = run("connect_connector", &json!({"connector": "postgres"}), &facade()).await.unwrap();
+    assert_eq!(
+        waiting,
+        json!({"connector": "postgres", "name": "Postgres", "backend": "apiKey", "connected": false,
+            "note": "A connect card for Postgres is shown in this conversation; the user presses it (Desktop: Extensions → 커넥터). Check status mcp afterwards."})
+    );
+    let linked = Facade { status: json!({"servers": [{"name": "gmail-main", "connector": "gmail", "connected": true}]}), ..facade() };
+    let done = run("connect_connector", &json!({"connector": "gmail"}), &linked).await.unwrap();
+    assert_eq!(
+        done,
+        json!({"connector": "gmail", "name": "Gmail", "backend": "oauth", "server": "gmail-main", "connected": true, "note": "Gmail is already connected."})
+    );
+}
+
+#[test]
+fn a_plugin_servers_row_carries_its_owner_accounts_and_notices() {
+    let status = json!({
+        "connectedCount": 2,
+        "warnings": ["top"],
+        "servers": [{
+            "name": "g", "enabled": false, "connected": false, "type": "http", "toolCount": 2, "source": "plugin",
+            "owner": {"kind": "plugin", "id": "p1", "key": "k"}, "disabledReason": "off", "error": "boom",
+            "warnings": ["w"], "scope": ["/p"], "connector": "gmail",
+            "accounts": [{"name": "a", "email": "e@x", "authRequired": true, "error": "bad"}, {"name": "b"}]
+        }]
+    });
+    assert_eq!(
+        mcp_rows(&status),
+        json!({
+            "connectedCount": 2,
+            "warnings": ["top"],
+            "servers": [{
+                "name": "g", "enabled": false, "connected": false, "transport": "http", "toolCount": 2, "source": "plugin",
+                "plugin": "p1", "pluginServer": "k", "disabledReason": "off", "error": "boom", "warnings": ["w"],
+                "scope": ["/p"], "connector": "gmail",
+                "accounts": [{"name": "a", "email": "e@x", "authRequired": true, "error": "bad"}, {"name": "b", "email": ""}]
+            }]
+        })
+    );
 }

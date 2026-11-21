@@ -1,9 +1,8 @@
-//! `workspaceSees(targetCwd, viewerCwd)` (`shared/worktrees/workspace-visibility.mjs`): a
-//! session working in one folder sees work done in another when the two overlap, or when they
+//! A session working in one folder sees work done in another when the two overlap, or when they
 //! belong to one repository (a checkout and its linked worktrees share one git common dir).
-//! The repository is found as `findGitLayout` finds it (`git-head.mjs:layoutAbove`): walking up
-//! to a `.git` directory, or a `gitdir:` file, whose git dir holds a `HEAD`. Every comparison is
-//! on canonical paths (`worktrees/paths.mjs`), which reads the file system, so it runs on the lane.
+//! The repository is found by walking up to a `.git` directory, or a `gitdir:` file, whose git
+//! dir holds a `HEAD`. Every comparison is on canonical paths, which reads the file system, so it
+//! runs on the lane.
 
 use std::path::MAIN_SEPARATOR;
 use std::path::MAIN_SEPARATOR_STR;
@@ -33,7 +32,7 @@ impl GitSight {
     /// wedged): Node's `catch { return false }` (`workspace-visibility.mjs`) covers a failed
     /// file read only, so an unrun check must not be answered "does not see".
     async fn on_lane<R: Send + 'static>(&self, job: impl FnOnce(&InLane<MaintenanceIo>) -> R + Send + 'static) -> Result<R, CoreError> {
-        mixdog_core_base::support::on_lane(self.io, &CancellationToken::new(), job).await
+        mixdog_core_base::support::on_lane_wait(self.io, &CancellationToken::new(), job).await
     }
 }
 
@@ -186,11 +185,10 @@ mod tests {
         assert!(!sight.sees(&path(&main), "").await.unwrap(), "no viewer folder");
     }
 
-    /// `workspaceSees` over spellings of one folder, with the answers Node gave for this tree
-    /// (`workspace-visibility.mjs` run on it): `..` is folded before any comparison, so a path that
-    /// climbs out of a folder is not inside it; a link, a case spelling and a trailing separator
-    /// lead to the folder they name; a path below a folder that does not exist is judged through
-    /// its nearest existing ancestor (`canonicalPath`, `paths.mjs`).
+    /// The answers Node gave for this tree, over spellings of one folder: `..` is folded before any
+    /// comparison, so a path that climbs out of a folder is not inside it; a link, a case spelling and
+    /// a trailing separator lead to the folder they name; a path below a folder that does not exist
+    /// is judged through its nearest existing ancestor.
     #[tokio::test]
     async fn spellings_of_a_folder_are_judged_on_canonical_paths_as_node_does() {
         let temp = tempfile::tempdir().unwrap();
@@ -208,6 +206,8 @@ mod tests {
         link_dir(&main, &root.join("alias"));
         link_dir(&linked, &root.join("linkedalias"));
 
+        // Whether the file system tells `MAIN` from `main` is a property of the volume, not of the system.
+        let case_blind = root.join("MAIN").exists();
         let root = root.to_string_lossy().into_owned();
         // Joined as written: `..` and a trailing separator stay in the string.
         let raw = |parts: &[&str]| std::iter::once(root.as_str()).chain(parts.iter().copied()).collect::<Vec<_>>().join(MAIN_SEPARATOR_STR);
@@ -221,7 +221,7 @@ mod tests {
             ("a link to a linked worktree", raw(&["linkedalias"]), raw(&["main"]), true),
             ("a link to the folder, another repository", raw(&["alias"]), raw(&["other"]), false),
             ("a climb out of a link is lexical", raw(&["alias", "..", "outside-review"]), raw(&["main"]), false),
-            ("another case of the folder", raw(&["MAIN", "src"]), raw(&["main"]), cfg!(windows)),
+            ("another case of the folder", raw(&["MAIN", "src"]), raw(&["main"]), case_blind),
             ("another case of another repository", raw(&["OTHER"]), raw(&["main"]), false),
             ("below a folder that does not exist", raw(&["main", "gone", "deeper"]), raw(&["main"]), true),
             ("below a missing folder of a link", raw(&["alias", "gone"]), raw(&["main", "src"]), true),

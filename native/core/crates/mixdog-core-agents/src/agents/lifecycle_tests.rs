@@ -273,7 +273,7 @@ async fn a_reconcile_archives_a_new_deletion_once_and_leaves_a_hand_restored_cha
 }
 
 #[tokio::test]
-async fn a_failed_presence_read_archives_nothing_and_a_restored_agent_gets_its_chat_back() {
+async fn a_failed_presence_read_archives_nothing() {
     struct Failing(Homes);
     #[async_trait]
     impl HomeDeps for Failing {
@@ -334,12 +334,18 @@ async fn a_failed_presence_read_archives_nothing_and_a_restored_agent_gets_its_c
     let homes = AgentHomeSessions::new(failing.clone());
     assert_eq!(message(&homes.retire(&["ada".into()]).await.unwrap_err()), "presence unreadable");
     assert!(failing.0.world().archived.is_empty());
-    // Restoring brings the chat out of the archive and clears the deletion record; Mixy's is never touched.
-    failing.0.world().archived.push("sess_home_ada".into());
-    failing.0.world().retired.push("sess_home_ada".into());
+}
+
+#[tokio::test]
+async fn a_restored_agent_gets_its_chat_back_out_of_the_archive_and_mixys_is_never_touched() {
+    mixdog_rt::testing::tokens();
+    let deps = Arc::new(Homes::default());
+    let homes = AgentHomeSessions::new(deps.clone());
+    deps.world().archived.push("sess_home_ada".into());
+    deps.world().retired.push("sess_home_ada".into());
     homes.restore("ada").await.unwrap();
     homes.restore("lead").await.unwrap();
-    assert!(failing.0.world().archived.is_empty() && failing.0.world().retired.is_empty());
+    assert!(deps.world().archived.is_empty() && deps.world().retired.is_empty());
 }
 
 #[tokio::test]

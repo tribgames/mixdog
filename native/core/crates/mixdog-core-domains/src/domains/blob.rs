@@ -1,12 +1,6 @@
-//! The `blob` domain: `blob/read` pages and `blob/put` chunks over the one blob store
-//! (P §3, SPEC R1). Blobs are content-addressed, so neither method is a mutation: a repeated
-//! chunk or page has one effect and needs no op id.
-//!
-//! An upload is staged in memory until the bytes received hash to the digest it names, then
-//! published through the store's durability lane. Staged bytes are bounded as a whole;
-//! beyond the bound the least recently touched upload is dropped (its client sees a gap and
-//! starts again). Reads verify a blob's file once (streamed, never held whole) and remember the
-//! digest for a while, so each page after that is a seek and a read of that page alone.
+//! Blobs are content-addressed, so neither `blob/read` nor `blob/put` is a mutation: a repeated
+//! chunk or page has one effect and needs no op id. Past the staged-bytes bound the least recently
+//! touched upload is dropped and its client sees a gap.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -309,48 +303,7 @@ impl BlobService {
             None if offset > 0 => return self.already_stored(req, digest).await,
             None => self.staging.entry(digest),
         };
-        let step = 'decide: {
-            let mut state = upload.state.lock().unwrap_or_else(|e| e.into_inner());
-            // Another uploader of this digest completed it: the chunk is a repeat of what is being published.
-            // The decision is taken here, under the lock; the wait for the publication happens after it is released.
-            if state.done {
-                break 'decide Step::Repeat;
-            }
-            let have = state.buf.len();
-            // A gap or a resent chunk that differs from what was staged is refused; a resent
-            // chunk that repeats it adds only the bytes past the end.
-            if offset > have {
-                return Err(invalid("offset", "the next byte after those already received"));
-            }
-            let held = (have - offset).min(chunk.len());
-            if state.buf[offset..offset + held] != chunk[..held] {
-                return Err(invalid("bytesB64", "the bytes already received at this offset"));
-            }
-            let fresh = &chunk[held..];
-            if (have + fresh.len()) as u64 > MAX_BLOB_BYTES {
-                drop(state);
-                self.staging.remove(digest);
-                return Err(CoreError::ItemTooLarge { limit: MAX_BLOB_BYTES });
-            }
-            if !fresh.is_empty() && !self.staging.make_room(digest, fresh.len()) {
-                return Err(CoreError::QueueFull { queue: "blobUploads".into() });
-            }
-            state.buf.extend_from_slice(fresh);
-            state.hasher.update(fresh);
-            state.staged.fetch_add(fresh.len(), Ordering::Relaxed);
-            upload.touched.store(self.staging.tick(), Ordering::Relaxed);
-            if format!("sha256:{}", hex_of(state.hasher.clone())) == digest.as_str() {
-                let taken = std::mem::take(&mut state.buf);
-                state.staged.fetch_sub(taken.len(), Ordering::Relaxed);
-                // Content being published is always in one of two places: staged, or announced until the store has it.
-                // The upload is marked done and announced in the same hold of its lock, so a chunk of another uploader of
-                // the digest finds either the bytes staged or the announcement, never neither.
-                state.done = true;
-                Step::Complete(taken, self.publishing.announce(digest))
-            } else {
-                Step::Pending
-            }
-        };
+        let step = self.stage_chunk(&upload, digest, offset, &chunk)?;
         let (bytes, _publishing) = match step {
             Step::Repeat => return self.already_stored(req, digest).await,
             Step::Pending => return Ok(json!({})),
@@ -363,6 +316,45 @@ impl BlobService {
             drop(_publishing);
         }
         Ok(json!({}))
+    }
+
+    /// Takes the chunk into the upload under its lock. A gap or a resent chunk that differs from what was staged is
+    /// refused; a resent chunk that repeats it adds only the bytes past the end. The upload is marked done and
+    /// announced in the same hold of the lock, so a chunk of another uploader finds either the staged bytes or the
+    /// announcement.
+    fn stage_chunk(&self, upload: &Upload, digest: &BlobDigest, offset: usize, chunk: &[u8]) -> Result<Step<'_>, CoreError> {
+        let mut state = upload.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.done {
+            return Ok(Step::Repeat);
+        }
+        let have = state.buf.len();
+        if offset > have {
+            return Err(invalid("offset", "the next byte after those already received"));
+        }
+        let held = (have - offset).min(chunk.len());
+        if state.buf[offset..offset + held] != chunk[..held] {
+            return Err(invalid("bytesB64", "the bytes already received at this offset"));
+        }
+        let fresh = &chunk[held..];
+        if (have + fresh.len()) as u64 > MAX_BLOB_BYTES {
+            drop(state);
+            self.staging.remove(digest);
+            return Err(CoreError::ItemTooLarge { limit: MAX_BLOB_BYTES });
+        }
+        if !fresh.is_empty() && !self.staging.make_room(digest, fresh.len()) {
+            return Err(CoreError::QueueFull { queue: "blobUploads".into() });
+        }
+        state.buf.extend_from_slice(fresh);
+        state.hasher.update(fresh);
+        state.staged.fetch_add(fresh.len(), Ordering::Relaxed);
+        upload.touched.store(self.staging.tick(), Ordering::Relaxed);
+        if format!("sha256:{}", hex_of(state.hasher.clone())) != digest.as_str() {
+            return Ok(Step::Pending);
+        }
+        let taken = std::mem::take(&mut state.buf);
+        state.staged.fetch_sub(taken.len(), Ordering::Relaxed);
+        state.done = true;
+        Ok(Step::Complete(taken, self.publishing.announce(digest)))
     }
 
     async fn already_stored(&self, req: &CoreRequest, digest: &BlobDigest) -> Result<Value, CoreError> {

@@ -1,7 +1,10 @@
 //! The Unix side of a text search's reads, and of the volume a path lies on.
 //!
 //! A descriptor whose read can wait forever (a FIFO, a socket, a terminal) is opened non-blocking and waited on with
-//! `poll` beside its reading thread's [`Cancel`], so a cancel ends the wait: no signal, no process-wide disposition.
+//! `poll` (a FIFO on macOS: `select`) beside its reading thread's [`Cancel`], so a cancel ends the wait: no signal, no
+//! process-wide disposition. On macOS the end a FIFO's `select` reports is a flag of the FIFO's one read socket, which
+//! any reader's read of that end clears, so a reader that reaches `select` after another reader took the end waits
+//! until its cancel or the FIFO's next writer.
 //! Anything else (a regular file, a directory, a block device) is read as `std` reads it; a read of that kind that
 //! never returns (a file on a dead mount, in uninterruptible sleep) cannot be ended from outside and is given up
 //! instead (localfs `Producers::give_up`).
@@ -50,6 +53,22 @@ impl Cancel {
         // SAFETY: one byte from a valid buffer to a descriptor owned here.
         unsafe { libc::write(self.write.as_raw_fd(), (&raw const byte).cast(), 1) };
     }
+
+    /// Whether [`Cancel::fire`] has run, without waiting.
+    fn fired(&self) -> io::Result<bool> {
+        let mut fd = libc::pollfd { fd: self.read.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        loop {
+            // SAFETY: one pollfd entry; a zero timeout returns at once.
+            let ready = unsafe { libc::poll(&mut fd, 1, 0) };
+            if ready >= 0 {
+                return Ok(ready > 0);
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
 }
 
 /// Adds `flag` to the descriptor's flags read with `get` and written with `set`.
@@ -67,8 +86,16 @@ fn set_flag(fd: libc::c_int, get: libc::c_int, set: libc::c_int, flag: libc::c_i
 /// A file opened for its search ([`open`]).
 pub struct Opened {
     file: File,
-    /// A FIFO, a socket or a terminal, open non-blocking: each read first waits with `poll`.
+    /// A FIFO, a socket or a terminal, open non-blocking: each read first waits with `poll` (macOS: a FIFO with
+    /// `select`, [`Opened::select`]).
     pollable: bool,
+    #[cfg(target_os = "macos")]
+    fifo: bool,
+    /// The last read returned the end: the next, unless the cancel fired, is tried before any wait, and waits only if
+    /// it would block; bytes it reads put the reads back to waiting first. The end
+    /// stays readable (no writer: the read returns it again), but macOS's fifofs no longer reports it to `select`
+    /// (`fifo_read` clears the read socket's can't-receive-more once it returned the end).
+    ended: bool,
     cancel: Option<Arc<Cancel>>,
 }
 
@@ -93,7 +120,14 @@ pub fn open(path: &Path, cancel: Option<Arc<Cancel>>) -> io::Result<Opened> {
     let file = unsafe { File::from_raw_fd(fd) };
     let kind = file.metadata()?.file_type();
     let pollable = kind.is_fifo() || kind.is_socket() || kind.is_char_device();
-    let opened = Opened { file, pollable, cancel };
+    let opened = Opened {
+        file,
+        pollable,
+        #[cfg(target_os = "macos")]
+        fifo: kind.is_fifo(),
+        ended: false,
+        cancel,
+    };
     if !pollable {
         opened.blocking()?;
     }
@@ -117,6 +151,10 @@ impl Opened {
     /// Waits until the descriptor has something to read (bytes, its end, an error) or the cancel fired. A descriptor
     /// this platform cannot poll (macOS answers POLLNVAL for a terminal) is put back to blocking reads.
     fn wait(&mut self) -> io::Result<()> {
+        #[cfg(target_os = "macos")]
+        if self.fifo {
+            return self.select();
+        }
         let cancel = self.cancel.as_ref().map_or(-1, |c| c.read.as_raw_fd());
         let mut fds = [
             libc::pollfd { fd: self.file.as_raw_fd(), events: libc::POLLIN, revents: 0 },
@@ -134,7 +172,7 @@ impl Opened {
                 return Err(error);
             }
             if fds[1].revents != 0 {
-                return Err(io::Error::other("the search's read was cancelled"));
+                return Err(cancelled());
             }
             if fds[0].revents & libc::POLLNVAL != 0 {
                 self.pollable = false;
@@ -145,6 +183,57 @@ impl Opened {
             }
         }
     }
+
+    /// macOS's wait on a FIFO. Its `poll` is a kqueue EVFILT_READ, whose FIFO predicate is only the bytes buffered
+    /// (`filt_vnode_common`, vfs_vnops.c), so a drained FIFO whose last writer closed is never reported. `select` asks
+    /// fifofs itself (`fifo_select` → `soo_select` on the read socket → `soreadable`), which reports the
+    /// can't-receive-more that the last writer's close sets (`fifo_close_internal` → `socantrcvmore`) and that a FIFO no
+    /// writer has opened yet does not have. The read clears it once it returned the end ([`Opened::ended`]).
+    #[cfg(target_os = "macos")]
+    fn select(&self) -> io::Result<()> {
+        let file = self.file.as_raw_fd();
+        let cancel = self.cancel.as_ref().map(|c| c.read.as_raw_fd());
+        let nfds = file.max(cancel.unwrap_or(-1)) + 1;
+        let bit = |fd: libc::c_int| (fd as usize / 32, 1u32 << (fd as usize % 32));
+        loop {
+            let mut set = vec![0u32; (nfds as usize).div_ceil(32)];
+            for (word, mask) in std::iter::once(file).chain(cancel).map(bit) {
+                set[word] |= mask;
+            }
+            // SAFETY: `set` has a bit for every descriptor below `nfds`; no timeout waits indefinitely.
+            let ready = unsafe { select_unlimited(nfds, set.as_mut_ptr(), std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) };
+            if ready < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error);
+            }
+            let is_set = |fd: libc::c_int| {
+                let (word, mask) = bit(fd);
+                set[word] & mask != 0
+            };
+            if cancel.is_some_and(is_set) {
+                return Err(cancelled());
+            }
+            if is_set(file) {
+                return Ok(());
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    /// `select` with no FD_SETSIZE bound on `nfds` (<sys/_select.h> under _DARWIN_UNLIMITED_SELECT; the libc crate's
+    /// `select` is the variant that refuses an `nfds` past 1024 with EINVAL): each set is `nfds` bits in 32-bit words,
+    /// descriptor `fd` the bit `fd % 32` of word `fd / 32`.
+    #[link_name = "select$DARWIN_EXTSN"]
+    fn select_unlimited(nfds: libc::c_int, read: *mut u32, write: *mut u32, error: *mut u32, timeout: *mut libc::timeval) -> libc::c_int;
+}
+
+fn cancelled() -> io::Error {
+    io::Error::other("the search's read was cancelled")
 }
 
 impl Read for Opened {
@@ -153,12 +242,27 @@ impl Read for Opened {
             if !self.pollable {
                 return self.file.read(buf);
             }
-            self.wait()?;
-            if !self.pollable {
-                continue;
+            if !self.ended {
+                self.wait()?;
+                if !self.pollable {
+                    continue;
+                }
+            } else if let Some(cancel) = &self.cancel {
+                if cancel.fired()? {
+                    return Err(cancelled());
+                }
             }
             match self.file.read(buf) {
-                Err(error) if matches!(error.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted) => {}
+                Ok(0) => {
+                    self.ended = true;
+                    return Ok(0);
+                }
+                Ok(read) => {
+                    self.ended = false;
+                    return Ok(read);
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => self.ended = false,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
                 read => return read,
             }
         }
@@ -358,7 +462,8 @@ mod tests {
         assert!(again.read(&mut [0; 16]).is_err(), "a fired cancel ends the next wait at once");
     }
 
-    /// A FIFO's read gets what its writer writes, then its end once the writer closes.
+    /// A FIFO's read gets what its writer writes, then its end once the writer closes, and that end again on the next
+    /// read.
     #[test]
     fn a_fifo_reads_its_writers_bytes_and_its_end() {
         let dir = Scratch::new("written");
@@ -373,6 +478,7 @@ mod tests {
         opened.read_to_string(&mut text).unwrap();
         writer.join().unwrap();
         assert_eq!(text, "needle held\n");
+        assert_eq!(opened.read(&mut [0; 16]).unwrap(), 0);
     }
 
     /// A path and a file under it lie on one volume, read from the mount table.

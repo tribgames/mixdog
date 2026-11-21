@@ -1,17 +1,11 @@
-//! RL G8, office throughput, through the real pool and the shared render browser, with scripted workers
-//! (`src/bin/ext_fake_worker.rs` in its `g8` mode) and the scripted browser (`src/bin/ext_fake_browser.rs`) in place of
-//! LibreOffice and Chromium. It proves the pool's own mechanics at scale: the call mix over W workers, the result latency
-//! while other calls' chunk windows are full, a call that cannot be cancelled holding one slot until "stop worker".
-//! Heavy at full scale, so it only runs when asked for:
+//! RL G8, office throughput: the real pool and shared render browser with scripted workers and browser. Heavy at full
+//! scale, so it only runs when asked for:
 //!
 //!   G8_SCALE=smoke  cargo test -p mixdog-exthost --features test-support --test it g8:: -- --ignored --nocapture   (1 call per session)
 //!   G8_SCALE=full   cargo test -p mixdog-exthost --features test-support --test it g8:: -- --ignored --nocapture  (32 calls, 4 sessions)
 //!
 //! `G8_SPIN_MS` is the synchronous-spin call's length (full: 60000 unless set; smoke: 600000, freed
-//! by "stop worker"). `G8_WORKERS` overrides W. Run nothing else heavy beside the full scale.
-//!
-//! The single-worker baseline, the throughput ratio and the fairness ratio are only asserted at
-//! full scale; the smoke run proves every call kind and the spin/stop mechanics work.
+//! by "stop worker"). `G8_WORKERS` overrides W.
 #![allow(clippy::disallowed_methods, reason = "a test driver: temp directories and process-wide environment")]
 
 use std::path::PathBuf;
@@ -90,13 +84,13 @@ impl Drop for Scratch {
 fn pool(scratch: &Scratch, workers: usize) -> Arc<ExtHostPool> {
     Arc::new(
         ExtHostPool::new(ExtHostConfig {
-            program: env!("CARGO_BIN_EXE_ext_fake_worker").into(),
+            program: mixdog_testkit::bin_exe!("ext_fake_worker").into(),
             args: vec!["g8".into()],
             workers,
             pending_cap: 64,
             spawn_io: mixdog_rt::testing::tokens().spawn_io,
             render_browser: RenderBrowserConfig {
-                command: Some((env!("CARGO_BIN_EXE_ext_fake_browser").into(), vec!["endpoint".into()])),
+                command: Some((mixdog_testkit::bin_exe!("ext_fake_browser").into(), vec!["endpoint".into()])),
                 profile_root: scratch.0.join("browsers"),
                 no_sandbox: false,
             },
@@ -289,10 +283,6 @@ async fn spin_phase(scratch: &Scratch, smoke: bool) {
     pool.close().await;
 }
 
-/// `result` reaches the consumer ≤ 50 ms after the worker writes it, while other calls' chunk
-/// windows are full: W-1 workers each emit more than a window nobody is taking, and a probe call
-/// on the remaining worker stamps the time it produced its result. The reader of every worker keeps
-/// demultiplexing, so the stalled windows must not delay it. Worker and core share a wall clock.
 async fn result_latency_phase(scratch: &Scratch, smoke: bool) {
     let w = workers();
     let pool = pool(scratch, w);

@@ -93,10 +93,6 @@ js_re!(LEGACY_WAIT, r"retryAfter=(\d+)(ms|s|m)\b", "i");
 // request-refusal kinds, so a typed overload, quota or auth failure never reads as a missing model.
 const MODEL_REFUSAL_KINDS: &[&str] = &["invalid_request", "permission", "unknown"];
 const MODEL_UNAVAILABLE_CODES: &[&str] = &["model_not_found", "model_not_supported"];
-// The model must be the subject of the refusal, at the start of a line or sentence ("The model `x` does not exist",
-// "models/x is not found", Ollama's `model "x" not found`), or the refusal names it ("Unknown model", "... is not a valid
-// model ID", Anthropic's bare "model: x"). A model merely mentioned beside some other missing thing ("For model x, tool
-// lookup: route not found") does not count.
 const MODEL_REFUSAL_PREDICATE: &str = r"(?:(?:is|was|has been)\s+)?(?:not found|does not exist|doesn'?t exist|not (?:supported|available)|(?:currently\s+)?unavailable|no longer (?:available|supported)|deprecated|retired|removed)\b";
 const SENTENCE_START: &str = r"(?:^|[.:;!]\s+)";
 static MODEL_UNAVAILABLE: LazyLock<JsRegex> = LazyLock::new(|| {
@@ -270,21 +266,35 @@ fn first_readable_line(clean: &str) -> String {
     if !first.is_empty() && !UNREADABLE_FIRST.is_match(first) { first.to_owned() } else { String::new() }
 }
 
+fn persisted_descriptor(persisted: Js) -> Option<KindDescriptor> {
+    let kind = str_of(get(persisted, "kind")).and_then(|kind| PROVIDER_ERROR_KINDS.iter().copied().find(|known| *known == kind))?;
+    let positive = |key: &str| Some(number(get(persisted, key))).filter(|n| *n > 0.0);
+    let status = number(get(persisted, "status"));
+    Some(KindDescriptor {
+        kind,
+        code: string_or_empty(get(persisted, "code")),
+        status: if status.is_nan() { 0.0 } else { status },
+        retry_after_ms: positive("retryAfterMs"),
+        reset_at: positive("resetAt"),
+    })
+}
+
+fn legacy_wait_ms(raw: &str) -> Option<f64> {
+    let wait = LEGACY_WAIT.captures(raw)?;
+    let unit = match mixdog_js::js_to_lowercase(wait.get(2)?).as_str() {
+        "ms" => 1.0,
+        "s" => 1000.0,
+        _ => 60_000.0,
+    };
+    Some(wait.get(1)?.parse::<f64>().ok()? * unit)
+}
+
 /// The provider kind descriptor: the persisted one, else typed evidence, else wording. The flag is true when the kind came
 /// from a persisted descriptor or a typed error: wording heuristics must then never override it.
 fn classify(value: Js, raw: &str, clean: &str, status: f64, code: &str, now_ms: f64) -> (KindDescriptor, bool) {
-    let persisted = get(value, "errorKind");
-    if let Some(kind) = str_of(get(persisted, "kind")).and_then(|kind| PROVIDER_ERROR_KINDS.iter().copied().find(|known| *known == kind)) {
-        let positive = |key: &str| Some(number(get(persisted, key))).filter(|n| *n > 0.0);
-        let status = number(get(persisted, "status"));
-        let descriptor = KindDescriptor {
-            kind,
-            code: string_or_empty(get(persisted, "code")),
-            status: if status.is_nan() { 0.0 } else { status },
-            retry_after_ms: positive("retryAfterMs"),
-            reset_at: positive("resetAt"),
-        };
-        return (descriptor, kind != "unknown");
+    if let Some(descriptor) = persisted_descriptor(get(value, "errorKind")) {
+        let known = descriptor.kind != "unknown";
+        return (descriptor, known);
     }
     let typed_fields = is_object(value)
         && [get(value, "status"), get(value, "httpStatus"), path(value, &["response", "status"]), get(value, "code"), get(value, "retryAfterMs")]
@@ -293,15 +303,7 @@ fn classify(value: Js, raw: &str, clean: &str, status: f64, code: &str, now_ms: 
     if !typed_fields {
         // Legacy persisted strings: their wording (and wait) is the only evidence.
         if let Some(legacy) = legacy_kind(clean) {
-            let retry_after_ms = LEGACY_WAIT.captures(raw).and_then(|wait| {
-                let unit = match mixdog_js::js_to_lowercase(wait.get(2)?).as_str() {
-                    "ms" => 1.0,
-                    "s" => 1000.0,
-                    _ => 60_000.0,
-                };
-                Some(wait.get(1)?.parse::<f64>().ok()? * unit)
-            });
-            let descriptor = KindDescriptor { kind: legacy, retry_after_ms: retry_after_ms.filter(|n| *n != 0.0), ..KindDescriptor::unknown() };
+            let descriptor = KindDescriptor { kind: legacy, retry_after_ms: legacy_wait_ms(raw).filter(|n| *n != 0.0), ..KindDescriptor::unknown() };
             return (descriptor, false);
         }
     }

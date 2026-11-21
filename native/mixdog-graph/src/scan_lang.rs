@@ -1,34 +1,3 @@
-// The single language registry.
-//
-// Scan uses ast-grep's 28 builtin grammars plus objc / zig / r, which are
-// implemented here on top of the tree-sitter grammar crates mixdog-graph
-// links directly — 31 scan languages in total.
-//
-// `LANG_INFOS` is the one table both capabilities read:
-//   * `extensions`      — every extension the ast-grep scan accepts.
-//   * `extract_extensions` — the subset that makes a file a GRAPH SOURCE
-//     file (walk / --files / --manifest / tokens / imports / symbols). Empty
-//     means the language is scan-only, which is how json/yaml/markdown/css/
-//     html/nix stay out of the graph even though ast-grep can parse them
-//     (markdown even ships a default outline rule).
-//   * `scan` — ast-grep rules can run.
-//
-// A language is an EXTRACTION language when it has extraction extensions AND
-// at least one outline rule is loaded for it (`outline::has_rules`), so the
-// extraction registry follows the rule bundle: solidity/haskell/hcl join the
-// moment `rules/outline/*.yml` covers them, and a language whose rules are
-// removed stops producing graph nodes instead of silently producing none.
-//
-// Extension → scan language differs from `lang_for` in one place: `.tsx` is
-// parsed with ast-grep's `tsx` grammar (TSX and TypeScript are separate
-// tree-sitter grammars and a TSX file does not parse as TypeScript), whereas
-// the graph folds both into the `typescript` language id.
-//
-// `language:` in a rule YAML accepts the ast-grep names (`TypeScript`, `Tsx`,
-// `CSharp`, `Php`, `Cpp`, `Markdown`, …), every ast-grep alias (`ts`, `cs`,
-// `md`, …) and our own lowercase ids — including `objc` / `objectivec` /
-// `objective-c`, `zig` and `r` — case-insensitively.
-
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;

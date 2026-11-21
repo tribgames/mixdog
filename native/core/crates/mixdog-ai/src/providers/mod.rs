@@ -16,8 +16,6 @@ pub mod google;
 pub mod grok;
 pub(crate) mod head_wait;
 pub mod hosted;
-#[cfg(test)]
-pub(crate) mod hosted_wire_tests;
 pub(crate) mod idle;
 pub(crate) mod js_value;
 pub mod key_source;

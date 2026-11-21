@@ -387,3 +387,91 @@ fn a_tree_without_a_live_role_and_name_is_not_checked_for_a_relabel() {
     *seen.name.borrow_mut() = "Delete".into();
     assert!(host.ref_record("r1").is_ok());
 }
+
+fn drive(action: impl FnOnce(&Host)) {
+    let seen = Rc::new(El::new("a", "Save"));
+    action(&host(screen(None).0, &seen, false));
+}
+
+fn text_of(result: Obj) -> String {
+    Value::Object(result).to_string()
+}
+
+#[test]
+fn foreground_text_over_the_limit_is_refused_before_any_input() {
+    drive(|host| {
+        let req = Req(json!({ "action": "type", "delivery": "foreground", "text": "x".repeat(4001) }));
+        assert_eq!(host.do_type(&req).err().as_deref(), Some("input_too_large: foreground text exceeds 4000 UTF-16 code units"));
+    });
+}
+
+#[test]
+fn foreground_key_and_type_without_a_window_report_target_required() {
+    drive(|host| {
+        let key = text_of(host.do_key(&Req(json!({ "action": "key", "delivery": "foreground", "keys": "a" }))).unwrap());
+        assert!(key.contains("key requires window_id/window or a prior focus_window in this session"), "{key}");
+        assert!(key.contains("target_required"), "{key}");
+        let typed = text_of(host.do_type(&Req(json!({ "action": "type", "delivery": "foreground", "text": "a" }))).unwrap());
+        assert!(typed.contains("type requires window_id/window or a prior focus_window in this session"), "{typed}");
+        let held = text_of(host.do_key_hold(&Req(json!({ "action": "key_down", "delivery": "foreground", "keys": "a" })), true).unwrap());
+        assert!(held.contains("key_down requires window_id/window or a prior focus_window in this session"), "{held}");
+    });
+}
+
+#[test]
+fn background_type_without_a_target_reports_target_required() {
+    drive(|host| {
+        let typed = text_of(host.do_type(&Req(json!({ "action": "type", "text": "a" }))).unwrap());
+        assert!(typed.contains("target_required"), "{typed}");
+        assert!(typed.contains("background type requires an exact ref or window_id"), "{typed}");
+    });
+}
+
+#[test]
+fn a_foreground_press_is_refused() {
+    drive(|host| {
+        let req = Req(json!({ "action": "mouse_down", "delivery": "foreground" }));
+        assert_eq!(host.click_family(&req, "press").err().as_deref(), Some("background_unsupported|a held pointer button is background-only; no input sent"));
+    });
+}
+
+#[test]
+fn drag_inputs_are_validated_by_shape() {
+    drive(|host| {
+        let one = Req(json!({ "action": "drag", "waypoints": [{ "x": 1, "y": 1 }] }));
+        assert_eq!(host.do_drag(&one).err().as_deref(), Some("waypoint drag requires at least two points"));
+        let partial = Req(json!({ "action": "drag", "x": 1, "y": 2 }));
+        assert_eq!(host.do_drag(&partial).err().as_deref(), Some("coordinate drag requires x, y, to_x, and to_y from one frame_id"));
+        let no_window = text_of(host.do_drag(&Req(json!({ "action": "drag", "x": 1, "y": 2, "to_x": 3, "to_y": 4 }))).unwrap());
+        assert!(no_window.contains("coordinate drag requires an exact window_id-bound frame"), "{no_window}");
+        let no_destination = Req(json!({ "action": "drag", "ref": "r1" }));
+        assert_eq!(host.do_drag(&no_destination).err().as_deref(), Some("drag requires to (destination ref)"));
+    });
+}
+
+#[test]
+fn scroll_inputs_are_validated_by_shape() {
+    drive(|host| {
+        let partial = Req(json!({ "action": "scroll", "x": 1 }));
+        assert_eq!(host.do_scroll(&partial).err().as_deref(), Some("coordinate scroll requires x and y from frame_id"));
+        let no_window = text_of(host.do_scroll(&Req(json!({ "action": "scroll", "x": 1, "y": 2 }))).unwrap());
+        assert!(no_window.contains("coordinate scroll requires an exact window_id-bound frame"), "{no_window}");
+        let background = text_of(host.do_scroll(&Req(json!({ "action": "scroll", "direction": "down" }))).unwrap());
+        assert!(background.contains("background scroll requires an exact ref or window_id"), "{background}");
+    });
+}
+
+#[test]
+fn a_sequence_step_must_be_one_exact_window_background_input() {
+    drive(|host| {
+        let held = Req(json!({ "step": { "action": "key_down" } }));
+        assert_eq!(
+            host.sequence_step(&held).err().as_deref(),
+            Some("background_unsupported|a held key requires the real keyboard; use explicit foreground delivery")
+        );
+        let loose = Req(json!({ "delivery": "background", "step": { "action": "click", "delivery": "background" } }));
+        assert_eq!(host.sequence_step(&loose).err().as_deref(), Some("sequence_step_invalid: expected one exact-window background input"));
+        let wait = Req(json!({ "delivery": "background", "step": { "action": "wait", "delivery": "background", "window_id": "w1", "duration": 6 } }));
+        assert_eq!(host.sequence_step(&wait).err().as_deref(), Some("sequence_step_invalid: wait requires 0..5 seconds"));
+    });
+}

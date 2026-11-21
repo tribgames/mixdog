@@ -1,13 +1,3 @@
-//! The price refresh (`usage-pricing-refresh.mjs`): when the price table changes, or new
-//! unpriced records appear, records whose cost is unknown are repriced, and a known bill or
-//! estimate is never overwritten. The decision (what changed since the last check, repair only
-//! the appended rows when that is all there is) is the ledger's; the prices are not. The model
-//! catalog stays outside this crate behind [`Pricer`].
-//!
-//! Lanes: the pending counts and the candidate rows are maintenance reads (an unbounded scan of
-//! the unpriced rows), the pricing is CPU work on `cpu-bulk`, and the write is one transaction
-//! on the writer thread; a refresh never holds the writer while it prices.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;

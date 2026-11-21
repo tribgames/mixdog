@@ -559,7 +559,7 @@ fn review_chart_series_naming(slide: &Slide<'_>, at: usize, issues: &mut Vec<Val
     ));
 }
 
-fn review_peer_type(slide: &Slide<'_>, issues: &mut Vec<Value>) {
+fn peer_groups<'a>(slide: &Slide<'a>) -> Vec<(String, Vec<&'a Value>)> {
     let mut groups: Vec<(String, Vec<&Value>)> = Vec::new();
     for shape in &slide.shapes {
         let slot = text(field(shape, "slot"));
@@ -572,12 +572,15 @@ fn review_peer_type(slide: &Slide<'_>, issues: &mut Vec<Value>) {
             None => groups.push((role, vec![*shape])),
         }
     }
+    groups
+}
+
+fn review_peer_type(slide: &Slide<'_>, issues: &mut Vec<Value>) {
     let path = slide.at();
-    for (role, members) in &groups {
+    for (role, members) in &peer_groups(slide) {
         if members.len() < 2 {
             continue;
         }
-        // Peers in one row hold the same column: a 140 pt label beside a 665 pt lead line is a label and its sentence.
         let widths: Vec<f64> = members.iter().map(|shape| num0(field(shape, "width"))).collect();
         let narrowest = widths.iter().copied().fold(f64::INFINITY, f64::min);
         let widest = widths.iter().copied().fold(f64::NEG_INFINITY, f64::max);
@@ -963,10 +966,6 @@ fn edge_crossings(t: &Frame, s: &Frame, across: f64, down: f64) -> Vec<(&'static
     crossings
 }
 
-/// A text box that dips a sliver into a panel, band, or picture it does not sit in: a headline whose last line runs onto
-/// the card under it reads as a collision, not a decision. Words wholly inside a surface are its label, wholly outside
-/// are its neighbour, and a deep crossing is a deliberate overlay; only a shallow crossing of one edge (more than 2 pt,
-/// less than half the text) is reported.
 fn review_text_edge_crossing(slide: &Slide<'_>, text_shapes: &[Text<'_>], issues: &mut Vec<Value>) {
     for text_shape in text_shapes {
         if is_pptx_chrome_text(text_shape.shape) {

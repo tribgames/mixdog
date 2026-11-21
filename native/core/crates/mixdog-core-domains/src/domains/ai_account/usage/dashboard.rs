@@ -82,8 +82,8 @@ fn js_string(value: &Value) -> String {
     mixdog_js::value_to_string(value)
 }
 
-pub fn normalise_windows(value: Option<&Value>, source: &str) -> Vec<Value> {
-    let entries: Vec<(String, &Value)> = match value {
+fn window_entries(value: Option<&Value>) -> Vec<(String, &Value)> {
+    match value {
         Some(Value::Array(items)) => items
             .iter()
             .enumerate()
@@ -94,61 +94,60 @@ pub fn normalise_windows(value: Option<&Value>, source: &str) -> Vec<Value> {
             .collect(),
         Some(Value::Object(map)) => map.iter().map(|(k, v)| (k.clone(), v)).collect(),
         _ => Vec::new(),
+    }
+}
+
+pub fn normalise_windows(value: Option<&Value>, source: &str) -> Vec<Value> {
+    window_entries(value).into_iter().filter(|(_, entry)| entry.is_object()).map(|(key, entry)| normalise_window(&key, entry, source)).collect()
+}
+
+fn normalise_window(key: &str, entry: &Value, source: &str) -> Value {
+    let limit_usd = amount(entry, &["limitUsd", "limit_usd", "budgetUsd", "budget_usd"], "limit_usd_cents");
+    let used_usd = amount(entry, &["usedUsd", "used_usd", "spendUsd", "spend_usd", "costUsd", "cost_usd"], "used_usd_cents");
+    let remaining_usd = amount(entry, &["remainingUsd", "remaining_usd", "leftUsd", "left_usd", "balanceUsd", "balance_usd"], "remaining_usd_cents");
+    let used_pct = nn(first(entry, &["usedPct", "used_pct", "percent", "pct"]));
+    let remaining_credits = nn(first(entry, &["remainingCredits", "remaining_credits", "creditsRemaining", "credits_remaining"]));
+    let limit_credits = nn(first(entry, &["limitCredits", "limit_credits"]));
+    let used_credits = nn(first(entry, &["usedCredits", "used_credits"]));
+    let reset_at = nn(first(entry, &["resetAt", "reset_at", "resetsAt", "resets_at"]));
+    let label = match clean(entry.get("label")) {
+        l if !l.is_empty() => l,
+        _ => {
+            if truthy(Some(&json!(key))) {
+                key.to_uppercase()
+            } else {
+                "USE".to_owned()
+            }
+        }
     };
-    entries
-        .into_iter()
-        .filter_map(|(key, entry)| {
-            if !entry.is_object() {
-                return None;
-            }
-            let limit_usd = amount(entry, &["limitUsd", "limit_usd", "budgetUsd", "budget_usd"], "limit_usd_cents");
-            let used_usd = amount(entry, &["usedUsd", "used_usd", "spendUsd", "spend_usd", "costUsd", "cost_usd"], "used_usd_cents");
-            let remaining_usd = amount(entry, &["remainingUsd", "remaining_usd", "leftUsd", "left_usd", "balanceUsd", "balance_usd"], "remaining_usd_cents");
-            let used_pct = nn(first(entry, &["usedPct", "used_pct", "percent", "pct"]));
-            let remaining_credits = nn(first(entry, &["remainingCredits", "remaining_credits", "creditsRemaining", "credits_remaining"]));
-            let limit_credits = nn(first(entry, &["limitCredits", "limit_credits"]));
-            let used_credits = nn(first(entry, &["usedCredits", "used_credits"]));
-            let reset_at = nn(first(entry, &["resetAt", "reset_at", "resetsAt", "resets_at"]));
-            let label = match clean(entry.get("label")) {
-                l if !l.is_empty() => l,
-                _ => {
-                    if truthy(Some(&json!(key))) {
-                        key.to_uppercase()
-                    } else {
-                        "USE".to_owned()
-                    }
-                }
-            };
-            let source_text = match clean(entry.get("source")) {
-                s if !s.is_empty() => s,
-                _ => source.to_owned(),
-            };
-            let mut out = Map::new();
-            out.insert("label".into(), json!(label));
-            out.insert("source".into(), json!(source_text));
-            let mut put = |name: &str, value: Option<f64>, digits: i32| {
-                if let Some(v) = value {
-                    out.insert(name.into(), n(r(v, digits)));
-                }
-            };
-            put("remainingUsd", remaining_usd, 4);
-            put("limitUsd", limit_usd, 4);
-            put("usedUsd", used_usd, 4);
-            put("usedPct", used_pct, 2);
-            put("remainingCredits", remaining_credits, 4);
-            put("limitCredits", limit_credits, 4);
-            put("usedCredits", used_credits, 4);
-            if let Some(reset) = reset_at.filter(|v| *v != 0.0) {
-                out.insert("resetAt".into(), n(reset));
-            }
-            if !out.contains_key("usedPct") && out.get("limitUsd").and_then(Value::as_f64).is_some_and(|l| l > 0.0) && out.contains_key("usedUsd") {
-                let used = out["usedUsd"].as_f64().unwrap_or(0.0);
-                let limit = out["limitUsd"].as_f64().unwrap_or(0.0);
-                out.insert("usedPct".into(), n(r((used * 100.0 / limit).min(100.0), 2)));
-            }
-            Some(Value::Object(out))
-        })
-        .collect()
+    let source_text = match clean(entry.get("source")) {
+        s if !s.is_empty() => s,
+        _ => source.to_owned(),
+    };
+    let mut out = Map::new();
+    out.insert("label".into(), json!(label));
+    out.insert("source".into(), json!(source_text));
+    let mut put = |name: &str, value: Option<f64>, digits: i32| {
+        if let Some(v) = value {
+            out.insert(name.into(), n(r(v, digits)));
+        }
+    };
+    put("remainingUsd", remaining_usd, 4);
+    put("limitUsd", limit_usd, 4);
+    put("usedUsd", used_usd, 4);
+    put("usedPct", used_pct, 2);
+    put("remainingCredits", remaining_credits, 4);
+    put("limitCredits", limit_credits, 4);
+    put("usedCredits", used_credits, 4);
+    if let Some(reset) = reset_at.filter(|v| *v != 0.0) {
+        out.insert("resetAt".into(), n(reset));
+    }
+    if !out.contains_key("usedPct") && out.get("limitUsd").and_then(Value::as_f64).is_some_and(|l| l > 0.0) && out.contains_key("usedUsd") {
+        let used = out["usedUsd"].as_f64().unwrap_or(0.0);
+        let limit = out["limitUsd"].as_f64().unwrap_or(0.0);
+        out.insert("usedPct".into(), n(r((used * 100.0 / limit).min(100.0), 2)));
+    }
+    Value::Object(out)
 }
 
 pub fn normalise_reset_credits(value: Option<&Value>) -> Option<Value> {
@@ -596,58 +595,63 @@ fn usage_total(rows: &[Row]) -> Value {
 /// Credit feature of a subscription provider; none unless the account has it enabled.
 pub fn credits_from_snapshot(provider_id: &str, snapshot: Option<&Value>) -> Option<Value> {
     let balance = snapshot.and_then(|s| s.get("balance")).filter(|b| truthy(Some(b)));
-    if provider_id == "openai-oauth" {
-        let balance = balance?;
-        if balance.get("unit").and_then(Value::as_str) != Some("credits") {
-            return None;
-        }
-        let amount = nn(balance.get("remainingCredits"));
-        let unlimited = balance.get("unlimited") == Some(&Value::Bool(true));
-        if !(balance.get("hasCredits") == Some(&Value::Bool(true)) || unlimited || amount.is_some_and(|a| a > 0.0)) {
-            return None;
-        }
-        let mut out = Map::new();
-        out.insert("unit".into(), json!("credits"));
-        out.insert("balance".into(), amount.map_or(Value::Null, n));
-        if unlimited {
-            out.insert("unlimited".into(), json!(true));
-        }
-        return Some(Value::Object(out));
+    match provider_id {
+        "openai-oauth" => openai_credits(balance?),
+        "anthropic-oauth" => anthropic_credits(snapshot, balance),
+        _ => None,
     }
-    if provider_id == "anthropic-oauth" {
-        let extra = snapshot
-            .and_then(|s| s.get("quotaWindows"))
-            .and_then(Value::as_array)
-            .and_then(|w| w.iter().find(|w| w.get("label").and_then(Value::as_str) == Some("EXTRA")));
-        let spend = balance.filter(|b| nn(b.get("remainingUsd")).is_some());
-        if extra.is_none() && spend.is_none() {
-            return None;
-        }
-        let pick = |a: Option<&Value>, b: Option<&Value>| -> Option<f64> {
-            match a.filter(|v| !v.is_null()) {
-                Some(v) => nn(Some(v)),
-                None => nn(b),
-            }
-        };
-        let remaining = pick(spend.and_then(|s| s.get("remainingUsd")), extra.and_then(|e| e.get("remainingUsd")));
-        let monthly = pick(spend.and_then(|s| s.get("budgetUsd")), extra.and_then(|e| e.get("limitUsd")));
-        let spent = pick(spend.and_then(|s| s.get("spentUsd")), extra.and_then(|e| e.get("usedUsd")));
-        let mut out = Map::new();
-        out.insert("unit".into(), json!("usd"));
-        let bal = remaining.or_else(|| match (monthly, spent) {
-            (Some(m), Some(s)) => Some((m - s).max(0.0)),
-            _ => None,
-        });
-        out.insert("balance".into(), bal.map_or(Value::Null, n));
-        if let Some(m) = monthly {
-            out.insert("monthlyLimit".into(), n(m));
-        }
-        if let Some(s) = spent {
-            out.insert("spent".into(), n(s));
-        }
-        return Some(Value::Object(out));
+}
+
+fn openai_credits(balance: &Value) -> Option<Value> {
+    if balance.get("unit").and_then(Value::as_str) != Some("credits") {
+        return None;
     }
-    None
+    let amount = nn(balance.get("remainingCredits"));
+    let unlimited = balance.get("unlimited") == Some(&Value::Bool(true));
+    if !(balance.get("hasCredits") == Some(&Value::Bool(true)) || unlimited || amount.is_some_and(|a| a > 0.0)) {
+        return None;
+    }
+    let mut out = Map::new();
+    out.insert("unit".into(), json!("credits"));
+    out.insert("balance".into(), amount.map_or(Value::Null, n));
+    if unlimited {
+        out.insert("unlimited".into(), json!(true));
+    }
+    Some(Value::Object(out))
+}
+
+fn anthropic_credits(snapshot: Option<&Value>, balance: Option<&Value>) -> Option<Value> {
+    let extra = snapshot
+        .and_then(|s| s.get("quotaWindows"))
+        .and_then(Value::as_array)
+        .and_then(|w| w.iter().find(|w| w.get("label").and_then(Value::as_str) == Some("EXTRA")));
+    let spend = balance.filter(|b| nn(b.get("remainingUsd")).is_some());
+    if extra.is_none() && spend.is_none() {
+        return None;
+    }
+    let pick = |a: Option<&Value>, b: Option<&Value>| -> Option<f64> {
+        match a.filter(|v| !v.is_null()) {
+            Some(v) => nn(Some(v)),
+            None => nn(b),
+        }
+    };
+    let remaining = pick(spend.and_then(|s| s.get("remainingUsd")), extra.and_then(|e| e.get("remainingUsd")));
+    let monthly = pick(spend.and_then(|s| s.get("budgetUsd")), extra.and_then(|e| e.get("limitUsd")));
+    let spent = pick(spend.and_then(|s| s.get("spentUsd")), extra.and_then(|e| e.get("usedUsd")));
+    let mut out = Map::new();
+    out.insert("unit".into(), json!("usd"));
+    let bal = remaining.or_else(|| match (monthly, spent) {
+        (Some(m), Some(s)) => Some((m - s).max(0.0)),
+        _ => None,
+    });
+    out.insert("balance".into(), bal.map_or(Value::Null, n));
+    if let Some(m) = monthly {
+        out.insert("monthlyLimit".into(), n(m));
+    }
+    if let Some(s) = spent {
+        out.insert("spent".into(), n(s));
+    }
+    Some(Value::Object(out))
 }
 
 /// `usageDashboardSnapshot(rows, { checkedAt, refresh, checking })`.
@@ -731,53 +735,52 @@ async fn api_provider_row(item: &Value, providers: &Value, preview: bool, refres
     set(&mut row, "sourceLabel", if authenticated { "checking" } else { "no key" });
     set(&mut row, "primary", if authenticated { "" } else { "not configured" });
     set(&mut row, "detail", if authenticated { "Checking provider usage" } else { "Configure auth" });
-    let tone = row_tone(&row);
-    set(&mut row, "tone", tone);
-    if preview {
-        return row;
-    }
-    if authenticated {
-        let mut has_quota = false;
-        let snapshot = api_snapshot(sources, id, refresh).await;
-        let snapshot = snapshot.as_ref();
-        let known = snapshot_remaining(snapshot);
-        let usage = snapshot_usage(snapshot);
-        let token_usage = snapshot_token_usage(snapshot);
-        let source = snapshot_source(snapshot, None);
-        let windows = snapshot.and_then(|s| s.get("quotaWindows")).filter(|w| !w.is_null());
-        let normalised = normalise_windows(windows, &source);
-        let estimated = local_budget(&provider_cfg);
-        set(&mut row, "updatedAt", num_or(snapshot.and_then(|s| s.get("cachedAt")), None).map_or(Value::Null, n));
-        if let Some(known) = &known {
-            apply_known_remaining(&mut row, known, false);
-            set(&mut row, "sourceLabel", "API");
-            has_quota = true;
-        } else if !normalised.is_empty() {
-            has_quota = apply_window_quota(&mut row, windows.unwrap_or(&Value::Null), &source, "provider quota");
-        } else if let Some(estimated) = &estimated {
-            apply_known_remaining(&mut row, estimated, true);
-            has_quota = true;
-        } else if let Some(usage) = &usage {
-            apply_known_usage(&mut row, usage);
-            has_quota = true;
-        } else if let Some(tokens) = &token_usage {
-            apply_token_usage(&mut row, tokens);
-            has_quota = true;
-        }
-        if row["includeInTotal"] != Value::Bool(true)
-            && !has_quota
-            && let Some(estimated) = local_budget(&provider_cfg)
-        {
-            apply_known_remaining(&mut row, &estimated, true);
-            has_quota = true;
-        }
-        if row["includeInTotal"] != Value::Bool(true) && !has_quota {
-            apply_api_unavailable(&mut row, id, snapshot);
-        }
+    if !preview && authenticated {
+        apply_api_snapshot(&mut row, id, &provider_cfg, refresh, sources).await;
     }
     let tone = row_tone(&row);
     set(&mut row, "tone", tone);
     row
+}
+
+async fn apply_api_snapshot(row: &mut Row, id: &str, provider_cfg: &Value, refresh: bool, sources: &dyn UsageSources) {
+    let mut has_quota = false;
+    let snapshot = api_snapshot(sources, id, refresh).await;
+    let snapshot = snapshot.as_ref();
+    let known = snapshot_remaining(snapshot);
+    let usage = snapshot_usage(snapshot);
+    let token_usage = snapshot_token_usage(snapshot);
+    let source = snapshot_source(snapshot, None);
+    let windows = snapshot.and_then(|s| s.get("quotaWindows")).filter(|w| !w.is_null());
+    let normalised = normalise_windows(windows, &source);
+    let estimated = local_budget(provider_cfg);
+    set(row, "updatedAt", num_or(snapshot.and_then(|s| s.get("cachedAt")), None).map_or(Value::Null, n));
+    if let Some(known) = &known {
+        apply_known_remaining(row, known, false);
+        set(row, "sourceLabel", "API");
+        has_quota = true;
+    } else if !normalised.is_empty() {
+        has_quota = apply_window_quota(row, windows.unwrap_or(&Value::Null), &source, "provider quota");
+    } else if let Some(estimated) = &estimated {
+        apply_known_remaining(row, estimated, true);
+        has_quota = true;
+    } else if let Some(usage) = &usage {
+        apply_known_usage(row, usage);
+        has_quota = true;
+    } else if let Some(tokens) = &token_usage {
+        apply_token_usage(row, tokens);
+        has_quota = true;
+    }
+    if row["includeInTotal"] != Value::Bool(true)
+        && !has_quota
+        && let Some(estimated) = local_budget(provider_cfg)
+    {
+        apply_known_remaining(row, &estimated, true);
+        has_quota = true;
+    }
+    if row["includeInTotal"] != Value::Bool(true) && !has_quota {
+        apply_api_unavailable(row, id, snapshot);
+    }
 }
 
 async fn oauth_provider_row(item: &Value, providers: &Value, preview: bool, refresh: bool, sources: &dyn UsageSources, accounts: &AccountStore) -> Row {
@@ -798,53 +801,52 @@ async fn oauth_provider_row(item: &Value, providers: &Value, preview: bool, refr
         }
     };
     set(&mut row, "detail", detail);
-    let tone = row_tone(&row);
-    set(&mut row, "tone", tone);
     if id == "openai-oauth" || id == "anthropic-oauth" {
         let uses = accounts.pool(id).await.map(|p| p.uses_credits()).unwrap_or(false);
         set(&mut row, "useCredits", uses);
     }
-    if preview {
-        return row;
-    }
-    if authenticated {
-        let snapshot = oauth_snapshot(sources, id, refresh).await;
-        let snapshot = snapshot.as_ref();
-        let known = snapshot_remaining(snapshot);
-        let source = snapshot_source(snapshot, None);
-        let windows = normalise_windows(snapshot.and_then(|s| s.get("quotaWindows")), &source);
-        let reset_credits = normalise_reset_credits(snapshot.and_then(|s| s.get("resetCredits")));
-        set(&mut row, "windows", Value::Array(windows.clone()));
-        if let Some(reset) = reset_credits {
-            set(&mut row, "resetCredits", reset);
-        }
-        if let Some(credits) = credits_from_snapshot(id, snapshot) {
-            set(&mut row, "credits", credits);
-        }
-        set(&mut row, "updatedAt", num_or(snapshot.and_then(|s| s.get("cachedAt")), None).map_or(Value::Null, n));
-        if let Some(known) = &known {
-            apply_known_remaining(&mut row, known, false);
-            set(&mut row, "sourceLabel", "API");
-            if !windows.is_empty() {
-                set(&mut row, "detail", "subscription quota");
-            }
-        } else if !windows.is_empty() {
-            set(&mut row, "status", "partial");
-            set(&mut row, "source", source);
-            set(&mut row, "sourceLabel", "API window");
-            set(&mut row, "primary", windows.iter().map(display_window).take(2).collect::<Vec<_>>().join(" · "));
-            set(&mut row, "detail", "subscription quota");
-        } else {
-            set(&mut row, "status", "hidden");
-            set(&mut row, "source", "usage-disabled");
-            set(&mut row, "sourceLabel", "disabled");
-            set(&mut row, "primary", "");
-            set(&mut row, "detail", "No current usage query result");
-        }
+    if !preview && authenticated {
+        apply_oauth_snapshot(&mut row, id, refresh, sources).await;
     }
     let tone = row_tone(&row);
     set(&mut row, "tone", tone);
     row
+}
+
+async fn apply_oauth_snapshot(row: &mut Row, id: &str, refresh: bool, sources: &dyn UsageSources) {
+    let snapshot = oauth_snapshot(sources, id, refresh).await;
+    let snapshot = snapshot.as_ref();
+    let known = snapshot_remaining(snapshot);
+    let source = snapshot_source(snapshot, None);
+    let windows = normalise_windows(snapshot.and_then(|s| s.get("quotaWindows")), &source);
+    let reset_credits = normalise_reset_credits(snapshot.and_then(|s| s.get("resetCredits")));
+    set(row, "windows", Value::Array(windows.clone()));
+    if let Some(reset) = reset_credits {
+        set(row, "resetCredits", reset);
+    }
+    if let Some(credits) = credits_from_snapshot(id, snapshot) {
+        set(row, "credits", credits);
+    }
+    set(row, "updatedAt", num_or(snapshot.and_then(|s| s.get("cachedAt")), None).map_or(Value::Null, n));
+    if let Some(known) = &known {
+        apply_known_remaining(row, known, false);
+        set(row, "sourceLabel", "API");
+        if !windows.is_empty() {
+            set(row, "detail", "subscription quota");
+        }
+    } else if !windows.is_empty() {
+        set(row, "status", "partial");
+        set(row, "source", source);
+        set(row, "sourceLabel", "API window");
+        set(row, "primary", windows.iter().map(display_window).take(2).collect::<Vec<_>>().join(" · "));
+        set(row, "detail", "subscription quota");
+    } else {
+        set(row, "status", "hidden");
+        set(row, "source", "usage-disabled");
+        set(row, "sourceLabel", "disabled");
+        set(row, "primary", "");
+        set(row, "detail", "No current usage query result");
+    }
 }
 
 /// `createUsageDashboard(config, { setup, refresh, refreshProviders, preview })`.

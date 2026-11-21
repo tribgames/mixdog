@@ -122,10 +122,6 @@ pub(crate) const CONTEXT_BASE_ROW_SQL: &str = "SELECT ordinal, idx, ver, iid, fi
      FROM message_rows WHERE session = ?1 AND ordinal = ?2 AND idx = ?3 AND ver < ?4
        AND (superseded_rev IS NULL OR superseded_rev >= ?4) ORDER BY ver DESC LIMIT 1";
 
-/// The spans of the context, oldest first: from the session down its lineage until a level
-/// holds a compaction (the context starts at it), else to the root. A base level ends at
-/// the fork point, or lower at `cut` (the session rewound into its base range), and is
-/// read as of that point, so later base appends, amends and rewinds do not reach it.
 fn plan(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>) -> Result<Vec<Span>, DbError> {
     let mut spans = Vec::new();
     for (level, l) in lineage.iter().enumerate() {
@@ -157,6 +153,32 @@ fn raw(r: &rusqlite::Row<'_>) -> rusqlite::Result<RawRow> {
     Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
 }
 
+/// Up to `want` rows of one span from `from`, each at its newest version as of `as_of` (none: live), and whether the span may hold more.
+fn fetch_span(tx: &Connection, session: &str, as_of: Option<u64>, from: (u64, u32), want: usize) -> Result<(Vec<RawRow>, bool), DbError> {
+    let Some(as_of) = as_of else {
+        let rows: Vec<RawRow> =
+            tx.prepare_cached(CONTEXT_LIVE_SQL)?.query_map(params![session, from.0 as i64, from.1, want as i64], raw)?.collect::<Result<_, _>>()?;
+        let more = rows.len() == want;
+        return Ok((rows, more));
+    };
+    let fetched: Vec<RawRow> = tx
+        .prepare_cached(CONTEXT_BASE_SQL)?
+        .query_map(params![session, from.0 as i64, from.1, sql_ordinal(as_of), want as i64], raw)?
+        .collect::<Result<_, _>>()?;
+    let more = fetched.len() == want;
+    let mut latest: Vec<RawRow> = Vec::new();
+    for v in fetched {
+        match latest.last_mut() {
+            Some(last) if (last.0, last.1) == (v.0, v.1) => *last = v,
+            _ => latest.push(v),
+        }
+    }
+    if more && let Some(last) = latest.last_mut() {
+        *last = tx.prepare_cached(CONTEXT_BASE_ROW_SQL)?.query_row(params![session, last.0, last.1, sql_ordinal(as_of)], raw)?;
+    }
+    Ok((latest, more))
+}
+
 /// Step 1's index part: the rows of one page and the next cursor, in one read snapshot.
 pub(crate) fn rows_on(
     c: &Connection,
@@ -183,36 +205,7 @@ pub(crate) fn rows_on(
         let span = &spans[cur.span];
         let session = &lineage[span.level].session;
         let want = limit - out.len();
-        let (rows, more): (Vec<RawRow>, bool) = match span.as_of {
-            None => {
-                let rows: Vec<RawRow> = tx
-                    .prepare_cached(CONTEXT_LIVE_SQL)?
-                    .query_map(params![session, cur.from.0 as i64, cur.from.1, want as i64], raw)?
-                    .collect::<Result<_, _>>()?;
-                let more = rows.len() == want;
-                (rows, more)
-            }
-            Some(as_of) => {
-                let fetched: Vec<RawRow> = tx
-                    .prepare_cached(CONTEXT_BASE_SQL)?
-                    .query_map(params![session, cur.from.0 as i64, cur.from.1, sql_ordinal(as_of), want as i64], raw)?
-                    .collect::<Result<_, _>>()?;
-                let more = fetched.len() == want;
-                // The newest version of each row is the last of its run.
-                let mut latest: Vec<RawRow> = Vec::new();
-                for v in fetched {
-                    match latest.last_mut() {
-                        Some(last) if (last.0, last.1) == (v.0, v.1) => *last = v,
-                        _ => latest.push(v),
-                    }
-                }
-                // A full fetch may have cut the last row's versions short.
-                if more && let Some(last) = latest.last_mut() {
-                    *last = tx.prepare_cached(CONTEXT_BASE_ROW_SQL)?.query_row(params![session, last.0, last.1, sql_ordinal(as_of)], raw)?;
-                }
-                (latest, more)
-            }
-        };
+        let (rows, more) = fetch_span(&tx, session, span.as_of, cur.from, want)?;
         for (ordinal, idx, ver, iid, file_no, offset, len) in rows {
             let key = (span.level, ver);
             let cost = if seen.contains(&key) { 0 } else { len as u64 };

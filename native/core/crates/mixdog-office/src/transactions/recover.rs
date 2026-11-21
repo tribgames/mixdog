@@ -166,14 +166,7 @@ pub async fn recover_office_transaction<P: WriteProof, H: ComHost + OfficeHost>(
     let saved_format = text_of(saved_session_value.get("format"));
     let interactive = Mode::parse(&text_of(saved_session_value.get("mode"))).is_some_and(Mode::is_interactive);
     if interactive {
-        let detected = cx.snapshot.com.detect(&saved_format, &saved_target).await;
-        let document_open = detected
-            .get("applications")
-            .and_then(Value::as_array)
-            .and_then(|applications| applications.iter().find(|item| item.get("format").and_then(Value::as_str) == Some(saved_format.as_str())))
-            .and_then(|application| application.get("documentOpen"))
-            .is_some_and(truthy);
-        if !document_open {
+        if !live_document_is_open(cx, &saved_format, &saved_target).await {
             if strategy == "commit" {
                 lock(&handle).state = SessionState::Idle;
                 clear(&saved_data_dir);
@@ -197,31 +190,51 @@ pub async fn recover_office_transaction<P: WriteProof, H: ComHost + OfficeHost>(
     } else if !exists(lane, &saved_target) {
         return Ok(json!({ "ok": false, "code": "document_missing", "transaction": id, "recoverable": false, "path": saved_target }));
     }
-    let (microsoft_office, session_mode, target) = {
-        let session = lock(&handle);
-        (session.is_microsoft_office(), session.is_interactive(), session.target.clone())
-    };
-    if microsoft_office {
-        let payload = json!({
-            "session": session_id,
-            "format": saved_format,
-            "mode": if session_mode { "attach" } else { "background" },
-            "path": target,
-        });
-        let signal = lock(&handle).active_signal.clone();
-        let reopened = cx.snapshot.com.open_session(&payload, signal.as_ref()).await;
-        if !reopened.get("ok").is_some_and(truthy) {
-            let reason = text_of(reopened.get("error"));
-            let message = if reason.is_empty() { "Unable to restore Microsoft Office session".to_owned() } else { reason };
-            return Err(TransactionError::Failed(message));
-        }
-        let mut session = lock(&handle);
-        let isolation = session.com.background_isolation.clone();
-        session.apply_com_fields(&reopened);
-        session.com.background_isolation = isolation;
+    if lock(&handle).is_microsoft_office() {
+        reattach_microsoft_office(cx, &handle, &session_id, &saved_format).await?;
     }
     cx.registry.index(cx.env, &handle);
     if strategy == "commit" { commit_transaction(cx, &handle).await } else { rollback_transaction(cx, &handle).await }
+}
+
+async fn live_document_is_open<P: WriteProof, H: ComHost + OfficeHost>(cx: &TransactionContext<'_, P, H>, format: &str, target: &str) -> bool {
+    let detected = cx.snapshot.com.detect(format, target).await;
+    detected
+        .get("applications")
+        .and_then(Value::as_array)
+        .and_then(|applications| applications.iter().find(|item| item.get("format").and_then(Value::as_str) == Some(format)))
+        .and_then(|application| application.get("documentOpen"))
+        .is_some_and(truthy)
+}
+
+/// Opens the session's document in Microsoft Office again and takes over the fields the host answers, keeping the isolation record.
+async fn reattach_microsoft_office<P: WriteProof, H: ComHost + OfficeHost>(
+    cx: &TransactionContext<'_, P, H>,
+    handle: &SessionHandle,
+    session_id: &str,
+    format: &str,
+) -> Result<(), TransactionError> {
+    let (interactive, target, signal) = {
+        let session = lock(handle);
+        (session.is_interactive(), session.target.clone(), session.active_signal.clone())
+    };
+    let payload = json!({
+        "session": session_id,
+        "format": format,
+        "mode": if interactive { "attach" } else { "background" },
+        "path": target,
+    });
+    let reopened = cx.snapshot.com.open_session(&payload, signal.as_ref()).await;
+    if !reopened.get("ok").is_some_and(truthy) {
+        let reason = text_of(reopened.get("error"));
+        let message = if reason.is_empty() { "Unable to restore Microsoft Office session".to_owned() } else { reason };
+        return Err(TransactionError::Failed(message));
+    }
+    let mut session = lock(handle);
+    let isolation = session.com.background_isolation.clone();
+    session.apply_com_fields(&reopened);
+    session.com.background_isolation = isolation;
+    Ok(())
 }
 
 #[cfg(test)]

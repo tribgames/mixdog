@@ -255,6 +255,31 @@ impl Collector {
         }
     }
 
+    fn load_manifest_servers(&mut self, root: &Path, doc: &Value, path: &Path, read: &mut impl FnMut(&Path) -> Arc<DeclarationFile>) {
+        match doc.as_object().and_then(|object| object.get("mcpServers")) {
+            None => {}
+            Some(Value::String(_)) => self.load_declared_path(root, &doc["mcpServers"], path, "\"mcpServers\": ", read),
+            Some(Value::Array(members)) => {
+                for (index, member) in members.iter().enumerate() {
+                    let where_ = format!("\"mcpServers\"[{index}]: ");
+                    if member.is_object() {
+                        if let Some(map) = self.server_map(member, path, &where_) {
+                            self.add_all(map, path);
+                        }
+                    } else {
+                        self.load_declared_path(root, member, path, &where_, read);
+                    }
+                }
+            }
+            Some(inline @ Value::Object(_)) => {
+                if let Some(map) = self.server_map(inline, path, "") {
+                    self.add_all(map, path);
+                }
+            }
+            Some(_) => self.error(path, None, "\"mcpServers\" must be a path, a list, or an object"),
+        }
+    }
+
     fn load_declared_path(&mut self, root: &Path, relative: &Value, manifest: &Path, where_: &str, read: &mut impl FnMut(&Path) -> Arc<DeclarationFile>) {
         let Some(text) = relative.as_str().filter(|s| !js_trim(s).is_empty()) else {
             self.error(manifest, None, format!("{where_}MCP path must be a non-empty string"));
@@ -340,28 +365,7 @@ pub(crate) fn load_declarations_from(root: &Path, mut read: impl FnMut(&Path) ->
                 Value::Null
             }
         };
-        match doc.as_object().and_then(|object| object.get("mcpServers")) {
-            None => {}
-            Some(Value::String(_)) => collector.load_declared_path(root, &doc["mcpServers"], &path, "\"mcpServers\": ", &mut read),
-            Some(Value::Array(members)) => {
-                for (index, member) in members.iter().enumerate() {
-                    let where_ = format!("\"mcpServers\"[{index}]: ");
-                    if member.is_object() {
-                        if let Some(map) = collector.server_map(member, &path, &where_) {
-                            collector.add_all(map, &path);
-                        }
-                    } else {
-                        collector.load_declared_path(root, member, &path, &where_, &mut read);
-                    }
-                }
-            }
-            Some(inline @ Value::Object(_)) => {
-                if let Some(map) = collector.server_map(inline, &path, "") {
-                    collector.add_all(map, &path);
-                }
-            }
-            Some(_) => collector.error(&path, None, "\"mcpServers\" must be a path, a list, or an object"),
-        }
+        collector.load_manifest_servers(root, &doc, &path, &mut read);
     }
     PluginMcpDeclarations { format, servers: collector.servers, errors: collector.errors }
 }

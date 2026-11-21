@@ -1,5 +1,4 @@
-//! Owner: s4-engine-reply
-//! What the agent reads about JavaScript dialogs and about the state of a page (the text part of `dialog-report.ts`): the reply
+//! What the agent reads about JavaScript dialogs and about the state of a page: the reply
 //! of a dialog that blocks the page, the notice of a dialog the host dismissed unseen, and the `status` report. Answering a dialog
 //! is a host call (`host/browser/page/dialog/answer`), made by the action that owns it.
 

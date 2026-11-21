@@ -988,6 +988,9 @@ impl ProcessManager for MockProcessManager {
         Ok(SpawnedProcess { handle: request.handle, pid })
     }
 
+    fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+        self.subscribe(handle, from_seq)
+    }
     fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
         let procs = lock(&self.procs);
         let proc = procs.get(handle).ok_or(ProcessError::UnknownHandle)?;

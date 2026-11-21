@@ -1,8 +1,3 @@
-//! The credential registry's transitions as the settings page sees them: a key the connection test sent (or a sign-in
-//! granted) is redacted from every later failure text, wherever the upstream quotes it; a string nobody sent is shown as
-//! it came. The endpoint is a small scripted server: it answers discovery and warm-ups, serves a chat request, and
-//! refuses the chat of the keys it is told to with a 400 whose message quotes a list of strings.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 

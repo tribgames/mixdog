@@ -1,4 +1,4 @@
-//! `pptx-slide-roles.mjs`: slide roles read from the saved shapes of an authored deck (no composer plan). The render
+//! Slide roles read from the saved shapes of an authored deck (no composer plan). The render
 //! review judges density per role: a diagram slide draws its evidence as native shapes (tinted fields, hairlines,
 //! braces, arcs) that the rendered foreground sampler barely sees, so it is judged by the field its shapes cover, not by
 //! the ink they leave.

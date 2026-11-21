@@ -210,10 +210,6 @@ impl InstallState {
         if !is_sid_literal(&state.user_sid) {
             return Err("install state user SID is malformed".into());
         }
-        // Validate every key and the cap. A same-user process cannot exploit
-        // this read path: the state file is writable by SYSTEM/Administrators
-        // only, so the keys it reads were written by an elevated or logon-path
-        // operation.
         if state.controller_keys.iter().any(|key| decode_controller_key(key).is_none()) {
             return Err("install state controller key is malformed".into());
         }
@@ -306,17 +302,6 @@ pub fn server_auth_tag(secret_b64: &str, client_nonce: &[u8], server_nonce: &[u8
 pub fn client_auth_tag(secret_b64: &str, server_nonce: &[u8], client_nonce: &[u8]) -> String {
     auth_tag(secret_b64, CLIENT_LABEL, server_nonce, client_nonce)
 }
-
-// ---- Control grants ---------------------------------------------------------
-//
-// The install secret and the pipe DACL admit the installing user's processes —
-// all of them, not only the Mixdog app. Input injected by this SYSTEM helper
-// is not subject to UIPI, so a same-user process that could drive the helper
-// could click "Yes" on its own UAC prompt. The helper therefore authorizes new
-// input and `sas` itself, with a grant only the paired phone can produce: a
-// signature by the phone's enrolled P-256 key over a one-shot challenge the
-// helper issued on this connection. The app relays challenges and grants but
-// cannot forge them.
 
 /// An enrolled controller key: the uncompressed P-256 point `0x04 ‖ X ‖ Y`
 /// that Web Crypto's `exportKey('raw', …)` produces.
@@ -746,7 +731,7 @@ pub fn is_sid_literal(sid: &str) -> bool {
 /// `FILE_GENERIC_READ | FILE_GENERIC_EXECUTE` as a hex access mask: the only
 /// rights the installing user is granted on the install directory and the
 /// copied binary. Read + execute, never write/delete/change-permissions, so the
-/// user who opted in cannot replace the SYSTEM-launched binary (the P1 finding).
+/// user who opted in cannot replace the SYSTEM-launched binary.
 pub const USER_READ_EXECUTE: &str = "0x1200a9";
 
 /// SDDL for the app-facing named pipe. SYSTEM and Administrators get full
@@ -838,8 +823,7 @@ pub fn is_trusted_path_sid(sid: &str) -> bool {
 /// Whether a path element is a file or a directory. The raw access bits `0x02`
 /// and `0x04` mean *write / append file content* on a file but *create child
 /// file / subdirectory* on a directory, so the two kinds need different
-/// "modify" masks — conflating them (the P1 finding) let an admin-owned exe
-/// that ordinary users could overwrite pass the check.
+/// "modify" masks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PathKind {
     File,

@@ -1,8 +1,3 @@
-//! Owner: s4-engine-settle
-//! The `expect` of a command: text that must appear, text that must be gone, and/or a URL fragment, checked the same way
-//! before or after the action (`postcondition.ts`), and the explicit `settleMs` delay. Nothing here waits; the wait is
-//! `reply_wait`.
-
 use std::fmt;
 use std::time::Duration;
 

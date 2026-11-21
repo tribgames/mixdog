@@ -14,6 +14,7 @@ use super::pool_list::AgentPool;
 use super::pool_list::PoolLive;
 use super::pool_list::PoolStore;
 use super::pool_list::RuntimeEntry;
+use super::pool_list::SettleFix;
 use super::pool_list::todo_progress;
 
 const NOW: f64 = 1_700_000_000_000.0;
@@ -31,6 +32,9 @@ impl PoolStore for Store {
     }
     async fn headers(&self, ids: &[String]) -> Vec<Option<Map<String, Value>>> {
         ids.iter().map(|_| None).collect()
+    }
+    async fn settle_identities(&self, fixes: &[SettleFix]) -> Vec<Value> {
+        fixes.iter().map(|fix| fix.candidate.clone()).collect()
     }
 }
 

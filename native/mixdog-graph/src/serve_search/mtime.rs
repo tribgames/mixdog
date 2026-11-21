@@ -83,68 +83,69 @@ pub(super) fn collect_mtime_candidates(
     Ok((candidates, deadline_expired(deadline_at)))
 }
 
-/// Keep a candidate in the statted top-k by mtime, or, when it could not be
-/// stat'd in time, in the walk-order fallback.
-fn retain_mtime_candidate(
-    statted: &mut std::collections::BinaryHeap<MtimeHit>,
-    unstatted: &mut std::collections::BinaryHeap<UnstattedHit>,
-    (index, path, mtime_ms): (usize, String, Option<u128>),
+type MtimeCandidate = (usize, String, Option<u128>);
+
+struct MtimeInventory {
     cap: usize,
-) {
-    if let Some(mtime_ms) = mtime_ms {
-        retain_bounded(statted, MtimeHit { mtime_ms, path }, cap);
-    } else {
-        retain_bounded(unstatted, UnstattedHit { index, path }, cap);
-    }
+    statted: std::collections::BinaryHeap<MtimeHit>,
+    unstatted: std::collections::BinaryHeap<UnstattedHit>,
+    total_seen: usize,
+    timed_out: bool,
+    scan_error_count: usize,
+    walk_error_details: Vec<String>,
+    cache_safe: bool,
 }
 
-pub(super) fn handle_mtime_inventory(
-    req: &ServeRequest,
-    parsed: &ParsedArgs,
-    cancelled: &AtomicBool,
-    store: &Arc<FileListStore>,
-    deadline_at: Option<Instant>,
-) -> Result<serde_json::Value, String> {
-    use std::collections::BinaryHeap;
-
-    let cwd = Path::new(&req.cwd);
-    refresh_content_signature_journals(&parsed.targets, cwd);
-    let cap = req.offset.saturating_add(req.limit.max(1));
-    let mut statted = BinaryHeap::with_capacity(cap + 1);
-    let mut unstatted = BinaryHeap::with_capacity(cap + 1);
-    let mut total_seen = 0usize;
-    let mut timed_out = false;
-    let mut scan_error_count = 0usize;
-    let mut walk_error_details = Vec::new();
-    let mut cache_safe = true;
-
-    for operand in &parsed.targets {
-        if cancelled.load(Ordering::Relaxed) {
-            return Err(CANCELLED.to_string());
+impl MtimeInventory {
+    fn new(cap: usize) -> Self {
+        Self {
+            cap,
+            statted: std::collections::BinaryHeap::with_capacity(cap + 1),
+            unstatted: std::collections::BinaryHeap::with_capacity(cap + 1),
+            total_seen: 0,
+            timed_out: false,
+            scan_error_count: 0,
+            walk_error_details: Vec::new(),
+            cache_safe: true,
         }
-        if deadline_expired(deadline_at) {
-            timed_out = true;
-            break;
+    }
+
+    /// Keep a candidate in the statted top-k by mtime, or, when it could not be
+    /// stat'd in time, in the walk-order fallback.
+    fn retain(&mut self, (index, path, mtime_ms): MtimeCandidate) {
+        if let Some(mtime_ms) = mtime_ms {
+            retain_bounded(&mut self.statted, MtimeHit { mtime_ms, path }, self.cap);
+        } else {
+            retain_bounded(&mut self.unstatted, UnstattedHit { index, path }, self.cap);
         }
+    }
+
+    fn scan_operand(
+        &mut self,
+        req: &ServeRequest,
+        parsed: &ParsedArgs,
+        operand: &str,
+        cancelled: &AtomicBool,
+        store: &Arc<FileListStore>,
+        deadline_at: Option<Instant>,
+    ) -> Result<(), String> {
+        let cwd = Path::new(&req.cwd);
         // Path::join replaces the base when the operand is absolute.
         let operand_path = cwd.join(operand);
         let filter = PathFilter::new(&operand_path, parsed)?;
         let scope = OperandScope { operand, operand_path: &operand_path, filter: &filter };
         let watched = store.watch_root(&operand_path);
         let trust = TrustSnapshot::capture();
-        cache_safe &= watched;
+        self.cache_safe &= watched;
         let walk_key = walk_key(&operand_path, parsed);
         if let Some(files) = store.take_ready(&walk_key) {
             let (candidates, expired) = collect_mtime_candidates(&files, 0, &scope, &trust, cancelled, deadline_at)?;
-            total_seen = total_seen.saturating_add(candidates.len());
+            self.total_seen = self.total_seen.saturating_add(candidates.len());
             for candidate in candidates {
-                retain_mtime_candidate(&mut statted, &mut unstatted, candidate, cap);
+                self.retain(candidate);
             }
-            if expired {
-                timed_out = true;
-                break;
-            }
-            continue;
+            self.timed_out |= expired;
+            return Ok(());
         }
 
         let (live, _waiter) = store.join_live_walk(walk_key, &operand_path, parsed, req.keep_warm, 0, watched);
@@ -161,68 +162,94 @@ pub(super) fn handle_mtime_inventory(
                 }
                 StreamBatch::Abandoned => break,
                 StreamBatch::TimedOut => {
-                    timed_out = true;
+                    self.timed_out = true;
                     break;
                 }
             };
             let (candidates, expired) = collect_mtime_candidates(&batch, batch_start, &scope, &trust, cancelled, deadline_at)?;
-            timed_out |= expired;
-            total_seen = total_seen.saturating_add(candidates.len());
+            self.timed_out |= expired;
+            self.total_seen = self.total_seen.saturating_add(candidates.len());
             for candidate in candidates {
                 if cancelled.load(Ordering::Relaxed) {
                     return Err(CANCELLED.to_string());
                 }
                 if deadline_expired(deadline_at) {
-                    timed_out = true;
+                    self.timed_out = true;
                     break;
                 }
-                retain_mtime_candidate(&mut statted, &mut unstatted, candidate, cap);
+                self.retain(candidate);
             }
-            if timed_out {
+            if self.timed_out {
                 break;
             }
         }
         let walk_errors = live.walk_errors.load(Ordering::Acquire);
-        scan_error_count = scan_error_count.saturating_add(walk_errors);
-        append_walk_error_details(&mut walk_error_details, live_walk_error_details(&live));
-        cache_safe &= live.cacheable.load(Ordering::Acquire);
+        self.scan_error_count = self.scan_error_count.saturating_add(walk_errors);
+        append_walk_error_details(&mut self.walk_error_details, live_walk_error_details(&live));
+        self.cache_safe &= live.cacheable.load(Ordering::Acquire);
         if operand_complete {
             live.keep_warm.store(true, Ordering::Release);
         } else {
-            timed_out = true;
+            self.timed_out = true;
         }
-        if timed_out {
+        Ok(())
+    }
+
+    fn into_response(self, req: &ServeRequest, cancelled: &AtomicBool, deadline_at: Option<Instant>) -> Result<serde_json::Value, String> {
+        // MtimeHit orders newest first, then path, so the ascending heap order is
+        // the response order.
+        let mut unstatted = self.unstatted.into_vec();
+        unstatted.sort_by_key(|entry| entry.index);
+        let ordered: Vec<String> = self
+            .statted
+            .into_sorted_vec()
+            .into_iter()
+            .map(|entry| entry.path)
+            .chain(unstatted.into_iter().map(|entry| entry.path))
+            .skip(req.offset)
+            .take(req.limit.max(1))
+            .collect();
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(CANCELLED.to_string());
+        }
+        let timed_out = self.timed_out || deadline_expired(deadline_at);
+        let complete = !timed_out && self.scan_error_count == 0;
+        Ok(serde_json::json!({
+            "id": req.id,
+            "lines": ordered,
+            "complete": complete,
+            "totalSeen": self.total_seen,
+            "partial": timed_out || self.scan_error_count > 0,
+            "timeout": timed_out,
+            "scanErrors": self.scan_error_count,
+            "walkErrorDetails": self.walk_error_details,
+            "inventoryChecked": complete,
+            "cacheSafe": self.cache_safe,
+        }))
+    }
+}
+
+pub(super) fn handle_mtime_inventory(
+    req: &ServeRequest,
+    parsed: &ParsedArgs,
+    cancelled: &AtomicBool,
+    store: &Arc<FileListStore>,
+    deadline_at: Option<Instant>,
+) -> Result<serde_json::Value, String> {
+    refresh_content_signature_journals(&parsed.targets, Path::new(&req.cwd));
+    let mut inventory = MtimeInventory::new(req.offset.saturating_add(req.limit.max(1)));
+    for operand in &parsed.targets {
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(CANCELLED.to_string());
+        }
+        if deadline_expired(deadline_at) {
+            inventory.timed_out = true;
+            break;
+        }
+        inventory.scan_operand(req, parsed, operand, cancelled, store, deadline_at)?;
+        if inventory.timed_out {
             break;
         }
     }
-
-    // MtimeHit orders newest first, then path, so the ascending heap order is
-    // the response order.
-    let mut unstatted = unstatted.into_vec();
-    unstatted.sort_by_key(|entry| entry.index);
-    let ordered: Vec<String> = statted
-        .into_sorted_vec()
-        .into_iter()
-        .map(|entry| entry.path)
-        .chain(unstatted.into_iter().map(|entry| entry.path))
-        .skip(req.offset)
-        .take(req.limit.max(1))
-        .collect();
-    if cancelled.load(Ordering::Relaxed) {
-        return Err(CANCELLED.to_string());
-    }
-    let timed_out = timed_out || deadline_expired(deadline_at);
-    let complete = !timed_out && scan_error_count == 0;
-    Ok(serde_json::json!({
-        "id": req.id,
-        "lines": ordered,
-        "complete": complete,
-        "totalSeen": total_seen,
-        "partial": timed_out || scan_error_count > 0,
-        "timeout": timed_out,
-        "scanErrors": scan_error_count,
-        "walkErrorDetails": walk_error_details,
-        "inventoryChecked": complete,
-        "cacheSafe": cache_safe,
-    }))
+    inventory.into_response(req, cancelled, deadline_at)
 }

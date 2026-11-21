@@ -1,15 +1,11 @@
-//! The PostgreSQL runtime the memory service runs (`runtime/memory/lib/runtime-fetcher.mjs`
-//! `ensureRuntime`). It is not part of the install: the first memory start downloads the
+//! The PostgreSQL runtime the memory service runs. It is not part of the install: the first memory start downloads the
 //! release asset named by the bundled manifest into `<data>/runtime`, verifies its sha256,
 //! extracts it with the system `tar` and publishes it as `runtime-<version>-<sha256[0..12]>`
 //! behind an `active-version` pointer. [`ensure_runtime`] answers the tree to hand to
 //! `PgRuntime::new`.
 //!
-//! Node's timings are kept: a download attempt has 180 s ([`retry`]), a failed one waits 1 s,
-//! 3 s, 9 s and tries again, and a refused rename is retried on `atomic-file.mjs`'s backoff
-//! (`mixdog-statefile`). Node's manifest fallbacks (a cached `<data>/runtime/manifest.json`, a
-//! GitHub fetch) serve a checkout without the bundled file, which cannot happen when the
-//! manifest is compiled in (`decisions.md`, "PG runtime installer").
+//! A download attempt has 180 s ([`retry`]), a failed one waits 1 s, 3 s, 9 s and tries again,
+//! and a refused rename is retried on the `mixdog-statefile` backoff.
 
 mod manifest;
 pub mod retry;

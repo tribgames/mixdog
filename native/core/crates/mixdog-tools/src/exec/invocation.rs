@@ -1,4 +1,4 @@
-//! How a command reaches the child (`bash-tool/invocation-plan.mjs`): PowerShell gets a UTF-8
+//! How a command reaches the child: PowerShell gets a UTF-8
 //! console preamble and the `mixdog-skill-node` function (so Korean output and skill scripts work),
 //! a recognised filter pipeline gets a tee that keeps the unfiltered producer output for a
 //! rescue, and a POSIX bash/zsh command is delivered through the environment behind a snapshot of
@@ -27,8 +27,7 @@ macro_rules! lazy_re {
 /// a U+FEFF preamble for `[Text.Encoding]::UTF8` (it breaks `python -`).
 pub const POWERSHELL_UTF8_PREFIX: &str = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;";
 
-/// What every PowerShell run executes as its `-Command` (Node's `STANDBY_BOOTSTRAP`,
-/// `shell-warm-standby.mjs`, as patched by `node-fix-partial-script.patch`); the script itself
+/// What every PowerShell run executes as its `-Command`; the script itself
 /// arrives on stdin, framed by [`frame_powershell_script`]. Input and output are UTF-8 before the
 /// script compiles, so a parse error is reported as `ParserError: <message>` in UTF-8 instead of
 /// PowerShell's own text in the console code page, and a script whose last command failed exits 1.
@@ -239,11 +238,24 @@ pub struct TeePlan {
     pub tee_path: String,
 }
 
-/// `buildPowerShellFilterTeePlan`: applies only to the exactly-recognised shape (single line, no
+/// Applies only to the exactly-recognised shape (single line, no
 /// backticks / `$(…)` / here-strings, ≥ 2 stages, stage 0 not a filter, the rest all pure
 /// filters, no file redirects); any ambiguity returns `None` and the command runs untouched.
 /// `token` is 8 hex characters; the spill file is `<tmp_dir><sep>mixdog-tee-<token>.log`.
 pub fn build_powershell_filter_tee_plan(command: &str, token: &str, tmp_dir: &str, sep: char) -> Option<TeePlan> {
+    let (head, stages) = recognise_filter_pipeline(command)?;
+    let tee_path = format!("{tmp_dir}{sep}mixdog-tee-{token}.log");
+    if tee_path.contains('\'') {
+        return None;
+    }
+    let exit_ref = format!("$__mixdogProducerExit{token}");
+    let producer = format!("& {{ $global:LASTEXITCODE = 0; {}; {exit_ref}.Value = $global:LASTEXITCODE }}", stages[0]);
+    let rewritten = format!("{head}{exit_ref} = [ref]0; {producer} | Tee-Object -FilePath '{tee_path}' | {}; exit {exit_ref}.Value", stages[1..].join(" | "));
+    Some(TeePlan { command: rewritten, tee_path })
+}
+
+/// The text before the last statement and the stages of its pipeline, when it is a producer piped through pure filters.
+fn recognise_filter_pipeline(command: &str) -> Option<(&str, Vec<String>)> {
     if mixdog_js::js_trim(command).is_empty()
         || command.contains(['\r', '\n'])
         || lazy_re!(r"tee-object", "i").is_match(command)
@@ -290,14 +302,7 @@ pub fn build_powershell_filter_tee_plan(command: &str, token: &str, tmp_dir: &st
     if tokenized[1..].iter().any(|t| !PURE_FILTER_HEADS.contains(&tee_stage_head(t).as_str())) {
         return None;
     }
-    let tee_path = format!("{tmp_dir}{sep}mixdog-tee-{token}.log");
-    if tee_path.contains('\'') {
-        return None;
-    }
-    let exit_ref = format!("$__mixdogProducerExit{token}");
-    let producer = format!("& {{ $global:LASTEXITCODE = 0; {}; {exit_ref}.Value = $global:LASTEXITCODE }}", stages[0]);
-    let rewritten = format!("{head}{exit_ref} = [ref]0; {producer} | Tee-Object -FilePath '{tee_path}' | {}; exit {exit_ref}.Value", stages[1..].join(" | "));
-    Some(TeePlan { command: rewritten, tee_path })
+    Some((head, stages))
 }
 
 /// The tail of a tee spill (BOM-sniffed: Windows PowerShell 5.1 writes UTF-16LE, pwsh 7 UTF-8),

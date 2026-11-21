@@ -1,9 +1,3 @@
-//! Owner: s4-engine-runner
-//! The timing row of one command (`timing.ts`): the record of [`mixdog_browser_policy::timing`] kept for a command that is running,
-//! the phases it enters and leaves, the sequence steps it counts, and what the host measured of the input it dispatched merged in.
-//! A command owns its own [`CommandTimer`]: parallel pages never share one, and phases may overlap, so their durations are not added
-//! to `command_ms`.
-
 use std::future::Future;
 use std::sync::Mutex;
 

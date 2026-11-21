@@ -1,13 +1,3 @@
-//! `DomainSeams.live_route` before the session directory exists.
-//!
-//! The `model` and `summary` status readers are built with the domains (`compose_domains_pre`),
-//! and the live route they print is `SessionLiveRoute`, which reads the held sessions' headers
-//! through `SessionRoutePositions::new(directory, ..)`: a true cycle through the directory, as for
-//! `LateSessionFacts`. The cell is bound once, right after `TurnPath::new`, to
-//! `Arc::new(SessionLiveRoute::new(positions, routes))`, and the composition verifies it
-//! before the listener accepts. A status request comes from a client, so none reads it earlier;
-//! unbound it answers as a runtime with nothing set.
-
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;

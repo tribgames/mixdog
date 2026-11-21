@@ -100,3 +100,25 @@ fn literal_prefilter_accepts_utf8_and_extracts_mandatory_regex_runs() {
     let utf8_folded = parse_args(&request(&["-i", "-F", "-e", "한글", "."], 10).args).unwrap();
     assert!(utf8_folded.literal_trigrams.is_none());
 }
+
+#[test]
+fn signature_entry_writer_round_trips_trusted_entries_and_skips_untrusted_ones() {
+    let mut signature = TrigramSignature::new();
+    signature.push(b"prefix needle suffix");
+    signature.complete = true;
+    let identity = crate::serve_search_usn::FileIdentity { volume: 7, file_id: 99 };
+    let entry = ContentSignatureEntry { size: 12, modified_ns: 34, identity: Some(identity), persisted: false, signature };
+    let path = Path::new("src/pinned.rs");
+
+    let mut bytes = Vec::new();
+    assert!(write_signature_entry(&mut bytes, path, &entry, &HashSet::from([7])).unwrap());
+    let (read_path, read_entry) = read_signature_entry(&mut bytes.as_slice()).unwrap();
+    assert_eq!(read_path, path);
+    assert_eq!((read_entry.size, read_entry.modified_ns, read_entry.identity), (12, 34, Some(identity)));
+    assert_eq!(read_entry.signature.bits, entry.signature.bits);
+    assert_eq!(read_entry.signature.folded_bits, entry.signature.folded_bits);
+
+    let mut skipped = Vec::new();
+    assert!(!write_signature_entry(&mut skipped, path, &entry, &HashSet::from([8])).unwrap());
+    assert!(skipped.is_empty());
+}

@@ -10,11 +10,8 @@ pub(super) fn overlaps_any_root(operand: &Path, roots: &[PathBuf]) -> bool {
     roots.iter().any(|root| FileListStore::paths_overlap(operand, root))
 }
 
-/// The inventory walker never descends into symlinked directories, so the
-/// watcher must not either. Following them makes inotify register the link
-/// target's inode under the link spelling (one watch descriptor per inode; the
-/// last registered path wins), so events for a real directory can arrive as
-/// `<root>/<link>/file` and miss the cache keys, which hold the walked path.
+// inotify registers a followed link target's inode under the link spelling, so
+// events can arrive as `<root>/<link>/file` and miss the cache keys.
 pub(super) fn new_watcher(handler: impl notify::EventHandler) -> notify::Result<RecommendedWatcher> {
     RecommendedWatcher::new(handler, notify::Config::default().with_follow_symlinks(false))
 }
@@ -66,53 +63,9 @@ impl FileListStore {
         }
         let store = Arc::clone(self);
         std::thread::spawn(move || {
-            // Debounce: collect paths for a window, enforce a minimum gap per
-            // key, and drop to lazy invalidation (the caches were already
-            // evicted, so the next search rescans) for huge batches.
             loop {
-                // Debounce wait, cut short the moment a search demands a repair.
-                {
-                    let deadline = Instant::now() + REPAIR_DEBOUNCE;
-                    let mut pending = lock_recover(&store.pending_repairs);
-                    while lock_recover(&store.repair_demanded).is_empty() {
-                        let now = Instant::now();
-                        if now >= deadline {
-                            break;
-                        }
-                        pending =
-                            store.repair_changed.wait_timeout(pending, deadline.saturating_duration_since(now)).unwrap_or_else(|error| error.into_inner()).0;
-                    }
-                }
-                let demanded = std::mem::take(&mut *lock_recover(&store.repair_demanded));
-                let now = Instant::now();
-                let recent = {
-                    let mut last_run = lock_recover(&store.repair_last_run);
-                    last_run.retain(|_, at| now.duration_since(*at) < REPAIR_MIN_GAP);
-                    last_run.keys().cloned().collect::<HashSet<_>>()
-                };
-                let (jobs, waiting) = {
-                    let mut pending = lock_recover(&store.pending_repairs);
-                    let before = pending.len();
-                    pending.retain(|_, entry| entry.processing || entry.paths.len() <= REPAIR_BATCH_LIMIT);
-                    if pending.len() != before {
-                        store.repair_changed.notify_all();
-                    }
-                    let mut waiting = false;
-                    let jobs = pending
-                        .iter_mut()
-                        .filter(|(_, entry)| !entry.processing && !entry.paths.is_empty())
-                        .filter(|(key, _)| {
-                            let ready = demanded.contains(*key) || !recent.contains(*key);
-                            waiting |= !ready;
-                            ready
-                        })
-                        .map(|(key, entry)| {
-                            entry.processing = true;
-                            (key.clone(), Arc::clone(&entry.base), entry.paths.drain().collect::<Vec<_>>(), Arc::clone(&entry.token))
-                        })
-                        .collect::<Vec<_>>();
-                    (jobs, waiting)
-                };
+                store.wait_for_repair_window();
+                let (jobs, waiting) = store.take_due_repair_jobs();
                 if jobs.is_empty() && !waiting {
                     break;
                 }
@@ -128,6 +81,53 @@ impl FileListStore {
                 store.start_inventory_repair_worker();
             }
         });
+    }
+
+    /// Debounce wait, cut short the moment a search demands a repair.
+    fn wait_for_repair_window(&self) {
+        let deadline = Instant::now() + REPAIR_DEBOUNCE;
+        let mut pending = lock_recover(&self.pending_repairs);
+        while lock_recover(&self.repair_demanded).is_empty() {
+            let now = Instant::now();
+            if now >= deadline {
+                break;
+            }
+            pending = self.repair_changed.wait_timeout(pending, deadline.saturating_duration_since(now)).unwrap_or_else(|error| error.into_inner()).0;
+        }
+    }
+
+    /// Claims pending repairs that are demanded or past their minimum gap;
+    /// `waiting` is true while a claimable one is still gap-delayed. Batches
+    /// over `REPAIR_BATCH_LIMIT` fall back to lazy invalidation.
+    fn take_due_repair_jobs(&self) -> (Vec<(WalkKey, Arc<Vec<PathBuf>>, Vec<PathBuf>, Arc<()>)>, bool) {
+        let demanded = std::mem::take(&mut *lock_recover(&self.repair_demanded));
+        let now = Instant::now();
+        let recent = {
+            let mut last_run = lock_recover(&self.repair_last_run);
+            last_run.retain(|_, at| now.duration_since(*at) < REPAIR_MIN_GAP);
+            last_run.keys().cloned().collect::<HashSet<_>>()
+        };
+        let mut pending = lock_recover(&self.pending_repairs);
+        let before = pending.len();
+        pending.retain(|_, entry| entry.processing || entry.paths.len() <= REPAIR_BATCH_LIMIT);
+        if pending.len() != before {
+            self.repair_changed.notify_all();
+        }
+        let mut waiting = false;
+        let jobs = pending
+            .iter_mut()
+            .filter(|(_, entry)| !entry.processing && !entry.paths.is_empty())
+            .filter(|(key, _)| {
+                let ready = demanded.contains(*key) || !recent.contains(*key);
+                waiting |= !ready;
+                ready
+            })
+            .map(|(key, entry)| {
+                entry.processing = true;
+                (key.clone(), Arc::clone(&entry.base), entry.paths.drain().collect::<Vec<_>>(), Arc::clone(&entry.token))
+            })
+            .collect::<Vec<_>>();
+        (jobs, waiting)
     }
 
     pub(super) fn schedule_noise_prewarm(self: &Arc<Self>) {
@@ -254,14 +254,6 @@ impl FileListStore {
         }
     }
 
-    /// An existing recursive watch on an ancestor already covers this root.
-    /// Registering every explicit file operand's parent as its own root
-    /// churned the WATCH_ROOT_MAX-bounded set (evict → invalidate
-    /// broadcast → client in-flight abort → retry → re-register), which
-    /// looped candidate-scoped fan-out greps indefinitely. Invalidation
-    /// stays correct: affected_roots/invalidate_roots match cache keys by
-    /// path overlap, so events under the ancestor reach descendant
-    /// operands. Refresh the covering root so hot ancestors stay resident.
     fn refresh_covering_root(&self, root: &Path) -> bool {
         let mut roots = lock_recover(&self.watched_roots);
         let Some(covering) = roots.keys().find(|existing| root.starts_with(existing.as_path())).cloned() else {
@@ -271,17 +263,22 @@ impl FileListStore {
         true
     }
 
+    fn start_watcher(self: &Arc<Self>, watcher: &mut Option<RecommendedWatcher>) -> bool {
+        let weak: Weak<Self> = Arc::downgrade(self);
+        let created = new_watcher(move |event: notify::Result<notify::Event>| {
+            let Some(store) = weak.upgrade() else { return };
+            apply_watch_event(&store, event);
+        });
+        let Ok(created) = created else { return false };
+        *watcher = Some(created);
+        self.watcher_healthy.store(true, Ordering::Release);
+        true
+    }
+
     pub(super) fn watch_root(self: &Arc<Self>, operand: &Path) -> bool {
-        // Root-wide recursive registration is unrelated to the requested
-        // matches and cannot honor the search deadline or its tree exclusions.
-        // Search roots without caching instead of blocking on OS watch setup.
         if is_filesystem_root(operand) {
             return false;
         }
-        // Watching is an optional cache optimization, never a prerequisite for
-        // searching. An exact-file operand is already cheap to scan; watching
-        // its parent recursively can block indefinitely on virtual, network, or
-        // otherwise non-watchable filesystems. Serve the search uncached instead.
         if operand.is_file() || !operand.is_dir() {
             return false;
         }
@@ -293,37 +290,17 @@ impl FileListStore {
             return true;
         }
         let mut watcher = lock_recover(&self.watcher);
-        if watcher.is_none() {
-            let weak: Weak<Self> = Arc::downgrade(self);
-            let created = new_watcher(move |event: notify::Result<notify::Event>| {
-                let Some(store) = weak.upgrade() else { return };
-                apply_watch_event(&store, event);
-            });
-            let Ok(created) = created else { return false };
-            *watcher = Some(created);
-            self.watcher_healthy.store(true, Ordering::Release);
+        if watcher.is_none() && !self.start_watcher(&mut watcher) {
+            return false;
         }
-        // Never hold watched_roots across the OS watch/unwatch calls. Windows
-        // may synchronously emit an initial notify callback from watch(); that
-        // callback re-enters affected_roots/invalidate_paths and needs this
-        // mutex. Holding it here deadlocked every concurrent directory search
-        // until the outer 20s deadline killed the resident server.
+        // Windows may call back synchronously from watch() and re-enter code that locks watched_roots.
         let evicted = {
             let mut roots = lock_recover(&self.watched_roots);
             if let Some(touched) = roots.get_mut(&root) {
                 *touched = Instant::now();
                 return self.watcher_healthy.load(Ordering::Acquire);
             }
-            if roots.len() >= WATCH_ROOT_MAX {
-                let oldest = roots.iter().min_by_key(|(_, touched)| **touched).map(|(path, _)| path.clone());
-                if let Some(oldest) = oldest.as_ref() {
-                    roots.remove(oldest);
-                    write_recover(trusted_watch_roots()).remove(oldest);
-                }
-                oldest
-            } else {
-                None
-            }
+            take_oldest_watch_root_when_full(&mut roots)
         };
         if let Some(oldest) = evicted.as_ref() {
             if let Some(watcher) = watcher.as_mut() {
@@ -345,6 +322,16 @@ impl FileListStore {
         }
         watched
     }
+}
+
+fn take_oldest_watch_root_when_full(roots: &mut HashMap<PathBuf, Instant>) -> Option<PathBuf> {
+    if roots.len() < WATCH_ROOT_MAX {
+        return None;
+    }
+    let oldest = roots.iter().min_by_key(|(_, touched)| **touched).map(|(path, _)| path.clone())?;
+    roots.remove(&oldest);
+    write_recover(trusted_watch_roots()).remove(&oldest);
+    Some(oldest)
 }
 
 /// One watcher event applied to the caches: classify what changed, invalidate

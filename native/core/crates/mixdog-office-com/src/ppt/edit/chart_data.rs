@@ -1,7 +1,4 @@
-//! The data of a slide chart: the embedded workbook, the Excel it starts, and everything the chart operations do around it
-//! (`Register-PowerPointChartExcelApplication`, `Set-PowerPointChartData`, `Set-PowerPointDataLabels`,
-//! `Set-ChartCategoryLabelsLow`, `Set-ChartTitleFace`, `Get-` and `Move-PowerPointLastPointAccents`,
-//! `Set-PowerPointPointColors`, `Close-PowerPointChartData` and `Excel-ProcessIds`).
+//! The data of a slide chart: the embedded workbook, the Excel it starts, and everything the chart operations do around it.
 //!
 //! The Excel a chart starts for its data is tracked in the session's [`ChartExcel`](crate::state::ChartExcel) so the session's
 //! cleanup quits it, and the process ids that were not there before the operation began are its own.
@@ -57,10 +54,6 @@ fn window_handle(application: &Com) -> i64 {
     application.member("Hwnd").and_then(|handle| long_cast(&handle)).unwrap_or(0)
 }
 
-/// `Register-PowerPointChartExcelApplication`: the Excel of an embedded workbook is tracked under its window handle (or, with
-/// none, its object identity: two handles of one Excel are one entry) with the process it runs in; a process that was there
-/// before the operation began and is not known to be this host's is a user's Excel, left alone, and refused where isolation is
-/// required.
 pub(crate) fn register_chart_excel_application(
     context: &mut EditContext<'_>,
     workbook: &Com,

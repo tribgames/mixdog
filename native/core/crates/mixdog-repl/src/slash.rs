@@ -1,9 +1,5 @@
-//! `repl/slash-commands.mjs`: the REPL's `/command` table. Every command writes to the output; only `/exit` and `/quit` end
-//! the REPL.
-//!
-//! A command that Node ran on the in-process runtime is one session action on the store (`clear`, `compact`, `setRoute`,
-//! `setOutputStyle`, `setToolMode`, and the reads `listPresets`, `getCompactionSettings`, `getOutputStyle`,
-//! `listOutputStyles`). An error an action raises is the command's error, as the rejection of the Node handler was.
+//! The REPL's `/command` table. Every command writes to the output; only `/exit` and `/quit` end the REPL. An error a session
+//! action raises is the command's error.
 
 use mixdog_js::is_js_space;
 use mixdog_js::js_to_lowercase;

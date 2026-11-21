@@ -535,7 +535,7 @@ impl SessionStore {
                 Some(at) => params["cursor"] = at.clone(),
                 None => {
                     if let Some(map) = params.as_object_mut() {
-                        map.remove("cursor");
+                        map.shift_remove("cursor");
                     }
                 }
             }

@@ -6,13 +6,38 @@ pub(crate) fn run_server() -> Result<(), String> {
     let stdin = io::stdin();
     let mut reader = BufReader::new(stdin.lock());
     let mut stdout = io::stdout().lock();
-    // Idle self-exit watchdog. An orphaned server (parent force-killed without
-    // closing our stdin — e.g. a surviving supervisor still holding the pipe's
-    // write handle) would never see EOF and would live forever, so they pile up
-    // across restarts. A side thread exits the whole process once no request has
-    // arrived within the idle window; the JS layer transparently respawns on the
-    // next request (getNativePatchServer detects `.exited`). Tunable via
-    // MIXDOG_PATCH_SERVER_IDLE_MS (default 300000ms); set 0 to disable.
+    let last_activity = spawn_idle_watchdog();
+    loop {
+        let mut header = String::new();
+        let n = reader.read_line(&mut header).map_err(|e| format!("server read header: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        last_activity.store(now_ms(), Ordering::Relaxed);
+        let header = header.trim_end_matches(['\r', '\n']);
+        if header == "QUIT" {
+            break;
+        }
+        if header == "PING" {
+            write_ok_line(&mut stdout, "PONG", "ping")?;
+            continue;
+        }
+        if header == "CONTRACT" {
+            write_ok_line(&mut stdout, ENGINE_CONTRACT_MARKER, "contract")?;
+            continue;
+        }
+        let parts: Vec<&str> = header.split_whitespace().collect();
+        let next =
+            if parts.first() == Some(&"EDIT") { handle_edit(&parts, &mut reader, &mut stdout)? } else { handle_apply(&parts, &mut reader, &mut stdout)? };
+        if let Next::Stop = next {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// Exits the process once no request arrives within MIXDOG_PATCH_SERVER_IDLE_MS (default 300000, 0 disables); the JS layer respawns on demand.
+fn spawn_idle_watchdog() -> Arc<AtomicU64> {
     let idle_ms: u64 = env::var("MIXDOG_PATCH_SERVER_IDLE_MS").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(300_000);
     let last_activity = Arc::new(AtomicU64::new(now_ms()));
     if idle_ms > 0 {
@@ -27,43 +52,14 @@ pub(crate) fn run_server() -> Result<(), String> {
             }
         });
     }
-    loop {
-        let mut header = String::new();
-        let n = reader.read_line(&mut header).map_err(|e| format!("server read header: {e}"))?;
-        if n == 0 {
-            break;
-        }
-        last_activity.store(now_ms(), Ordering::Relaxed);
-        let header = header.trim_end_matches(['\r', '\n']);
-        if header == "QUIT" {
-            break;
-        }
-        if header == "PING" {
-            writeln!(stdout, "OK\tPONG").map_err(|e| format!("server write ping response: {e}"))?;
-            stdout.flush().map_err(|e| format!("server flush ping response: {e}"))?;
-            continue;
-        }
-        // Contract handshake. The RUNNING session states the engine contract it
-        // implements, so the proof belongs to the process that will execute the
-        // work: a wrapper that only prints the marker cannot answer here, and a
-        // swapped artifact cannot change what this process already is.
-        if header == "CONTRACT" {
-            writeln!(stdout, "OK\t{ENGINE_CONTRACT_MARKER}").map_err(|e| format!("server write contract response: {e}"))?;
-            stdout.flush().map_err(|e| format!("server flush contract response: {e}"))?;
-            continue;
-        }
-        let parts: Vec<&str> = header.split_whitespace().collect();
-        let next =
-            if parts.first() == Some(&"EDIT") { handle_edit(&parts, &mut reader, &mut stdout)? } else { handle_apply(&parts, &mut reader, &mut stdout)? };
-        if let Next::Stop = next {
-            break;
-        }
-    }
-    Ok(())
+    last_activity
 }
 
-/// What the request loop does after one request: read the next header, or
-/// stop because a short payload read left the stream unframed.
+fn write_ok_line(out: &mut impl Write, payload: &str, what: &str) -> Result<(), String> {
+    writeln!(out, "OK\t{payload}").map_err(|e| format!("server write {what} response: {e}"))?;
+    out.flush().map_err(|e| format!("server flush {what} response: {e}"))
+}
+
 enum Next {
     Continue,
     Stop,

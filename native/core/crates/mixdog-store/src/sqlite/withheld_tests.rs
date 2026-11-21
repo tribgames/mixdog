@@ -99,10 +99,6 @@ async fn a_release_moves_the_worker_revision_of_the_row() {
     assert!(!after.full && after.sessions.iter().any(|session| session.session == "w"), "the released row is read again");
 }
 
-/// A worker-index load that read its rows before a release committed and finishes after it: the rows, their withheld state
-/// and the revision are one snapshot, so it answers the row blank at the revision before the release, and the next load
-/// since that revision reads it in full. It never answers a row released at a revision that holds it withheld, or the other
-/// way round.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_worker_load_spanning_a_release_answers_the_row_its_revision_holds() {
     let dir = tempfile::tempdir().unwrap();

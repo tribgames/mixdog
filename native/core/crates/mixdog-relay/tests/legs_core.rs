@@ -811,12 +811,18 @@ async fn the_parked_phones_of_a_gone_pc_are_closed_4002_after_the_grace() {
     assert_eq!(phone_socket.closed(), Some((DESKTOP_OFFLINE, "desktop offline".to_owned())));
     assert!(rig.hub.desktop_info("dev").is_none());
 }
+/// A receiver that takes 4400 bytes and a 3050-byte text message, which only fits when the wrapper is the fixed one.
+const TEXT_ENVELOPE_CAPACITY: usize = 4400;
+
+async fn text_envelope_rig() -> (Rig, String) {
+    let rig = rig(patient(HubConfig { max_frame_bytes: MIB, uplink_capacity_ceiling: TEXT_ENVELOPE_CAPACITY, ..config() })).await;
+    (rig, "t".repeat(3050))
+}
+
 #[tokio::test]
-async fn the_text_envelope_is_acknowledged_per_connection_never_inferred() {
-    // A receiver that takes 4400 bytes and a 3050-byte text message, which only fits when the wrapper is the fixed one.
-    let capacity = 4400;
-    let rig = rig(patient(HubConfig { max_frame_bytes: MIB, uplink_capacity_ceiling: capacity, ..config() })).await;
-    let payload = "t".repeat(3050);
+async fn a_leg_that_declares_no_text_envelope_is_never_acknowledged_one() {
+    let capacity = TEXT_ENVELOPE_CAPACITY;
+    let (rig, payload) = text_envelope_rig().await;
 
     // A leg that declares nothing is answered with nothing extra: one capabilities frame, and no acknowledgement to infer anything from.
     let (legacy, _legacy_handle) = desktop(&rig.hub, "legacy");
@@ -839,8 +845,13 @@ async fn the_text_envelope_is_acknowledged_per_connection_never_inferred() {
     assert_eq!(refusal["limit"], 720);
     assert!(legacy.binaries().is_empty());
     assert!(legacy.frames_of("frame").is_empty());
+    assert_eq!(legacy.closed(), None);
+}
 
-    // A leg that declares the text envelope is answered on that connection.
+#[tokio::test]
+async fn a_leg_that_declares_the_text_envelope_is_answered_on_that_connection() {
+    let capacity = TEXT_ENVELOPE_CAPACITY;
+    let (rig, payload) = text_envelope_rig().await;
     let (modern, modern_handle) = desktop(&rig.hub, "modern");
     send(&modern_handle, &json!({ "type": "desktop-lanes", "media": false, "textFrames": 1, "maxPayloadBytes": capacity })).await;
     let caps = modern.frames_of("relay-capabilities");
@@ -866,7 +877,6 @@ async fn the_text_envelope_is_acknowledged_per_connection_never_inferred() {
     assert_eq!(parsed(&refusals[0])["limit"], capacity - 42);
     assert_eq!(modern.binaries().len(), 1);
     assert_eq!(modern.closed(), None);
-    assert_eq!(legacy.closed(), None);
 }
 #[tokio::test]
 async fn a_claim_is_trusted_on_the_connection_that_made_it_and_on_no_other() {

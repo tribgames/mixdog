@@ -87,10 +87,9 @@ pub(super) fn freeze_panes(env: &Env<'_>, book: &Com, op: &Value) -> Result<Valu
     Ok(record_of("freeze_panes", true, Vec::new()))
 }
 
-/// The split of `freeze_panes`. Excel splits only at a row and column on screen, and a hidden background window shows about ten
-/// rows at 100%: a report whose header sits in row 12 froze at row 11. The split is made zoomed out, and the sheet's own zoom
-/// comes back once the panes are frozen. The screen updates meanwhile (the application stays hidden): with updating off, the zoom
-/// never reaches the layout the split is measured against.
+/// Excel splits only at a row and column on screen, and a hidden background window shows about ten rows at 100%, so the split
+/// is made zoomed out and the sheet's zoom restored after the freeze. Screen updating is on meanwhile: off, the zoom never
+/// reaches the layout the split is measured against.
 fn split_panes(book: &Com, sheet: &Com, window: &Com, split_row: i32, split_column: i32) -> Result<()> {
     window.set_member("ScrollRow", Com::I4(1))?;
     window.set_member("ScrollColumn", Com::I4(1))?;

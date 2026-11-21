@@ -94,13 +94,12 @@ pub fn read_control(value: &Value, sequence: u64, stale: bool) -> Result<Option<
         return Ok(None);
     }
     let input = value.as_object().ok_or_else(|| TransportError::invalid("control"))?;
-    let version_ok = || input.get("v").and_then(safe_integer) == Some(VERSION);
     let kind = input.get("t").and_then(Value::as_str);
+    if matches!(kind, Some("ack" | "repair" | "ping" | "pong")) && input.get("v").and_then(safe_integer) != Some(VERSION) {
+        return Err(TransportError::invalid("version"));
+    }
     let control = match kind {
         Some("ack") => {
-            if !version_ok() {
-                return Err(TransportError::invalid("version"));
-            }
             let through = input.get("through").and_then(safe_integer).ok_or_else(|| TransportError::invalid("ack"))?;
             let ranges = match input.get("ranges") {
                 None => Vec::new(),
@@ -109,9 +108,6 @@ pub fn read_control(value: &Value, sequence: u64, stale: bool) -> Result<Option<
             Control::Ack(Authenticated { message: Ack { through, ranges }, control_sequence: sequence })
         }
         Some("repair") => {
-            if !version_ok() {
-                return Err(TransportError::invalid("version"));
-            }
             let list = input
                 .get("sequences")
                 .and_then(Value::as_array)
@@ -130,9 +126,6 @@ pub fn read_control(value: &Value, sequence: u64, stale: bool) -> Result<Option<
             Control::Repair(Authenticated { message: Repair { sequences }, control_sequence: sequence })
         }
         Some(t @ ("ping" | "pong")) => {
-            if !version_ok() {
-                return Err(TransportError::invalid("version"));
-            }
             let sent = match (t, input.get("sent")) {
                 ("ping", Some(sent)) => Some(safe_integer(sent).ok_or_else(|| TransportError::invalid("ping sent"))?),
                 _ => None,

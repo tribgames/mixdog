@@ -1,4 +1,4 @@
-//! Continuing a reaped tag's own saved session (Node `agent-tool/execute-resume.mjs`): the
+//! Continuing a reaped tag's own saved session : the
 //! prompt is appended to the stored transcript as one more turn, so the worker keeps its
 //! context and a provider's prompt cache keeps its prefix. One instance is shared by `send`
 //! and `spawn`.

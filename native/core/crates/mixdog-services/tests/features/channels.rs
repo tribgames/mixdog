@@ -308,6 +308,40 @@ async fn a_human_may_hand_an_automation_to_an_existing_agent_only() {
     assert_eq!(refusal("save_automation", save("critic"), reviewer).await, "This thread cannot give a schedule to another agent");
 }
 
+fn setup_over(state: Value) -> AutomationSetup {
+    AutomationSetup::new(Arc::new(Rows(state)), Arc::new(Agents))
+}
+
+#[tokio::test]
+async fn an_overwritten_schedule_keeps_its_one_shot_time_unless_the_save_names_another_timing() {
+    let state = json!({"schedules": [{"name": "once", "owner": "reviewer", "whenAt": "2031-05-06T07:08:09Z", "instructions": "x"}], "webhooks": []});
+    let save = |entry: Value| {
+        let setup = setup_over(state.clone());
+        async move { setup.run("save_automation", &json!({"automationKind": "schedule", "entry": entry}), &ThreadId::from("t"), &AccessScope::Human).await.unwrap() }
+    };
+    let kept = save(json!({"name": "once", "overwrite": true})).await;
+    assert_eq!((kept["at"].as_str(), kept.get("time")), (Some("2031-05-06T07:08:09.000Z"), None));
+    let retimed = save(json!({"name": "once", "overwrite": true, "time": "0 9 * * *"})).await;
+    assert_eq!((retimed["time"].as_str(), retimed.get("at")), (Some("0 9 * * *"), None));
+}
+
+#[tokio::test]
+async fn a_saved_webhook_reports_its_secret_as_set_and_never_returns_it() {
+    let saved = setup_over(json!({"schedules": [], "webhooks": []}))
+        .run(
+            "save_automation",
+            &json!({"automationKind": "webhook", "entry": {"name": "hook", "instructions": "x"}}),
+            &ThreadId::from("t"),
+            &AccessScope::Human,
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved["secretSet"], true);
+    assert!(saved["credentialHandoff"].as_str().is_some_and(|text| text.contains("Regenerate secret")));
+    let refused = refusal("save_automation", json!({"automationKind": "webhook", "entry": {"name": "hook", "time": "0 9 * * *"}}), AccessScope::Human).await;
+    assert_eq!(refused, "Schedule fields (timing) are not accepted for webhooks");
+}
+
 #[tokio::test]
 async fn an_automation_that_is_not_listed_is_not_found() {
     let message = refusal("delete_automation", json!({"automationKind": "schedule", "name": "nope"}), AccessScope::Human).await;

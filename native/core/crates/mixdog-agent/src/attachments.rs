@@ -1,9 +1,7 @@
 //! Stored text attachments in a request. A saved message holds a text attachment as a
 //! reference (`{type:'text', attachmentRef, …}`, a `File` part with an `AttachmentRef` source
-//! here); the bytes live in the blob store. Providers lower the reference to its text when the
-//! request is built (`attachmentTextForPart` in `media-normalization.mjs:505,1022`), on every
-//! request, without rewriting the saved message. This does the same step before the provider
-//! sees the request.
+//! here); the bytes live in the blob store. The reference is lowered to its text on every
+//! request, before the provider sees it, without rewriting the saved message.
 //!
 //! The text itself (`<file name="…">…</file>` for a file, the paste as written, the
 //! `[attachment unavailable: …]` stand-in for a blob that is gone) is the attachment layer's;
@@ -25,7 +23,7 @@ pub trait AttachmentText: Send + Sync {
     async fn text_of(&self, part: &ContentPart) -> Result<Option<String>, Box<ProviderError>>;
 
     /// The part a stored image or file reference stands for in a request: the bytes it names
-    /// (`readAttachmentBase64`, what every provider's media normalization sends), or the
+    /// (what every provider's media normalization sends), or the
     /// unavailable-attachment text for a blob that is permanently gone. `None` leaves the part as
     /// it is (not a media reference, a PDF for a provider that takes PDFs as text, or a host
     /// that cannot read the store). A transient read failure is an error. Cancel-safe.

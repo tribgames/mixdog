@@ -1,9 +1,3 @@
-//! The executor's own spelling of a `read` call: `path` (a string, an array of strings, region
-//! objects or compact tuples) with its 0-based `offset`, `limit` (0 = no limit), `line`/`context`,
-//! `mode`/`n` and `full`. Node's `guardRead` (`tools/builtin/arg-guard.mjs`) takes every one of them
-//! and either refuses with a text or leaves the args the executor reads; this is that function, and
-//! the glance modes (`read-mode-tool.mjs`) as pure renderers over the decoded text.
-
 use mixdog_protocol::JsonValue;
 use serde_json::Map;
 
@@ -377,6 +371,41 @@ pub(super) fn prepare(a: &mut Obj) {
     }
 }
 
+fn guard_path_entries(a: &mut Obj, entries: &mut [JsonValue]) -> Result<(), String> {
+    let has_region_obj = entries.iter().any(is_plain_object);
+    if has_region_obj && (present(a, "offset") || present(a, "limit")) {
+        for entry in entries.iter_mut() {
+            let JsonValue::Object(e) = entry else { continue };
+            for k in ["offset", "limit"] {
+                if present(a, k) && !present(e, k) {
+                    e.insert(k.to_owned(), a.get(k).cloned().unwrap_or(JsonValue::Null));
+                }
+            }
+        }
+        a.shift_remove("offset");
+        a.shift_remove("limit");
+    }
+    for (i, entry) in entries.iter_mut().enumerate() {
+        if entry.is_string() {
+            continue;
+        }
+        let kind = describe_type(entry);
+        let JsonValue::Object(e) = entry else {
+            return Err(format!("Error: read arg \"path[{i}]\" must be string or {{path,offset,limit}} object (got {kind})"));
+        };
+        if let Some(err) = apply_line_context_window(e, &format!("path[{i}].")) {
+            return Err(err);
+        }
+        for ek in ["offset", "limit"] {
+            let max = if ek == "offset" { READ_OFFSET_MAX } else { MAX_INT };
+            if let Some(err) = check_int_in_range(e, ek, 0.0, max) {
+                return Err(err.replacen(&format!("\"{ek}\""), &format!("\"path[{i}].{ek}\""), 1));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// `guardRead` for a call without `file_path`: the refusal, or whether the limit is the injected default.
 pub(super) fn guard_read(a: &mut Obj) -> Result<bool, String> {
     if !a.contains_key("path") {
@@ -401,37 +430,7 @@ pub(super) fn guard_read(a: &mut Obj) -> Result<bool, String> {
         return Err(format!("Error: read arg \"path\" must be string, string[], or object[] (got {})", describe_type(&path)));
     }
     if let JsonValue::Array(mut entries) = path {
-        let has_region_obj = entries.iter().any(is_plain_object);
-        if has_region_obj && (present(a, "offset") || present(a, "limit")) {
-            for entry in entries.iter_mut() {
-                let JsonValue::Object(e) = entry else { continue };
-                for k in ["offset", "limit"] {
-                    if present(a, k) && !present(e, k) {
-                        e.insert(k.to_owned(), a.get(k).cloned().unwrap_or(JsonValue::Null));
-                    }
-                }
-            }
-            a.shift_remove("offset");
-            a.shift_remove("limit");
-        }
-        for (i, entry) in entries.iter_mut().enumerate() {
-            if entry.is_string() {
-                continue;
-            }
-            let kind = describe_type(entry);
-            let JsonValue::Object(e) = entry else {
-                return Err(format!("Error: read arg \"path[{i}]\" must be string or {{path,offset,limit}} object (got {kind})"));
-            };
-            if let Some(err) = apply_line_context_window(e, &format!("path[{i}].")) {
-                return Err(err);
-            }
-            for ek in ["offset", "limit"] {
-                let max = if ek == "offset" { READ_OFFSET_MAX } else { MAX_INT };
-                if let Some(err) = check_int_in_range(e, ek, 0.0, max) {
-                    return Err(err.replacen(&format!("\"{ek}\""), &format!("\"path[{i}].{ek}\""), 1));
-                }
-            }
-        }
+        guard_path_entries(a, &mut entries)?;
         a.insert("path".to_owned(), JsonValue::Array(entries));
     }
     let defaulted = maybe_cap_unbounded_read(a);

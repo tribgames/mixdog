@@ -1,17 +1,3 @@
-//! The thread scope's op gates (P §9.2, `ThreadOpGates`): `gate(thread)` is the one `OpGate`
-//! of a thread, over the thread's log.
-//!
-//! The thread's actor is the scope's only writer. A lookup (`OpStore::get`) first lets a
-//! running execution of the op settle in the actor, then reads the op's indexed row and the
-//! frame that carries it (the mutation record's result, an `op` record's rejection or external
-//! state). A write (`OpStore::put`: a fence, a rejection, an external state) is an `op` record
-//! the actor appends, answered once durable. The actor refuses an id it fenced
-//! (`opFenced`), and refuses a fence for an id it already runs or answered.
-//!
-//! Node has no op store: `call-dispatch.mjs` shares one promise per call id, which the
-//! actor's `OpTable` ports (attach, replay, `opIdConflict`). `op/status`, the fence and the
-//! durable record are the Rust protocol's (P §9.4), so there is no Node answer to replay.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -31,7 +17,6 @@ use mixdog_core_base::ops::OpStore;
 use mixdog_core_base::ops::PayloadDigest;
 use mixdog_core_base::ops::ThreadOpGates;
 use mixdog_rt::CancellationToken;
-use mixdog_rt::LaneToken;
 use mixdog_store::schema::bounded::Digest;
 use mixdog_store::schema::bounded::Json;
 use mixdog_store::schema::bounded::Text;
@@ -131,12 +116,8 @@ impl OpStore for ThreadOpStore {
         let deps = self.dir.deps();
         deps.store.unheld().await;
         let (store, thread, op) = (deps.store.clone(), self.thread.clone(), id.as_str().to_owned());
-        let stored = deps
-            .lanes
-            .io
-            .submit(&CancellationToken::new(), move |lane| store.thread_op(lane, &thread, &op))?
-            .await
-            .map_err(|_| CoreError::Internal { incident_id: "session-op-job-dropped".into() })??;
+        let stored =
+            mixdog_core_base::support::on_lane_wait(deps.lanes.io, &CancellationToken::new(), move |lane| store.thread_op(lane, &thread, &op)).await??;
         stored.map(record_of).transpose()
     }
 

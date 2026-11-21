@@ -22,14 +22,6 @@ pub struct Lanes {
     pub cpu_bulk: CpuBulk,
 }
 
-/// Lane jobs this crate has started, and how many are running now; compiled only for the DS-WS-5
-/// gate. The clippy ban on `std::fs` sends this crate's blocking file work to lane jobs and each
-/// job is submitted through [`counted`], so with nothing running at the start of a window and nothing
-/// started during it, this crate made no file-system call in that window, including none from a job
-/// that was already running.
-///
-/// Both numbers live in one word (started in the high half, running in the low half) so a reader
-/// gets them from a single load: a job cannot start between the two reads of a snapshot.
 #[cfg(feature = "count-jobs")]
 static JOB_WORD: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 #[cfg(feature = "count-jobs")]

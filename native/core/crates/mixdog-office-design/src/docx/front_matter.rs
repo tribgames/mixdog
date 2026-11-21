@@ -11,24 +11,52 @@ use crate::prop;
 use crate::tokens::strings;
 use mixdog_office_base::values::truthy;
 
+fn write_page_setup(w: &mut DocxWriter, operation: &Value) {
+    if prop(operation, "page") == Some(&Value::Bool(false)) {
+        return;
+    }
+    let orientation = prop(operation, "orientation").filter(|value| truthy(value)).cloned().unwrap_or_else(|| Value::String("portrait".into()));
+    let margin = num(w.page_margin);
+    w.output.push(json!({
+        "op": "set_page",
+        "properties": {
+            "orientation": orientation,
+            "topMargin": margin,
+            "bottomMargin": margin,
+            "leftMargin": margin,
+            "rightMargin": margin,
+        },
+    }));
+}
+
+fn write_summary(w: &mut DocxWriter, operation: &Value, summary: &Value, display: Option<Value>) {
+    let body_size = w.body_size;
+    let joined = strings(Some(summary)).join(" ");
+    if let Some(label) = prop(operation, "summaryLabel").filter(|value| truthy(value)) {
+        let label = value_to_string(label);
+        let options =
+            CalloutOptions { label: &label, emphasis: if w.decision_brief { "inverse" } else { "accent" }, east_asia: w.ty.east_asia_for(display.as_ref()) };
+        add_docx_decision_callout(&mut w.output, w.state, &joined, w.design, &options);
+    } else {
+        let spacing_after = w.spacing(18.0, 9.0, 14.0);
+        let properties = Props::new()
+            .opt("name", display)
+            .num("size", body_size + 1.0)
+            .set("bold", true)
+            .opt("color", w.color("ink"))
+            .num("spacingBefore", if w.compact_memo { 2.0 } else { 4.0 })
+            .num("spacingAfter", spacing_after)
+            .num("lineSpacing", (body_size + 1.0) * 1.35)
+            .set("keepWithNext", true);
+        w.append(Some(joined), "Normal", properties);
+    }
+}
+
 /// `writeDocxFrontMatter(w, operation)`.
 pub fn write_docx_front_matter(w: &mut DocxWriter, operation: &Value) -> Result<(), String> {
     let body_size = w.body_size;
     let compact = w.compact_memo;
-    if prop(operation, "page") != Some(&Value::Bool(false)) {
-        let orientation = prop(operation, "orientation").filter(|value| truthy(value)).cloned().unwrap_or_else(|| Value::String("portrait".into()));
-        let margin = num(w.page_margin);
-        w.output.push(json!({
-            "op": "set_page",
-            "properties": {
-                "orientation": orientation,
-                "topMargin": margin,
-                "bottomMargin": margin,
-                "leftMargin": margin,
-                "rightMargin": margin,
-            },
-        }));
-    }
+    write_page_setup(w, operation);
     // The document's own face and size are the body's: set per paragraph alone, a paragraph added later (by
     // append_text or by hand in Word) came out in Calibri 11 pt beside a Malgun Gothic 10.5 pt body.
     let body_face = w.ty.face("body").cloned();
@@ -85,30 +113,7 @@ pub fn write_docx_front_matter(w: &mut DocxWriter, operation: &Value) -> Result<
         w.append(Some(item.clone()), "Normal", properties);
     }
     if let Some(summary) = prop(operation, "summary").filter(|value| truthy(value)) {
-        let joined = strings(Some(summary)).join(" ");
-        // A label the author gave is drawn whatever the composition reads the document as: labels are opt-in, and
-        // dropped without a word it left a report's "결론" as a plain bold paragraph.
-        if let Some(label) = prop(operation, "summaryLabel").filter(|value| truthy(value)) {
-            let label = value_to_string(label);
-            let options = CalloutOptions {
-                label: &label,
-                emphasis: if w.decision_brief { "inverse" } else { "accent" },
-                east_asia: w.ty.east_asia_for(display.as_ref()),
-            };
-            add_docx_decision_callout(&mut w.output, w.state, &joined, w.design, &options);
-        } else {
-            let spacing_after = w.spacing(18.0, 9.0, 14.0);
-            let properties = Props::new()
-                .opt("name", display)
-                .num("size", body_size + 1.0)
-                .set("bold", true)
-                .opt("color", w.color("ink"))
-                .num("spacingBefore", if compact { 2.0 } else { 4.0 })
-                .num("spacingAfter", spacing_after)
-                .num("lineSpacing", (body_size + 1.0) * 1.35)
-                .set("keepWithNext", true);
-            w.append(Some(joined), "Normal", properties);
-        }
+        write_summary(w, operation, summary, display);
     }
     if let Some(metrics) = prop(operation, "metrics").filter(|value| value.as_array().is_some_and(|list| !list.is_empty())) {
         add_docx_metric_strip(&mut w.output, w.state, metrics, w.design)?;

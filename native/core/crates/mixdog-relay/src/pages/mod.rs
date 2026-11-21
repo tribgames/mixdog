@@ -1,10 +1,9 @@
-//! The public pages the relay serves itself: `/app` (the install page for the phone app) with `/app/latest.json`, `/connect`
-//! (the browser code entry) and the "update your PC" page. Each page is a function from the request to a [`PageReply`] that
-//! the router writes; the pages take no parameters and grant nothing.
+//! The public pages the relay serves itself: `/app` with `/app/latest.json`, `/connect` (the browser code entry) and the "update
+//! your PC" page. Each is a function from the request to a [`PageReply`]; the pages take no parameters and grant nothing.
 //!
-//! The HTML of every page is the Node page byte for byte (`assets/pages/*.html`), split only where Node inserts a value: the
-//! shared base and pairing CSS, the inline logo, and the page's own values. The pairing CSS is one contiguous file
-//! (`pairing.css`) that the phone app's `index.html` and the desktop's remote pairing screen carry too.
+//! The HTML of every page is the Node page byte for byte (`assets/pages/*.html`), split only where a value is inserted. The
+//! pairing CSS is one contiguous file (`pairing.css`) that the phone app's `index.html` and the desktop's remote pairing screen
+//! carry too.
 
 pub mod app;
 pub mod connect;

@@ -175,17 +175,8 @@ fn parse_annotation(
             format!("annot_p{page_index}_{inline_count}")
         }
     };
-    let text = |key: &str| -> Result<String> {
-        Ok(match xref.get(&dict, key)? {
-            Obj::Str(bytes) => string_to_pdf_string(&bytes, false),
-            _ => String::new(),
-        })
-    };
-    let contents = text("Contents")?;
-    let modification_date = match xref.get(&dict, "M")? {
-        Obj::Str(bytes) => Some(bytes.iter().map(|&b| char::from(b)).collect()),
-        _ => None,
-    };
+    let contents = contents_of(document, &dict)?;
+    let modification_date = modification_date_of(document, &dict)?;
     let mut flags = match xref.get(&dict, "F")?.as_int() {
         Some(f) if f > 0 => f,
         _ => 0,
@@ -209,22 +200,32 @@ fn parse_annotation(
         quad_points: None,
         action: ActionData::default(),
     };
-    // `data.quadPoints !== null`: a text-markup annotation without usable quad points is never viewable.
-    let mut quad_points_valid = true;
-    match subtype.as_deref() {
+    let quad_points_valid = apply_subtype(document, &dict, base_url, rect, &mut data)?;
+    let kind = match subtype.as_deref() {
+        Some("Widget") => Kind::Widget,
+        Some("Popup") => Kind::Popup,
+        _ => Kind::Plain,
+    };
+    Ok(Some((data, quad_points_valid, kind)))
+}
+
+/// The data only some subtypes have (a link's action and quad points, a text note's icon rectangle, a popup's parent).
+/// Returns `data.quadPoints !== null`: a text-markup annotation without usable quad points is never viewable.
+fn apply_subtype(document: &Document, dict: &Dict, base_url: Option<&str>, rect: [f64; 4], data: &mut Annotation) -> Result<bool> {
+    match data.subtype.as_deref() {
         Some("Link") => {
-            data.quad_points = quad_points(&dict, Some(&rect), document)?;
-            data.action = outline_read::parse_dest_dictionary(xref, &dict, base_url)?;
+            data.quad_points = quad_points(dict, Some(&rect), document)?;
+            data.action = outline_read::parse_dest_dictionary(document.xref(), dict, base_url)?;
         }
         Some("Highlight" | "Underline" | "Squiggly" | "StrikeOut") => {
-            data.quad_points = quad_points(&dict, None, document)?;
-            quad_points_valid = data.quad_points.is_some();
+            data.quad_points = quad_points(dict, None, document)?;
+            return Ok(data.quad_points.is_some());
         }
         Some("Text") => {
             // `TextAnnotation`: without an appearance the note is drawn as the 22 px icon, so the rectangle becomes
             // 22 x 22 from its top-left corner (larger or smaller); with an appearance it is kept.
             const DEFAULT_ICON_SIZE: f64 = 22.0;
-            if !has_appearance {
+            if !data.has_appearance {
                 let mut icon = rect;
                 icon[1] = icon[3] - DEFAULT_ICON_SIZE;
                 icon[2] = icon[0] + DEFAULT_ICON_SIZE;
@@ -235,16 +236,25 @@ fn parse_annotation(
             if rect[2] - rect[0] == 0.0 || rect[3] - rect[1] == 0.0 {
                 data.rect = None;
             }
-            popup_from_parent(document, &dict, &mut data)?;
+            popup_from_parent(document, dict, data)?;
         }
         _ => {}
     }
-    let kind = match subtype.as_deref() {
-        Some("Widget") => Kind::Widget,
-        Some("Popup") => Kind::Popup,
-        _ => Kind::Plain,
-    };
-    Ok(Some((data, quad_points_valid, kind)))
+    Ok(true)
+}
+
+fn contents_of(document: &Document, dict: &Dict) -> Result<String> {
+    Ok(match document.xref().get(dict, "Contents")? {
+        Obj::Str(bytes) => string_to_pdf_string(&bytes, false),
+        _ => String::new(),
+    })
+}
+
+fn modification_date_of(document: &Document, dict: &Dict) -> Result<Option<String>> {
+    Ok(match document.xref().get(dict, "M")? {
+        Obj::Str(bytes) => Some(bytes.iter().map(|&b| char::from(b)).collect()),
+        _ => None,
+    })
 }
 
 /// The part of `PopupAnnotation` that reads its parent: the popup shows the parent's contents and modification date,
@@ -261,20 +271,14 @@ fn popup_from_parent(document: &Document, dict: &Dict, data: &mut Annotation) ->
             _ => return Ok(()),
         }
     }
-    data.modification_date = match xref.get(&parent, "M")? {
-        Obj::Str(bytes) => Some(bytes.iter().map(|&b| char::from(b)).collect()),
-        _ => None,
-    };
+    data.modification_date = modification_date_of(document, &parent)?;
     if !viewable(data.annotation_flags)
         && let Some(parent_flags) = xref.get(&parent, "F")?.as_int()
         && viewable(parent_flags)
     {
         data.annotation_flags = if parent_flags > 0 { parent_flags } else { 0 };
     }
-    data.contents = match xref.get(&parent, "Contents")? {
-        Obj::Str(bytes) => string_to_pdf_string(&bytes, false),
-        _ => String::new(),
-    };
+    data.contents = contents_of(document, &parent)?;
     Ok(())
 }
 

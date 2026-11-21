@@ -56,13 +56,7 @@ if (Get-Command PSConsoleHostReadLine -CommandType Function -ErrorAction Silentl
 }
 "##;
 
-/// bash (Linux, macOS, Git Bash, MSYS2, Cygwin) adds PROMPT_COMMAND and PS0 hooks; PS0 needs
-/// bash 4.4, so older bash gets no markers (unknown).
-/// - A non-login shell starts with --init-file: the script first reads the files bash itself
-///   would have read.
-/// - A login shell keeps its own arguments and startup, so it stays a real login shell; the
-///   script is sourced from the first prompt through an inherited PROMPT_COMMAND (BASH_BOOT). A
-///   profile that replaces PROMPT_COMMAND outright leaves the terminal unintegrated (unknown).
+/// bash adds PROMPT_COMMAND and PS0 hooks; PS0 needs bash 4.4, so older bash gets no markers.
 const BASH_SCRIPT: &str = r##"# Mixdog terminal integration (bash)
 if [ -z "$__mixdog_bash" ]; then
   __mixdog_bash=1
@@ -87,10 +81,6 @@ if [ -z "$__mixdog_bash" ]; then
 fi
 "##;
 
-/// zsh through a private ZDOTDIR: each startup file loads the user's own counterpart; .zshrc
-/// hands ZDOTDIR back and adds precmd/preexec hooks. ZDOTDIR is unset at the end only when it
-/// was unset at launch and no user file set it since: a ZDOTDIR the user's files chose is theirs
-/// to keep.
 fn zsh_forward(file: &str) -> String {
     format!(
         r##"# Mixdog terminal integration (zsh)
@@ -197,81 +187,94 @@ fn is_subset(args: &[String], allowed: &[&str]) -> bool {
     args.iter().all(|arg| allowed.contains(&arg.as_str()))
 }
 
+fn unchanged(spawn: &SpawnProfile) -> SpawnPlan {
+    SpawnPlan { path: spawn.path.clone(), args: spawn.args.clone(), env: spawn.env.clone(), integration: None }
+}
+
+fn plan_powershell(spawn: &SpawnProfile) -> SpawnPlan {
+    if !spawn.args.is_empty() {
+        return unchanged(spawn);
+    }
+    // An encoded command is not subject to the script execution policy, and the user's profile still loads before it.
+    let utf16: Vec<u8> = POWERSHELL_SCRIPT.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    SpawnPlan {
+        path: spawn.path.clone(),
+        args: vec!["-NoExit".into(), "-EncodedCommand".into(), base64(&utf16)],
+        env: spawn.env.clone(),
+        integration: Some(Integration::Powershell),
+    }
+}
+
+fn plan_cmd(spawn: &SpawnProfile, base_env: &dyn Fn(&str) -> Option<String>) -> SpawnPlan {
+    if !spawn.args.is_empty() {
+        return unchanged(spawn);
+    }
+    let prompt = lookup(&spawn.env, "PROMPT").map(str::to_owned).or_else(|| base_env("PROMPT").filter(|v| !v.is_empty())).unwrap_or_else(|| "$P$G".to_owned());
+    SpawnPlan {
+        path: spawn.path.clone(),
+        args: spawn.args.clone(),
+        env: with_env(spawn.env.clone(), "PROMPT", format!("$e]697;P$e\\{prompt}")),
+        integration: Some(Integration::Cmd),
+    }
+}
+
+fn plan_bash(spawn: &SpawnProfile, root: &Path, base_env: &dyn Fn(&str) -> Option<String>, windows: bool) -> SpawnPlan {
+    let args = &spawn.args;
+    // System32\bash.exe is the WSL launcher: its bash cannot read a Windows path.
+    if windows && spawn.path.to_lowercase().replace('/', "\\").contains("\\system32\\") {
+        return unchanged(spawn);
+    }
+    if !is_subset(args, &["--login", "-l", "-i"]) {
+        return unchanged(spawn);
+    }
+    let Some(dir) = write_shell_files(root) else {
+        return unchanged(spawn);
+    };
+    let script = shell_path(&dir.join("bash").join("mixdog.bash"));
+    if args.iter().any(|a| a == "--login" || a == "-l") {
+        let inherited =
+            lookup(&spawn.env, "PROMPT_COMMAND").map(str::to_owned).or_else(|| base_env("PROMPT_COMMAND").filter(|v| !v.is_empty())).unwrap_or_default();
+        let boot = bash_boot(&script);
+        let value = if inherited.is_empty() { boot } else { format!("{boot}; {inherited}") };
+        return SpawnPlan {
+            path: spawn.path.clone(),
+            args: args.clone(),
+            env: with_env(spawn.env.clone(), "PROMPT_COMMAND", value),
+            integration: Some(Integration::Bash),
+        };
+    }
+    SpawnPlan { path: spawn.path.clone(), args: vec!["--init-file".into(), script, "-i".into()], env: spawn.env.clone(), integration: Some(Integration::Bash) }
+}
+
+fn plan_zsh(spawn: &SpawnProfile, root: &Path, base_env: &dyn Fn(&str) -> Option<String>) -> SpawnPlan {
+    if !is_subset(&spawn.args, &["--login", "-l", "-i"]) {
+        return unchanged(spawn);
+    }
+    let Some(dir) = write_shell_files(root) else {
+        return unchanged(spawn);
+    };
+    let user_dir = lookup(&spawn.env, "ZDOTDIR").map(str::to_owned).or_else(|| base_env("ZDOTDIR").filter(|v| !v.is_empty())).unwrap_or_default();
+    let user = if user_dir.is_empty() { base_env("HOME").unwrap_or_default() } else { user_dir.clone() };
+    let mut env = with_env(spawn.env.clone(), "ZDOTDIR", dir.join("zsh").to_string_lossy().into_owned());
+    env = with_env(env, "MIXDOG_USER_ZDOTDIR", user);
+    if user_dir.is_empty() {
+        env = with_env(env, "MIXDOG_ZDOTDIR_UNSET", "1".to_owned());
+    }
+    SpawnPlan { path: spawn.path.clone(), args: spawn.args.clone(), env, integration: Some(Integration::Zsh) }
+}
+
 /// How to spawn `spawn` so it reports activity. `root` is Mixdog's own directory for startup
 /// files (`None`: only file-less integrations apply). `base_env` reads the environment the shell
 /// will inherit.
 pub fn plan_shell_integration(spawn: &SpawnProfile, root: Option<&Path>, base_env: &dyn Fn(&str) -> Option<String>, windows: bool) -> SpawnPlan {
-    let args = spawn.args.clone();
-    let env = spawn.env.clone();
-    let unchanged = SpawnPlan { path: spawn.path.clone(), args: args.clone(), env: env.clone(), integration: None };
     let normalized = spawn.path.replace('\\', "/");
     let name = normalized.rsplit('/').next().unwrap_or("").to_lowercase().trim_end_matches(".exe").to_owned();
-    if name == "pwsh" || name == "powershell" {
-        if !args.is_empty() {
-            return unchanged;
-        }
-        // An encoded command is not subject to the script execution policy, and the user's
-        // profile still loads before it.
-        let utf16: Vec<u8> = POWERSHELL_SCRIPT.encode_utf16().flat_map(u16::to_le_bytes).collect();
-        return SpawnPlan {
-            path: spawn.path.clone(),
-            args: vec!["-NoExit".into(), "-EncodedCommand".into(), base64(&utf16)],
-            env,
-            integration: Some(Integration::Powershell),
-        };
+    match (name.as_str(), root) {
+        ("pwsh" | "powershell", _) => plan_powershell(spawn),
+        ("cmd", _) if windows => plan_cmd(spawn, base_env),
+        (_, None) => unchanged(spawn),
+        ("bash", Some(root)) => plan_bash(spawn, root, base_env, windows),
+        ("zsh", Some(root)) if !windows => plan_zsh(spawn, root, base_env),
+        _ => unchanged(spawn),
     }
-    if name == "cmd" && windows {
-        if !args.is_empty() {
-            return unchanged;
-        }
-        // cmd has no command hooks; the prompt is its only report.
-        let prompt = lookup(&env, "PROMPT").map(str::to_owned).or_else(|| base_env("PROMPT").filter(|v| !v.is_empty())).unwrap_or_else(|| "$P$G".to_owned());
-        return SpawnPlan {
-            path: spawn.path.clone(),
-            args,
-            env: with_env(env, "PROMPT", format!("$e]697;P$e\\{prompt}")),
-            integration: Some(Integration::Cmd),
-        };
-    }
-    let Some(root) = root else {
-        return unchanged;
-    };
-    if name == "bash" {
-        // System32\bash.exe is the WSL launcher: its bash cannot read a Windows path.
-        if windows && spawn.path.to_lowercase().replace('/', "\\").contains("\\system32\\") {
-            return unchanged;
-        }
-        if !is_subset(&args, &["--login", "-l", "-i"]) {
-            return unchanged;
-        }
-        let Some(dir) = write_shell_files(root) else {
-            return unchanged;
-        };
-        let script = shell_path(&dir.join("bash").join("mixdog.bash"));
-        if args.iter().any(|a| a == "--login" || a == "-l") {
-            let inherited =
-                lookup(&env, "PROMPT_COMMAND").map(str::to_owned).or_else(|| base_env("PROMPT_COMMAND").filter(|v| !v.is_empty())).unwrap_or_default();
-            let boot = bash_boot(&script);
-            let value = if inherited.is_empty() { boot } else { format!("{boot}; {inherited}") };
-            return SpawnPlan { path: spawn.path.clone(), args, env: with_env(env, "PROMPT_COMMAND", value), integration: Some(Integration::Bash) };
-        }
-        return SpawnPlan { path: spawn.path.clone(), args: vec!["--init-file".into(), script, "-i".into()], env, integration: Some(Integration::Bash) };
-    }
-    if name == "zsh" && !windows {
-        if !is_subset(&args, &["--login", "-l", "-i"]) {
-            return unchanged;
-        }
-        let Some(dir) = write_shell_files(root) else {
-            return unchanged;
-        };
-        let user_dir = lookup(&env, "ZDOTDIR").map(str::to_owned).or_else(|| base_env("ZDOTDIR").filter(|v| !v.is_empty())).unwrap_or_default();
-        let user = if user_dir.is_empty() { base_env("HOME").unwrap_or_default() } else { user_dir.clone() };
-        let mut env = with_env(env, "ZDOTDIR", dir.join("zsh").to_string_lossy().into_owned());
-        env = with_env(env, "MIXDOG_USER_ZDOTDIR", user);
-        if user_dir.is_empty() {
-            env = with_env(env, "MIXDOG_ZDOTDIR_UNSET", "1".to_owned());
-        }
-        return SpawnPlan { path: spawn.path.clone(), args, env, integration: Some(Integration::Zsh) };
-    }
-    unchanged
 }

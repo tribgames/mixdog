@@ -1,11 +1,5 @@
-//! The value of one quota point in dollars, and the share of a meter rise that came from outside
-//! Mixdog (`quota-value-estimate.mjs`).
-//!
-//! A quota rise is the recorded requests plus nonnegative outside usage. A heavy-tailed
-//! measurement component and an exponentially modified Gaussian outside component are fitted
-//! to the priced history, recent observations weighing more. The noise scale is an assumption,
-//! not a provider accuracy guarantee; callers describe the result as an estimate. Every
-//! operation is evaluated as V8 evaluates it (`mixdog_js::math`), so the figures match Node's.
+//! The noise scale is an assumption, not a provider accuracy guarantee; callers describe the result as an estimate.
+//! Every operation is evaluated as V8 evaluates it (`mixdog_js::math`), so the figures match Node's.
 
 // `!(x > 0)` is true for NaN, which `x <= 0` is not: the estimate's guards are written as
 // Node writes them.
@@ -220,16 +214,12 @@ pub fn estimate_quota_value(intervals: &[Interval], prior: &[Interval]) -> Optio
     Some(Estimate { rate: 1.0 / cost_per_percent, cost_per_percent, ..base })
 }
 
-/// The mixture fit over the current window and any earlier windows. Recent fitting is bounded,
-/// but older own-use evidence must not expire merely because web use persists.
-fn fit_quota_value(intervals: &[Interval], prior: &[Interval], own_value_lower_bound: f64) -> Option<Estimate> {
-    let rate_ceiling = if own_value_lower_bound > 0.0 { 1.0 / own_value_lower_bound } else { f64::INFINITY };
-    let mut history: Vec<&Interval> = prior.iter().chain(intervals).filter(|row| usable(row)).collect();
-    history.sort_by(|a, b| by_end(a, b));
-    if history.is_empty() {
-        return None;
-    }
-    let history = &history[history.len().saturating_sub(MAX_SAMPLES)..];
+fn sample_densities(s: &Sample, rate: f64, scale: f64) -> Densities {
+    densities(s.points, s.cost_usd, s.resolution, s.measured, rate, scale)
+}
+
+/// Samples oldest first, each weighed by `observation` and by how many points of use came after it.
+fn recency_weighted_samples(history: &[&Interval]) -> Vec<Sample> {
     let mut newer_points = 0.0;
     let mut samples: Vec<Sample> = history
         .iter()
@@ -242,6 +232,57 @@ fn fit_quota_value(intervals: &[Interval], prior: &[Interval], own_value_lower_b
         })
         .collect();
     samples.reverse();
+    samples
+}
+
+struct Mixture {
+    rate: f64,
+    scale: f64,
+    mixed: f64,
+    score: f64,
+}
+
+/// Grid search, three times narrower around the best so far, over the rate between `lower` and `upper`, the noise
+/// scale and the outside share; the candidate with the best weighted log-likelihood.
+fn search_mixture(samples: &[Sample], start: Mixture, lower: f64, upper: f64, rate_ceiling: f64) -> Mixture {
+    let mut step = (upper - lower) / 40.0;
+    let mut candidates: Vec<f64> = std::iter::once(start.rate).chain((0..41).map(|i| lower + f64::from(i) * step)).collect();
+    let mut best = start;
+    for _ in 0..3 {
+        for &rate in &candidates {
+            if !(rate > 0.0) || rate > rate_ceiling {
+                continue;
+            }
+            for scale in [0.15, 0.7, 3.0] {
+                let pairs: Vec<Densities> = samples.iter().map(|s| sample_densities(s, rate, scale)).collect();
+                for mixed in [0.0, 0.25, 0.5, 0.75, 0.9] {
+                    let mut score = 0.0;
+                    for (pair, sample) in pairs.iter().zip(samples) {
+                        score += sample.weight * ln((1.0 - mixed) * pair.clean + mixed * pair.outside);
+                    }
+                    if score > best.score {
+                        best = Mixture { rate, scale, mixed, score };
+                    }
+                }
+            }
+        }
+        let radius = step;
+        step /= 5.0;
+        candidates = (0..11).map(|i| best.rate - radius + f64::from(i) * step).collect();
+    }
+    best
+}
+
+/// The mixture fit over the current window and any earlier windows. Recent fitting is bounded,
+/// but older own-use evidence must not expire merely because web use persists.
+fn fit_quota_value(intervals: &[Interval], prior: &[Interval], own_value_lower_bound: f64) -> Option<Estimate> {
+    let rate_ceiling = if own_value_lower_bound > 0.0 { 1.0 / own_value_lower_bound } else { f64::INFINITY };
+    let mut history: Vec<&Interval> = prior.iter().chain(intervals).filter(|row| usable(row)).collect();
+    history.sort_by(|a, b| by_end(a, b));
+    if history.is_empty() {
+        return None;
+    }
+    let samples = recency_weighted_samples(&history[history.len().saturating_sub(MAX_SAMPLES)..]);
     let sum = |f: &dyn Fn(&Sample) -> f64| samples.iter().fold(0.0, |s, row| s + f(row));
     let information = sum(&|r| r.weight);
     let cost = sum(&|r| r.weight * r.cost_usd);
@@ -249,41 +290,13 @@ fn fit_quota_value(intervals: &[Interval], prior: &[Interval], own_value_lower_b
     // Never train a faster own-use rate from an excess total-meter rise that contradicts
     // existing own-value support. Fit its outside component instead.
     let historical_rate = min(points / cost, rate_ceiling);
-    let density = |s: &Sample, rate: f64, scale: f64| densities(s.points, s.cost_usd, s.resolution, s.measured, rate, scale);
-    let baseline_score = samples.iter().fold(0.0, |s, row| s + row.weight * ln(density(row, historical_rate, 0.7).clean));
+    let baseline_score = samples.iter().fold(0.0, |s, row| s + row.weight * ln(sample_densities(row, historical_rate, 0.7).clean));
     let mut by_rate = samples.clone();
     by_rate.sort_by(|a, b| (a.points / a.cost_usd - b.points / b.cost_usd).partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal));
     let lower = weighted_quantile(&by_rate, 0.1, information) * 0.65;
     let upper = weighted_quantile(&by_rate, 0.6, information) * 1.15;
-    let mut step = (upper - lower) / 40.0;
-    let mut candidates: Vec<f64> = std::iter::once(historical_rate).chain((0..41).map(|i| lower + f64::from(i) * step)).collect();
-    let (mut best_rate, mut best_scale, mut best_mixed) = (historical_rate, 0.7, 0.0);
-    let mut best_score = baseline_score;
-    for _ in 0..3 {
-        for &rate in &candidates {
-            if !(rate > 0.0) || rate > rate_ceiling {
-                continue;
-            }
-            for scale in [0.15, 0.7, 3.0] {
-                let pairs: Vec<Densities> = samples.iter().map(|s| density(s, rate, scale)).collect();
-                for mixed in [0.0, 0.25, 0.5, 0.75, 0.9] {
-                    let mut score = 0.0;
-                    for (pair, sample) in pairs.iter().zip(&samples) {
-                        score += sample.weight * ln((1.0 - mixed) * pair.clean + mixed * pair.outside);
-                    }
-                    if score > best_score {
-                        best_score = score;
-                        best_rate = rate;
-                        best_scale = scale;
-                        best_mixed = mixed;
-                    }
-                }
-            }
-        }
-        let radius = step;
-        step /= 5.0;
-        candidates = (0..11).map(|i| best_rate - radius + f64::from(i) * step).collect();
-    }
+    let best = Mixture { rate: historical_rate, scale: 0.7, mixed: 0.0, score: baseline_score };
+    let Mixture { rate: best_rate, scale: best_scale, mixed: best_mixed, score: best_score } = search_mixture(&samples, best, lower, upper, rate_ceiling);
     // The two additional mixture parameters pay a log-information penalty; the remaining
     // likelihood evidence smoothly controls the correction.
     let evidence = max(0.0, best_score - baseline_score - ln_1p(information));

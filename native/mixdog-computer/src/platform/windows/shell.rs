@@ -9,7 +9,7 @@ use windows::Globalization::Language;
 use windows::Graphics::Imaging::{
     BitmapAlphaMode, BitmapDecoder, BitmapInterpolationMode, BitmapPixelFormat, BitmapTransform, ColorManagementMode, ExifOrientationMode, SoftwareBitmap,
 };
-use windows::Media::Ocr::OcrEngine;
+use windows::Media::Ocr::{OcrEngine, OcrResult};
 use windows::Storage::Streams::{DataWriter, InMemoryRandomAccessStream};
 use windows::Win32::Foundation::HGLOBAL;
 use windows::Win32::System::Com::CoTaskMemFree;
@@ -201,6 +201,26 @@ fn decode(image: &[u8], budget: &Budget) -> Result<(BitmapDecoder, InMemoryRando
 pub fn ocr(image: &[u8], language: &str, max_words: usize) -> Result<Value, String> {
     let budget = Budget::new(OCR_WORK_MS);
     let (decoder, _stream) = decode(image, &budget)?;
+    let (bitmap, upscale) = recognizable_bitmap(&decoder, &budget)?;
+    let engine = engine_for(language)?.ok_or_else(|| format!("Windows OCR has no recognizer for language '{language}'"))?;
+    let result = budget.wait(engine.RecognizeAsync(&bitmap))?;
+    let (lines, words, total) = ocr_boxes(&result, upscale as f64, max_words)?;
+    let tag = engine.RecognizerLanguage().and_then(|language| language.LanguageTag()).map(|tag| tag.to_string()).unwrap_or_default();
+    Ok(json!({
+        "text": format!("OCR: {} lines, {} words", lines.len(), total),
+        "language": tag,
+        "image_width": bitmap.PixelWidth().map_err(winrt)? / upscale as i32,
+        "image_height": bitmap.PixelHeight().map_err(winrt)? / upscale as i32,
+        "lines": lines,
+        "words": words,
+        "total_words": total,
+        "truncated_words": total.saturating_sub(words.len()),
+    }))
+}
+
+/// The decoded image as the engine takes it: shrunk to its largest dimension, or doubled when small enough, and the
+/// factor it was doubled by.
+fn recognizable_bitmap(decoder: &BitmapDecoder, budget: &Budget) -> Result<(SoftwareBitmap, u32), String> {
     let (width, height) = (decoder.PixelWidth().map_err(winrt)?, decoder.PixelHeight().map_err(winrt)?);
     let maximum = OcrEngine::MaxImageDimension().map_err(winrt)?;
     let largest = width.max(height);
@@ -224,9 +244,11 @@ pub fn ocr(image: &[u8], language: &str, max_words: usize) -> Result<Value, Stri
     } else {
         budget.wait(decoder.GetSoftwareBitmapAsync())?
     };
-    let engine = engine_for(language)?.ok_or_else(|| format!("Windows OCR has no recognizer for language '{language}'"))?;
-    let result = budget.wait(engine.RecognizeAsync(&bitmap))?;
-    let scale = upscale as f64;
+    Ok((bitmap, upscale))
+}
+
+/// The recognized lines and the first `max_words` words as boxes in the sent image's pixels, and the total word count.
+fn ocr_boxes(result: &OcrResult, scale: f64, max_words: usize) -> Result<(Vec<Value>, Vec<Value>, usize), String> {
     let (mut words, mut lines, mut total) = (Vec::new(), Vec::new(), 0usize);
     for (index, line) in result.Lines().map_err(winrt)?.into_iter().enumerate() {
         let (mut min_x, mut min_y) = (f64::INFINITY, f64::INFINITY);
@@ -263,17 +285,7 @@ pub fn ocr(image: &[u8], language: &str, max_words: usize) -> Result<Value, Stri
             "height": if known { (max_y - min_y).round() as i64 } else { 0 },
         }));
     }
-    let tag = engine.RecognizerLanguage().and_then(|language| language.LanguageTag()).map(|tag| tag.to_string()).unwrap_or_default();
-    Ok(json!({
-        "text": format!("OCR: {} lines, {} words", lines.len(), total),
-        "language": tag,
-        "image_width": bitmap.PixelWidth().map_err(winrt)? / upscale as i32,
-        "image_height": bitmap.PixelHeight().map_err(winrt)? / upscale as i32,
-        "lines": lines,
-        "words": words,
-        "total_words": total,
-        "truncated_words": total.saturating_sub(words.len()),
-    }))
+    Ok((lines, words, total))
 }
 
 pub fn ocr_status(language: &str) -> Value {

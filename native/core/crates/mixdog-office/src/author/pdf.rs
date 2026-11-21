@@ -1,18 +1,8 @@
-//! `authoring/pdf-author-action.mjs`: the `author` action for a `.pdf` target. An HTML document printed by the shared browser,
-//! landed over the target only once it printed and passed its checks, then opened as a created PDF for review.
-//!
-//! Two kinds of document. A flowing one (running text the browser paginates) is checked for what print would cut. Designed
-//! pages (one `<section class="slide">` per sheet) go through the deck's own frame first: the same browser measure, geometry
-//! gate, facts and plan gates, measured audit and composition receipt the pptx route runs, on a working deck built at the
-//! sheet's size and discarded once read; then the browser prints the HTML itself, and finalize asks for the deck's scored
-//! critique.
-
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use mixdog_js::{JsRegex, json_number, to_number_of, value_to_string};
 use mixdog_office_author::brief::{facts_gate, html_brief_script, parse_authoring_brief, review_brief_promises, review_source_grounding};
-use mixdog_office_author::html_browser::RunError;
 use mixdog_office_author::pdf_print::pdf_html_source_path;
 use mixdog_office_author::pptx_html_runner::has_slide_sections;
 use serde_json::{Map, Value, json};
@@ -85,11 +75,7 @@ async fn frame_designed_pages_in<H: AuthorHost>(
     call: &AuthorCall<'_>,
     prior_audit: Option<Value>,
 ) -> Result<Frame, AuthorError> {
-    let run = match host.run_pptx_html(html, deck, Path::new(target), call.signal, true).await {
-        Ok(run) => run,
-        Err(RunError::Cancelled) => return Err(AuthorError::Abort("Office authoring was cancelled".to_owned())),
-        Err(RunError::Failed(message)) => return Err(AuthorError::Failed(message)),
-    };
+    let run = host.run_pptx_html(html, deck, Path::new(target), call.signal, true).await?;
     throw_if_authoring_cancelled(call.signal, None)?;
     if run.get("ok") != Some(&Value::Bool(true)) {
         return Ok(Frame::Refused(html_failed_result(target, run.get("error"), run.get("elapsedMs"))));
@@ -108,7 +94,6 @@ async fn frame_designed_pages_in<H: AuthorHost>(
     {
         let mut session = lock(&shadow);
         session.authored.brief = Some(brief.clone());
-        // The working deck's pages are paper: its audit holds them to the print type floors.
         session.authored.print_sheet = true;
         if let Some(prior) = prior_audit {
             session.caches.inline_audit = Some(prior);
@@ -117,18 +102,17 @@ async fn frame_designed_pages_in<H: AuthorHost>(
     let exclude: Vec<String> = BROWSER_SET_TEXT.iter().map(|code| (*code).to_owned()).collect();
     let audit = if flag_is(args, "audit", false) { None } else { host.inline_audit(&shadow, &exclude).await };
     let receipt = host.read_composition_receipt(&shadow).await;
-    // The deck's design read against the brief, kept for the PDF's qa: the plan's page count and the facts' locators (the
-    // refusing readings already ran as gates).
-    let design_issues = match &document {
-        Some(document) => {
-            let mut issues = review_brief_promises(document, brief);
-            issues.extend(review_source_grounding(brief));
-            issues
-        }
-        None => Vec::new(),
-    };
+    let design_issues = brief_design_issues(document.as_ref(), brief);
     let rounds = lock(&shadow).caches.inline_audit.clone().filter(mixdog_office_base::values::truthy);
     Ok(Frame::Read(Box::new(Framed { run, audit, receipt, design_issues, rounds })))
+}
+
+/// The deck's design read against the brief, kept for the PDF's qa: the plan's page count and the facts' locators.
+fn brief_design_issues(document: Option<&Value>, brief: &Value) -> Vec<Value> {
+    let Some(document) = document else { return Vec::new() };
+    let mut issues = review_brief_promises(document, brief);
+    issues.extend(review_source_grounding(brief));
+    issues
 }
 
 /// `frameDesignedPages`: the frame runs on a working deck in a folder of its own beside the target, released and removed once
@@ -219,51 +203,14 @@ async fn stage_print_and_land<H: AuthorHost>(
         }
     }
     let properties = args.get("properties").cloned().unwrap_or(Value::Null);
-    let run = match host.print_pdf(html, staging, html_source, &properties, frame, signal).await {
-        Ok(run) => run,
-        Err(RunError::Cancelled) => return Err(AuthorError::Abort("Office authoring was cancelled".to_owned())),
-        Err(RunError::Failed(message)) => return Err(AuthorError::Failed(message)),
-    };
+    let run = host.print_pdf(html, staging, html_source, &properties, frame, signal).await?;
     throw_if_authoring_cancelled(signal, None)?;
     let source_text = html_source.to_string_lossy().into_owned();
-    let ran = run.get("ok") == Some(&Value::Bool(true));
-    if ran && frame {
-        let slides = framed.as_ref().and_then(|read| read.run.get("slideCount")).map(|count| to_number_of(Some(count)));
-        let pages = to_number_of(run.get("pageCount"));
-        if slides.is_none_or(|slides| slides != pages) {
-            let slides = value_to_string(framed.as_ref().and_then(|read| read.run.get("slideCount")).unwrap_or(&Value::Null));
-            return Ok(Printed::Refused(json!({
-                "ok": false,
-                "reason": "html_failed",
-                "output": target,
-                "htmlSource": source_text,
-                "error": { "message": format!("{slides} section.slide pages printed onto {} sheets: a page is taller than the sheet, or the CSS hides or stacks pages in print. Keep every section.slide exactly the sheet's size and displayed.", value_to_string(run.get("pageCount").unwrap_or(&Value::Null))) },
-                "elapsedMs": run.get("elapsedMs").cloned().unwrap_or(Value::Null),
-                "nextAction": "Fix the HTML the error names and call author again.",
-            })));
-        }
+    if run.get("ok") != Some(&Value::Bool(true)) {
+        return Ok(Printed::Refused(print_failed_result(target, &source_text, &run)));
     }
-    if !ran {
-        let layout = run.get("layout").filter(|layout| mixdog_office_base::values::truthy(layout));
-        let mut result = Map::new();
-        result.insert("ok".into(), json!(false));
-        result.insert("reason".into(), json!(if layout.is_some() { "layout_gate" } else { "html_failed" }));
-        result.insert("output".into(), json!(target));
-        result.insert("htmlSource".into(), json!(source_text));
-        match layout {
-            Some(layout) => result.insert("findings".into(), layout.clone()),
-            None => result.insert("error".into(), run.get("error").cloned().unwrap_or(Value::Null)),
-        };
-        result.insert("elapsedMs".into(), run.get("elapsedMs").cloned().unwrap_or(Value::Null));
-        result.insert(
-            "nextAction".into(),
-            json!(if layout.is_some() {
-                "Nothing landed: fix each finding in the HTML (its element and measure are named) and call author again."
-            } else {
-                "Fix the HTML the error names and call author again."
-            }),
-        );
-        return Ok(Printed::Refused(Value::Object(result)));
+    if frame && let Some(refused) = sheet_count_refusal(target, &source_text, framed.as_deref(), &run) {
+        return Ok(Printed::Refused(refused));
     }
     host.release_overwritten_session(target).await?;
     land_staged_deck(host, staging, Path::new(target), signal).await?;
@@ -271,6 +218,109 @@ async fn stage_print_and_land<H: AuthorHost>(
         json!({ "pageCount": run.get("pageCount").cloned().unwrap_or(Value::Null), "printableArea": run.get("area").cloned().unwrap_or(Value::Null) });
     let session = host.register_html_pdf_session(args, target, target_existed, receipt)?;
     Ok(Printed::Landed { run, session })
+}
+
+/// The answer for a print that did not run: the layout gate's findings, else the browser's error.
+fn print_failed_result(target: &str, source_text: &str, run: &Value) -> Value {
+    let layout = run.get("layout").filter(|layout| mixdog_office_base::values::truthy(layout));
+    let mut result = Map::new();
+    result.insert("ok".into(), json!(false));
+    result.insert("reason".into(), json!(if layout.is_some() { "layout_gate" } else { "html_failed" }));
+    result.insert("output".into(), json!(target));
+    result.insert("htmlSource".into(), json!(source_text));
+    match layout {
+        Some(layout) => result.insert("findings".into(), layout.clone()),
+        None => result.insert("error".into(), run.get("error").cloned().unwrap_or(Value::Null)),
+    };
+    result.insert("elapsedMs".into(), run.get("elapsedMs").cloned().unwrap_or(Value::Null));
+    result.insert(
+        "nextAction".into(),
+        json!(if layout.is_some() {
+            "Nothing landed: fix each finding in the HTML (its element and measure are named) and call author again."
+        } else {
+            "Fix the HTML the error names and call author again."
+        }),
+    );
+    Value::Object(result)
+}
+
+/// A designed-pages print whose sheet count differs from the deck's slide count.
+fn sheet_count_refusal(target: &str, source_text: &str, framed: Option<&Framed>, run: &Value) -> Option<Value> {
+    let slide_count = framed.and_then(|read| read.run.get("slideCount"));
+    let slides = slide_count.map(|count| to_number_of(Some(count)));
+    if !slides.is_none_or(|slides| slides != to_number_of(run.get("pageCount"))) {
+        return None;
+    }
+    let slides = value_to_string(slide_count.unwrap_or(&Value::Null));
+    Some(json!({
+        "ok": false,
+        "reason": "html_failed",
+        "output": target,
+        "htmlSource": source_text,
+        "error": { "message": format!("{slides} section.slide pages printed onto {} sheets: a page is taller than the sheet, or the CSS hides or stacks pages in print. Keep every section.slide exactly the sheet's size and displayed.", value_to_string(run.get("pageCount").unwrap_or(&Value::Null))) },
+        "elapsedMs": run.get("elapsedMs").cloned().unwrap_or(Value::Null),
+        "nextAction": "Fix the HTML the error names and call author again.",
+    }))
+}
+
+/// Designed pages are the author's deck on paper: reviewed and finalized as one.
+fn record_designed_pages(session: &SessionHandle, read: &Framed) {
+    let mut held_session = lock(session);
+    held_session.authored.authored = true;
+    held_session.authored.frame = true;
+    held_session.authored.frame_audit = read.audit.clone();
+    held_session.authored.frame_receipt = read.receipt.clone();
+    held_session.authored.frame_design_issues = Some(Value::Array(read.design_issues.clone()));
+    if let Some(rounds) = &read.rounds {
+        held_session.caches.inline_audit = Some(rounds.clone());
+    }
+}
+
+/// The answer fields of a landed PDF. `framed` is the designed-pages reading, when the pages were designed.
+fn printed_result(
+    session: &SessionHandle,
+    target: &str,
+    html_source: &Path,
+    run: &Value,
+    replaced_edits: Option<Value>,
+    framed: Option<&Framed>,
+    facts: Option<Value>,
+) -> Map<String, Value> {
+    let mut result = Map::new();
+    {
+        let held_session = lock(session);
+        result.insert("ok".into(), json!(true));
+        result.insert("session".into(), json!(held_session.id));
+        result.insert("mode".into(), json!(held_session.mode.as_str()));
+        result.insert("backend".into(), json!(held_session.backend.as_str()));
+    }
+    result.insert("output".into(), json!(target));
+    for (key, from) in [("bytes", "bytes"), ("pageCount", "pageCount"), ("printableArea", "area")] {
+        if let Some(value) = run.get(from) {
+            result.insert(key.to_owned(), value.clone());
+        }
+    }
+    if framed.is_some() {
+        result.insert("designedPages".into(), json!(true));
+    }
+    result.insert("htmlSource".into(), json!(html_source.to_string_lossy()));
+    if let Some(edits) = replaced_edits {
+        result.insert("replacedEdits".into(), edits);
+    }
+    if let Some(warnings) = run.get("warnings") {
+        result.insert("warnings".into(), warnings.clone());
+    }
+    if let Some(logs) = framed.and_then(|read| read.run.get("logs")).and_then(Value::as_array).filter(|logs| !logs.is_empty()) {
+        result.insert("logs".into(), Value::Array(logs.clone()));
+    }
+    if let Some(facts) = facts {
+        result.insert("facts".into(), facts);
+    }
+    if let Some(audit) = framed.and_then(|read| read.audit.as_ref()) {
+        result.insert("audit".into(), audit.clone());
+    }
+    result.insert("elapsedMs".into(), sum_elapsed(run.get("elapsedMs"), framed.and_then(|read| read.run.get("elapsedMs"))));
+    result
 }
 
 /// The `author` action for a `.pdf` target (`authorPdf`).
@@ -313,54 +363,12 @@ pub async fn author_pdf<H: AuthorHost>(host: &H, args: &Value, call: &AuthorCall
     mark_authored_from_html(&session, &html_source.to_string_lossy());
     let framed_read = framed.as_deref();
     if let Some(read) = framed_read.filter(|_| frame) {
-        // Designed pages are the author's deck on paper: reviewed and finalized as one.
-        let mut held_session = lock(&session);
-        held_session.authored.authored = true;
-        held_session.authored.frame = true;
-        held_session.authored.frame_audit = read.audit.clone();
-        held_session.authored.frame_receipt = read.receipt.clone();
-        held_session.authored.frame_design_issues = Some(Value::Array(read.design_issues.clone()));
-        if let Some(rounds) = &read.rounds {
-            held_session.caches.inline_audit = Some(rounds.clone());
-        }
+        record_designed_pages(&session, read);
     }
     // The facts gate already refused a designed page's unlisted figure; a flowing document only reports it.
     let facts = if frame { None } else { facts_warning(host, &target, &brief).await? };
-    let mut result = Map::new();
-    {
-        let held_session = lock(&session);
-        result.insert("ok".into(), json!(true));
-        result.insert("session".into(), json!(held_session.id));
-        result.insert("mode".into(), json!(held_session.mode.as_str()));
-        result.insert("backend".into(), json!(held_session.backend.as_str()));
-    }
-    result.insert("output".into(), json!(target));
-    for (key, from) in [("bytes", "bytes"), ("pageCount", "pageCount"), ("printableArea", "area")] {
-        if let Some(value) = run.get(from) {
-            result.insert(key.to_owned(), value.clone());
-        }
-    }
-    if frame {
-        result.insert("designedPages".into(), json!(true));
-    }
-    result.insert("htmlSource".into(), json!(html_source.to_string_lossy()));
-    if let Some(edits) = replaced_edits {
-        result.insert("replacedEdits".into(), edits);
-    }
-    if let Some(warnings) = run.get("warnings") {
-        result.insert("warnings".into(), warnings.clone());
-    }
-    if let Some(logs) = framed_read.filter(|_| frame).and_then(|read| read.run.get("logs")).and_then(Value::as_array).filter(|logs| !logs.is_empty()) {
-        result.insert("logs".into(), Value::Array(logs.clone()));
-    }
-    if let Some(facts) = facts {
-        result.insert("facts".into(), facts);
-    }
+    let mut result = printed_result(&session, &target, &html_source, &run, replaced_edits, framed_read.filter(|_| frame), facts);
     let audit = framed_read.and_then(|read| read.audit.as_ref());
-    if let Some(audit) = audit {
-        result.insert("audit".into(), audit.clone());
-    }
-    result.insert("elapsedMs".into(), sum_elapsed(run.get("elapsedMs"), framed_read.and_then(|read| read.run.get("elapsedMs"))));
     let audit_failed = audit.and_then(|audit| audit.get("status")).and_then(Value::as_str) == Some("fail");
     let audit_next = audit.and_then(|audit| audit.get("nextAction")).map(value_to_string).unwrap_or_default();
     if flag_is(args, "render", false) {
@@ -382,7 +390,6 @@ pub async fn author_pdf<H: AuthorHost>(host: &H, args: &Value, call: &AuthorCall
     lock(&session).active_signal = None;
     let rendered = rendered?;
     let mut render = pick(&rendered, &["output", "pageCount", "visualCoverage", "images", "reviewToken"]);
-    // Designed pages: the render read the printed pixels into the receipt and wrote the contact sheet.
     if let Some(sheet) = rendered.get("contactSheet").filter(|sheet| mixdog_office_base::values::truthy(sheet)) {
         render.insert("contactSheet".into(), sheet.clone());
     }
@@ -423,6 +430,28 @@ mod tests {
     fn elapsed_time_adds_the_frames_run() {
         assert_eq!(sum_elapsed(Some(&json!(120)), Some(&json!(30))), json!(150));
         assert_eq!(sum_elapsed(Some(&json!(120)), None), json!(120));
+    }
+
+    #[test]
+    fn a_print_that_did_not_run_reports_the_layout_findings_else_the_browser_error() {
+        let gated = print_failed_result("/w/a.pdf", "/w/a.html", &json!({ "layout": [{ "el": "h1" }], "elapsedMs": 3 }));
+        assert_eq!(gated["reason"], "layout_gate");
+        assert_eq!(gated["findings"], json!([{ "el": "h1" }]));
+        assert!(gated["nextAction"].as_str().expect("text").starts_with("Nothing landed"));
+        let failed = print_failed_result("/w/a.pdf", "/w/a.html", &json!({ "error": { "message": "x" } }));
+        assert_eq!(
+            (failed["reason"].clone(), failed["error"].clone(), failed["elapsedMs"].clone()),
+            (json!("html_failed"), json!({ "message": "x" }), Value::Null)
+        );
+    }
+
+    #[test]
+    fn designed_pages_printed_onto_a_different_sheet_count_are_refused() {
+        let framed = Framed { run: json!({ "slideCount": 3 }), audit: None, receipt: None, design_issues: Vec::new(), rounds: None };
+        assert!(sheet_count_refusal("/w/a.pdf", "/w/a.html", Some(&framed), &json!({ "pageCount": 3 })).is_none());
+        let refused = sheet_count_refusal("/w/a.pdf", "/w/a.html", Some(&framed), &json!({ "pageCount": 4 })).expect("refused");
+        assert_eq!(refused["reason"], "html_failed");
+        assert!(refused["error"]["message"].as_str().expect("text").starts_with("3 section.slide pages printed onto 4 sheets"));
     }
 
     #[test]

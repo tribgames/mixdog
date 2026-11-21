@@ -1,22 +1,12 @@
-//! Where the install layout keeps the JavaScript runtime (WP-INSTALL): the interpreter and the
-//! package root holding `src/skill-script-entry.mjs` and the pptxgenjs authoring entry.
-//!
-//! An install describes it in `js-runtime.json` beside the `mixdogd` binary it ships with:
+//! An install describes its JavaScript runtime in `js-runtime.json` beside the `mixdogd` binary it ships with:
 //!
 //! ```json
 //! { "program": "../../Mixdog.exe", "packageRoot": "../runtime.asar/node_modules/mixdog", "electron": true,
 //!   "ortLibrary": "../runtime.asar.unpacked/node_modules/onnxruntime-node/bin/napi-v6/win32/x64/onnxruntime.dll" }
 //! ```
 //!
-//! Relative paths are taken from the manifest's directory. A `program` without a path separator
-//! (`"node"`) is searched on `PATH`. The desktop writes the manifest when it stages the core
-//! (`apps/desktop/scripts/stage-core.mjs`); every product install ships it, desktop and remote
-//! alike, so a missing manifest is as much a startup error as a broken one.
-//!
-//! `ortLibrary` is the one place the daemon looks for the ONNX Runtime shared library the
-//! embedding and effort-judge models load ([`resolve_ort_library`]): the same file Node's
-//! `onnxruntime-node` binding loads. A manifest without it describes an install that has no ONNX
-//! Runtime (macOS x64); one that names a file that is not there is a startup error.
+//! Relative paths are taken from the manifest's directory; a `program` without a path separator is searched on `PATH`.
+//! A manifest without `ortLibrary` describes an install with no ONNX Runtime (macOS x64).
 
 use std::ffi::OsStr;
 use std::path::Path;
@@ -100,11 +90,6 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
-/// The runtime of the install `exe` belongs to; `path` is the `PATH` a bare program name is
-/// searched on. A missing manifest, or one that names something missing, is an error.
-///
-/// Probes the file system: it runs in the lane job of [`resolve_current_on`], or before any
-/// runtime exists ([`resolve_current`]).
 #[allow(clippy::disallowed_methods, reason = "runs in the lane job of `resolve_current_on`, or before any runtime exists in `resolve_current`")]
 pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeError> {
     let (dir, manifest_path, manifest) = read_manifest(exe)?;
@@ -130,10 +115,6 @@ pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeE
         ext_worker: None,
     })
 }
-/// The ONNX Runtime library of the install `exe` belongs to: the manifest's `ortLibrary`, which
-/// must exist. `None` when the manifest names none (an install without ONNX Runtime).
-///
-/// Probes the file system, like [`resolve`].
 #[allow(clippy::disallowed_methods, reason = "runs in the lane job of `resolve_ort_library_current_on`")]
 pub fn resolve_ort_library(exe: &Path) -> Result<Option<PathBuf>, JsRuntimeError> {
     let (dir, manifest_path, manifest) = read_manifest(exe)?;

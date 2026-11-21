@@ -1,9 +1,5 @@
-//! Closing and reopening the document of a background session: `Close-StateDocumentWithoutSaving`,
-//! `Reopen-BackgroundExcelSession`, `Reopen-BackgroundWordSession`, `Reopen-BackgroundPowerPointSession` and
-//! `Reload-SessionDocument` of `office-com-session-host.ps1`.
-//!
-//! Every one of them is for a background session whose application is the host's own: an attached or visible session holds
-//! the user's document, and nothing here may close it.
+//! Closing and reopening the document of a background session. Only for a session whose application is the host's own: an
+//! attached or visible session holds the user's document, and nothing here may close it.
 
 use mixdog_fsio::WriteProof;
 

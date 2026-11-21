@@ -78,10 +78,6 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    /// A room log read back: the rows posted come out as the room host's rows, in order, with the
-    /// message id as `id`, and a session that holds no turn is neither busy nor failing. The rows
-    /// are read through the stored-record transcript, the one that shows a room message as its
-    /// room line (the rig's text transcript shows every row as a message).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn posted_room_rows_read_back_as_rows_and_the_member_snapshot_is_idle() {
         let rig = Rig::new();

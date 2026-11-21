@@ -296,10 +296,14 @@ pub async fn run_soffice(program: &str, args: &[String], options: &RunOptions<'_
         Some(task) => task.await.unwrap_or_default(),
         None => String::new(),
     };
+    finished_result(status, &stderr, options)
+}
+
+fn finished_result(status: Option<std::io::Result<std::process::ExitStatus>>, stderr: &str, options: &RunOptions<'_>) -> RunResult {
     match status {
         Some(Ok(exit)) if exit.success() => RunResult::Done,
         Some(Ok(exit)) => {
-            let reported = js_trim(&stderr);
+            let reported = js_trim(stderr);
             RunResult::Failed(if reported.is_empty() {
                 format!("LibreOffice exited with code {}", exit.code().map_or_else(|| "null".to_owned(), |code| code.to_string()))
             } else {
@@ -319,9 +323,8 @@ pub fn run_soffice_blocking(program: &str, args: &[String], options: &RunOptions
     }
 }
 
-/// Whether `program` answers `--version` with success. A detection probe must always answer: soffice.exe is a GUI launcher that can
-/// sit forever without exiting, which deadlocked detection before the rendering call was ever reached, so the probe is bounded and
-/// the child killed on expiry.
+/// Whether `program` answers `--version` with success. soffice.exe is a GUI launcher that can sit forever without exiting, so
+/// the probe is bounded and the child killed on expiry.
 pub async fn command_exists(program: &str, probe_timeout: Duration) -> bool {
     let mut command = tokio::process::Command::new(program);
     command.arg("--version").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);

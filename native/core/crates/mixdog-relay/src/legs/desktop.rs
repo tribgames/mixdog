@@ -22,10 +22,12 @@ use serde_json::{Value, json};
 use super::dispatch::{CapabilityOffer, HandlerFuture, Later, LegCall};
 use super::envelope;
 use super::hub::{
-    Conn, Entry, Hub, HubState, IngressInstall, Liveness, OFFLINE_GRACE, SocketRef, SweepLeg, announce_phone, deliver_to_phone, send_json, signal_desktop_gone,
+    Conn, Entry, Hub, HubState, IngressInstall, Liveness, MediaPending, OFFLINE_GRACE, SocketRef, SweepLeg, announce_phone, deliver_to_phone, send_json,
+    signal_desktop_gone,
 };
 use super::ingress::{IngressLeg, LegKind};
 use super::policy::{self, LegCharge, Outbound, Oversize, Pressure, UplinkLeg, check_oversize, send_to_phone};
+use super::watchdog::HandshakeTiming;
 use crate::close_codes::{
     DESKTOP_REJECTED_CLIENT, DESKTOP_REJECTED_CLIENT_REASON, DESKTOP_REJECTED_CLIENT_REASON_MAX, DEVICE_REVOKED_REASON, PAIRING_REVOKED_REASON, REVOKED,
     SUPERSEDED, SUPERSEDED_REASON,
@@ -113,6 +115,43 @@ fn publish_capabilities(conn: &mut Conn, max_frame_bytes: usize, offer: &Capabil
     }
 }
 
+/// Puts `conn` in the entry of `device_id`, creating the entry when there is none; a redial returns the media the old connection had in
+/// flight.
+fn seat_conn(state: &mut HubState, device_id: &str, conn: Conn, timing: HandshakeTiming) -> Vec<Box<dyn MediaPending>> {
+    match state.desktops.get_mut(device_id) {
+        Some(entry) => {
+            if let Some(timer) = entry.offline_timer.take() {
+                timer.abort();
+            }
+            entry.conn.socket.close(SUPERSEDED, SUPERSEDED_REASON.as_bytes());
+            let superseded_media = entry.media.take_all();
+            // A desktop/VPS redial is a transport event, not a browser-session event: phone sockets stay attached and are
+            // re-announced to the new leg.
+            entry.conn = conn;
+            entry.media_lane = false;
+            superseded_media
+        }
+        None => {
+            state.desktops.insert(
+                device_id.to_owned(),
+                Entry {
+                    conn,
+                    clients: Vec::new(),
+                    media: super::hub::MediaSlot::default(),
+                    // False on purpose: an older desktop never announces it, and the media route must degrade on the FIRST
+                    // request instead of waiting out a first-frame timeout per tile.
+                    media_lane: false,
+                    pair_v2: false,
+                    host_name: None,
+                    handshake: timing,
+                    offline_timer: None,
+                },
+            );
+            Vec::new()
+        }
+    }
+}
+
 impl Hub {
     /// `attachDesktop` and the start of `runDesktopLeg`: a desktop leg connected as `device_id`. A redial reuses the previous entry:
     /// its phones stay attached, the old socket is closed 4000 `superseded`, its pending media is failed and the media lane reset. The
@@ -140,37 +179,7 @@ impl Hub {
                 uplink: UplinkLeg::new(self.config().uplink_capacity_ceiling),
                 heard: None,
             };
-            let mut superseded_media = Vec::new();
-            match state.desktops.get_mut(device_id) {
-                Some(entry) => {
-                    if let Some(timer) = entry.offline_timer.take() {
-                        timer.abort();
-                    }
-                    entry.conn.socket.close(SUPERSEDED, SUPERSEDED_REASON.as_bytes());
-                    superseded_media = entry.media.take_all();
-                    // A desktop/VPS redial is a transport event, not a browser-session event: phone sockets stay attached and are
-                    // re-announced to the new leg.
-                    entry.conn = conn;
-                    entry.media_lane = false;
-                }
-                None => {
-                    state.desktops.insert(
-                        device_id.to_owned(),
-                        Entry {
-                            conn,
-                            clients: Vec::new(),
-                            media: super::hub::MediaSlot::default(),
-                            // False on purpose: an older desktop never announces it, and the media route must degrade on the FIRST
-                            // request instead of waiting out a first-frame timeout per tile.
-                            media_lane: false,
-                            pair_v2: false,
-                            host_name: None,
-                            handshake: timing,
-                            offline_timer: None,
-                        },
-                    );
-                }
-            }
+            let superseded_media = seat_conn(state, device_id, conn, timing);
             if let Some(entry) = state.desktops.get_mut(device_id) {
                 entry.handshake = timing;
                 let Entry { conn, clients, handshake, .. } = entry;
@@ -423,11 +432,6 @@ impl DesktopHandle {
         send_json(&*self.socket, &json!({ "type": "client-revoked", "requestId": request_id, "ok": removed }));
     }
 
-    /// `declareLanes`: the capability announcement, sent before the leg does anything else. It is ONE bit per lane, not a version
-    /// number: the relay never branches on a desktop version, it only answers "this host serves media" or not. What THIS leg's receiver
-    /// accepts, and whether it can take a text payload inside the binary envelope, are per connection and written to the state of the
-    /// connection that said them: one relay-wide constant is version skew waiting to disconnect somebody, and one per-device value is the
-    /// previous connection speaking for this one.
     fn declare_lanes(&self, message: &Value) {
         let offer = self.hub.dispatch().capabilities();
         let max_frame_bytes = self.hub.config().max_frame_bytes;
@@ -484,11 +488,6 @@ impl DesktopHandle {
         phone.shared.socket.close(DESKTOP_REJECTED_CLIENT, &js::node_utf8(&reason));
     }
 
-    /// Fan-out is parallel and non-blocking: each leg answers for its own queue (drop, or cut when it stopped draining), and the box-level
-    /// ceiling is what stops a fan-out from adding up to the heap. That ceiling is filled by this loop itself (no flush callback can run
-    /// before it ends), so a leg the box cannot carry right now is deferred with a resync hint, never closed: it is healthy, it just
-    /// arrived late in the iteration order. A full snapshot (phone join, resync answer) IS the recovery frame: dropping it for a busy leg
-    /// would leave nothing to recover with.
     fn broadcast(&self, message: &Value) {
         let Some(data) = message.get("data").and_then(Value::as_str) else { return };
         let droppable = message.get("critical") != Some(&Value::Bool(true));

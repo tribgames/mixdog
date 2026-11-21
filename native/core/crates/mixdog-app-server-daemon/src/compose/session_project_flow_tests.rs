@@ -1,11 +1,7 @@
-//! The `session` tool's Project switch and sidebar flags through the core as the daemon composes it: the real tool pool, the real
-//! session directory and the thread settings service behind them. A tool's `thread/*` request for a method the thread settings
-//! service owns (`thread/setCwd`, `thread/metadata/update`, `thread/archive`) once went to the thread's actor, which answered
-//! "a session-actor method". Integration: needs a bundled PostgreSQL runtime (`MIXDOG_PG_RUNTIME`), like the other tests that
-//! compose the real core.
 #![allow(clippy::disallowed_methods, reason = "test setup: makes the folders the switches go to")]
 
 use std::path::Path;
+use std::path::PathBuf;
 
 use mixdog_core_api::domain::mock::MockApprovalGate;
 use mixdog_core_api::domain::mock::MockProgress;
@@ -53,55 +49,76 @@ async fn header(core: &ComposedCore, thread: &str) -> serde_json::Map<String, Va
     core.real.directory.stored_header(&ThreadId::from(thread)).await.expect("a stored header")
 }
 
-#[test]
-#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
-fn the_session_tool_switches_its_callers_project_and_flags_it_through_the_product_route() {
+fn runtime() -> tokio::runtime::Builder {
     let mut runtime = tokio::runtime::Builder::new_multi_thread();
     runtime.worker_threads(4);
+    runtime
+}
+
+/// The core composed in `dir`, with the threads `lead` and `worker` stored in the folder `first`; `second` exists too.
+async fn composed_with_two_threads(dir: PathBuf) -> (ComposedCore, PathBuf, PathBuf) {
+    let (first, second) = (dir.join("first"), dir.join("second"));
+    std::fs::create_dir_all(&first).unwrap();
+    std::fs::create_dir_all(&second).unwrap();
+    let data = dir.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    crate::compose_test_support::install(&data);
+    let tokens = mixdog_rt::testing::tokens();
+    let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new());
+    let config = tests::config_in(&data, &dir, log, mixdog_rt::CancellationToken::new());
+    let core = mixdog_core_session::session::testing::awaiting_for(LIMIT, || "the core to compose".to_owned(), compose(&tokens, config))
+        .await
+        .expect("the core composes");
+    let first_text = first.to_string_lossy().into_owned();
+    for id in ["lead", "worker"] {
+        let header = json!({ "cwd": first_text }).as_object().cloned().unwrap();
+        core.real.directory.create_with_id(ThreadId::from(id), header, json!({})).await.expect("the thread");
+    }
+    (core, first, second)
+}
+
+#[test]
+#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+fn the_lead_switches_its_own_project_through_the_session_tool() {
+    crate::compose_test_support::in_child(module_path!(), "the_lead_switches_its_own_project_through_the_session_tool", runtime(), |dir| async move {
+        let (core, first, second) = composed_with_two_threads(dir).await;
+        let answer =
+            session(&core, "lead", SurfaceKind::Lead, &first, json!({ "action": "set-project", "path": second.to_string_lossy() })).await.expect("the switch");
+        let answered: Value = serde_json::from_str(&answer).expect("the answer is JSON");
+        assert_eq!(answered["sessionId"], "lead");
+        let stored = header(&core, "lead").await;
+        assert_eq!(answered["cwd"], stored["cwd"], "the answer is the stored folder");
+        assert_eq!(stored["cwd"], json!(second.to_string_lossy()), "{stored:?}");
+        core.stop("test").await;
+    });
+}
+
+#[test]
+#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+fn an_agent_session_may_not_switch_its_project_through_the_session_tool() {
     crate::compose_test_support::in_child(
         module_path!(),
-        "the_session_tool_switches_its_callers_project_and_flags_it_through_the_product_route",
-        runtime,
+        "an_agent_session_may_not_switch_its_project_through_the_session_tool",
+        runtime(),
         |dir| async move {
-            let (first, second) = (dir.join("first"), dir.join("second"));
-            std::fs::create_dir_all(&first).unwrap();
-            std::fs::create_dir_all(&second).unwrap();
-            let data = dir.join("data");
-            std::fs::create_dir_all(&data).unwrap();
-            crate::compose_test_support::install(&data);
-            let tokens = mixdog_rt::testing::tokens();
-            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new());
-            let config = tests::config_in(&data, &dir, log, mixdog_rt::CancellationToken::new());
-            let core = mixdog_core_session::session::testing::awaiting_for(LIMIT, || "the core to compose".to_owned(), compose(&tokens, config))
-                .await
-                .expect("the core composes");
-            let first_text = first.to_string_lossy().into_owned();
-            for id in ["lead", "worker"] {
-                let header = json!({ "cwd": first_text }).as_object().cloned().unwrap();
-                core.real.directory.create_with_id(ThreadId::from(id), header, json!({})).await.expect("the thread");
-            }
-
-            // The Lead's own session: the answer names the folder the header now stores.
-            let answer = session(&core, "lead", SurfaceKind::Lead, &first, json!({ "action": "set-project", "path": second.to_string_lossy() }))
-                .await
-                .expect("the switch");
-            let answered: Value = serde_json::from_str(&answer).expect("the answer is JSON");
-            assert_eq!(answered["sessionId"], "lead");
-            let stored = header(&core, "lead").await;
-            assert_eq!(answered["cwd"], stored["cwd"], "the answer is the stored folder");
-            assert_eq!(stored["cwd"], json!(second.to_string_lossy()), "{stored:?}");
-
-            // A session of the caller's own that is not the Lead's: refused, and nothing is stored.
+            let (core, first, second) = composed_with_two_threads(dir).await;
             let refused = session(&core, "worker", SurfaceKind::Agent, &first, json!({ "action": "set-project", "path": second.to_string_lossy() }))
                 .await
                 .expect_err("an agent may not switch");
             assert_eq!(refused, "session: set-project belongs to the Lead session");
-            assert_eq!(header(&core, "worker").await["cwd"], json!(first_text), "the refused call stored nothing");
-
-            // The sidebar's flags are the thread settings service's too.
-            session(&core, "lead", SurfaceKind::Lead, &second, json!({ "action": "favorite", "value": true })).await.expect("favorite");
-            assert!(header(&core, "lead").await.contains_key("favoriteAt"), "the flag is stored");
+            assert_eq!(header(&core, "worker").await["cwd"], json!(first.to_string_lossy()), "the refused call stored nothing");
             core.stop("test").await;
         },
     );
+}
+
+#[test]
+#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+fn the_session_tool_flags_a_thread_through_the_thread_settings_service() {
+    crate::compose_test_support::in_child(module_path!(), "the_session_tool_flags_a_thread_through_the_thread_settings_service", runtime(), |dir| async move {
+        let (core, _first, second) = composed_with_two_threads(dir).await;
+        session(&core, "lead", SurfaceKind::Lead, &second, json!({ "action": "favorite", "value": true })).await.expect("favorite");
+        assert!(header(&core, "lead").await.contains_key("favoriteAt"), "the flag is stored");
+        core.stop("test").await;
+    });
 }

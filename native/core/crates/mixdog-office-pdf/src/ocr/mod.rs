@@ -1,12 +1,6 @@
-//! OCR of a PDF's pages (`pdf/pdf-ocr.mjs`): the `ocr` operation that gives a scanned page an invisible text layer, the
-//! read-only recognition behind the read tool, and the probe of what a call can read here and now.
-//!
-//! The engine is a managed Tesseract 5 (see [`install`] and [`engine`]); its table of words becomes lines ([`tsv`]) and the
-//! lines become invisible text over the picture ([`layer`]). A page is rendered by [`crate::render`] (`maxWidth` 1200 to
-//! 3200, 2400 by default) into a temporary PNG beside the PDF that is removed when the call ends; the words that reach
-//! `minConfidence` (40 by default) are set in one font (Helvetica when it covers them, else an installed Unicode face, or the
-//! `fontPath` of the call) with opacity 0, fitted to each line or word box; the PDF is written back only if a word was
-//! placed. Cancellation ends the engine's program and a first-use download.
+//! OCR of a PDF's pages (`pdf/pdf-ocr.mjs`). A page is rendered at a `maxWidth` of 1200 to 3200 (2400 by default), and the
+//! words that reach `minConfidence` (40 by default) are set with opacity 0 in one font (Helvetica when it covers them, else an
+//! installed Unicode face, or the `fontPath` of the call).
 
 pub mod engine;
 pub mod install;

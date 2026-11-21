@@ -1,8 +1,3 @@
-//! The guard around one background accessibility call against the target
-//! taking the foreground: no-activate hold, shield, foreground lock or lease,
-//! steal watch and one restore (Invoke-BackgroundWindow,
-//! input-semantic.ps1:32-141, :233-247).
-//!
 //! Nothing here may panic: the release profile aborts on a panic, and an
 //! abort with the system-wide foreground lock held leaves it held.
 

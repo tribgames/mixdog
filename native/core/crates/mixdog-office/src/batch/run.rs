@@ -425,10 +425,6 @@ fn record_design_state(handle: &SessionHandle, format: &str, prepared: &Prepared
     session.design_state.slide_plans = Some(plans.into_iter().map(|(_, plan)| plan).collect());
 }
 
-// A column fitted while its formulas were uncached was measured against empty cells: the widths are only final once the workbook has been
-// recalculated, so the session remembers what to fit again then. The fit is replayed whole (its minWidth and whether it fits rows) and in
-// order with the explicit widths and heights set after it: replayed bare, a composed report's 19-character columns shrank to their content,
-// and a gutter set by set_column_width after the fit was widened again.
 const SIZING_FIELDS: [&str; 9] = ["sheet", "range", "minWidth", "rows", "column", "row", "width", "height", "count"];
 
 fn sizing_key(operation: &Value) -> String {

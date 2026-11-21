@@ -427,8 +427,8 @@ fn in_front(handle: Wid, foreground: Wid) -> bool {
 
 /// The foreground lock refuses a plain `SetForegroundWindow` to a process
 /// without recent input: one no-name key from this process, sent with this
-/// host's input marker, lifts that for a few bounded tries. Each try is a
-/// submission of its own; the pauses between them hold nothing.
+/// host's input marker, lifts that. Each of the bounded tries is a submission
+/// of its own.
 pub fn focus(port: &WinPort, handle: Wid) -> bool {
     if !is_window(handle) {
         return false;
@@ -598,6 +598,28 @@ pub fn window_surface(handle: Wid) -> Result<Surface, String> {
     if !is_responding(handle) {
         return Err(capture_failure("capture_timeout", "window is not responding"));
     }
+    let (mut bgra, flags) = print_window_pixels(handle, &before)?;
+    assert_capture_stable(handle, &before)?;
+    let width = before.width as usize;
+    // PrintWindow draws the whole window rect, the invisible resize
+    // border a black margin: keep the frame DWM shows.
+    let (mut x, mut y, mut width_px, mut height_px) = (before.x, before.y, before.width, before.height);
+    if let Some(frame) = visible_rect(handle).and_then(|frame| visible_crop(&before, &frame)) {
+        let crop = RECT { left: frame.left - before.x, top: frame.top - before.y, right: frame.right - before.x, bottom: frame.bottom - before.y };
+        bgra = crop_pixels(&bgra, width, &crop);
+        (x, y) = (frame.left, frame.top);
+        (width_px, height_px) = (frame.right - frame.left, frame.bottom - frame.top);
+    }
+    for pixel in bgra.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+        pixel[3] = 255;
+    }
+    let png = encode_png(&bgra, width_px, height_px)?;
+    Ok(Surface { png, x, y, width: width_px, height: height_px, print_window_flags: Some(flags) })
+}
+
+/// The window's BGRA pixels as it renders itself into a bitmap of `before`'s size, and the PrintWindow flags that produced them.
+fn print_window_pixels(handle: Wid, before: &Target) -> Result<(Vec<u8>, &'static str), String> {
     let (width, height) = (before.width as usize, before.height as usize);
     let header = BITMAPINFOHEADER {
         biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
@@ -638,23 +660,7 @@ pub fn window_surface(handle: Wid) -> Result<Surface, String> {
         })();
         let _ = DeleteDC(dc);
         ReleaseDC(None, screen);
-        let (mut bgra, flags) = outcome?;
-        assert_capture_stable(handle, &before)?;
-        // PrintWindow draws the whole window rect, the invisible resize
-        // border a black margin: keep the frame DWM shows.
-        let (mut x, mut y, mut width_px, mut height_px) = (before.x, before.y, before.width, before.height);
-        if let Some(frame) = visible_rect(handle).and_then(|frame| visible_crop(&before, &frame)) {
-            let crop = RECT { left: frame.left - before.x, top: frame.top - before.y, right: frame.right - before.x, bottom: frame.bottom - before.y };
-            bgra = crop_pixels(&bgra, width, &crop);
-            (x, y) = (frame.left, frame.top);
-            (width_px, height_px) = (frame.right - frame.left, frame.bottom - frame.top);
-        }
-        for pixel in bgra.chunks_exact_mut(4) {
-            pixel.swap(0, 2);
-            pixel[3] = 255;
-        }
-        let png = encode_png(&bgra, width_px, height_px)?;
-        Ok(Surface { png, x, y, width: width_px, height: height_px, print_window_flags: Some(flags) })
+        outcome
     }
 }
 

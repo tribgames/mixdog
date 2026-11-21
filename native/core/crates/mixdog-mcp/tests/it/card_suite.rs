@@ -15,7 +15,9 @@ use mixdog_tools::policy::OutboundCard;
 use serde_json::Value;
 use serde_json::json;
 
-const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
+fn mock_bin() -> String {
+    mixdog_testkit::bin_exe!("mixdog-mcp-mock-server")
+}
 
 fn io() -> McpIo {
     let tokens = mixdog_rt::testing::tokens();
@@ -27,7 +29,7 @@ fn hub(dir: &std::path::Path) -> Arc<McpHub> {
 }
 
 fn config(name: &str, extra: Value) -> McpServerConfig {
-    let mut entry = json!({"command": MOCK});
+    let mut entry = json!({"command": mock_bin()});
     entry.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
     McpServerConfig::from_entry(name, &entry, &std::env::vars().collect()).unwrap()
 }

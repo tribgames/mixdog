@@ -40,10 +40,6 @@ fn credential_looking_text_is_redacted_to_one_short_line() {
     assert!(long.ends_with('…'));
 }
 
-/// The settings page's discovery of an endpoint that never answers, on each protocol, through the real admin stack:
-/// the probe waits its own 60 s (the discovery's timer is the same 60 s and armed after it, so the probe's ends the
-/// wait), and shows "model discovery timed out after 60s" with no models (`customOpenaiChatProbe`,
-/// `customAnthropicProbe`).
 #[tokio::test(start_paused = true)]
 async fn a_discovery_that_never_answers_ends_at_the_probes_sixty_seconds() {
     use super::collaborators::CustomProviders as _;

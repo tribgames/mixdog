@@ -572,6 +572,10 @@ pub(crate) fn coverage(path: &Path, rule: FillRule, canvas_width: usize, canvas_
 // SkPathPriv::ComputeConvexity / Convexicator: control points participate in the
 // direction test, not a sampled approximation of the curve. Only one contour.
 fn convex(path: &Path) -> bool {
+    single_contour_points(path).is_some_and(|points| points_are_convex(&points))
+}
+
+fn single_contour_points(path: &Path) -> Option<Vec<Point>> {
     let mut points: Vec<Point> = Vec::new();
     let mut finished = false;
     for segment in path.segments() {
@@ -587,7 +591,7 @@ fn convex(path: &Path) -> bool {
             PathSegment::Close => {
                 finished = true;
             }
-            _ if finished => return false,
+            _ if finished => return None,
             PathSegment::LineTo(p) => points.push((p.x, p.y)),
             PathSegment::QuadTo(c, p) => {
                 points.push((c.x, c.y));
@@ -600,6 +604,10 @@ fn convex(path: &Path) -> bool {
             }
         }
     }
+    Some(points)
+}
+
+fn points_are_convex(points: &[Point]) -> bool {
     if points.len() < 2 {
         return true;
     }
@@ -658,10 +666,7 @@ fn convex(path: &Path) -> bool {
     true
 }
 
-// Each group is one original analytic edge; subsequent entries are updateQuadratic
-// or updateCubic chords. The convex walk advances those before consuming another
-// original edge, exactly as the intrusive-list implementation does.
-fn walk_convex(raster: &mut Raster, edges: Vec<Edge>) {
+fn sorted_groups(edges: &[Edge]) -> Vec<Vec<usize>> {
     let mut groups: Vec<Vec<usize>> = Vec::new();
     for (i, e) in edges.iter().enumerate() {
         if i == e.group {
@@ -675,6 +680,11 @@ fn walk_convex(raster: &mut Raster, edges: Vec<Edge>) {
         let e = &edges[g[0]];
         (e.top.1, e.top.0, e.dx)
     });
+    groups
+}
+
+fn walk_convex(raster: &mut Raster, edges: Vec<Edge>) {
+    let groups = sorted_groups(&edges);
     if groups.len() < 2 {
         return;
     }
@@ -743,10 +753,6 @@ fn walk_convex(raster: &mut Raster, edges: Vec<Edge>) {
             }
         }
         bottom = bottom.min(stop);
-        // Keep the actual edge positions as scan state. Skia's edge builder clips
-        // geometry before aaa_walk_convex_edges; our edges retain their original
-        // positions and Row clips writes instead. Feeding a clipped x back into
-        // the edge loses its slope intercept when it later re-enters the canvas.
         let (mut left, mut right) = (x[0], x[1]);
         if le.dx == 0 && re.dx == 0 {
             // The vertical fast path uses fixed_to_alpha, not 256-level trapezoids.

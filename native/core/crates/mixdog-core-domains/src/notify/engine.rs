@@ -64,9 +64,7 @@ pub struct Audience {
 }
 
 /// The sound the host plays with a toast: `desktop.notificationVolume` percent (0..=400) and the
-/// sound's name. A host plays unless `sound` is absent or `none`; Node plays nothing at volume 0
-/// (`index.ts` `playNotificationSound`: `suppressed:volume-muted`) and its one sound is
-/// `soft-rise.wav` (`notification-sound.ts`).
+/// sound's name. A host plays unless `sound` is absent or `none`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToastStyle {
     pub sound: Option<String>,
@@ -229,7 +227,7 @@ impl NotificationEngine {
         device_pushes(event, &notification_preview(&event.body_markdown), audience)
     }
 
-    /// A held request of an unattended run (push-notifier.ts `onHeldRequest`): the phones are
+    /// A held request of an unattended run: the phones are
     /// told that `agent_name` waits, in `held_request_push_text`'s words and nothing else, with no
     /// Allow on it. It is an approval wait of an automatic run: `conversation` is the session's
     /// own, its origin is a schedule's and its bot is the session's, else the run's agent. No host

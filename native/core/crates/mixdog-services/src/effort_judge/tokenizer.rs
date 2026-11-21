@@ -84,6 +84,96 @@ struct File {
     added_tokens: Vec<Added>,
 }
 
+impl Model {
+    fn char_ids(&self) -> HashMap<char, u32> {
+        let mut char_id = HashMap::new();
+        for (token, id) in &self.vocab {
+            let mut chars = token.chars();
+            if let (Some(c), None) = (chars.next(), chars.next()) {
+                char_id.insert(c, *id);
+            }
+        }
+        char_id
+    }
+
+    fn byte_ids(&self) -> [i64; 256] {
+        let mut byte_id = [-1i64; 256];
+        for (b, slot) in byte_id.iter_mut().enumerate() {
+            if let Some(id) = self.vocab.get(&format!("<0x{b:02X}>")) {
+                *slot = i64::from(*id);
+            }
+        }
+        byte_id
+    }
+
+    fn merge_table(&self) -> HashMap<(u32, u32), (u32, u32)> {
+        let mut merges: HashMap<(u32, u32), (u32, u32)> = HashMap::with_capacity(self.merges.len());
+        let mut rank = 0u32;
+        for merge in &self.merges {
+            let (a, b) = match merge {
+                Merge::Pair(a, b) => (a.as_str(), b.as_str()),
+                Merge::Joined(joined) => {
+                    let mut parts = joined.split(' ');
+                    (parts.next().unwrap_or_default(), parts.next().unwrap_or_default())
+                }
+            };
+            let (Some(ida), Some(idb), Some(out)) = (self.vocab.get(a), self.vocab.get(b), self.vocab.get(&format!("{a}{b}"))) else {
+                continue;
+            };
+            merges.entry((*ida, *idb)).or_insert((rank, *out));
+            rank += 1;
+        }
+        merges
+    }
+}
+
+impl File {
+    fn layout(&self) -> Result<(Split, bool), JudgeError> {
+        let space_to_meta = self.normalizer.as_ref().is_some_and(|n| {
+            n.r#type == "Replace" && n.pattern.as_ref().and_then(|p| p.string.as_deref()) == Some(" ") && n.content.as_deref() == Some("\u{2581}")
+        });
+        let pre = self.pre_tokenizer.as_ref();
+        let split = match pre {
+            Some(p) if p.r#type == "Metaspace" && p.split != Some(false) => Some(Split::Metaspace),
+            Some(p) if p.r#type == "Split" && p.pattern.as_ref().and_then(|x| x.string.as_deref()) == Some(" ") && space_to_meta => Some(Split::Whole),
+            _ => None,
+        };
+        let model = &self.model;
+        let split = match split {
+            Some(split) if model.r#type == "BPE" && space_to_meta && model.continuing_subword_prefix.is_none() && model.end_of_word_suffix.is_none() => split,
+            _ => return Err(unsupported("model/normalizer/pre-tokenizer")),
+        };
+        let prepend = split == Split::Metaspace && pre.and_then(|p| p.prepend_scheme.as_deref()).unwrap_or("always") != "never";
+        Ok((split, prepend))
+    }
+
+    fn added_index(&self) -> (Vec<AddedToken>, HashMap<char, Vec<usize>>) {
+        let mut added: Vec<AddedToken> =
+            self.added_tokens.iter().map(|t| AddedToken { content: t.content.clone(), id: t.id, lstrip: t.lstrip, rstrip: t.rstrip }).collect();
+        // Longest (in UTF-16 units) first; equal lengths keep file order.
+        added.sort_by_key(|t| Reverse(t.content.encode_utf16().count()));
+        let mut by_first: HashMap<char, Vec<usize>> = HashMap::new();
+        for (index, token) in added.iter().enumerate() {
+            if let Some(first) = token.content.chars().next() {
+                by_first.entry(first).or_default().push(index);
+            }
+        }
+        (added, by_first)
+    }
+
+    fn template_ids(&self) -> Result<(Vec<u32>, Vec<u32>), JudgeError> {
+        let post = self.post_processor.as_ref().ok_or_else(|| unsupported("post-processor"))?;
+        let at = post.single.iter().position(|e| e.get("Sequence").is_some()).ok_or_else(|| unsupported("template"))?;
+        let ids_of = |entry: &serde_json::Value| -> Vec<u32> {
+            let name = entry["SpecialToken"]["id"].as_str().unwrap_or_default();
+            post.special_tokens.get(name).map(|s| s.ids.clone()).unwrap_or_default()
+        };
+        let prefix = post.single[..at].iter().flat_map(ids_of).collect();
+        let suffix = post.single[at + 1..].iter().flat_map(ids_of).collect();
+        Ok((prefix, suffix))
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Split {
     /// A piece starts at every `▁`.
@@ -124,74 +214,12 @@ impl BpeTokenizer {
         let bytes = std::fs::read(path).map_err(|e| JudgeError::Load(format!("tokenizer.json: {e}")))?;
         let file: File = serde_json::from_slice(&bytes).map_err(|e| JudgeError::Load(format!("tokenizer.json: {e}")))?;
         drop(bytes);
-        let space_to_meta = file.normalizer.as_ref().is_some_and(|n| {
-            n.r#type == "Replace" && n.pattern.as_ref().and_then(|p| p.string.as_deref()) == Some(" ") && n.content.as_deref() == Some("\u{2581}")
-        });
-        let pre = file.pre_tokenizer.as_ref();
-        let split = match pre {
-            Some(p) if p.r#type == "Metaspace" && p.split != Some(false) => Some(Split::Metaspace),
-            Some(p) if p.r#type == "Split" && p.pattern.as_ref().and_then(|x| x.string.as_deref()) == Some(" ") && space_to_meta => Some(Split::Whole),
-            _ => None,
-        };
+        let (split, prepend) = file.layout()?;
         let model = &file.model;
-        let split = match split {
-            Some(split) if model.r#type == "BPE" && space_to_meta && model.continuing_subword_prefix.is_none() && model.end_of_word_suffix.is_none() => split,
-            _ => return Err(unsupported("model/normalizer/pre-tokenizer")),
-        };
-        let prepend = split == Split::Metaspace && pre.and_then(|p| p.prepend_scheme.as_deref()).unwrap_or("always") != "never";
-
-        let mut char_id = HashMap::new();
-        for (token, id) in &model.vocab {
-            let mut chars = token.chars();
-            if let (Some(c), None) = (chars.next(), chars.next()) {
-                char_id.insert(c, *id);
-            }
-        }
-        let mut byte_id = [-1i64; 256];
-        for (b, slot) in byte_id.iter_mut().enumerate() {
-            if let Some(id) = model.vocab.get(&format!("<0x{b:02X}>")) {
-                *slot = i64::from(*id);
-            }
-        }
-        let mut merges: HashMap<(u32, u32), (u32, u32)> = HashMap::with_capacity(model.merges.len());
-        let mut rank = 0u32;
-        for merge in &model.merges {
-            let (a, b) = match merge {
-                Merge::Pair(a, b) => (a.as_str(), b.as_str()),
-                Merge::Joined(joined) => {
-                    let mut parts = joined.split(' ');
-                    (parts.next().unwrap_or_default(), parts.next().unwrap_or_default())
-                }
-            };
-            let (Some(ida), Some(idb), Some(out)) = (model.vocab.get(a), model.vocab.get(b), model.vocab.get(&format!("{a}{b}"))) else {
-                continue;
-            };
-            merges.entry((*ida, *idb)).or_insert((rank, *out));
-            rank += 1;
-        }
+        let (added, by_first) = file.added_index();
+        let (prefix, suffix) = file.template_ids()?;
         let unk = model.unk_token.as_ref().and_then(|t| model.vocab.get(t)).map_or(-1, |id| i64::from(*id));
-
-        let mut added: Vec<AddedToken> =
-            file.added_tokens.iter().map(|t| AddedToken { content: t.content.clone(), id: t.id, lstrip: t.lstrip, rstrip: t.rstrip }).collect();
-        // Longest (in UTF-16 units) first; equal lengths keep file order.
-        added.sort_by_key(|t| Reverse(t.content.encode_utf16().count()));
-        let mut by_first: HashMap<char, Vec<usize>> = HashMap::new();
-        for (index, token) in added.iter().enumerate() {
-            if let Some(first) = token.content.chars().next() {
-                by_first.entry(first).or_default().push(index);
-            }
-        }
-
-        let post = file.post_processor.as_ref().ok_or_else(|| unsupported("post-processor"))?;
-        let at = post.single.iter().position(|e| e.get("Sequence").is_some()).ok_or_else(|| unsupported("template"))?;
-        let ids_of = |entry: &serde_json::Value| -> Vec<u32> {
-            let name = entry["SpecialToken"]["id"].as_str().unwrap_or_default();
-            post.special_tokens.get(name).map(|s| s.ids.clone()).unwrap_or_default()
-        };
-        let prefix = post.single[..at].iter().flat_map(ids_of).collect();
-        let suffix = post.single[at + 1..].iter().flat_map(ids_of).collect();
-
-        Ok(Self { char_id, byte_id, merges, unk, split, prepend, added, by_first, prefix, suffix })
+        Ok(Self { char_id: model.char_ids(), byte_id: model.byte_ids(), merges: model.merge_table(), unk, split, prepend, added, by_first, prefix, suffix })
     }
 
     /// Merges the symbols of one piece, lowest rank first and leftmost on ties.

@@ -1,14 +1,12 @@
-//! The one owner of a worker session's turn status (Node `agent-tool/worker-turns.mjs`). Every
+//! The one owner of a worker session's turn status. Every
 //! turn the worker runs (a send's or spawn's own, a follow-up queued behind it, one the drain
 //! after a stopped turn starts) is reported by the route that runs it. At a turn's real start
 //! the owner stamps the row `running`; at its outcome it settles the row as a send's result
 //! reads it. Turns are keyed by their own id, so an earlier turn's late settle never touches the
 //! next one.
 //!
-//! The idle-progress watchdog the Node owner arms once a turn's ask has started is the run
-//! host's sweep (`run_host::watchdog`); a turn it stopped settles its row as a stall
-//! (`settledWorkerStatus`). Not ported: the in-turn progress stamps the Node sweep drove; the
-//! row's live progress is read from the session (`Workers::live`).
+//! The idle-progress watchdog is the run host's sweep (`run_host::watchdog`); a turn it stopped
+//! settles its row as a stall. The row's live progress is read from the session (`Workers::live`).
 
 use std::collections::HashMap;
 use std::sync::Arc;

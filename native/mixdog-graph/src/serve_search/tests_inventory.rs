@@ -22,14 +22,6 @@ fn pending_walk() -> LiveWalk {
     }
 }
 
-/// A poisoned collector must not cost the inventory its paths.
-///
-/// Reachable since the release profile unwinds again: a panic anywhere inside
-/// this mutex's critical section — a search thread iterating the published
-/// vector, a walk worker appending to it — leaves the lock poisoned while the
-/// paths in it stay valid. Both publishing paths therefore recover and publish
-/// the batch; skipping it would answer with an inventory short by exactly
-/// those paths and no error to say so.
 #[test]
 fn a_poisoned_collector_still_publishes_every_walked_path() {
     let live = Arc::new(pending_walk());
@@ -330,10 +322,9 @@ fn search_during_debounce_window_gets_repaired_inventory_within_wait() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-#[test]
-fn multiple_waiters_bound_wakeups_and_still_get_the_repair() {
+fn waited_inventory_fixture(label: &str) -> (PathBuf, ServeRequest, WalkKey, Arc<FileListStore>) {
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let dir = std::env::temp_dir().join(format!("mg-waiters-{nonce}"));
+    let dir = std::env::temp_dir().join(format!("{label}-{nonce}"));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("a.txt"), "x\n").unwrap();
     let mut req = request(&["--files", "."], 0);
@@ -343,14 +334,17 @@ fn multiple_waiters_bound_wakeups_and_still_get_the_repair() {
     let store = Arc::new(FileListStore::new());
     assert!(store.watch_root(&dir));
     handle(&req, &AtomicBool::new(false), &store, None).unwrap();
+    (dir, req, key, store)
+}
+
+#[test]
+fn waiters_without_a_repair_worker_share_one_demand_wakeup() {
+    let (dir, _req, key, store) = waited_inventory_fixture("mg-waiters-idle");
     let added = dir.join("b.txt");
-    // The worker is busy elsewhere, so nobody serves the repair; let the
-    // real watcher's own events land first so they cannot race the phases.
     store.repair_worker_running.store(true, Ordering::Release);
     std::fs::write(&added, "x\n").unwrap();
     std::thread::sleep(Duration::from_millis(500));
 
-    // Phase 1: nobody serves the repair.
     store.pending_repairs.lock().unwrap().insert(
         key.clone(),
         PendingInventoryRepair {
@@ -376,12 +370,13 @@ fn multiple_waiters_bound_wakeups_and_still_get_the_repair() {
         assert!(waiter.join().unwrap() >= Duration::from_millis(240));
     }
     assert_eq!(store.repair_demand_wakeups.load(Ordering::Relaxed), 1);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
 
-    // Phase 2: a live worker serves both waiters well inside the wait.
-    store.pending_repairs.lock().unwrap().clear();
-    store.repair_demanded.lock().unwrap().clear();
-    store.repair_worker_running.store(false, Ordering::Release);
-    handle(&req, &AtomicBool::new(false), &store, None).unwrap();
+#[test]
+fn a_live_repair_worker_serves_every_waiter_inside_the_wait() {
+    let (dir, _req, key, store) = waited_inventory_fixture("mg-waiters-live");
     let added = dir.join("c.txt");
     std::fs::write(&added, "x\n").unwrap();
     store.schedule_inventory_repairs(std::slice::from_ref(&added));
@@ -540,4 +535,26 @@ fn incremental_inventory_repair_splices_changed_paths() {
     let repaired = repair_inventory(&key, &base, &[removed, added.clone()]).expect("repair");
     assert_eq!(repaired.as_ref(), &vec![added, keep]);
     std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn inventory_entry_writer_round_trips_key_flags_and_sorted_files() {
+    let key = WalkKey {
+        operand: PathBuf::from("pinned-root"),
+        hidden: true,
+        no_ignore: false,
+        no_require_git: true,
+        max_depth: Some(3),
+        directories: true,
+        prune: vec!["target".to_string()],
+        iglobs: vec!["*.RS".to_string()],
+    };
+    let identity = crate::serve_search_usn::FileIdentity { volume: 5, file_id: 6 };
+    let files = vec![PathBuf::from("pinned-root/b.rs"), PathBuf::from("pinned-root/a.rs")];
+    let mut bytes = Vec::new();
+    write_inventory_entry(&mut bytes, &key, &files, identity).unwrap();
+    let (read_key, entry) = read_inventory_entry(&mut bytes.as_slice(), Instant::now(), Duration::from_secs(1)).unwrap();
+    assert!(read_key == key);
+    assert_eq!(entry.root_identity, Some(identity));
+    assert_eq!(*entry.files, vec![PathBuf::from("pinned-root/a.rs"), PathBuf::from("pinned-root/b.rs")]);
 }

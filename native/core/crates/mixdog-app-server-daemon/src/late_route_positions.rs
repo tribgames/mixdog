@@ -1,12 +1,3 @@
-//! `RoutePositions` of the `agents` status reader before the session directory exists.
-//!
-//! `AgentsStatus` is registered with the setup service (`mcp_services`), which is built before the
-//! directory, and its production positions are `SessionRoutePositions::new(directory, ..)`: a true
-//! cycle through the directory, as for [`LateLiveRoute`](crate::late_live_route::LateLiveRoute).
-//! The cell is bound once, right after `TurnPath::new`, and the composition verifies it before the
-//! listener accepts. A status request comes from a client, so none reads it earlier; unbound, the
-//! held sessions cannot be read, which is this method's error.
-
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;

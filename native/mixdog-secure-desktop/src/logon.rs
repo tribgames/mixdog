@@ -121,8 +121,7 @@ fn report_not_admin() -> i32 {
 }
 
 /// Whether a logon token is an *unfiltered* administrator: an Administrators
-/// member whose elevation type is not the filtered (limited) token. Pure;
-/// unit-tested. A standard user is not a member; a UAC-filtered token is
+/// member whose elevation type is not the filtered (limited) token. A standard user is not a member; a UAC-filtered token is
 /// `TokenElevationTypeLimited` and is rejected.
 fn admits_full_admin(is_member: bool, elevation_type: TOKEN_ELEVATION_TYPE) -> bool {
     is_member && elevation_type != TokenElevationTypeLimited
@@ -169,7 +168,7 @@ struct Credential {
 /// Parse `<user>\n<password>` from stdin bytes: the first newline splits the
 /// (possibly empty) account name from the password, which is the exact
 /// remainder (never trimmed). An empty name means "use the PC's own account".
-/// Enforces the documented field maxima. Pure; unit-tested.
+/// Enforces the documented field maxima.
 fn parse_credential(bytes: &[u8]) -> Result<Credential, String> {
     if bytes.len() > STDIN_CAP {
         return Err("credential input is too large".into());
@@ -209,7 +208,7 @@ fn read_stdin_credential() -> Result<Credential, String> {
 /// Read at most `STDIN_CAP + 1` bytes from `reader` into `buffer` and parse
 /// them. `buffer` is wiped before returning on **every** path — success, parse
 /// error, and a read error after a partial read (`read_to_end` keeps the bytes
-/// it read before failing). Unit-tested with a failing reader.
+/// it read before failing).
 fn read_credential_from<R: std::io::Read>(reader: R, buffer: &mut Vec<u8>) -> Result<Credential, String> {
     use std::io::Read;
     let result = reader
@@ -241,8 +240,7 @@ enum Prelogon {
 
 /// Decide which account to log on as. An explicit name is used as sent. With
 /// no name, the PC's own signed-in account is used, but only if it is an
-/// administrator — otherwise `not-admin` is returned without a logon. Pure;
-/// unit-tested through injected closures.
+/// administrator — otherwise `not-admin` is returned without a logon.
 fn resolve_logon_user(requested: Option<&str>, own_account: impl FnOnce() -> Option<String>, own_is_admin: impl FnOnce() -> bool) -> Result<String, Prelogon> {
     match requested {
         Some(user) => Ok(user.to_string()),

@@ -362,25 +362,12 @@ fn ascent_of(item: &Value) -> f64 {
     }
 }
 
-/// `textPlacement(item, canvasWidth)`.
-pub fn text_placement(item: &Value, canvas_width: f64) -> Result<TextPlacement, String> {
-    let lines = item["lines"].as_array().map_or(&[][..], Vec::as_slice);
-    if lines.is_empty() {
-        return Err("Cannot read properties of undefined (reading 'top')".to_owned());
-    }
-    let single = lines.len() == 1;
-    let b = Bounds::of(&item["box"]);
-    let inset = &item["inset"];
-    let mut ins = Inset { l: number(inset, "l"), r: number(inset, "r"), t: number(inset, "t"), b: number(inset, "b") };
-    let (mut x, mut y, mut w, mut h) = (b.x, b.y, b.w, b.h);
-    let framed = object(item, "frame").is_some();
-    let ink_w = number(item, "inkW");
-    let font_size = number(item, "fontSize");
-    let line_height = number(item, "lineHeight");
+/// The horizontal extent of a text box: the browser's box widened (a framed one eats its insets instead) until its ink
+/// fits with a little room so PowerPoint's metrics add no break of their own, and held inside the page margin.
+fn fit_width(item: &Value, b: &Bounds, ins: &mut Inset, single: bool, framed: bool, canvas_width: f64) -> (f64, f64) {
+    let (mut x, mut w) = (b.x, b.w);
     let align = text(item, "align");
-    // The browser already broke the lines. A single line never wraps; a multi-line block keeps the browser's breaks,
-    // with a little room so PowerPoint's metrics add no break of their own.
-    let extra = ink_w * (if single { 1.05 } else { 1.04 }) + 4.0 - (b.w - ins.l - ins.r);
+    let extra = number(item, "inkW") * (if single { 1.05 } else { 1.04 }) + 4.0 - (b.w - ins.l - ins.r);
     if extra > 0.0 {
         if framed {
             let d = extra / 2.0;
@@ -396,11 +383,29 @@ pub fn text_placement(item: &Value, canvas_width: f64) -> Result<TextPlacement, 
             w += extra;
         }
     }
-    // The slack never carries the box past the page margin (the authored box itself stands).
     let left = x.max(b.x.min(EDGE));
     w -= left - x;
     x = left;
     w = w.min((b.x + b.w).max(canvas_width - EDGE) - x);
+    (x, w)
+}
+
+/// `textPlacement(item, canvasWidth)`.
+pub fn text_placement(item: &Value, canvas_width: f64) -> Result<TextPlacement, String> {
+    let lines = item["lines"].as_array().map_or(&[][..], Vec::as_slice);
+    if lines.is_empty() {
+        return Err("Cannot read properties of undefined (reading 'top')".to_owned());
+    }
+    let single = lines.len() == 1;
+    let b = Bounds::of(&item["box"]);
+    let inset = &item["inset"];
+    let mut ins = Inset { l: number(inset, "l"), r: number(inset, "r"), t: number(inset, "t"), b: number(inset, "b") };
+    let (mut y, mut h) = (b.y, b.h);
+    let framed = object(item, "frame").is_some();
+    let ink_w = number(item, "inkW");
+    let font_size = number(item, "fontSize");
+    let line_height = number(item, "lineHeight");
+    let (x, w) = fit_width(item, &b, &mut ins, single, framed, canvas_width);
     let content_top = b.y + ins.t;
     let content_height = b.h - ins.t - ins.b;
     let first = &lines[0];
@@ -471,7 +476,7 @@ fn link_of(run: &Value) -> Option<Hyperlink> {
     safe_link(text(run, "href")).map(|url| Hyperlink { url: Some(url), ..Hyperlink::default() })
 }
 
-fn add_text(slide: &mut Slide, u: &Units, item: &Value, canvas_width: f64) -> Result<(), String> {
+fn text_runs(u: &Units, item: &Value) -> Vec<TextRun> {
     let mut runs = Vec::new();
     for (li, line) in item["lines"].as_array().map_or(&[][..], Vec::as_slice).iter().enumerate() {
         for (ri, run) in line["runs"].as_array().map_or(&[][..], Vec::as_slice).iter().enumerate() {
@@ -495,6 +500,11 @@ fn add_text(slide: &mut Slide, u: &Units, item: &Value, canvas_width: f64) -> Re
             });
         }
     }
+    runs
+}
+
+fn add_text(slide: &mut Slide, u: &Units, item: &Value, canvas_width: f64) -> Result<(), String> {
+    let runs = text_runs(u, item);
     let place = text_placement(item, canvas_width)?;
     let frame = object(item, "frame");
     // A framed box's outline stands half its stroke inside, and its words keep their place.
@@ -538,73 +548,61 @@ fn add_text(slide: &mut Slide, u: &Units, item: &Value, canvas_width: f64) -> Re
     slide.add_text(TextContent::Runs(runs), Some(options))
 }
 
-fn add_table(slide: &mut Slide, u: &Units, item: &Value) -> Result<(), String> {
+fn table_cell(u: &Units, cell: &Value) -> TableCell {
     let edge = |edge: Option<&Value>| match edge.filter(|edge| truthy(edge)) {
         Some(edge) => Border { kind: Some("solid".to_owned()), pt: Some(number(edge, "w") * u.pt), color: Some(text(edge, "c").to_owned()) },
         None => Border { kind: Some("none".to_owned()), ..Border::default() },
     };
-    let source = item["rows"].as_array().map_or(&[][..], Vec::as_slice);
-    let rows: Vec<Vec<TableCell>> = source
-        .iter()
-        .map(|row| {
-            row.as_array()
-                .map_or(&[][..], Vec::as_slice)
-                .iter()
-                .map(|cell| {
-                    let pad = &cell["pad"];
-                    let border = &cell["border"];
-                    let fill = cell.get("fill").filter(|fill| fill.is_object()).map(hex).filter(|hex| !hex.is_empty()).unwrap_or_else(|| "FFFFFF".to_owned());
-                    let span = number(cell, "span");
-                    let linked = cell.get("runs").and_then(Value::as_array).filter(|runs| !runs.is_empty());
-                    TableCell::Cell {
-                        text: match linked {
-                            // Each run carries the cell's face itself, with its own target (or none).
-                            Some(runs) => TextContent::Runs(
-                                runs.iter()
-                                    .map(|run| TextRun {
-                                        text: text(run, "text").to_owned(),
-                                        options: Some(TextOptions {
-                                            frame: ShapeOptions { hyperlink: link_of(run), ..ShapeOptions::default() },
-                                            font_face: Some(text(cell, "font").to_owned()),
-                                            font_size: Some(number(cell, "size") * u.pt),
-                                            bold: has(cell, "bold"),
-                                            color: Some(hex(&cell["color"])),
-                                            align: Some(text(cell, "align").to_owned()),
-                                            ..TextOptions::default()
-                                        }),
-                                    })
-                                    .collect(),
-                            ),
-                            None => TextContent::Plain(text(cell, "text").to_owned()),
-                        },
+    let pad = &cell["pad"];
+    let border = &cell["border"];
+    let fill = cell.get("fill").filter(|fill| fill.is_object()).map(hex).filter(|hex| !hex.is_empty()).unwrap_or_else(|| "FFFFFF".to_owned());
+    let span = number(cell, "span");
+    let linked = cell.get("runs").and_then(Value::as_array).filter(|runs| !runs.is_empty());
+    TableCell::Cell {
+        text: match linked {
+            Some(runs) => TextContent::Runs(
+                runs.iter()
+                    .map(|run| TextRun {
+                        text: text(run, "text").to_owned(),
                         options: Some(TextOptions {
-                            frame: ShapeOptions { fill: Some(Fill::color(&fill)), ..ShapeOptions::default() },
+                            frame: ShapeOptions { hyperlink: link_of(run), ..ShapeOptions::default() },
                             font_face: Some(text(cell, "font").to_owned()),
                             font_size: Some(number(cell, "size") * u.pt),
                             bold: has(cell, "bold"),
                             color: Some(hex(&cell["color"])),
                             align: Some(text(cell, "align").to_owned()),
-                            valign: Some("middle".to_owned()),
-                            margin: Some(Margin::Each(vec![
-                                u.inch(number(pad, "t")),
-                                u.inch(number(pad, "r")),
-                                u.inch(number(pad, "b")),
-                                u.inch(number(pad, "l")),
-                            ])),
-                            border: Some(Borders::Each(vec![
-                                Some(edge(border.get("t"))),
-                                Some(edge(border.get("r"))),
-                                Some(edge(border.get("b"))),
-                                Some(edge(border.get("l"))),
-                            ])),
-                            colspan: (span > 1.0).then_some(span as usize),
                             ..TextOptions::default()
                         }),
-                    }
-                })
-                .collect()
-        })
-        .collect();
+                    })
+                    .collect(),
+            ),
+            None => TextContent::Plain(text(cell, "text").to_owned()),
+        },
+        options: Some(TextOptions {
+            frame: ShapeOptions { fill: Some(Fill::color(&fill)), ..ShapeOptions::default() },
+            font_face: Some(text(cell, "font").to_owned()),
+            font_size: Some(number(cell, "size") * u.pt),
+            bold: has(cell, "bold"),
+            color: Some(hex(&cell["color"])),
+            align: Some(text(cell, "align").to_owned()),
+            valign: Some("middle".to_owned()),
+            margin: Some(Margin::Each(vec![u.inch(number(pad, "t")), u.inch(number(pad, "r")), u.inch(number(pad, "b")), u.inch(number(pad, "l"))])),
+            border: Some(Borders::Each(vec![
+                Some(edge(border.get("t"))),
+                Some(edge(border.get("r"))),
+                Some(edge(border.get("b"))),
+                Some(edge(border.get("l"))),
+            ])),
+            colspan: (span > 1.0).then_some(span as usize),
+            ..TextOptions::default()
+        }),
+    }
+}
+
+fn add_table(slide: &mut Slide, u: &Units, item: &Value) -> Result<(), String> {
+    let source = item["rows"].as_array().map_or(&[][..], Vec::as_slice);
+    let rows: Vec<Vec<TableCell>> =
+        source.iter().map(|row| row.as_array().map_or(&[][..], Vec::as_slice).iter().map(|cell| table_cell(u, cell)).collect()).collect();
     let mut widest: &[Value] = source.first().and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     for row in source {
         let row = row.as_array().map_or(&[][..], Vec::as_slice);
@@ -688,6 +686,28 @@ fn spec_text<'a>(spec: &'a Value, key: &str, fallback: &'a str) -> &'a str {
     }
 }
 
+/// The series of a spec: its `series` list, or the one series its own `values` make; a chart whose values cannot be read
+/// is counted as failed.
+fn chart_series(pres: &mut Presentation, spec: &Value, labels: &[String]) -> Result<Vec<ChartData>, String> {
+    match spec.get("series").and_then(Value::as_array) {
+        Some(series) => series
+            .iter()
+            .map(|series| {
+                Ok(ChartData {
+                    name: label_text(&series["name"]),
+                    labels: vec![labels.to_vec()],
+                    values: chart_values(series.get("values")).inspect_err(|_| pres.count_failed_chart())?,
+                })
+            })
+            .collect(),
+        None => {
+            let name =
+                ["name", "unit"].iter().find_map(|key| spec.get(key).filter(|value| truthy(value)).map(label_text)).unwrap_or_else(|| "Value".to_owned());
+            Ok(vec![ChartData { name, labels: vec![labels.to_vec()], values: chart_values(spec.get("values")).inspect_err(|_| pres.count_failed_chart())? }])
+        }
+    }
+}
+
 /// A `data-chart` spec as a native, editable chart.
 fn add_chart(pres: &mut Presentation, index: usize, u: &Units, item: &Value) -> Result<(), String> {
     let b = Bounds::of(&item["box"]);
@@ -699,23 +719,7 @@ fn add_chart(pres: &mut Presentation, index: usize, u: &Units, item: &Value) -> 
     };
     let kind = chart_kind(&spec_type);
     let labels: Vec<String> = spec.get("labels").and_then(Value::as_array).map(|list| list.iter().map(label_text).collect()).unwrap_or_default();
-    let data: Vec<ChartData> = match spec.get("series").and_then(Value::as_array) {
-        Some(series) => series
-            .iter()
-            .map(|series| {
-                Ok(ChartData {
-                    name: label_text(&series["name"]),
-                    labels: vec![labels.clone()],
-                    values: chart_values(series.get("values")).inspect_err(|_| pres.count_failed_chart())?,
-                })
-            })
-            .collect::<Result<_, String>>()?,
-        None => {
-            let name =
-                ["name", "unit"].iter().find_map(|key| spec.get(key).filter(|value| truthy(value)).map(label_text)).unwrap_or_else(|| "Value".to_owned());
-            vec![ChartData { name, labels: vec![labels.clone()], values: chart_values(spec.get("values")).inspect_err(|_| pres.count_failed_chart())? }]
-        }
-    };
+    let data = chart_series(pres, spec, &labels)?;
     let ink = spec_text(spec, "labelColor", "333333");
     let item_font = text(item, "font");
     let font = spec_text(spec, "font", if item_font.is_empty() { "Noto Sans KR" } else { item_font });

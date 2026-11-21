@@ -1,12 +1,3 @@
-//! The production [`WorkflowSurface`]: the four prompt-side answers of a mid-conversation
-//! workflow or orchestration-mode switch, over the pieces of this module.
-//!
-//! - `target` = `activeWorkflowContext(configForSession(config, id, mode), dir)` with
-//!   `leadPartsFor(session, leadPromptParts)`;
-//! - `live_denied_tools` = `liveDeniedTools(session, summary)` over the live feature gates;
-//! - `internal_tools` =`modelStandaloneTools()` as the session's workflow gates it;
-//! - `orchestration_instructions` = `orchestrationInstructions(mode)`.
-
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -118,10 +109,6 @@ impl RunWorkflowSurface {
             .map_err(|error| SurfaceFailure(format!("the delegatable agents could not be listed: {error}")))
     }
 
-    /// `getFeatureDisallowedTools()`: the gates over the config as the runtime holds it (builtins
-    /// stamped) and the machine as it is now, under the profile of `session` when it was started under
-    /// a narrowed one (Node runs a headless or heartbeat session in a runtime of that profile; the
-    /// daemon's runtime is interactive).
     pub async fn feature_denied(&self, session: Option<&Header>) -> Result<Vec<String>, SurfaceFailure> {
         let facts = self.probes.read().await?;
         let config = adopted_stored_agent(&self.config.agent());

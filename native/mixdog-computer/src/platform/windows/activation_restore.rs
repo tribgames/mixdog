@@ -1,8 +1,3 @@
-//! The one restore of the person's window after a target took the foreground
-//! (Test-RestoreBaseline, Restore-UserForeground and Test-TargetWindow,
-//! input-semantic.ps1:143-194; RestoreForeground, MixWin32Foreground.cs:97-103).
-//! activation-guard calls `restore` when its watch sees the steal.
-
 use super::native;
 use crate::observer::{Scope, Shared};
 use crate::platform::Wid;
@@ -59,8 +54,7 @@ fn baseline(ground: &impl Ground) -> Option<String> {
     }
 }
 
-/// Restore-UserForeground, after Test-RestoreBaseline. The lock comes off
-/// first, whatever else happens, so it cannot refuse the restore too;
+/// The lock comes off first, whatever else happens, so it cannot refuse the restore too;
 /// `release` says how that ended (released, failed, unknown, none or no_ack).
 /// The restore runs only if that release neither failed nor went unanswered,
 /// the observation still holds, the person's window still exists and the

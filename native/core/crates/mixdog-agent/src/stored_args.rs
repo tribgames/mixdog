@@ -1,8 +1,8 @@
-//! Stored tool-call argument compaction and restoration (`loop/stored-tool-args.mjs`).
+//! Stored tool-call argument compaction and restoration.
 //!
 //! A long `command` or `script` argument is stored in the assistant turn as a marker with a head and tail preview, so a
 //! huge shell body does not ride every later request. Mutation bodies (`content`, `old_string`, `new_string`, `patch`,
-//! `rewrite`) are never collapsed after the fact (`deferBodies`): a later sweep would rewrite a prefix the provider has
+//! `rewrite`) are never collapsed after the fact: a later sweep would rewrite a prefix the provider has
 //! already cached. A FAILED call restores its full command text (its own draft, to correct and retry).
 
 use mixdog_core_api::domain::provider::ToolCall;

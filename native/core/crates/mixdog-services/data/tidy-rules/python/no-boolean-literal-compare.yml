@@ -1,8 +1,8 @@
 id: no-boolean-literal-compare
 language: Python
 severity: info
-message: Comparison against a boolean literal.
-note: When the operand is a bool, `x == True` is just `x` and `x == False` is `not x`. When it is not, the literal comparison is usually the bug. Drop the literal only for a proven bool; `is True` is left alone. This rule has no autofix.
+message: Comparison of a boolean expression against a boolean literal.
+note: 'Only for an operand that is a bool by construction (`(not x)`, `bool(x)`): there `x == True` is just `x` and `x == False` is `not x`. Any other operand can be a deliberate test of a value that may also be None, so it is not reported; `is True` is left alone. This rule has no autofix.'
 rule:
   any:
     - pattern: $A == True
@@ -13,3 +13,10 @@ rule:
     - pattern: False == $A
     - pattern: True != $A
     - pattern: False != $A
+constraints:
+  A:
+    any:
+      - kind: parenthesized_expression
+        has:
+          kind: not_operator
+      - pattern: bool($$$)

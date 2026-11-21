@@ -1,22 +1,3 @@
-//! Held requests (Node `session-runtime/held-requests.mjs` `createHeldRequests`,
-//! `runtime/shared/held-request-host.mjs`, `human-gate/held-message.mjs`).
-//!
-//! A schedule or webhook run never asks and never holds (its saved routine is the user's grant;
-//! the policy gate settles it before an approval is asked). A group-room member with no approval
-//! UI attached is held instead of shown a card: the run pauses on the request, a `pending`
-//! [`HeldRequest`] row is delivered to the owning agent's home thread, a phone push names only
-//! the agent (no tool, arguments or text), and the request waits until the user answers it with
-//! the held id (`resolve`) or the run is cancelled, which denies it. It never expires on a timer.
-//!
-//! An answered request is audited twice, as in Node: `settle` records it under the held row's
-//! identity (`record_decision`, before the hold returns) and the policy gate records it again
-//! under the call's identity (`ToolPolicy::record_decision` on the resolution this returns).
-//!
-//! Which runs reach the hold is decided upstream, per ask: the policy gate never asks for a
-//! schedule or webhook run (`ToolPolicy::ask`, Node `isGrantedRun`), so only a room member's ask
-//! arrives, and `HeldApprovals::request` holds it when no approval UI was attached to its thread
-//! when its turn was assembled (Node's hook belongs to the turn, not to the ask).
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -161,45 +142,7 @@ impl HeldRequests {
     /// `hold(request)`: registers the request, posts its row and push, and waits for the answer.
     async fn hold(&self, thread: &ThreadId, run: RunInfo, ask: &ApprovalAsk) -> ApprovalResolution {
         let id = format!("held_{}", self.home.new_id());
-        let payload = &ask.payload;
-        let outbound = text(payload, "kind") == "outbound";
-        let card = payload.get("outbound").cloned().unwrap_or(Value::Null);
-        // The scopes the gate offered: its own grants, or once.
-        let offered: Vec<ApprovalRemember> = payload
-            .get("remember")
-            .and_then(Value::as_array)
-            .map(|names| names.iter().filter_map(|n| n.as_str().and_then(scope_of)).collect::<Vec<_>>())
-            .filter(|scopes| !scopes.is_empty())
-            .unwrap_or_else(|| vec![ApprovalRemember::Once]);
-        let remember_names: Vec<String> = offered.iter().map(|s| remember_name(*s).to_owned()).collect();
-        let account = |v: &Value| Some(clean(text(v, "account"), 200)).filter(|a| !a.is_empty());
-        let held = HeldRequest {
-            id: id.clone(),
-            status: HeldRequestStatus::Pending,
-            agent_id: run.agent_id.clone(),
-            kind: Some(text(payload, "kind")).filter(|k| !k.is_empty()).unwrap_or("approval").to_owned(),
-            tool: clean(text(payload, "name"), 200),
-            target: clean(text(&card, "target"), 200),
-            reason: clean(text(payload, "reason"), 400),
-            payload: outbound.then(|| text(&card, "payload")).filter(|p| !p.is_empty()).map(|p| p.chars().take(4_000).collect()),
-            action: outbound.then(|| clean(text(&card, "category"), 40)).filter(|a| !a.is_empty()),
-            // An outbound card's own account (what the gate read) comes first.
-            account: if outbound { account(&card).or_else(|| account(payload)) } else { account(payload) },
-            editable: outbound.then(|| string_list(card.get("editable")).iter().map(|n| clean(n, 40)).collect::<Vec<_>>()).filter(|names| !names.is_empty()),
-            details: outbound
-                .then(|| {
-                    card.get("details").and_then(Value::as_object).map(|map| {
-                        map.iter()
-                            .filter_map(|(k, v)| v.as_str().filter(|s| !s.is_empty()).map(|s| (clean(k, 40), clean(s, 200))))
-                            .collect::<std::collections::BTreeMap<_, _>>()
-                    })
-                })
-                .flatten(),
-            remember: Some(remember_names),
-            run: HeldRun { kind: run.kind, name: clean(&run.name, 200), session_id: Some(thread.as_str().to_owned()) },
-            expires_at: None,
-            device: None,
-        };
+        let (held, offered, outbound) = pending_row(id.clone(), thread, &run, &ask.payload);
         let (reply, answer) = tokio::sync::oneshot::channel();
         let editable = held.editable.clone().unwrap_or_default();
         self.lock().insert(id.clone(), Entry { held: held.clone(), remember: offered.clone(), editable, outbound, reply });
@@ -223,10 +166,6 @@ impl HeldRequests {
         resolution
     }
 
-    /// `post(agentId, held)`: starts the delivery and does not wait for it (`void post(...)`). Delivery waits for the home thread's
-    /// queue to persist the row; the push, the answer and the audit never wait on that. Node starts the deliveries in call order
-    /// (`Promise.resolve().then(deliver)`, one microtask each): the delivery is polled to its first wait right here, under `starts`,
-    /// so the home thread's queue sees the pending row before the settled one; the rest of it runs on a task of its own.
     fn post(&self, agent_id: &str, held: &HeldRequest) {
         let (home, agent_id, held) = (Arc::clone(&self.home), agent_id.to_owned(), held.clone());
         let mut delivery = Box::pin(async move {
@@ -240,10 +179,6 @@ impl HeldRequests {
         }
     }
 
-    /// `resolve(id, decision)`: false when `id` is not pending (already settled). Answers the
-    /// waiting run first, with no await before it, so a cancelled caller cannot leave an
-    /// approval that went out unanswered; then posts the settled row (Node settles without
-    /// awaiting the delivery).
     pub async fn resolve(&self, id: &str, answer: HeldAnswer) -> bool {
         let Some(entry) = self.take(id) else { return false };
         let approved = answer.approved;
@@ -290,11 +225,48 @@ impl HeldRequests {
     }
 }
 
-/// `recordHumanDecision(entry.gate, approval)` of `settle`: the audit line of an answered held
-/// request, under the held row's own identity (the gate Node builds in `hold`: the run's agent,
-/// the row's kind, action, tool and target). The policy gate records the same answer once more
-/// under the call's identity, as `askApproval` does after the hold returns, and stores what the
-/// answer may remember there: for the tool, never for the row's action category.
+fn pending_row(id: String, thread: &ThreadId, run: &RunInfo, payload: &Value) -> (HeldRequest, Vec<ApprovalRemember>, bool) {
+    let outbound = text(payload, "kind") == "outbound";
+    let card = payload.get("outbound").cloned().unwrap_or(Value::Null);
+    // The scopes the gate offered: its own grants, or once.
+    let offered: Vec<ApprovalRemember> = payload
+        .get("remember")
+        .and_then(Value::as_array)
+        .map(|names| names.iter().filter_map(|n| n.as_str().and_then(scope_of)).collect::<Vec<_>>())
+        .filter(|scopes| !scopes.is_empty())
+        .unwrap_or_else(|| vec![ApprovalRemember::Once]);
+    let remember_names: Vec<String> = offered.iter().map(|s| remember_name(*s).to_owned()).collect();
+    let account = |v: &Value| Some(clean(text(v, "account"), 200)).filter(|a| !a.is_empty());
+    let held = HeldRequest {
+        id,
+        status: HeldRequestStatus::Pending,
+        agent_id: run.agent_id.clone(),
+        kind: Some(text(payload, "kind")).filter(|k| !k.is_empty()).unwrap_or("approval").to_owned(),
+        tool: clean(text(payload, "name"), 200),
+        target: clean(text(&card, "target"), 200),
+        reason: clean(text(payload, "reason"), 400),
+        payload: outbound.then(|| text(&card, "payload")).filter(|p| !p.is_empty()).map(|p| p.chars().take(4_000).collect()),
+        action: outbound.then(|| clean(text(&card, "category"), 40)).filter(|a| !a.is_empty()),
+        // An outbound card's own account (what the gate read) comes first.
+        account: if outbound { account(&card).or_else(|| account(payload)) } else { account(payload) },
+        editable: outbound.then(|| string_list(card.get("editable")).iter().map(|n| clean(n, 40)).collect::<Vec<_>>()).filter(|names| !names.is_empty()),
+        details: outbound
+            .then(|| {
+                card.get("details").and_then(Value::as_object).map(|map| {
+                    map.iter()
+                        .filter_map(|(k, v)| v.as_str().filter(|s| !s.is_empty()).map(|s| (clean(k, 40), clean(s, 200))))
+                        .collect::<std::collections::BTreeMap<_, _>>()
+                })
+            })
+            .flatten(),
+        remember: Some(remember_names),
+        run: HeldRun { kind: run.kind, name: clean(&run.name, 200), session_id: Some(thread.as_str().to_owned()) },
+        expires_at: None,
+        device: None,
+    };
+    (held, offered, outbound)
+}
+
 async fn record_decision(store: &dyn GrantStore, held: &HeldRequest, response: &str, device: &str) {
     let entry = AuditEntry {
         agent_id: held.agent_id.clone(),

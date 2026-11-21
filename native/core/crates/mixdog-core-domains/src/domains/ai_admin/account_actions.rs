@@ -1,7 +1,5 @@
-//! The provider-account setup actions (`executor.mjs` `forget_provider_auth` and
-//! `set_provider_account`): the setup tool's own checks and receipts over the provider
-//! admin (`ai_account`). The admin's forget and roster change are the runtime facade's
-//! `forgetProviderAuth` / `updateProviderAccounts`; what the executor asks of the facade, and in
+//! The provider-account setup actions (`forget_provider_auth` and `set_provider_account`): the setup
+//! tool's own checks and receipts over the provider admin. What the executor asks of the facade, and in
 //! which order, is [`AccountOps`].
 
 use std::sync::Arc;

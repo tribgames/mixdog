@@ -63,6 +63,44 @@ fn set_setup(record: &mut WorktreeRecord, pending: bool, claimed_at: Option<u64>
 }
 
 impl Worktrees {
+    /// Unlinks (never empties) the recorded dependency links; one that cannot be unlinked
+    /// stays recorded, so removal still unlinks it first and every install is blocked.
+    /// The remaining ledger, and whether any link was detached.
+    async fn detach_dependency_links(&self, current: &mut WorktreeRecord, cancel: &CancellationToken) -> Result<(Vec<IncludeItem>, bool), ScmFailure> {
+        let mut ledger = include::ledger_of(current);
+        let links: Vec<IncludeItem> = ledger.iter().filter(|i| is_dependency_link(i)).cloned().collect();
+        if links.is_empty() {
+            return Ok((ledger, false));
+        }
+        let doomed = links.clone();
+        let stuck = on_lane(self.scm().lane, cancel, move || include::remove_include_links(&doomed)).await?;
+        ledger.retain(|item| !is_dependency_link(item) || stuck.contains(&item.path));
+        set_ledger(current, &ledger);
+        Ok((ledger, stuck.len() < links.len()))
+    }
+
+    /// The links an install could reach through that the user did not ask for (`blocked`, as
+    /// session-root-relative paths) and those they asked for (`shared`).
+    async fn reachable_links(
+        &self,
+        current: &WorktreeRecord,
+        ledger: &[IncludeItem],
+        cancel: &CancellationToken,
+    ) -> Result<(Vec<String>, Vec<String>), ScmFailure> {
+        let asked: Vec<&str> = ledger.iter().filter(|i| i.mode == "link" && i.status == "created" && !i.dependency).map(|i| i.rel.as_str()).collect();
+        let subdir = subdir_of(current);
+        let (mut blocked, mut shared) = (Vec::new(), Vec::new());
+        for rel in linked_artefacts(self.scm(), cancel, &session_root(current)).await? {
+            let top = if subdir.is_empty() { rel.clone() } else { format!("{subdir}/{rel}") };
+            if asked.contains(&top.as_str()) {
+                shared.push(rel);
+            } else {
+                blocked.push(top);
+            }
+        }
+        Ok((blocked, shared))
+    }
+
     /// The claim of `entry_id`'s dependency preparation, or `None` when there is nothing to
     /// claim. Claimed before it runs, so a failed or cancelled preparation is never repeated.
     pub async fn claim_setup(&self, entry_id: &str, cancel: &CancellationToken) -> Result<Option<SetupClaim>, ScmFailure> {
@@ -77,34 +115,14 @@ impl Worktrees {
             return Ok(None);
         }
         let pending = setup_pending(&current);
-        // Unlink (never empty) the recorded dependency links; one that cannot be unlinked
-        // stays recorded, so removal still unlinks it first and every install is blocked.
-        let mut ledger = include::ledger_of(&current);
-        let links: Vec<IncludeItem> = ledger.iter().filter(|i| is_dependency_link(i)).cloned().collect();
-        let mut detached = false;
-        if !links.is_empty() {
-            let doomed = links.clone();
-            let stuck = on_lane(self.scm().lane, cancel, move || include::remove_include_links(&doomed)).await?;
-            ledger.retain(|item| !is_dependency_link(item) || stuck.contains(&item.path));
-            set_ledger(&mut current, &ledger);
-            detached = stuck.len() < links.len();
-        }
+        let (ledger, detached) = self.detach_dependency_links(&mut current, cancel).await?;
         let mut blocked: Vec<String> = ledger.iter().filter(|i| is_dependency_link(i)).map(|i| i.rel.clone()).collect();
         if blocked.is_empty() && !pending && !detached {
             return Ok(None);
         }
         let mut shared = Vec::new();
         if blocked.is_empty() {
-            let asked: Vec<&str> = ledger.iter().filter(|i| i.mode == "link" && i.status == "created" && !i.dependency).map(|i| i.rel.as_str()).collect();
-            let subdir = subdir_of(&current);
-            for rel in linked_artefacts(self.scm(), cancel, &session_root(&current)).await? {
-                let top = if subdir.is_empty() { rel.clone() } else { format!("{subdir}/{rel}") };
-                if asked.contains(&top.as_str()) {
-                    shared.push(rel);
-                } else {
-                    blocked.push(top);
-                }
-            }
+            (blocked, shared) = self.reachable_links(&current, &ledger, cancel).await?;
         }
         if !blocked.is_empty() {
             set_setup(&mut current, true, None);

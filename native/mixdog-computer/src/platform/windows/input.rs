@@ -1,9 +1,3 @@
-//! Real pointer and keyboard input through `SendInput`. Every event carries
-//! this host's marker in its extra-info field, so the observer tells it from
-//! a person's, and every batch goes through the ownership receipt, so a
-//! stopped session releases exactly what this host holds and nothing a
-//! person is holding.
-
 pub(crate) mod receipt;
 
 use crate::keys::{Key, Mod, Named, glyph_key};

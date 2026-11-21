@@ -35,12 +35,11 @@ impl HttpReply {
     }
 }
 
-/// An answer the transport writes and then drops the request after (Node's `rejectRequest`
-/// and the 413: `req.destroy()`), so the connection closes behind it.
+/// An answer the transport writes and then drops the request after, so the connection closes behind it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rejection(pub HttpReply);
 
-/// The transport's body reader (`collectRawBody`): feed it each wire chunk as it arrives.
+/// The transport's body reader: feed it each wire chunk as it arrives.
 /// The first chunk that takes the total past the cap yields the 413 reply, once; the
 /// transport sends it and drops the connection. Later chunks are discarded, so the buffer
 /// never holds more than `MAX_BODY_BYTES`.
@@ -64,11 +63,10 @@ impl BodyCollector {
         Ok(())
     }
 
-    /// The request was aborted or its socket failed mid-body. Node's collector has no handler
-    /// for either, so nothing more happens: no answer, no `destroy`, no processing of the
-    /// partial body. A 413 already sent stays the one answer. Returns what the read had settled
-    /// with: None while it is still pending (the partial body is dropped), `Some(None)` when the
-    /// overflow had already settled it with no body.
+    /// The request was aborted or its socket failed mid-body: no answer and no processing of the
+    /// partial body; a 413 already sent stays the one answer. Returns None while the read is still
+    /// pending (the partial body is dropped), `Some(None)` when the overflow had already settled
+    /// it with no body.
     pub fn cut_short(self) -> Option<Option<Vec<u8>>> {
         self.too_large.then_some(None)
     }
@@ -457,15 +455,7 @@ impl WebhookService {
             return Ok(reply);
         }
         if let Some(agree) = test_probe(headers, raw_body) {
-            // A probe is "verified" only after a real HMAC check, and never makes a row.
-            let reply = if !agree {
-                HttpReply::error(400, "invalid test request")
-            } else if secret.is_none() {
-                HttpReply::error(401, "test requires a signing secret")
-            } else {
-                HttpReply { status: 200, body: json!({"status":"verified","test":true}) }
-            };
-            return Ok(reply);
+            return Ok(probe_reply(agree, secret.is_some()));
         }
         let body_text = String::from_utf8_lossy(raw_body);
         let id = delivery_id(headers, raw_body);
@@ -473,20 +463,7 @@ impl WebhookService {
             return Ok(HttpReply { status: 503, body: json!({"error":"delivery in progress","id":id}) });
         };
         let event = headers.get("x-github-event").filter(|v| !v.is_empty()).cloned();
-        let (store, claim_event, headers_summary, payload_preview, work) =
-            (self.store.clone(), event.clone(), headers_summary(headers), mixdog_js::slice_utf16(&body_text, 512), self.work.begin());
-        let ticket = tokio::spawn(async move {
-            let claim = Claim { status: "received", event: claim_event.as_deref(), headers_summary, payload_preview };
-            if store.claim_delivery(&owner.key.0, &owner.key.1, claim).await? {
-                Ok(Some(ClaimedDelivery { owner: Some(owner), store, work: Some(work) }))
-            } else {
-                Ok(None)
-            }
-        })
-        .await
-        .map_err(|error| Failure::Internal(error.to_string()))?
-        .map_err(Failure::Internal)?;
-        let Some(ticket) = ticket else {
+        let Some(ticket) = self.claim_delivery(owner, event.clone(), headers, &body_text).await? else {
             mixdog_rt::node_stderr!("mixdog webhook: {name}: dedup {id}");
             return Ok(HttpReply { status: 200, body: json!({"status":"dedup","id":id}) });
         };
@@ -516,26 +493,60 @@ impl WebhookService {
         self.store.update_delivery_status(name, &id, "pending", None).await.map_err(Failure::Internal)?;
         let route = self.dispatch.route(name, parsed, headers, &id, in_table).await.map_err(Failure::Internal)?;
         let ticket = claimed.take().unwrap();
-        let handoff = match route {
+        match route {
             WebhookRoute::Reply(reply) => {
                 ticket.settled();
-                return Ok(reply);
+                Ok(reply)
             }
-            WebhookRoute::Rule(handoff) => handoff,
-        };
+            WebhookRoute::Rule(handoff) => run_handoff(ticket, handoff).await,
+        }
+    }
 
+    async fn claim_delivery(
+        &self,
+        owner: ActiveDelivery,
+        event: Option<String>,
+        headers: &Headers,
+        body_text: &str,
+    ) -> Result<Option<ClaimedDelivery>, Failure> {
+        let (store, headers_summary, payload_preview, work) =
+            (self.store.clone(), headers_summary(headers), mixdog_js::slice_utf16(body_text, 512), self.work.begin());
         tokio::spawn(async move {
-            let outcome = handoff.await;
-            match &outcome {
-                Ok(_) => ticket.settled(),
-                Err(error) => ticket.fail(error, true).await,
+            let claim = Claim { status: "received", event: event.as_deref(), headers_summary, payload_preview };
+            if store.claim_delivery(&owner.key.0, &owner.key.1, claim).await? {
+                Ok(Some(ClaimedDelivery { owner: Some(owner), store, work: Some(work) }))
+            } else {
+                Ok(None)
             }
-            outcome
         })
         .await
         .map_err(|error| Failure::Internal(error.to_string()))?
         .map_err(Failure::Internal)
     }
+}
+
+fn probe_reply(agree: bool, has_secret: bool) -> HttpReply {
+    if !agree {
+        HttpReply::error(400, "invalid test request")
+    } else if !has_secret {
+        HttpReply::error(401, "test requires a signing secret")
+    } else {
+        HttpReply { status: 200, body: json!({"status":"verified","test":true}) }
+    }
+}
+
+async fn run_handoff(ticket: ClaimedDelivery, handoff: Pin<Box<dyn Future<Output = Result<HttpReply, String>> + Send>>) -> Result<HttpReply, Failure> {
+    tokio::spawn(async move {
+        let outcome = handoff.await;
+        match &outcome {
+            Ok(_) => ticket.settled(),
+            Err(error) => ticket.fail(error, true).await,
+        }
+        outcome
+    })
+    .await
+    .map_err(|error| Failure::Internal(error.to_string()))?
+    .map_err(Failure::Internal)
 }
 
 async fn fail(store: &dyn WebhookStore, name: &str, id: &str, error: &str, retryable: bool) {

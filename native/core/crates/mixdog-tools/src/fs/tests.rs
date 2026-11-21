@@ -1152,14 +1152,7 @@ async fn writes_to_one_path_wait_for_its_path_lock() {
     let bytes = ctx.files.read(ctx.io.interactive, readme, Default::default()).await.unwrap().bytes;
     assert_eq!(String::from_utf8(bytes).unwrap(), "# Fixture\n\nALPHA beta\nGAMMA\n");
 }
-/// A committed patch joins the turn review with the targets it really changed (a move carries its
-/// destination) and hands its card diff back; a dry run, a failed patch and an untouched file
-/// record nothing.
-#[tokio::test]
-async fn committed_writes_join_the_turn_review_and_carry_the_card_diff() {
-    use mixdog_core_api::turn_review::CallChange;
-    use mixdog_core_api::turn_review::ReviewContent;
-
+async fn reviewed_workspace() -> (tempfile::TempDir, AbsPath, Arc<FakeReview>, ToolContext) {
     let dir = tempfile::tempdir().unwrap();
     let root = AbsPath::new(dir.path().join("ws")).unwrap();
     std::fs::create_dir_all(root.as_path()).unwrap();
@@ -1169,9 +1162,17 @@ async fn committed_writes_join_the_turn_review_and_carry_the_card_diff() {
     let review = Arc::new(FakeReview::default());
     let mut ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), Vec::new()).await;
     ctx.review = Some(review.clone());
+    (dir, root, review, ctx)
+}
+
+#[tokio::test]
+async fn a_dry_run_or_refused_patch_leaves_no_review_entry_and_a_move_carries_both_ends() {
+    use mixdog_core_api::turn_review::CallChange;
+    use mixdog_core_api::turn_review::ReviewContent;
+
+    let (_dir, root, review, ctx) = reviewed_workspace().await;
     let path = |name: &str| root.as_path().join(name).to_string_lossy().into_owned();
 
-    // A dry run and a refused patch leave no entry.
     let dry = serde_json::json!({ "patch": "*** Update File: a.txt\n@@\n-one\n+ONE\n", "dry_run": true });
     assert!(card_of(&ApplyPatchTool::new().call(&ctx, dry).await.unwrap()).is_none());
     let stale = serde_json::json!({ "patch": "*** Update File: a.txt\n@@\n-nope\n+X\n" });
@@ -1197,9 +1198,14 @@ async fn committed_writes_join_the_turn_review_and_carry_the_card_diff() {
             }]
         );
     }
+}
 
-    // A delete of an unreadable-as-text file is listed as omitted, never as empty bytes.
-    review.calls.lock().unwrap().clear();
+#[tokio::test]
+async fn a_deleted_binary_file_is_reviewed_as_omitted_never_as_empty_bytes() {
+    use mixdog_core_api::turn_review::ReviewContent;
+
+    let (_dir, root, review, ctx) = reviewed_workspace().await;
+    let path = |name: &str| root.as_path().join(name).to_string_lossy().into_owned();
     let gone = serde_json::json!({ "patch": "*** Delete File: bin.dat\n*** Update File: old.txt\n@@\n-keep\n+KEEP\n" });
     ApplyPatchTool::new().call(&ctx, gone).await.unwrap();
     {
@@ -1212,17 +1218,21 @@ async fn committed_writes_join_the_turn_review_and_carry_the_card_diff() {
         let old = changes.iter().find(|c| c.path == path("old.txt")).unwrap();
         assert_eq!((&old.before, &old.after), (&ReviewContent::bytes(&b"keep\nme\n"[..]), &ReviewContent::bytes(&b"KEEP\nme\n"[..])));
     }
+}
 
-    // `edit` records its write too: a replacement, then a created file.
-    review.calls.lock().unwrap().clear();
+#[tokio::test]
+async fn edit_records_a_replacement_and_a_created_file_in_the_turn_review() {
+    use mixdog_core_api::turn_review::ReviewContent;
+
+    let (_dir, _root, review, ctx) = reviewed_workspace().await;
     let edit = serde_json::json!({ "file_path": "old.txt", "old_string": "me", "new_string": "you" });
     let output = EditTool::new().call(&ctx, edit).await.unwrap();
     assert_eq!(card_of(&output), Some("card:c"));
     let create = serde_json::json!({ "file_path": "fresh.txt", "old_string": "", "new_string": "hi\n" });
     EditTool::new().call(&ctx, create).await.unwrap();
     let calls = review.calls.lock().unwrap();
-    assert_eq!(calls[0].3[0].before, ReviewContent::bytes(&b"KEEP\nme\n"[..]));
-    assert_eq!(calls[0].3[0].after, ReviewContent::bytes(&b"KEEP\nyou\n"[..]));
+    assert_eq!(calls[0].3[0].before, ReviewContent::bytes(&b"keep\nme\n"[..]));
+    assert_eq!(calls[0].3[0].after, ReviewContent::bytes(&b"keep\nyou\n"[..]));
     assert_eq!(calls[1].3[0].before, ReviewContent::Absent);
     assert_eq!(calls[1].3[0].after, ReviewContent::bytes(&b"hi\n"[..]));
 }
@@ -1965,10 +1975,6 @@ fn the_output_caps_default_to_the_documented_sizes() {
     assert_eq!(crate::github::positive_env_int(Some("0"), 7), 7);
     assert_eq!(crate::github::positive_env_int(None, 7), 7);
 }
-/// A named find over the real tree, whose walk does not enter a folder the name's ancestor rule keeps nothing under, lists
-/// exactly what a walk of everything lists, byte for byte over the same tree (that the pruned walk reads fewer folders is
-/// `a_guarded_walk_reads_no_folder_the_name_rule_fails_and_a_bad_rule_is_an_error`): every name shape crossed with `hidden`,
-/// `include_noise`, `depth`, paging and the type and sort filters.
 #[tokio::test]
 async fn a_named_find_that_skips_folders_it_keeps_nothing_under_lists_what_a_full_walk_lists() {
     let dir = tempfile::tempdir().unwrap();
@@ -2060,10 +2066,7 @@ async fn sorted_list_and_find_do_not_certify_followed_symlink_metadata() {
     }
 }
 
-/// `list` keeps the arguments the schema does not show (`list-tool.mjs`): `mode: "tree"`, `mode: "find"` with its name and
-/// filters, `sort`, `type` and `include_noise`.
-#[tokio::test]
-async fn list_answers_tree_find_sort_type_and_include_noise() {
+async fn list_modes_context() -> ToolContext {
     let root = AbsPath::new(std::env::temp_dir().join("mixdog-list-modes").join("ws")).unwrap();
     let seeds = [
         ("src/a.ts", "aaaa\naaaa\n"),
@@ -2075,16 +2078,21 @@ async fn list_answers_tree_find_sort_type_and_include_noise() {
     .iter()
     .map(|(rel, body)| (rel.to_string(), body.as_bytes().to_vec()))
     .collect();
-    let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
-    let tool = ListTool::new();
-    let run = |args: serde_json::Value| {
-        let (ctx, tool) = (&ctx, &tool);
-        async move {
-            let (is_error, text) = text_of(tool.call(ctx, args).await);
-            assert!(!is_error, "{text}");
-            text
-        }
-    };
+    context_seeded(&root, Arc::new(MockFileService::default()), seeds).await
+}
+
+async fn run_list(ctx: &ToolContext, args: serde_json::Value) -> String {
+    let (is_error, text) = text_of(ListTool::new().call(ctx, args).await);
+    assert!(!is_error, "{text}");
+    text
+}
+
+/// `list` keeps the arguments the schema does not show (`list-tool.mjs`): `mode: "tree"`, `mode: "find"` with its name and
+/// filters, `sort`, `type` and `include_noise`.
+#[tokio::test]
+async fn list_tree_mode_counts_the_noise_it_left_out_and_pages() {
+    let ctx = list_modes_context().await;
+    let run = |args: serde_json::Value| run_list(&ctx, args);
 
     let tree = run(serde_json::json!({ "mode": "tree" })).await;
     let lines: Vec<&str> = tree.lines().collect();
@@ -2098,6 +2106,12 @@ async fn list_answers_tree_find_sort_type_and_include_noise() {
     assert!(paged.ends_with("[entries 2-3 of 4+; offset:3 for more]\n1 noise entries excluded (include_noise:true to show)"), "{paged}");
     let tree_noise = run(serde_json::json!({ "mode": "tree", "include_noise": true, "depth": 1 })).await;
     assert!(tree_noise.contains("├── node_modules/"), "{tree_noise}");
+}
+
+#[tokio::test]
+async fn list_sorts_by_size_and_filters_by_type_and_include_noise() {
+    let ctx = list_modes_context().await;
+    let run = |args: serde_json::Value| run_list(&ctx, args);
 
     let by_size = run(serde_json::json!({ "path": ".", "depth": 3, "type": "file", "sort": "size" })).await;
     assert_eq!(by_size.lines().map(|l| l.split('\t').next().unwrap()).collect::<Vec<_>>(), ["docs/readme.md", "src/a.ts", "src/b.ts", "top.txt"], "{by_size}");
@@ -2111,6 +2125,12 @@ async fn list_answers_tree_find_sort_type_and_include_noise() {
     assert_eq!(none, "(no entries match filter) type=dir, hidden=false path=src", "{none}");
     let noisy = run(serde_json::json!({ "path": ".", "depth": 2, "include_noise": true, "type": "dir" })).await;
     assert!(noisy.lines().any(|l| l == "node_modules\tdir"), "{noisy}");
+}
+
+#[tokio::test]
+async fn list_find_mode_filters_by_name_and_size_and_refuses_a_bad_date() {
+    let ctx = list_modes_context().await;
+    let run = |args: serde_json::Value| run_list(&ctx, args);
 
     let found = run(serde_json::json!({ "mode": "find", "name": ".ts", "sort": "name" })).await;
     let names: Vec<&str> = found.lines().map(|l| l.split('\t').next().unwrap()).collect();
@@ -2119,7 +2139,7 @@ async fn list_answers_tree_find_sort_type_and_include_noise() {
     assert_eq!(big.lines().map(|l| l.split('\t').next().unwrap()).collect::<Vec<_>>(), ["docs/readme.md", "src/a.ts"], "{big}");
     let named_glob_path = run(serde_json::json!({ "path": "src", "name": "b.ts", "mode": "find" })).await;
     assert!(named_glob_path.starts_with("b.ts\t"), "{named_glob_path}");
-    let (is_error, bad) = text_of(tool.call(&ctx, serde_json::json!({ "mode": "find", "modified_after": "nonsense" })).await);
+    let (is_error, bad) = text_of(ListTool::new().call(&ctx, serde_json::json!({ "mode": "find", "modified_after": "nonsense" })).await);
     assert!(is_error, "{bad}");
     assert_eq!(bad, "Error: invalid modified_after \"nonsense\"; expected an ISO date/time or a relative window like 90m / 12h / 7d");
 }

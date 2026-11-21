@@ -55,6 +55,7 @@ async fn cancelled_after(db: &Db, point: &'static str, args: Value) {
 /// Every await of the recall path in turn, over one cluster: the recalls only read, so a cluster per await (initdb and a
 /// postmaster, about five seconds each) bought nothing.
 #[tokio::test]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_recall_cancelled_during_any_of_its_store_reads_is_cancelled() {
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;

@@ -848,10 +848,6 @@ pub fn provider_error_kind(err: Js, options: &KindOptions) -> KindDescriptor {
     }
     // Wordings, for untyped errors only (a typed code always decides).
     let text = if options.text && matches!(kind, None | Some("invalid_request")) { message_of(err, &chain) } else { String::new() };
-    // Capacity wording counts only on a typed 429 ("... is at capacity"): it keeps such a 429 from reading as a rate limit.
-    // An untyped 5xx stays an ordinary transient server fault, whatever its body says. Quota or billing wording never
-    // yields a quota kind: that takes a typed code, a quota flag or a quota scope (text may refine only the displayed
-    // message).
     if kind.is_none() && codes.is_empty() && !text.is_empty() && status == 429.0 && CAPACITY_MESSAGE.is_match(&text) {
         kind = Some("overloaded");
     }
@@ -895,10 +891,6 @@ pub fn provider_error_kind(err: Js, options: &KindOptions) -> KindDescriptor {
     describe(kind, &code)
 }
 
-// ── Retry reason, without server text ───────────────────────────────────────
-// A server error's free text can echo request content (prompt, tokens, account ids), so neither the retry trace nor the
-// reconnect status carries it: only a fixed reason class derived from typed status/code, and a code only when it is a known
-// provider error code (an identifier-shaped value can still be private, e.g. an account id in a `code` field).
 const SERVER_ERROR_CODES: &[&str] = &["server_error", "api_error", "internal", "internal_error", "unavailable", "service_unavailable"];
 // Responses failure codes the WS retry classifier acts on beyond the shared provider vocabulary.
 const WS_RETRY_ERROR_CODES: &[&str] = &["auth_context_expired", "auth_expired"];

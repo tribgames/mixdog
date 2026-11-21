@@ -1,13 +1,10 @@
-//! The approval handoff (`POST /claim`, `GET /claim/<claimId>`, and the desktop's `claim-approve` and `claim-deny` frames). A browser
-//! that has no credential yet claims one for a desktop; the desktop's user decides, and the credential comes back sealed to the
-//! browser's throwaway key. The claim id (an unguessable UUID only the claimant was given) is the poll's secret.
+//! The approval handoff (`POST /claim`, `GET /claim/<claimId>`, and the desktop's `claim-approve` and `claim-deny` frames). A
+//! browser that has no credential yet claims one for a desktop; the desktop's user decides, and the credential comes back sealed
+//! to the browser's throwaway key. The claim id (an unguessable UUID only the claimant was given) is the poll's secret.
 //!
-//! The pool of claims is bounded as a whole and per desktop and per source address, so one caller cannot fill it. A claim is
-//! pending for [`CLAIM_TTL_MS`]; an approved one stays readable for [`APPROVED_CLAIM_RETAIN_MS`] (or until its client registers)
-//! so a poll answer lost on the wire can be asked for again, and an expired one keeps answering `expired` for
-//! [`EXPIRED_CLAIM_RETAIN_MS`]; after that, like a claim this relay never held, it is `unknown`.
-//!
-//! [`Claims`] is the pool, on an explicit clock; the handlers read the clock of the relay (`now_ms`).
+//! The pool of claims is bounded as a whole and per desktop and per source address. A claim is pending for [`CLAIM_TTL_MS`]; an
+//! approved one stays readable for [`APPROVED_CLAIM_RETAIN_MS`] (or until its client registers) so a lost poll answer can be asked
+//! for again, and an expired one keeps answering `expired` for [`EXPIRED_CLAIM_RETAIN_MS`]; after that it is `unknown`.
 
 use serde_json::{Value, json};
 

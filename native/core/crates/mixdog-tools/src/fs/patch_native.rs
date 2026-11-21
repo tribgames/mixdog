@@ -391,8 +391,7 @@ fn probe_route(base: &std::path::Path, full: &std::path::Path) -> (bool, bool) {
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn uses_js_writer(ctx: &ToolContext, base: &AbsPath, abs: &AbsPath, delete: bool) -> Result<bool, ToolError> {
     let (base, full) = (base.as_path().to_path_buf(), abs.as_path().to_path_buf());
-    let job = ctx.io.interactive.submit(&ctx.cancel, move |_| probe_route(&base, &full)).map_err(|_| cancelled())?;
-    let (outside, symlink) = job.await.map_err(|_| cancelled())?;
+    let (outside, symlink) = super::common::on_interactive(ctx, move || probe_route(&base, &full)).await?;
     Ok(outside || (symlink && !delete))
 }
 impl NativeEntry {

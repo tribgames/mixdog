@@ -1,7 +1,4 @@
-//! The `shell` tool: policy preflight, environment, then the process through the process
-//! manager. The call holds for the shell hold (default 60 s, `wait_ms`, or until new user input);
-//! work still running then moves to a tracked background task whose completion is pushed to the
-//! owner. Result texts follow `bash-tool/*.mjs` byte for byte.
+//! Result texts follow `bash-tool/*.mjs` byte for byte.
 
 use std::borrow::Cow;
 use std::path::Path;
@@ -272,13 +269,6 @@ const POSIX_FOREGROUND: &str = include_str!("specs/shell.posix.foreground.json")
 const POWERSHELL_FOREGROUND: &str = include_str!("specs/shell.powershell.foreground.json");
 
 /// The kind of shell the tool text is written for (`shellType`).
-///
-/// Node binds the text where a session's tool list is assembled, from the kind of the shell it
-/// resolves (`resolveShellFor('default').shellType`) at that moment. That kind is the platform's
-/// whatever the "system shell" setting or `MIXDOG_SHELL` holds: a PowerShell program is the choice
-/// on Windows only, a POSIX shell is never the choice there, and off Windows the default is
-/// used (`chosen_shell`; the recorded `shell_choice.json` has the platform's kind in all 124 cases).
-/// So the live setting cannot change the text, and the kind is read from the platform.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ShellKind {
     Posix,
@@ -885,7 +875,7 @@ async fn shell_command_spec(
         // Filter-swallow rescue: tee the unfiltered producer stream of an exactly-recognised filter pipeline, so a
         // failing run can attach the original tail in this call. Then the UTF-8 console preamble.
         let tmp = std::env::temp_dir().to_string_lossy().into_owned();
-        let tee = build_powershell_filter_tee_plan(command, &spill::fresh_token(), &tmp, '\\');
+        let tee = build_powershell_filter_tee_plan(command, &spill::fresh_token(), &tmp, std::path::MAIN_SEPARATOR);
         let body = tee.as_ref().map_or_else(|| command.to_owned(), |t| t.command.clone());
         let tee_path = tee.map(|t| PathBuf::from(t.tee_path));
         let spec = CommandSpec::Shell { script: POWERSHELL_BOOTSTRAP.to_owned(), shell: Some(shell_program) };
@@ -928,10 +918,6 @@ async fn shell_command_spec(
 fn process_env(name: &str) -> Option<String> {
     std::env::var(name).ok()
 }
-/// The kill of a cancelled foreground command. One that exits within `KILL_VERIFY` is forgotten; one whose exit is not
-/// confirmed by then is held as termination-unconfirmed until it does exit (or the user releases it), so its owner's
-/// workspace stays busy meanwhile, as Node keeps the run's workspace admission until termination is confirmed
-/// (`shell-run-settle.mjs:155-158`, `releaseAdmissionOnConfirmedTermination` :46-104). The result is reported either way.
 async fn cancel_foreground(runtime: &Arc<ExecRuntime>, ctx: &ToolContext, job: &Arc<Job>) {
     // A kill of a process that just exited is not an error.
     let _ = ctx.processes.kill(&job.handle);
@@ -946,13 +932,21 @@ async fn cancel_foreground(runtime: &Arc<ExecRuntime>, ctx: &ToolContext, job: &
         runtime.release(&job.id);
     });
 }
+/// The command a call runs, as the guards, policy, rewrites and hoisting leave it.
+struct PreparedCommand {
+    command: String,
+    analysis_command: String,
+    rewrite_note: String,
+    guard_note: String,
+    hoist_path: Option<PathBuf>,
+    hard_cap: u64,
+    cwd: AbsPath,
+    shell_program: String,
+}
+
 impl ShellTool {
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
-    pub(super) async fn run(&self, ctx: &ToolContext, args: JsonValue, posix: bool, env: &(dyn Fn(&str) -> Option<String> + Sync)) -> ToolOutcome {
-        let args = guard_shell_args(args).map_err(|text| failed(ToolErrorCode::InvalidArgs { field: "arguments".into(), reason: text.clone() }, text))?;
-        let args: Args = serde_json::from_value(args).map_err(|e| {
-            failed(ToolErrorCode::InvalidArgs { field: "arguments".into(), reason: e.to_string() }, tool_failure(&format!("invalid arguments: {e}")))
-        })?;
+    async fn prepare_command(&self, ctx: &ToolContext, args: &Args, posix: bool) -> Result<PreparedCommand, ToolError> {
         let runtime = &self.runtime;
         let background_enabled = self.background_enabled;
         if !background_enabled && let Some(field) = args.background.map(|_| "background").or(args.wait_ms.map(|_| "wait_ms")) {
@@ -1051,6 +1045,48 @@ impl ShellTool {
             command = plan.replace(&path.to_string_lossy().replace('\\', "/"));
             hoist_path = Some(path);
         }
+        Ok(PreparedCommand { command, analysis_command, rewrite_note, guard_note, hoist_path, hard_cap, cwd, shell_program })
+    }
+}
+/// Writes the framed script to the job's input on its own task; the receiver yields the failure of a write that did not
+/// complete.
+fn feed_script(ctx: &ToolContext, job: &Job, mut script: String, fresh: &ProcessHandle, hand_off: &str) -> tokio::sync::oneshot::Receiver<ProcessError> {
+    if job.handle != *fresh {
+        script.insert_str(0, hand_off);
+    }
+    let framed = frame_powershell_script(&script);
+    drop(script);
+    let (failed, failure) = tokio::sync::oneshot::channel();
+    let (processes, handle) = (Arc::clone(&ctx.processes), job.handle.clone());
+    drop(mixdog_rt::spawn("shell-stdin", mixdog_rt::TaskClass::Work, async move {
+        match processes.write_stdin_whole(&handle, framed.into_bytes()).await {
+            Ok(()) => {
+                let _ = processes.close_stdin(&handle);
+            }
+            Err(error) => {
+                // The failure is published before the kill: the kill settles the job, and a caller that sees the
+                // settle must already find the failure, so a script that was not written whole always answers
+                // with the input failure and never with the cancellation the kill looks like.
+                let _ = failed.send(error);
+                // A kill of a process that already exited is not an error.
+                let _ = processes.kill(&handle);
+            }
+        }
+    }));
+    failure
+}
+
+impl ShellTool {
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+    pub(super) async fn run(&self, ctx: &ToolContext, args: JsonValue, posix: bool, env: &(dyn Fn(&str) -> Option<String> + Sync)) -> ToolOutcome {
+        let args = guard_shell_args(args).map_err(|text| failed(ToolErrorCode::InvalidArgs { field: "arguments".into(), reason: text.clone() }, text))?;
+        let args: Args = serde_json::from_value(args).map_err(|e| {
+            failed(ToolErrorCode::InvalidArgs { field: "arguments".into(), reason: e.to_string() }, tool_failure(&format!("invalid arguments: {e}")))
+        })?;
+        let runtime = &self.runtime;
+        let background_enabled = self.background_enabled;
+        let PreparedCommand { command, analysis_command, rewrite_note, guard_note, hoist_path, hard_cap, cwd, shell_program } =
+            self.prepare_command(ctx, &args, posix).await?;
         let (time_limit, background_limit) = run_limits_ms(&args, hard_cap, env);
         let hold = hold_ms(&args, time_limit, background_enabled, env);
         let at_hold_end = hold_end(args.background == Some(true), time_limit, hold, env);
@@ -1129,38 +1165,7 @@ impl ShellTool {
                 return Err(spawn_failure(error));
             }
         };
-        // The whole script, of any size, then end of input, written while the call holds: Node hands the helper the
-        // whole string in one `stdinWrite` and starts its hold and run limit at once (`shell-run-spawn.mjs`), so they cover
-        // a shell that does not read its input. The bootstrap runs the script only when the length its first line declares
-        // arrived (`frame_powershell_script`), and the input is closed only once all of it was written; a write that failed
-        // ends the tree (the process manager ends it before it lets go of the input) and the call fails, unless the run
-        // limit had ended the shell already.
-        let mut input_failed = None;
-        if let Some(mut script) = fed_script {
-            if job.handle != fresh {
-                script.insert_str(0, &hand_off);
-            }
-            let framed = frame_powershell_script(&script);
-            drop(script);
-            let (failed, failure) = tokio::sync::oneshot::channel();
-            let (processes, handle) = (Arc::clone(&ctx.processes), job.handle.clone());
-            drop(mixdog_rt::spawn("shell-stdin", mixdog_rt::TaskClass::Work, async move {
-                match processes.write_stdin_whole(&handle, framed.into_bytes()).await {
-                    Ok(()) => {
-                        let _ = processes.close_stdin(&handle);
-                    }
-                    Err(error) => {
-                        // The failure is published before the kill: the kill settles the job, and a caller that sees the
-                        // settle must already find the failure, so a script that was not written whole always answers
-                        // with the input failure and never with the cancellation the kill looks like.
-                        let _ = failed.send(error);
-                        // A kill of a process that already exited is not an error.
-                        let _ = processes.kill(&handle);
-                    }
-                }
-            }));
-            input_failed = Some(failure);
-        }
+        let input_failed = fed_script.map(|script| feed_script(ctx, &job, script, &fresh, &hand_off));
         let write_failed = async {
             match input_failed {
                 Some(failure) => match failure.await {

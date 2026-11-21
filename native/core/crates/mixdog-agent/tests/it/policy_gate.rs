@@ -392,7 +392,10 @@ async fn a_connector_call_is_bound_after_rewrites_before_approval() {
     // A call bound to no account (the connector holds none) is left as it is.
     let none = rig_bound(Connectors::default(), SessionSurface::default(), None, Ok(None));
     assert_eq!(none.gate.check_call("c4", &call("mcp__mail__search", json!({"q": "x"}))).await, GateDecision::Allow);
+}
 
+#[tokio::test]
+async fn a_rewritten_connector_call_is_bound_to_the_account_that_is_current_when_approval_resolves() {
     let connectors = Arc::new(Connectors { needs: vec!["mcp__gmail__send_email".into()], ..Default::default() });
     let session = Arc::new(Session { surface: SessionSurface::default(), account: Mutex::new(Ok(Some(work_account()))), resolved: Mutex::default() });
     let approvals = Arc::new(PendingApproval::default());

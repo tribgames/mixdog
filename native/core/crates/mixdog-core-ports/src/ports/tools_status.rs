@@ -1,5 +1,4 @@
-//! `ToolSurfaceStatus`: Node's `toolsStatusNow` input path (`agent-ops.mjs`) over a thread's
-//! header. The catalog is `deferredToolCatalog` when the header has one, else `tools`; the
+//! `ToolSurfaceStatus` over a thread's header. The catalog is `deferredToolCatalog` when the header has one, else `tools`; the
 //! active names are `tools` plus `deferredCallableTools`; the discovered ones are
 //! `deferredDiscoveredTools`.
 

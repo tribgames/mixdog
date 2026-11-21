@@ -118,13 +118,8 @@ fn count(value: &Value, key: &str) -> String {
     if truthy(number) { value_text(number) } else { "0".to_owned() }
 }
 
-/// `buildSettingsItems(...)`: every row; its `value` is also the action Enter and the arrows dispatch on.
-pub fn build_settings_items(host: &mut dyn PickerHost, snapshot: &Value, view: &SettingsView, voice_on: bool) -> Vec<PickerItem> {
-    let state = host.state();
+fn auto_clear_row_text(view: &SettingsView) -> (String, String) {
     let auto_clear = &view.auto_clear;
-    let output_style_label = first_truthy_text(member(&view.output_style, "current"), &["label", "id"])
-        .or_else(|| first_truthy_text(&view.output_style, &["configured"]))
-        .unwrap_or_else(|| "Default".to_owned());
     let provider = first_truthy_text(auto_clear, &["provider"]).unwrap_or_else(|| "default".to_owned());
     let auto_clear_source = if truthy(member(auto_clear, "providerCustom")) {
         format!(" ({provider} override)")
@@ -135,19 +130,32 @@ pub fn build_settings_items(host: &mut dyn PickerHost, snapshot: &Value, view: &
     };
     let unlimited = truthy(member(auto_clear, "unlimited"));
     let idle = duration_text(member(auto_clear, "idleMs"));
-    let (auto_clear_meta, auto_clear_description) = if view.auto_clear_enabled {
+    if view.auto_clear_enabled {
         let window = if unlimited { "Never clear idle sessions".to_owned() } else { format!("Clear idle sessions after {idle}") };
         (format!("On ({})", if unlimited { "Unlimited" } else { idle.as_str() }), format!("{window}{auto_clear_source}. Enter for options."))
     } else {
         ("Off".to_owned(), "Idle auto-clear disabled. Enter for options.".to_owned())
-    };
+    }
+}
+
+fn mcp_row_description(view: &SettingsView) -> String {
     let failed = member(&view.mcp, "failedCount");
-    let mcp_description = format!(
+    format!(
         "{}/{} connected{}",
         count(&view.mcp, "connectedCount"),
         count(&view.mcp, "configuredCount"),
         if truthy(failed) { format!(" \u{b7} {} failed", value_text(failed)) } else { String::new() }
-    );
+    )
+}
+
+/// `buildSettingsItems(...)`: every row; its `value` is also the action Enter and the arrows dispatch on.
+pub fn build_settings_items(host: &mut dyn PickerHost, snapshot: &Value, view: &SettingsView, voice_on: bool) -> Vec<PickerItem> {
+    let state = host.state();
+    let output_style_label = first_truthy_text(member(&view.output_style, "current"), &["label", "id"])
+        .or_else(|| first_truthy_text(&view.output_style, &["configured"]))
+        .unwrap_or_else(|| "Default".to_owned());
+    let (auto_clear_meta, auto_clear_description) = auto_clear_row_text(view);
+    let mcp_description = mcp_row_description(view);
     let shell_command = text_of(member(&view.system_shell, "command"));
     let shell_effective = text_of(member(&view.system_shell, "effective"));
     let theme = theme_meta(host);

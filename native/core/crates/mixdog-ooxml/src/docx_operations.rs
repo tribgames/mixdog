@@ -16,17 +16,17 @@ use serde_json::{Map, Value, json};
 
 use crate::docx_formatting::{patch_paragraph_format, patch_word_style};
 use crate::docx_parts::{
-    ensure_note_part, forget_comment_identity, mark_runs_deleted, next_revision_id, revision_attributes, trailing_section_properties, upsert_section_child,
-    write_section_properties_at,
+    NoteDefinition, ensure_note_part, forget_comment_identity, mark_runs_deleted, next_revision_id, revision_attributes, trailing_section_properties,
+    upsert_section_child, write_section_properties_at,
 };
 use crate::docx_revisions::{docx_revision_tree, flatten_docx_revisions};
-use crate::docx_runs::{SettleOptions, settle_docx_story};
+use crate::docx_runs::{SettleOptions, SettledStory, settle_docx_story};
 use crate::docx_styles::document_style_id;
 use crate::docx_tracked_edits::{PhraseMarkers, anchor_phrase_in_paragraph, tracked_paragraph_replace, tracked_paragraph_rewrite};
 use crate::docx_xml::{
-    Matched, RunFontOverrides, apply_word_run_format, docx_table, justify_word_paragraphs, merge_word_cell_properties, merge_word_run_fonts,
-    missing_docx_cell_error, missing_docx_row_error, replace_docx_table, replace_word_properties, row_cell_matches, table_row_matches, with_first_run_text,
-    word_justification, word_table_properties, word_text_content, word_text_element,
+    Matched, RunFontOverrides, apply_word_run_format, docx_table, exact_line_pitch_twips, justify_word_paragraphs, merge_word_cell_properties,
+    merge_word_run_fonts, missing_docx_cell_error, missing_docx_row_error, replace_docx_table, replace_word_properties, row_cell_matches, table_row_matches,
+    with_first_run_text, word_justification, word_table_properties, word_text_content, word_text_element,
 };
 use crate::slide_shapes::replace_first_with;
 use crate::snapshot_docx::{BodyBlock, docx_body_model};
@@ -39,6 +39,8 @@ const STYLES_PART: &str = "word/styles.xml";
 const COMMENTS_PART: &str = "word/comments.xml";
 const A4_WIDTH_TWIPS: f64 = 11_906.0;
 const A4_HEIGHT_TWIPS: f64 = 16_838.0;
+const DEFAULT_MARGIN_TWIPS: f64 = 1_418.0;
+const DEFAULT_HEADER_MARGIN_TWIPS: f64 = 709.0;
 
 /// The paragraph mark's own revision id sits clear of the ids the paragraph's runs take.
 const PARAGRAPH_MARK_ID_OFFSET: u64 = 900;
@@ -248,21 +250,8 @@ pub fn refresh_docx_table_of_contents(zip: &mut Package) -> bool {
     true
 }
 
-/// `writeDocxTocPages(zip, pageTexts)`: the page every contents entry lands on, read from a rendered copy of the document:
-/// `page_texts` is each page's text with the whitespace removed. The rendered text meets the headings in document order, and the
-/// contents list itself (each entry once more, on one page or across several) where the field stands; walked in that order, a
-/// heading is found past the list and past the heading before it. The walk takes the field's own levels. Returns whether the
-/// cache changed; the paragraph holding the field takes a right tab with a dot leader on the text edge so the numbers line up.
-pub fn write_docx_toc_pages(zip: &mut Package, page_texts: &[String]) -> Result<bool, String> {
-    let current = zip.text(DOCUMENT_PART);
-    let field_pattern = compiled(r#"<w:fldSimple\b[^>]*\bw:instr="([^"]*TOC[^"]*)""#, "");
-    let Some(field) = field_pattern.captures(&current) else { return Ok(false) };
-    let field_start = field.range().start;
-    let heading_levels = docx_heading_levels(zip);
-    let (lower, upper) = toc_field_levels(field.get(1).unwrap_or(""));
+fn rendered_toc_pages(entries: &[TocEntry], above: usize, page_texts: &[String]) -> Vec<Option<f64>> {
     let squash = |value: &str| compiled(r"\s+", "g").replace_all_with(value, |_| String::new());
-    let entries = docx_toc_entries(&current, lower, upper, &heading_levels);
-    let above = docx_toc_entries(&current[..field_start], lower, upper, &heading_levels).len();
     let text = page_texts.concat();
     let mut page_starts = Vec::with_capacity(page_texts.len());
     let mut offset = 0;
@@ -277,20 +266,21 @@ pub fn write_docx_toc_pages(zip: &mut Package, page_texts: &[String]) -> Result<
         cursor = at + needle.len();
         page_starts.iter().rposition(|start| *start <= at).map(|index| (index + 1) as f64)
     };
-    let mut pages: Vec<Option<f64>> = entries[..above.min(entries.len())].iter().map(&mut page_of).collect();
-    for entry in &entries {
+    let mut pages: Vec<Option<f64>> = entries[..above].iter().map(&mut page_of).collect();
+    for entry in entries {
         page_of(entry);
     }
-    pages.extend(entries[above.min(entries.len())..].iter().map(&mut page_of));
-    let page_for = |_: &TocEntry, index: usize| pages.get(index).copied().flatten();
-    let rebuilt = rebuild_table_of_contents(&current, &heading_levels, Some(&page_for));
-    // The field's paragraph: a right tab at the text edge of its section, behind dots.
+    pages.extend(entries[above..].iter().map(&mut page_of));
+    pages
+}
+
+fn with_toc_dot_leader_tab(document: &str) -> Result<String, String> {
     let failure: RefCell<Option<String>> = RefCell::new(None);
     let paragraph_pattern = compiled(r#"<w:p(?:\s[^>]*)?>(?:(?!<\/w:p>)[\s\S])*?<w:fldSimple\b[^>]*\bw:instr="[^"]*TOC[\s\S]*?<\/w:p>"#, "");
-    let next = replace_first_with(&paragraph_pattern, &rebuilt, |found| {
+    let next = replace_first_with(&paragraph_pattern, document, |found| {
         let paragraph = found.get(0).unwrap_or("");
-        let section = first_match(r"<w:sectPr\b[\s\S]*?<\/w:sectPr>", &rebuilt[found.range().start..]).unwrap_or("");
-        let width = or_else(digits(r#"<w:pgSz\b[^>]*\bw:w="(\d+)""#, section), 11_906.0);
+        let section = first_match(r"<w:sectPr\b[\s\S]*?<\/w:sectPr>", &document[found.range().start..]).unwrap_or("");
+        let width = or_else(digits(r#"<w:pgSz\b[^>]*\bw:w="(\d+)""#, section), A4_WIDTH_TWIPS);
         let left = or_else(digits(r#"<w:pgMar\b[^>]*\bw:left="(\d+)""#, section), 1_440.0);
         let right = or_else(digits(r#"<w:pgMar\b[^>]*\bw:right="(\d+)""#, section), 1_440.0);
         let tab_stops = json!({ "tabStops": [{ "position": json_number((width - left - right) / 20.0), "alignment": "right", "leader": "dot" }] });
@@ -302,9 +292,30 @@ pub fn write_docx_toc_pages(zip: &mut Package, page_texts: &[String]) -> Result<
             }
         }
     });
-    if let Some(message) = failure.into_inner() {
-        return Err(message);
+    match failure.into_inner() {
+        Some(message) => Err(message),
+        None => Ok(next),
     }
+}
+
+/// `writeDocxTocPages(zip, pageTexts)`: the page every contents entry lands on, read from a rendered copy of the document:
+/// `page_texts` is each page's text with the whitespace removed. The rendered text meets the headings in document order, and the
+/// contents list itself (each entry once more, on one page or across several) where the field stands; walked in that order, a
+/// heading is found past the list and past the heading before it. The walk takes the field's own levels. Returns whether the
+/// cache changed; the paragraph holding the field takes a right tab with a dot leader on the text edge so the numbers line up.
+pub fn write_docx_toc_pages(zip: &mut Package, page_texts: &[String]) -> Result<bool, String> {
+    let current = zip.text(DOCUMENT_PART);
+    let field_pattern = compiled(r#"<w:fldSimple\b[^>]*\bw:instr="([^"]*TOC[^"]*)""#, "");
+    let Some(field) = field_pattern.captures(&current) else { return Ok(false) };
+    let field_start = field.range().start;
+    let heading_levels = docx_heading_levels(zip);
+    let (lower, upper) = toc_field_levels(field.get(1).unwrap_or(""));
+    let entries = docx_toc_entries(&current, lower, upper, &heading_levels);
+    let above = docx_toc_entries(&current[..field_start], lower, upper, &heading_levels).len();
+    let pages = rendered_toc_pages(&entries, above.min(entries.len()), page_texts);
+    let page_for = |_: &TocEntry, index: usize| pages.get(index).copied().flatten();
+    let rebuilt = rebuild_table_of_contents(&current, &heading_levels, Some(&page_for));
+    let next = with_toc_dot_leader_tab(&rebuilt)?;
     if next == current {
         return Ok(false);
     }
@@ -432,10 +443,6 @@ fn prune_orphan_comments(zip: &mut Package, parts: &[String]) -> usize {
 
 // ---- notes -------------------------------------------------------------------------------------------------------------------
 
-/// `wholeWordPhrase(text, find)`: the mark goes at the end of the word the cited phrase ends in: a phrase ending inside a word
-/// ("가장 크게 성장" in "성장했습니다") set the mark mid-word, "성장¹했습니다". A phrase cut inside a word (its last character and
-/// the next one both letters or digits) runs on to the word's end, stopping at a space or a punctuation mark; one that ends on a
-/// sign ("92.8%" before "로") is a whole figure and keeps its mark there.
 fn whole_word_phrase<'t>(text: &'t str, find: &'t str) -> &'t str {
     let letter_or_digit = compiled(r"[\p{L}\p{N}]", "u");
     let ends_in_word = compiled(r"[\p{L}\p{N}]$", "u");
@@ -452,6 +459,42 @@ fn whole_word_phrase<'t>(text: &'t str, find: &'t str) -> &'t str {
         end += character.len_utf8();
     }
     &text[at..end]
+}
+
+fn note_entry_xml(definition: &NoteDefinition, id_text: &str, text: &str, faces: &str) -> String {
+    let note_run = if faces.is_empty() { String::new() } else { format!("<w:rPr>{faces}</w:rPr>") };
+    let reference_kind = if definition.reference == "w:footnoteReference" { "footnoteRef" } else { "endnoteRef" };
+    format!(
+        "<{tag} w:id=\"{id_text}\"><w:p><w:pPr><w:pStyle w:val=\"{text_style}\"/></w:pPr><w:r><w:rPr><w:rStyle w:val=\"{style}\"/>{faces}<w:vertAlign w:val=\"superscript\"/></w:rPr><w:{reference_kind}/></w:r><w:r>{note_run}<w:t xml:space=\"preserve\"> {}</w:t></w:r></w:p></{tag}>",
+        xml_encode(text),
+        tag = definition.tag,
+        text_style = definition.text_style,
+        style = definition.style,
+    )
+}
+
+/// The paragraph with the note's mark after the cited phrase, and the phrase when one was anchored; a phrase split across a
+/// tab, field, or drawing leaves the mark at the end of the paragraph.
+fn anchor_note_mark(definition: &NoteDefinition, paragraph_xml: &str, find: &str, id_text: &str) -> (String, Option<String>) {
+    let mark = format!(
+        "<w:r><w:rPr><w:rStyle w:val=\"{}\"/><w:vertAlign w:val=\"superscript\"/></w:rPr><{} w:id=\"{id_text}\"/></w:r>",
+        definition.style, definition.reference
+    );
+    let joined = paragraph_texts(paragraph_xml, "w:t").join("");
+    let cited = if find.is_empty() { "" } else { whole_word_phrase(&joined, find) };
+    let phrase = if cited.is_empty() {
+        None
+    } else {
+        anchor_phrase_in_paragraph(paragraph_xml, cited, id_text, Some(&PhraseMarkers { start: Some(String::new()), end: Some(mark.clone()), replace: false }))
+    };
+    let anchored = match &phrase {
+        Some(phrase) => phrase.clone(),
+        None => match compiled(r"<\/w:p>$", "").find(paragraph_xml) {
+            Some(range) => format!("{}{mark}</w:p>{}", &paragraph_xml[..range.start], &paragraph_xml[range.end..]),
+            None => paragraph_xml.to_owned(),
+        },
+    };
+    (anchored, phrase)
 }
 
 /// `addDocxNote(zip, op)`: writes a footnote or endnote and anchors its mark on the phrase it cites.
@@ -482,45 +525,10 @@ pub fn add_docx_note(zip: &mut Package, op: &Value) -> Result<Value, String> {
     let id_pattern = compiled(&format!(r#"<{}\b[^>]*\bw:id="(-?\d+)""#, tag_pattern(definition.tag)), "g");
     let id = id_pattern.captures_iter(&note.xml).map(|found| string_to_number(found.get(1).unwrap_or(""))).fold(0.0, f64::max) + 1.0;
     let id_text = number_to_string(id);
-    // The note is set in the face of the text it cites: a paragraph whose runs name Noto Serif KR had its source line printed in
-    // the document default, a second typeface at the page foot.
     let faces = first_group(r"<w:r\b[^>]*>\s*<w:rPr>[\s\S]*?(<w:rFonts\b[^>]*\/>)", &paragraph.xml).unwrap_or("");
-    let note_run = if faces.is_empty() { String::new() } else { format!("<w:rPr>{faces}</w:rPr>") };
-    let reference_kind = if definition.reference == "w:footnoteReference" { "footnoteRef" } else { "endnoteRef" };
-    let entry = format!(
-        "<{tag} w:id=\"{id_text}\"><w:p><w:pPr><w:pStyle w:val=\"{text_style}\"/></w:pPr><w:r><w:rPr><w:rStyle w:val=\"{style}\"/>{faces}<w:vertAlign w:val=\"superscript\"/></w:rPr><w:{reference_kind}/></w:r><w:r>{note_run}<w:t xml:space=\"preserve\"> {}</w:t></w:r></w:p></{tag}>",
-        xml_encode(&text),
-        tag = definition.tag,
-        text_style = definition.text_style,
-        style = definition.style,
-    );
     let closing = format!("</{}>", definition.root);
-    zip.set(definition.part, replace_text(&note.xml, &closing, &format!("{entry}{closing}")));
-    // The mark belongs right after the phrase it cites; a phrase split across a tab, field, or drawing falls back to the end of
-    // its paragraph.
-    let mark = format!(
-        "<w:r><w:rPr><w:rStyle w:val=\"{}\"/><w:vertAlign w:val=\"superscript\"/></w:rPr><{} w:id=\"{id_text}\"/></w:r>",
-        definition.style, definition.reference
-    );
-    let joined = paragraph_texts(&paragraph.xml, "w:t").join("");
-    let cited = if find.is_empty() { "" } else { whole_word_phrase(&joined, &find) };
-    let phrase = if cited.is_empty() {
-        None
-    } else {
-        anchor_phrase_in_paragraph(
-            &paragraph.xml,
-            cited,
-            &id_text,
-            Some(&PhraseMarkers { start: Some(String::new()), end: Some(mark.clone()), replace: false }),
-        )
-    };
-    let anchored = match &phrase {
-        Some(phrase) => phrase.clone(),
-        None => match compiled(r"<\/w:p>$", "").find(&paragraph.xml) {
-            Some(range) => format!("{}{mark}</w:p>{}", &paragraph.xml[..range.start], &paragraph.xml[range.end..]),
-            None => paragraph.xml.clone(),
-        },
-    };
+    zip.set(definition.part, replace_text(&note.xml, &closing, &format!("{}{closing}", note_entry_xml(&definition, &id_text, &text, faces))));
+    let (anchored, phrase) = anchor_note_mark(&definition, &paragraph.xml, &find, &id_text);
     let body = model.body.as_ref().expect("a body holds the paragraph");
     let next_inner = format!("{}{anchored}{}", &body.inner[..paragraph.start], &body.inner[paragraph.end..]);
     current = format!("{}{next_inner}{}", &current[..body.start], &current[body.end..]);
@@ -535,9 +543,42 @@ pub fn add_docx_note(zip: &mut Package, op: &Value) -> Result<Value, String> {
 
 // ---- the document font and styles ------------------------------------------------------------------------------------------------
 
+fn with_default_run_font(styles: &str, font: &RunFontOverrides<'_>) -> String {
+    let defaults = compiled(r"<w:rPrDefault>\s*<w:rPr>([\s\S]*?)<\/w:rPr>\s*<\/w:rPrDefault>", "")
+        .captures(styles)
+        .map(|found| (found.range(), found.get(1).unwrap_or("").to_owned()));
+    let default_run =
+        format!("<w:rPrDefault><w:rPr>{}</w:rPr></w:rPrDefault>", merge_word_run_fonts(defaults.as_ref().map_or("", |(_, inner)| inner.as_str()), font));
+    if let Some((range, _)) = &defaults {
+        format!("{}{default_run}{}", &styles[..range.start], &styles[range.end..])
+    } else if styles.contains("<w:docDefaults>") {
+        replace_text(styles, "<w:docDefaults>", &format!("<w:docDefaults>{default_run}"))
+    } else {
+        replace_first_with(&compiled(r"<w:styles\b[^>]*>", ""), styles, |open| {
+            format!("{}<w:docDefaults>{default_run}</w:docDefaults>", open.get(0).unwrap_or(""))
+        })
+    }
+}
+
+/// The default paragraph style is found by `w:default` (Korean Word writes Normal as styleId "a") and cut out first, so a Normal
+/// without run properties never reaches into the style after it.
+fn with_normal_style_font(styles: &str, font: &RunFontOverrides<'_>) -> String {
+    let normal = compiled(r#"<w:style\b(?=[^>]*\bw:type="paragraph")(?=[^>]*\bw:default="1")[^>]*>[\s\S]*?<\/w:style>"#, "");
+    replace_first_with(&normal, styles, |style| {
+        let style = style.get(0).unwrap_or("");
+        replace_first_with(&compiled(r"<w:rPr>([\s\S]*?)<\/w:rPr>", ""), style, |found| {
+            let inner = found.get(1).unwrap_or("");
+            if compiled(r"<w:(rFonts|sz)\b", "").is_match(inner) {
+                format!("<w:rPr>{}</w:rPr>", merge_word_run_fonts(inner, font))
+            } else {
+                found.get(0).unwrap_or("").to_owned()
+            }
+        })
+    })
+}
+
 /// `setDocxDocumentFont(zip, op)`: the document's own face and size: the default run properties, and the Normal style's where it
-/// names its own. A composed report set every paragraph's face and left these at Calibri 11 pt, so a paragraph added later (by
-/// append_text or by hand in Word) came out in another face and size than the body around it.
+/// names its own.
 pub fn set_docx_document_font(zip: &mut Package, op: &Value) -> Result<Value, String> {
     let properties = op.get("properties").filter(|value| truthy(Some(*value))).cloned().unwrap_or_else(|| json!({}));
     let name = js_trim(&string_or_empty(properties.get("name"))).to_owned();
@@ -553,35 +594,8 @@ pub fn set_docx_document_font(zip: &mut Package, op: &Value) -> Result<Value, St
         return Err("DOCX package has no styles part (word/styles.xml)".to_owned());
     }
     let font = RunFontOverrides { name: &name, name_east_asia: &name_east_asia, size, color: &color };
-    let defaults = compiled(r"<w:rPrDefault>\s*<w:rPr>([\s\S]*?)<\/w:rPr>\s*<\/w:rPrDefault>", "")
-        .captures(&styles)
-        .map(|found| (found.range(), found.get(1).unwrap_or("").to_owned()));
-    let default_run =
-        format!("<w:rPrDefault><w:rPr>{}</w:rPr></w:rPrDefault>", merge_word_run_fonts(defaults.as_ref().map_or("", |(_, inner)| inner.as_str()), &font));
-    if let Some((range, _)) = &defaults {
-        styles = format!("{}{default_run}{}", &styles[..range.start], &styles[range.end..]);
-    } else if styles.contains("<w:docDefaults>") {
-        styles = replace_text(&styles, "<w:docDefaults>", &format!("<w:docDefaults>{default_run}"));
-    } else {
-        styles = replace_first_with(&compiled(r"<w:styles\b[^>]*>", ""), &styles, |open| {
-            format!("{}<w:docDefaults>{default_run}</w:docDefaults>", open.get(0).unwrap_or(""))
-        });
-    }
-    // A Normal style that names its own face or size outranks the defaults; it takes the same values. Normal is the default
-    // paragraph style (Korean Word writes it as styleId "a", so it is found by w:default, not by its id) and it is cut out
-    // first, so a Normal without run properties never reaches into the style after it.
-    let normal = compiled(r#"<w:style\b(?=[^>]*\bw:type="paragraph")(?=[^>]*\bw:default="1")[^>]*>[\s\S]*?<\/w:style>"#, "");
-    styles = replace_first_with(&normal, &styles, |style| {
-        let style = style.get(0).unwrap_or("");
-        replace_first_with(&compiled(r"<w:rPr>([\s\S]*?)<\/w:rPr>", ""), style, |found| {
-            let inner = found.get(1).unwrap_or("");
-            if compiled(r"<w:(rFonts|sz)\b", "").is_match(inner) {
-                format!("<w:rPr>{}</w:rPr>", merge_word_run_fonts(inner, &font))
-            } else {
-                found.get(0).unwrap_or("").to_owned()
-            }
-        })
-    });
+    styles = with_default_run_font(&styles, &font);
+    styles = with_normal_style_font(&styles, &font);
     zip.set(STYLES_PART, styles);
     let mut result = result_of(op);
     result.insert("changed".to_owned(), json!(true));
@@ -665,9 +679,6 @@ fn page_request(properties: &Value) -> Result<PageRequest, String> {
     Ok(PageRequest { orientation, column_count, column_spacing, size })
 }
 
-/// `sectionWithPage(section, properties, request)`: one section's page size, margins and (when asked) column layout, each half of
-/// a pair the caller left out keeping what the section already said. The sheet is named by pageSize and turned by orientation, or
-/// kept the way the section already lies when no orientation is asked for.
 fn section_with_page(section: &str, properties: &Value, request: &PageRequest) -> String {
     let current = first_group(r"<w:pgSz\b([^>]*)\/>", section).unwrap_or("");
     let mut page_width = or_else(digits(r#"\bw:w="(\d+)""#, current), A4_WIDTH_TWIPS);
@@ -706,25 +717,28 @@ fn section_with_page(section: &str, properties: &Value, request: &PageRequest) -
         "pgMar",
         &format!(
             "<w:pgMar w:top=\"{}\" w:right=\"{}\" w:bottom=\"{}\" w:left=\"{}\" w:header=\"{}\" w:footer=\"{}\" w:gutter=\"0\"/>",
-            margin("top", "topMargin", 1418.0),
-            margin("right", "rightMargin", 1418.0),
-            margin("bottom", "bottomMargin", 1418.0),
-            margin("left", "leftMargin", 1418.0),
-            margin("header", "headerMargin", 709.0),
-            margin("footer", "footerMargin", 709.0)
+            margin("top", "topMargin", DEFAULT_MARGIN_TWIPS),
+            margin("right", "rightMargin", DEFAULT_MARGIN_TWIPS),
+            margin("bottom", "bottomMargin", DEFAULT_MARGIN_TWIPS),
+            margin("left", "leftMargin", DEFAULT_MARGIN_TWIPS),
+            margin("header", "headerMargin", DEFAULT_HEADER_MARGIN_TWIPS),
+            margin("footer", "footerMargin", DEFAULT_HEADER_MARGIN_TWIPS)
         ),
     );
+    section_with_columns(&with_margins, request)
+}
+
+fn section_with_columns(section: &str, request: &PageRequest) -> String {
     if request.column_count.is_none() && request.column_spacing.is_none() {
-        return with_margins;
+        return section.to_owned();
     }
-    // The text flows through the columns the section declares, so a brochure page needs no text boxes.
-    let declared = first_group(r"<w:cols\b([^>]*)\/>", &with_margins).unwrap_or("");
+    let declared = first_group(r"<w:cols\b([^>]*)\/>", section).unwrap_or("");
     let carried_count = or_else(digits(r#"\bw:num="(\d+)""#, declared), 1.0);
     let count = request.column_count.unwrap_or(carried_count);
     let carried_space = or_else(digits(r#"\bw:space="(\d+)""#, declared), 708.0);
     let space = request.column_spacing.map_or(carried_space, |spacing| mixdog_js::math::round(spacing * 20.0));
     upsert_section_child(
-        &with_margins,
+        section,
         "cols",
         &format!(
             "<w:cols{} w:space=\"{}\"/>",
@@ -759,15 +773,11 @@ fn usable_text_width(document_xml: &str) -> Result<f64, String> {
     let size = first_group(r"<w:pgSz\b([^>]*)\/>", section).unwrap_or("");
     let margins = first_group(r"<w:pgMar\b([^>]*)\/>", section).unwrap_or("");
     let page_width = or_else(digits(r#"\bw:w="(\d+)""#, size), A4_WIDTH_TWIPS);
-    let margin_left = or_else(digits(r#"\bw:left="(-?\d+)""#, margins), 1418.0);
-    let margin_right = or_else(digits(r#"\bw:right="(-?\d+)""#, margins), 1418.0);
+    let margin_left = or_else(digits(r#"\bw:left="(-?\d+)""#, margins), DEFAULT_MARGIN_TWIPS);
+    let margin_right = or_else(digits(r#"\bw:right="(-?\d+)""#, margins), DEFAULT_MARGIN_TWIPS);
     Ok((page_width - margin_left - margin_right).max(720.0))
 }
 
-/// `fitTableCells(tableXml, widths)`: every cell's width becomes the grid columns it spans; its span, merge, border, shading,
-/// margins and alignment properties are kept. The margins are the gutter a column of words takes after a column of figures and a
-/// layout grid's flush edges: dropped here, every preset table lost its gutter to the fit that follows it ("+45%" ran into "11월")
-/// while Word kept it.
 fn fit_table_cells(table_xml: &str, widths: &[f64]) -> String {
     compiled(r"<w:tr(?:\s[^>]*)?>[\s\S]*?<\/w:tr>", "g").replace_all_with(table_xml, |row| {
         let index = Cell::new(0usize);
@@ -800,6 +810,30 @@ fn fit_table_cells(table_xml: &str, widths: &[f64]) -> String {
     })
 }
 
+fn fitted_column_widths(columns: &[String], usable: f64) -> Vec<f64> {
+    let count = columns.len().max(1);
+    let current_widths: Vec<f64> = columns.iter().map(|attributes| or_else(digits(r#"\bw:w="(\d+)""#, attributes), 0.0)).collect();
+    let total: f64 = current_widths.iter().sum();
+    if total > 0.0 {
+        current_widths.iter().map(|width| mixdog_js::math::round(width / total * usable).max(240.0)).collect()
+    } else {
+        vec![mixdog_js::math::round(usable / count as f64); count]
+    }
+}
+
+fn table_properties_with_width(table_properties: &str, usable: f64) -> String {
+    let declared = format!("<w:tblW w:w=\"{}\" w:type=\"dxa\"/>", number_to_string(usable));
+    let width_element = compiled(r"<w:tblW\b[^>]*\/>", "");
+    let style_element = compiled(r"(<w:tblStyle\b[^>]*\/>)", "");
+    if width_element.is_match(table_properties) {
+        replace_first_with(&width_element, table_properties, |_| declared.clone())
+    } else if style_element.is_match(table_properties) {
+        replace_first_with(&style_element, table_properties, |found| format!("{}{declared}", found.get(1).unwrap_or("")))
+    } else {
+        format!("{declared}{table_properties}")
+    }
+}
+
 /// `fitDocxTable(zip, op)`: rebalances a table across the text column, keeping each column's share and every cell's own
 /// properties.
 pub fn fit_docx_table(zip: &mut Package, op: &Value) -> Result<Value, String> {
@@ -812,13 +846,7 @@ pub fn fit_docx_table(zip: &mut Package, op: &Value) -> Result<Value, String> {
         None => Vec::new(),
     };
     let count = columns.len().max(1);
-    let current_widths: Vec<f64> = columns.iter().map(|attributes| or_else(digits(r#"\bw:w="(\d+)""#, attributes), 0.0)).collect();
-    let total: f64 = current_widths.iter().sum();
-    let widths: Vec<f64> = if total > 0.0 {
-        current_widths.iter().map(|width| mixdog_js::math::round(width / total * usable).max(240.0)).collect()
-    } else {
-        vec![mixdog_js::math::round(usable / count as f64); count]
-    };
+    let widths = fitted_column_widths(&columns, usable);
     let mut next_table = match grid {
         Some(grid) => {
             let rebuilt = format!(
@@ -829,20 +857,11 @@ pub fn fit_docx_table(zip: &mut Package, op: &Value) -> Result<Value, String> {
         }
         None => table.xml.clone(),
     };
-    let declared = format!("<w:tblW w:w=\"{}\" w:type=\"dxa\"/>", number_to_string(usable));
-    let mut table_properties = match op.get("properties").filter(|value| truthy(Some(*value))) {
+    let table_properties = match op.get("properties").filter(|value| truthy(Some(*value))) {
         Some(properties) => word_table_properties(properties, 0.0),
         None => first_group(r"<w:tblPr>([\s\S]*?)<\/w:tblPr>", &next_table).unwrap_or("").to_owned(),
     };
-    let width_element = compiled(r"<w:tblW\b[^>]*\/>", "");
-    let style_element = compiled(r"(<w:tblStyle\b[^>]*\/>)", "");
-    if width_element.is_match(&table_properties) {
-        table_properties = replace_first_with(&width_element, &table_properties, |_| declared.clone());
-    } else if style_element.is_match(&table_properties) {
-        table_properties = replace_first_with(&style_element, &table_properties, |found| format!("{}{declared}", found.get(1).unwrap_or("")));
-    } else {
-        table_properties = format!("{declared}{table_properties}");
-    }
+    let table_properties = table_properties_with_width(&table_properties, usable);
     next_table = fit_table_cells(&replace_word_properties(&next_table, "tbl", "tblPr", &table_properties), &widths);
     current = replace_docx_table(&current, &table, &next_table);
     zip.set(DOCUMENT_PART, current);
@@ -1062,25 +1081,39 @@ pub fn edit_docx_paragraph(zip: &mut Package, op: &Value, tracking: bool) -> Res
 
 // ---- table cells ------------------------------------------------------------------------------------------------------------------
 
-/// `styledDocxCell(cell, op)`: the same properties the Word backend applies to the cell's range: a stat band's label row set at
-/// 9 pt under a 22 pt value row is one set_table_cell_style per cell, on either backend.
 fn styled_docx_cell(cell: &str, op: &Value) -> Result<String, String> {
     let properties = op.get("properties").unwrap_or(&Value::Null);
     let mut next_cell = merge_word_cell_properties(cell, properties);
     let cell_size = number_of(properties.get("fontSize"));
+    let sized = cell_size.is_finite() && cell_size > 0.0;
+    next_cell = apply_word_run_format(&next_cell, &cell_run_format(properties, cell_size, sized));
+    if sized {
+        let pitch = number_to_string(exact_line_pitch_twips(cell_size));
+        next_cell = compiled(r#"(<w:spacing\b[^>]*\bw:line=")(\d+)("[^>]*\bw:lineRule="(?:atLeast|exact)")"#, "g")
+            .replace_all_with(&next_cell, |found| format!("{}{pitch}{}", found.get(1).unwrap_or(""), found.get(3).unwrap_or("")));
+    }
+    let alignment = js_to_lowercase(js_trim(&string_or_empty(properties.get("horizontalAlignment"))));
+    if !alignment.is_empty() {
+        let justification = word_justification(&alignment);
+        if justification.is_empty() {
+            return Err(format!("set_table_cell_style horizontalAlignment must be left, center, right, or justify, not {alignment}"));
+        }
+        next_cell = justify_word_paragraphs(&next_cell, justification);
+    }
+    Ok(next_cell)
+}
+
+fn cell_run_format(properties: &Value, cell_size: f64, sized: bool) -> String {
     let cell_font = if truthy(properties.get("fontName")) { xml_encode(&value_to_string(&properties["fontName"])) } else { String::new() };
     let cell_east_asia = if truthy(properties.get("fontNameEastAsia")) { xml_encode(&value_to_string(&properties["fontNameEastAsia"])) } else { String::new() };
     let latin_font_attrs = if cell_font.is_empty() { String::new() } else { format!(" w:ascii=\"{cell_font}\" w:hAnsi=\"{cell_font}\" w:cs=\"{cell_font}\"") };
     let east_asia_font_attrs = if cell_east_asia.is_empty() { String::new() } else { format!(" w:eastAsia=\"{cell_east_asia}\"") };
-    // bold:false and italic:false switch the weight off, as the Word backend's Font.Bold = 0 does: a data row inserted before a
-    // total copies the total's bold, and asking for it back to regular changed nothing here.
     let toggled = |tag: &str, value: Option<&Value>| match value {
         None => String::new(),
         Some(value) if truthy(Some(value)) => format!("<w:{tag}/><w:{tag}Cs/>"),
         Some(_) => format!("<w:{tag} w:val=\"0\"/><w:{tag}Cs w:val=\"0\"/>"),
     };
-    let sized = cell_size.is_finite() && cell_size > 0.0;
-    let run_format = [
+    [
         if cell_font.is_empty() && cell_east_asia.is_empty() { String::new() } else { format!("<w:rFonts{latin_font_attrs}{east_asia_font_attrs}/>") },
         toggled("b", properties.get("bold")),
         toggled("i", properties.get("italic")),
@@ -1097,32 +1130,11 @@ fn styled_docx_cell(cell: &str, op: &Value) -> Result<String, String> {
             String::new()
         },
     ]
-    .concat();
-    next_cell = apply_word_run_format(&next_cell, &run_format);
-    // The cell's line pitch follows its new size (the table convention, 1.3× the size): a 9 pt label row under a 22 pt value row
-    // otherwise keeps the value row's 29 pt lines and floats the labels, and a larger size under the exact pitch would be clipped.
-    if sized {
-        let pitch = number_to_string(mixdog_js::math::round(cell_size * 1.3 * 20.0));
-        next_cell = compiled(r#"(<w:spacing\b[^>]*\bw:line=")(\d+)("[^>]*\bw:lineRule="(?:atLeast|exact)")"#, "g")
-            .replace_all_with(&next_cell, |found| format!("{}{pitch}{}", found.get(1).unwrap_or(""), found.get(3).unwrap_or("")));
-    }
-    // A cell's horizontal alignment is its paragraphs' justification: a centred metric that stays left-aligned reads as a
-    // different number column from the header above it.
-    let alignment = js_to_lowercase(js_trim(&string_or_empty(properties.get("horizontalAlignment"))));
-    if !alignment.is_empty() {
-        let justification = word_justification(&alignment);
-        if justification.is_empty() {
-            return Err(format!("set_table_cell_style horizontalAlignment must be left, center, right, or justify, not {alignment}"));
-        }
-        next_cell = justify_word_paragraphs(&next_cell, justification);
-    }
-    Ok(next_cell)
+    .concat()
 }
 
-/// `mergedCellXml(joined, spans)`: a merged cell keeps what it carried (its shading, its borders, the bottom alignment a header
-/// row sits on, as Word keeps them) and takes the spans; its width becomes the widths it joins. Replacing the whole tcPr would
-/// make a two-level header's merged labels rise to the top of their cells on this backend only. Children stay in schema order:
-/// cnfStyle, tcW, gridSpan, vMerge, then the rest.
+/// A merged cell keeps what it carried and takes the spans; its width becomes the widths it joins. Children stay in schema
+/// order: cnfStyle, tcW, gridSpan, vMerge, then the rest.
 fn merged_cell_xml(joined: &[&str], spans: &str) -> String {
     let existing = first_group(r"<w:tcPr(?:\s[^>]*)?>([\s\S]*?)<\/w:tcPr>", joined[0]).unwrap_or("");
     let kept = compiled(r"<w:(tcW|gridSpan|hMerge|vMerge)\b[^>]*?(?:\/>|>[\s\S]*?<\/w:\1>)", "g").replace_all_with(existing, |_| String::new());
@@ -1221,6 +1233,18 @@ struct Totals {
     property_changes: usize,
 }
 
+impl Totals {
+    fn add(&mut self, story: &SettledStory) {
+        self.resolved += story.resolved;
+        self.merged += story.merged;
+        self.cleared += story.cleared;
+        self.unmerged += story.unmerged;
+        self.rows_removed += story.rows_removed;
+        self.rows_cleared += story.rows_cleared;
+        self.property_changes += story.property_changes;
+    }
+}
+
 /// `settleDocxStories(zip, stories, totals, request)`: settles each story part in turn, adding its counts to `totals`. A single
 /// addressed revision (by ordinal or id) stops at the part that held it; ordinals run across the parts in the order given.
 fn settle_docx_stories(zip: &mut Package, stories: &[&String], totals: &mut Totals, request: &ResolutionRequest) -> (Vec<String>, bool) {
@@ -1256,17 +1280,12 @@ fn settle_docx_stories(zip: &mut Package, stories: &[&String], totals: &mut Tota
             &current,
             &SettleOptions { resolution: &request.resolution, target: part_target as usize, id: &request.revision_id, author: &request.author },
         );
+        totals.add(&story);
+        let resolved = story.resolved;
         if story.xml != current {
             zip.set(part, story.xml);
         }
-        totals.resolved += story.resolved;
-        totals.merged += story.merged;
-        totals.cleared += story.cleared;
-        totals.unmerged += story.unmerged;
-        totals.rows_removed += story.rows_removed;
-        totals.rows_cleared += story.rows_cleared;
-        totals.property_changes += story.property_changes;
-        if request.single && story.resolved > 0 {
+        if request.single && resolved > 0 {
             settled = true;
             break;
         }
@@ -1321,10 +1340,14 @@ pub fn resolve_docx_revisions(zip: &mut Package, parts: &[String], op: &Value) -
         });
     }
     let comments_removed = if request.single { 0 } else { prune_orphan_comments(zip, parts) };
+    Ok(resolution_result(op, &request, &totals, &reviewers, comments_removed))
+}
+
+fn resolution_result(op: &Value, request: &ResolutionRequest, totals: &Totals, reviewers: &[String], comments_removed: usize) -> Value {
     let paragraph_marks = totals.merged + totals.cleared + totals.unmerged;
     let table_rows = totals.rows_removed + totals.rows_cleared;
     let changed = totals.resolved > 0 || paragraph_marks > 0 || table_rows > 0 || totals.property_changes > 0 || comments_removed > 0;
-    let note = if !request.author.is_empty() && !changed { unmatched_author_note(&request.author, &reviewers) } else { String::new() };
+    let note = if !request.author.is_empty() && !changed { unmatched_author_note(&request.author, reviewers) } else { String::new() };
     let mut result = result_of(op);
     result.insert("changed".to_owned(), json!(changed));
     result.insert("resolution".to_owned(), json!(request.resolution));
@@ -1360,5 +1383,5 @@ pub fn resolve_docx_revisions(zip: &mut Package, parts: &[String], op: &Value) -
             )),
         );
     }
-    Ok(Value::Object(result))
+    Value::Object(result)
 }

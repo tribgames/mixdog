@@ -1,13 +1,3 @@
-//! The pushed sections the workflow config derives (SPEC R14), each with the value of the
-//! session action it replaces: `presets` (`listPresets`), `webSearch` (`getWebSearchRoute`) and
-//! `workflows` (`listWorkflows`), and the `onboarding` key of `config` (`getOnboardingStatus`,
-//! `workflowRoutes` included).
-//!
-//! The service computes them once at start and again after every change of the config or of a
-//! workflow pack, and pushes a section only when its value differs from the last one pushed. A
-//! value that cannot be computed (a stored web-search route that does not parse) is not pushed:
-//! the section keeps the last good value.
-
 use std::sync::Arc;
 
 use mixdog_core_api::state::StatePublisher;
@@ -60,7 +50,6 @@ pub fn spawn_sections(workflow: Arc<WorkflowConfig>, publisher: Arc<dyn StatePub
     let packs = Watched { roots: vec![workflow.paths.root.join("workflows"), workflow.paths.data.join("workflows")], files: Vec::new() };
     let trigger = FolderTrigger::start("workflow-packs", packs, workflow.pack_changes.clone())?;
     mixdog_rt::spawn("workflow-sections", TaskClass::Work, async move {
-        // The pack-folder watch lives as long as the task.
         let _trigger = trigger;
         let mut changes = workflow.config.changes();
         let mut last: [Option<Value>; 4] = [None, None, None, None];

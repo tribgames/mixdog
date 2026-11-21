@@ -1,10 +1,6 @@
-//! One `channel/call` of the bridge: the callId idempotency cache and the binding-aware
-//! run of `activate_channel_bridge`.
-//!
-//! Calls are independent tasks: nothing queues behind another client's call. Only the
-//! binding tool is serialized (it moves the one remote-control binding). A retried call
-//! with the same callId awaits the original run, so a transport retry never repeats a
-//! side effect; the cache entry's TTL starts when the call settles, not when it starts.
+//! Only the binding tool is serialized (it moves the one remote-control binding). A retried call
+//! with the same callId awaits the original run, so a transport retry never repeats a side
+//! effect; the cache entry's TTL starts when the call settles, not when it starts.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -181,6 +177,10 @@ pub struct CallDispatch {
 /// when its record could not be read.
 pub type SessionPresence = Arc<dyn Fn(String) -> futures::future::BoxFuture<'static, Option<bool>> + Send + Sync>;
 
+fn pins(binding: &Binding, intent: &Arc<RemoteIntent>) -> bool {
+    binding.intent.as_ref().is_some_and(|i| Arc::ptr_eq(i, intent)) && binding.pinned_session_id.as_deref() == Some(&intent.session_id)
+}
+
 fn is_soft_error(result: &Value) -> bool {
     result["isError"] == Value::Bool(true)
 }
@@ -267,36 +267,11 @@ impl CallDispatch {
             return true;
         }
         let Ok(_turn) = self.binding_turn.enter(&self.cancel).await else { return false };
-        let current = |binding: &Binding| {
-            binding.intent.as_ref().is_some_and(|i| Arc::ptr_eq(i, &intent)) && binding.pinned_session_id.as_deref() == Some(&intent.session_id)
-        };
-        if !current(&self.binding.lock().unwrap()) {
+        if !pins(&self.binding.lock().unwrap(), &intent) {
             return false;
         }
-        // A pin outlives the session it names: binding Remote to a deleted session would announce Remote enabled
-        // for a session no list shows, so such a pin is dropped and the log says so. Only a session known to be gone
-        // drops it: a record that could not be read is no proof, so the pin is kept and restored, and the log says so.
-        if let Some(presence) = self.session_presence.get() {
-            let known = presence(intent.session_id.clone()).await;
-            if known == Some(false) {
-                {
-                    let mut binding = self.binding.lock().unwrap();
-                    if !current(&binding) {
-                        return false;
-                    }
-                    *binding = Binding::default();
-                }
-                file.log(&format!("remote intent restore skipped session={}: the session no longer exists", intent.session_id));
-                file.clear("pinned session deleted").await;
-                self.binding_changed();
-                return false;
-            }
-            if !current(&self.binding.lock().unwrap()) {
-                return false;
-            }
-            if known.is_none() {
-                file.log(&format!("remote intent restore kept session={}: the session record could not be read", intent.session_id));
-            }
+        if !self.pinned_session_exists(file, &intent).await {
+            return false;
         }
         let args = json!({"active": true, "sessionId": intent.session_id, "transcriptPath": intent.transcript_path, "restore": true});
         // Node's restore has no client (`clientToken: null`).
@@ -311,7 +286,7 @@ impl CallDispatch {
             Ok(_) => {
                 {
                     let mut binding = self.binding.lock().unwrap();
-                    if !current(&binding) {
+                    if !pins(&binding, &intent) {
                         return false;
                     }
                     binding.remote_acquired = true;
@@ -324,6 +299,31 @@ impl CallDispatch {
         };
         file.log(&format!("remote intent restore failed session={}: {failure}", intent.session_id));
         false
+    }
+
+    async fn pinned_session_exists(&self, file: &IntentFile, intent: &Arc<RemoteIntent>) -> bool {
+        let Some(presence) = self.session_presence.get() else { return true };
+        let known = presence(intent.session_id.clone()).await;
+        if known == Some(false) {
+            {
+                let mut binding = self.binding.lock().unwrap();
+                if !pins(&binding, intent) {
+                    return false;
+                }
+                *binding = Binding::default();
+            }
+            file.log(&format!("remote intent restore skipped session={}: the session no longer exists", intent.session_id));
+            file.clear("pinned session deleted").await;
+            self.binding_changed();
+            return false;
+        }
+        if !pins(&self.binding.lock().unwrap(), intent) {
+            return false;
+        }
+        if known.is_none() {
+            file.log(&format!("remote intent restore kept session={}: the session record could not be read", intent.session_id));
+        }
+        true
     }
 
     /// Registers who hears the binding change, and tells it the binding now.

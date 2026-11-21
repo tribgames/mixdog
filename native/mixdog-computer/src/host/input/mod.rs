@@ -74,26 +74,14 @@ impl Host {
             // caller observed must still hold before any input goes to the element.
             // Only the trees Get-RefRecord reads (UIA, MSAA) report them live;
             // AT-SPI and AX elements do not.
-            let checked = matches!(element.source(), "uia" | "msaa");
-            let relabelled = element.name() != name && !self.name_is_text(&element);
-            if checked && (element.control_type() != role || relabelled) {
+            if self.relabelled(&element, &role, &name) {
                 return Err(refuse(&element, Stale::Identity));
             }
         } else {
             // A later step of a sequence acts on what earlier steps left, so
             // only the step the caller aimed from its observation may stand in
             // a rebuilt twin; an MSAA node has none.
-            let rebound = (!continuation && source != "msaa")
-                .then(|| {
-                    self.session(|session| {
-                        let record = session.refs.get_mut(reference)?;
-                        let rebound = self.desktop.accessibility()?.rebind(parse_window_id(&window), record)?;
-                        record.identity = rebound.identity();
-                        record.element = rebound.clone();
-                        Some(rebound)
-                    })
-                })
-                .flatten();
+            let rebound = if !continuation && source != "msaa" { self.rebind_ref(reference, &window) } else { None };
             match rebound {
                 Some(rebound) => element = rebound,
                 None => return Err(refuse(&element, Stale::Target)),
@@ -104,6 +92,21 @@ impl Host {
             return Err(format!("ref {reference} is disabled or off screen after an earlier step; take a fresh snapshot/find"));
         }
         Ok((element, window))
+    }
+
+    fn relabelled(&self, element: &Rc<dyn Element>, role: &str, name: &str) -> bool {
+        let checked = matches!(element.source(), "uia" | "msaa");
+        checked && (element.control_type() != role || (element.name() != name && !self.name_is_text(element)))
+    }
+
+    fn rebind_ref(&self, reference: &str, window: &str) -> Option<Rc<dyn Element>> {
+        self.session(|session| {
+            let record = session.refs.get_mut(reference)?;
+            let rebound = self.desktop.accessibility()?.rebind(parse_window_id(window), record)?;
+            record.identity = rebound.identity();
+            record.element = rebound.clone();
+            Some(rebound)
+        })
     }
 
     /// Whether a changed name is the text a native edit holds: a Win32 edit is
@@ -321,43 +324,7 @@ impl Host {
     /// One exact-window background step, with the window list around it so the
     /// host can see what the step opened or closed.
     pub(super) fn sequence_step(&self, req: &Req) -> Res<Obj> {
-        const ACTIONS: [&str; 15] = [
-            "invoke",
-            "set_value",
-            "click",
-            "right_click",
-            "middle_click",
-            "double_click",
-            "triple_click",
-            "mouse_down",
-            "mouse_up",
-            "mouse_move",
-            "drag",
-            "scroll",
-            "type",
-            "key",
-            "wait",
-        ];
-        let step = req.child("step");
-        if let Some(step) = &step {
-            if matches!(step.action().as_str(), "key_down" | "key_up") {
-                return Err("background_unsupported|a held key requires the real keyboard; use explicit foreground delivery".into());
-            }
-        }
-        let Some(step) = step.filter(|step| {
-            ACTIONS.contains(&step.action().as_str())
-                && step.text("delivery") == "background"
-                && req.text("delivery") == "background"
-                && step.has("window_id")
-                && !step.has("window")
-                && step.text("session_id") == req.text("session_id")
-                && !step.truthy("read_only")
-        }) else {
-            return Err("sequence_step_invalid: expected one exact-window background input".into());
-        };
-        if step.action() == "wait" && !step.f64("duration").is_some_and(|duration| (0.0..=5.0).contains(&duration)) {
-            return Err("sequence_step_invalid: wait requires 0..5 seconds".into());
-        }
+        let step = exact_window_step(req)?;
         self.authorize(&step, 0)?;
         // One no-activate hold per target window spans the sequence's steps and
         // the settles between them (sequence.ps1:30-52); the settle and the
@@ -368,48 +335,51 @@ impl Host {
         let continues = step.bool_true("input_continues");
         self.begin_sequence_hold(handle)?;
         let mut hold_ended = false;
-        let outcome = (|| -> Res<Obj> {
-            let started = now_ms();
-            let before = self.window_snapshot()?;
-            let before_ms = now_ms() - started;
-            // Handle rechecks the original request's authorization and all input
-            // guards. A dispatched step is never retried.
-            let result = self.handle(&step)?;
-            let delivered_at = now_ms() - started;
-            let delivery_ms = delivered_at - before_ms;
-            let settle_ms = self.cfg.sequence_settle_ms;
-            let credit_ms = if step.action() == "wait" { settle_ms.min(delivery_ms) } else { 0 };
-            let remaining_ms = settle_ms - credit_ms;
-            if remaining_ms > 0 {
-                sleep_ms(remaining_ms);
-            }
-            // The last step recovers the foreground before the windows are read back.
-            if !continues || result.get("delivery_accepted") == Some(&json!(false)) {
-                hold_ended = true;
-                self.end_sequence_hold(handle)?;
-            }
-            let settled_at = now_ms() - started;
-            let after = self.window_snapshot()?;
-            let finished_at = now_ms() - started;
-            Ok(obj! {
-                "step_result" => Value::Object(result),
-                "windows_before" => before.get("windows").cloned().unwrap_or(Value::Null),
-                "windows_after" => after.get("windows").cloned().unwrap_or(Value::Null),
-                "settle_delay_ms" => remaining_ms,
-                "timings_ms" => json!({
-                    "before_windows_ms": before_ms,
-                    "delivery_ms": delivery_ms,
-                    "settle_ms": settled_at - delivered_at,
-                    "settle_credit_ms": credit_ms,
-                    "after_windows_ms": finished_at - settled_at,
-                    "backend_ms": finished_at,
-                }),
-            })
-        })();
+        let outcome = self.timed_step(&step, continues, &mut hold_ended);
         // A step the host cannot read back stops its sequence, so its hold ends too.
         let ended = if !hold_ended && (!continues || outcome.is_err()) { self.end_sequence_hold(handle) } else { Ok(()) };
         ended?;
         outcome
+    }
+
+    fn timed_step(&self, step: &Req, continues: bool, hold_ended: &mut bool) -> Res<Obj> {
+        let handle = parse_window_id(&step.text("window_id"));
+        let started = now_ms();
+        let before = self.window_snapshot()?;
+        let before_ms = now_ms() - started;
+        // Handle rechecks the original request's authorization and all input
+        // guards. A dispatched step is never retried.
+        let result = self.handle(step)?;
+        let delivered_at = now_ms() - started;
+        let delivery_ms = delivered_at - before_ms;
+        let settle_ms = self.cfg.sequence_settle_ms;
+        let credit_ms = if step.action() == "wait" { settle_ms.min(delivery_ms) } else { 0 };
+        let remaining_ms = settle_ms - credit_ms;
+        if remaining_ms > 0 {
+            sleep_ms(remaining_ms);
+        }
+        // The last step recovers the foreground before the windows are read back.
+        if !continues || result.get("delivery_accepted") == Some(&json!(false)) {
+            *hold_ended = true;
+            self.end_sequence_hold(handle)?;
+        }
+        let settled_at = now_ms() - started;
+        let after = self.window_snapshot()?;
+        let finished_at = now_ms() - started;
+        Ok(obj! {
+            "step_result" => Value::Object(result),
+            "windows_before" => before.get("windows").cloned().unwrap_or(Value::Null),
+            "windows_after" => after.get("windows").cloned().unwrap_or(Value::Null),
+            "settle_delay_ms" => remaining_ms,
+            "timings_ms" => json!({
+                "before_windows_ms": before_ms,
+                "delivery_ms": delivery_ms,
+                "settle_ms": settled_at - delivered_at,
+                "settle_credit_ms": credit_ms,
+                "after_windows_ms": finished_at - settled_at,
+                "backend_ms": finished_at,
+            }),
+        })
     }
 
     /// Opens the sequence's hold on `handle` unless it already has one; a hold
@@ -482,4 +452,46 @@ impl Host {
         }
         Ok(obj! { "text" => "sequence holds released", "released" => released })
     }
+}
+
+/// The one exact-window background step a `sequence_step` request carries.
+fn exact_window_step(req: &Req) -> Res<Req> {
+    const ACTIONS: [&str; 15] = [
+        "invoke",
+        "set_value",
+        "click",
+        "right_click",
+        "middle_click",
+        "double_click",
+        "triple_click",
+        "mouse_down",
+        "mouse_up",
+        "mouse_move",
+        "drag",
+        "scroll",
+        "type",
+        "key",
+        "wait",
+    ];
+    let step = req.child("step");
+    if let Some(step) = &step {
+        if matches!(step.action().as_str(), "key_down" | "key_up") {
+            return Err("background_unsupported|a held key requires the real keyboard; use explicit foreground delivery".into());
+        }
+    }
+    let Some(step) = step.filter(|step| {
+        ACTIONS.contains(&step.action().as_str())
+            && step.text("delivery") == "background"
+            && req.text("delivery") == "background"
+            && step.has("window_id")
+            && !step.has("window")
+            && step.text("session_id") == req.text("session_id")
+            && !step.truthy("read_only")
+    }) else {
+        return Err("sequence_step_invalid: expected one exact-window background input".into());
+    };
+    if step.action() == "wait" && !step.f64("duration").is_some_and(|duration| (0.0..=5.0).contains(&duration)) {
+        return Err("sequence_step_invalid: wait requires 0..5 seconds".into());
+    }
+    Ok(step)
 }

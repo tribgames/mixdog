@@ -613,9 +613,7 @@ pub fn display_width(text: &str) -> usize {
 }
 
 /// A column width counts characters of the workbook's default size (the first cell style's face), so a cell set larger
-/// needs proportionally more of it. Bold type runs about a fifth wider: a 27 pt bold "47.0%" measured 12.3 characters by
-/// size alone, passed in a 14-character column, and printed ### (it fits from 14.7). autofit_range sizes a column by this
-/// measure and the fit audits check against it.
+/// needs proportionally more of it. Bold type runs about a fifth wider.
 const BOLD_WIDTH: f64 = 1.2;
 
 /// `cellWidthScale(style, baseSize, { isDefault })`.
@@ -768,6 +766,37 @@ pub fn formatted_number_width(value: Option<&Value>, format: &str) -> usize {
     if DATE_TOKENS.is_match(&QUOTED_TEXT.replace_all_with(section, |_| String::new())) {
         return date_width(section);
     }
+    let NumberSectionScan { literals, zero_places, decimals, grouped, percent, thousands, fraction } = scan_number_section(section, number);
+    let scaled = (math::abs(number) * math::pow(100.0, f64::from(percent))) / math::pow(1000.0, f64::from(thousands));
+    let rounded = string_to_number(&math::to_fixed(scaled, decimals.min(20)));
+    let digits = number_to_string(rounded.trunc()).len().max(zero_places).max(1);
+    let mut width = digits + display_width(&literals);
+    if grouped && digits > 3 {
+        width += (digits - 1) / 3;
+    }
+    if decimals > 0 {
+        width += decimals + 1;
+    }
+    if fraction {
+        width += 3;
+    }
+    if number < 0.0 && sections.len() < 2 {
+        width += 1;
+    }
+    width
+}
+
+struct NumberSectionScan {
+    literals: String,
+    zero_places: usize,
+    decimals: usize,
+    grouped: bool,
+    percent: i32,
+    thousands: i32,
+    fraction: bool,
+}
+
+fn scan_number_section(section: &str, number: f64) -> NumberSectionScan {
     let characters: Vec<char> = section.chars().collect();
     let find_from = |target: char, from: usize| characters.get(from..).and_then(|rest| rest.iter().position(|c| *c == target)).map(|at| from + at);
     let mut literals = String::new();
@@ -837,25 +866,7 @@ pub fn formatted_number_width(value: Option<&Value>, format: &str) -> usize {
         }
         index += 1;
     }
-    let scaled = (math::abs(number) * math::pow(100.0, f64::from(percent))) / math::pow(1000.0, f64::from(thousands));
-    let rounded = string_to_number(&math::to_fixed(scaled, decimals.min(20)));
-    let digits = number_to_string(rounded.trunc()).len().max(zero_places).max(1);
-    let mut width = digits + display_width(&literals);
-    if grouped && digits > 3 {
-        width += (digits - 1) / 3;
-    }
-    if decimals > 0 {
-        width += decimals + 1;
-    }
-    // A fraction format prints its numerator and denominator after the integer.
-    if fraction {
-        width += 3;
-    }
-    // Without a section of its own, a negative value carries the sign Excel adds.
-    if number < 0.0 && sections.len() < 2 {
-        width += 1;
-    }
-    width
+    NumberSectionScan { literals, zero_places, decimals, grouped, percent, thousands, fraction }
 }
 
 /// The `<col>` declarations of a worksheet, one per column, as their attribute text.

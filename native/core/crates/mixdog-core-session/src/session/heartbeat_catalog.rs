@@ -1,9 +1,7 @@
-//! The production [`SessionCatalog`] of Mixy's heartbeat: Node's `listSessionCatalog`
-//! (`session-action.mjs`), which lists the stored summaries newest activity first, agent-only
-//! records left out (`includeAgentOnly: false`), with the runtime's `working` / `agentWorking` and
-//! `awaitingApproval` laid over (`withRuntimeActivity`, `withApprovalWaits`: [`ListOverlay`]).
-//! The rows come from the store's one session listing (`SqliteStore::list_sessions`), the same
-//! the idle sweep reads.
+//! The production [`SessionCatalog`] of Mixy's heartbeat: the stored summaries newest activity
+//! first, agent-only records left out, with the runtime's `working` / `agentWorking` and
+//! `awaitingApproval` laid over ([`ListOverlay`]). The rows come from the store's one session
+//! listing (`SqliteStore::list_sessions`), the same the idle sweep reads.
 
 use std::sync::Arc;
 

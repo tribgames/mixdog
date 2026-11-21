@@ -1,13 +1,3 @@
-//! The session half of the routine host (`RoutineSessions`) before the session directory exists.
-//!
-//! `CoreRoutineSessions::new(directory, ..)` needs the built directory, while the routine host
-//! feeds `RoutineRuntime`, which the schedule runner (`HomeScheduleRunner`), the webhook dispatch
-//! and the `ChannelAdmin` hold, all of which the agent definitions' effects and the tool pool need:
-//! a true cycle through the directory. The cell is bound once, right after `TurnPath::new`, and
-//! the composition verifies it before the listener accepts. A routine fires from a timer or a
-//! delivery that only starts with the automation runtime, after the bind; unbound, every call
-//! refuses with `the session layer is not up yet`, as `LateAgentEvidence` does.
-
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;

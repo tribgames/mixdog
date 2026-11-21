@@ -590,7 +590,7 @@ async fn only_an_authoritative_unknown_status_retires_the_login_without_cancelli
     rig.client.on(|method, _| if method == "account/getOAuthProviderLoginStatus" { Reply::Rpc("gone") } else { Reply::Ok(json!({})) });
     assert_eq!(message(rig.logins.status("h1", "f1").await), "gone");
     settle().await;
-    assert_eq!((rig.closes(), rig.cancels()), (vec![], 0));
+    assert_eq!((rig.closes(), rig.cancels()), (vec![0], 0));
     rig.client.on(serving(CALLBACK));
     assert!(rig.logins.status("h1", "f1").await.unwrap().forwarded);
     rig.client.on(|_, _| Reply::Rpc("OAuth login flow is no longer available."));

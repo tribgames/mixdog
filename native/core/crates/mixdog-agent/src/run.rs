@@ -791,8 +791,6 @@ impl Run {
         if let Some(ticket) = self.config.first_request_after.take() {
             self.until_durable(ticket).await?;
         }
-        // Queued entries attach after tool results and before the
-        // continuation, not on arbitrary non-tool continuations.
         if self.tool_batch_just_completed {
             let priority = if self.last_batch_later { Priority::Later } else { Priority::Next };
             self.drain_steering(DrainStage::PreSend, priority).await?;
@@ -808,7 +806,6 @@ impl Run {
             for (content, initial, message, ticket) in std::mem::take(&mut self.pending_skill_prompts) {
                 let before = self.messages.len();
                 let applied = skills.select(&content, initial, &mut self.messages).await;
-                // The selection's records join the stored conversation (`session.messages = outgoing`).
                 let added: Vec<AgentMessage> = self.messages[before..].to_vec();
                 for added in &added {
                     self.env.sink.commit(added).await.map_err(AgentError::Commit)?;
@@ -821,8 +818,6 @@ impl Run {
                 }
                 self.throw_if_aborted()?;
             }
-            // Every turn, whatever its prompt source: a loaded skill that changed since it was loaded is announced
-            // once, after the history (`ask-turn-execute.mjs`, after `prepareExplicitSkills`).
             if !std::mem::replace(&mut self.skill_updates_checked, true) {
                 for notice in skills.update_notices(&self.messages).await {
                     self.messages.push(notice.clone());
@@ -833,7 +828,6 @@ impl Run {
         } else {
             self.pending_skill_prompts.clear();
         }
-        // Before the boundary: a reconsidered route's window and compaction sizing are the ones it checks.
         self.reconsider_route().await?;
         self.prepare_request_boundary().await?;
         self.apply_step_effort().await?;
@@ -859,9 +853,6 @@ impl Run {
     fn settle_send(&mut self, response: &ModelResponse) -> Result<(), AgentError> {
         self.context_overflow_retry_used = false;
         self.iterations += 1;
-        // `traceProviderSend` (`session/loop/diagnostics.mjs`), timed from the round that settled: Node runs each of its
-        // loop's replays as a new round, and the provider's own retries stay inside the send. The send began after the
-        // iteration applied the step effort: a wait for its judgment counts as pre-send time here, as send time in Node.
         if let Some(log) = &self.env.failures {
             let sent_at = self.send_started_ms;
             log.provider_send(crate::env::ProviderSend {
@@ -895,15 +886,12 @@ impl Run {
             self.record_baseline(&response.usage, input_excludes_cache);
             self.context.measure(&response.usage, input_excludes_cache);
         }
-        // A provider that returned despite an abort must not have its output
-        // processed.
         self.throw_if_aborted()?;
         let (reasoning_tokens, reasoning_tokens_complete) = reasoning_usage(&response.usage);
         let delta = UsageDelta {
             model: if response.model.is_empty() { self.model.clone() } else { response.model.clone() },
             requested_model: self.model.clone(),
             delta_tool_calls: response.tool_calls.len() as u64,
-            // The ledger's duration when the send was accounted; else the loop's own clock.
             request_ms: response.request_ms.unwrap_or_else(|| (self.env.clock.now_ms() - self.request_started_ms).max(0) as u64),
             delta_prompt: crate::boundary::prompt_tokens(&response.usage, input_excludes_cache),
             input_excludes_cache,

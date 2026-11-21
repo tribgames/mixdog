@@ -1,16 +1,6 @@
-//! Thinking replay is bound to the request prefix that produced it (Node
-//! `session/thinking-binding.mjs`, with `assistantMessageWithoutThinkingReplay` of
-//! `thinking-replay-recovery.mjs` and `collectAssistantToolCallIds` of `context-tool-pairs.mjs`).
-//!
-//! An Anthropic thinking block's signature records the conversation prefix it was generated under:
-//! the system prompt, the tool set and every earlier message. Where the runtime itself changes that
-//! prefix (a folded or migrated prompt, a tool-surface migration) the stored thinking can never be
-//! replayed again, so it is stripped once, at that boundary. One round is never stripped: a trailing
-//! tool round whose next request still continues it must go back starting with its thinking, so
-//! when the prefix changed under such a round the round is ended explicitly instead.
-//!
-//! Messages are the stored bodies (`Value`); every function replaces changed messages and never
-//! mutates, and reports whether anything changed.
+//! An Anthropic thinking block's signature binds it to the conversation prefix it was generated under, so where the
+//! runtime changes that prefix the stored thinking is stripped once. A trailing open tool round must replay starting
+//! with its thinking, so when the prefix changed under it the round is ended explicitly instead.
 
 use serde_json::{Value, json};
 
@@ -144,11 +134,6 @@ fn tool_round_closure() -> Value {
     json!({ "role": "assistant", "content": ".", "meta": { "source": "context-ack", "synthetic": true } })
 }
 
-/// `rebindToChangedPrefix`: the messages for a request prefix that changed under them — no thinking
-/// replay at all. An open tool round that carries thinking can neither keep it (bound to the old
-/// prefix) nor lose it (its continuation must start with it), so it is ended first by a runtime
-/// turn right after its last tool result, ahead of any later input; the next request then starts a
-/// new turn.
 pub fn rebind_to_changed_prefix(messages: &[Value]) -> (Vec<Value>, bool) {
     let (rows, changed, _) = rebind_to_changed_prefix_at(messages);
     (rows, changed)

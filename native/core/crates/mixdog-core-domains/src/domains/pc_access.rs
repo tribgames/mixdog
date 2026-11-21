@@ -1,6 +1,5 @@
 //! The `pcAccess` domain: "PC access" (the secure-desktop service as Computer Use setup on Windows
-//! grants it), read and approved through the core. It is `apps/desktop/src/main/pc-access.ts` in the core: each
-//! moment maps onto one installer operation.
+//! grants it), read and approved through the core.
 //!
 //! - `pcAccess/readiness` reads the install state, which paired phones' keys the service holds or lacks,
 //!   whether a phone's delegated enroll was refused in a way only elevation fixes (`needsEnroll`), and the
@@ -16,14 +15,11 @@
 //!   delivery runs; [`PcAccessService::revoke_owed`] drains every pending revoke through delegation. The remote
 //!   runtime's events reach them through [`PcAccessEvents`].
 //!
-//! The rule is `pc-access.ts`'s: a revocation is never lost, a pending one blocks every new enrollment, and only
-//! a phone paired now is ever enrolled. What the desktop kept in its own pending-revokes file is the remote
-//! roster's owed access here (`mixdog_remote::access::legacy_revokes` folds the old file in once), and the
-//! roster owes a removed phone's key in the same write as the removal, so the record the desktop made before an
-//! unpair (and its refusal when that failed) is the removal itself. The installer is reached through
-//! [`PcAccessInstaller`], the one instance the phone's screen control also uses, so its single in-flight latch
-//! covers both. Approve, the password path, a delivery, an unpair and a revoke run one at a time in one queue; an
-//! Approve made while another Approve runs joins it (one prompt, one answer for both).
+//! A revocation is never lost, a pending one blocks every new enrollment, and only a phone paired now is ever
+//! enrolled. The roster owes a removed phone's key in the same write as the removal. The installer is reached
+//! through [`PcAccessInstaller`], the one instance the phone's screen control also uses, so its single in-flight
+//! latch covers both. Approve, the password path, a delivery, an unpair and a revoke run one at a time in one
+//! queue; an Approve made while another Approve runs joins it (one prompt, one answer for both).
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -517,9 +513,7 @@ impl Inner {
     }
 
     /// The one authorized install-or-enroll, for Approve (UAC, no `credential`) and for a phone's Windows password
-    /// (`credential`, with the `phone` that sent it): the same state decisions and the same revocation rules, so the
-    /// credential path bypasses none of them. Every owed revoke (and any an unknown record lost) is applied in the
-    /// same call, and the owed record is settled only once that call succeeded. Runs inside the access queue.
+    /// (`credential`, with the `phone` that sent it), under the same revocation rules. Runs inside the access queue.
     async fn authorize(
         &self,
         credential: Option<&PcCredential>,
@@ -677,12 +671,10 @@ impl PcAccessService {
         joined.await
     }
 
-    /// The phone's fallback when nobody is at the PC: the same install-or-enroll as Approve, authorized by the
-    /// Windows password the phone typed (the batch logon, no UAC prompt). Refused (`failed`) unless the request's
-    /// client is a phone paired now that delivered exactly the request's key. One password request runs at a time,
-    /// from any phone: another is answered `busy`, not queued (a guess is never stored for later). The outcome is
-    /// the installer's (`bad-credentials`, `not-admin`, ... included) and its state is relative to the phone's key.
-    /// The credential is passed to the installer and kept nowhere.
+    /// The same install-or-enroll as Approve, authorized by the Windows password the phone typed. Refused (`failed`)
+    /// unless the request's client is a phone paired now that delivered exactly the request's key. One password
+    /// request runs at a time: another is answered `busy`, not queued. The outcome is the installer's and its state
+    /// is relative to the phone's key. The credential is passed to the installer and kept nowhere.
     pub async fn approve_with_credential(&self, request: CredentialRequest) -> Result<CredentialAnswer, String> {
         let inner = &self.inner;
         let CredentialRequest { client_id, public_key, credential, cancelled } = request;
@@ -714,10 +706,8 @@ impl PcAccessService {
         self.inner.serial(self.inner.deliver(public_key)).await
     }
 
-    /// Settings -> Connection's Remove, as one queued transaction: `unpair` runs (the roster owes the removed
-    /// phone's key in the same write as the removal, and a removal that could not be recorded is refused by it),
-    /// its answer returns, and, still in the queue, the revoke is tried before any delivery runs. A failed `unpair`
-    /// keeps what the roster owes.
+    /// A pairing removal as one queued transaction: `unpair` runs, its answer returns, and, still in the queue, the
+    /// revoke is tried before any delivery runs. A failed `unpair` keeps what the roster owes.
     pub async fn unpair<T, E>(&self, unpair: impl Future<Output = Result<T, E>> + Send) -> Result<T, E> {
         let step = self.inner.queue.clone().acquire_owned().await.expect("the private PC access gate is never closed");
         let result = unpair.await;

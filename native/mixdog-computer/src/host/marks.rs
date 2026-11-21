@@ -1,8 +1,3 @@
-//! The element and to_element aliases a capture's marks hand out, resolved to
-//! refs (resolveElementAliases, session/element-aliases.ts:120-152). The
-//! session's marks name semantic refs only; an `ocr:<frame>:<mark>` ref names
-//! a frame point the core resolves, and passes through untouched.
-
 use super::{Host, Res};
 use crate::protocol::Req;
 use serde_json::{Value, json};

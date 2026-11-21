@@ -1,15 +1,14 @@
-//! The dedicated preview frame for remote HTML page previews (`lib/relay-preview-frame.mjs`, `GET /preview-frame`).
+//! The dedicated preview frame for remote HTML page previews (`GET /preview-frame`).
 //!
 //! The app embeds it as `<iframe sandbox="allow-scripts allow-forms allow-modals" referrerpolicy="no-referrer">` and posts one
-//! HTML document into it. The response CSP repeats that sandbox (never `allow-same-origin`, top navigation or popups): the
-//! page runs in an opaque origin and cannot reach the app's storage, pairing token or relay socket.
+//! HTML document into it. The response CSP repeats that sandbox (never `allow-same-origin`, top navigation or popups): the page
+//! runs in an opaque origin and cannot reach the app's storage, pairing token or relay socket.
 //!
-//! Outside network is on, over https only, like a visualize page on the desktop. The relay's own origin is covered by
-//! `https:` (a CSP cannot exclude it) and is unreachable WITH credentials, which is what matters: the relay's cookies are
-//! `SameSite=Lax` and a request from an opaque origin is cross-site, so none is attached; as defence in depth the relay
-//! ignores cookie credentials on any cross-site request that is not a top-level navigation and on any `Origin: null`
-//! request (`web::headers::cookie_credential_allowed`); the other credentials live in the app's storage, which the opaque
-//! frame cannot read; and relay responses carry `Cross-Origin-Resource-Policy: same-origin` and no CORS grant. The page is
+//! Outside network is on, over https only. The relay's own origin is covered by `https:` (a CSP cannot exclude it) and is
+//! unreachable WITH credentials: the relay's cookies are `SameSite=Lax` and a request from an opaque origin is cross-site, so none
+//! is attached; the relay ignores cookie credentials on any cross-site request that is not a top-level navigation and on any
+//! `Origin: null` request (`web::headers::cookie_credential_allowed`); the other credentials live in the app's storage, which the
+//! opaque frame cannot read; and relay responses carry `Cross-Origin-Resource-Policy: same-origin` and no CORS grant. The page is
 //! static and public: no cookie is read or set, and nothing in it is user data.
 
 use crate::http1::{HeaderError, ResponseWriter};

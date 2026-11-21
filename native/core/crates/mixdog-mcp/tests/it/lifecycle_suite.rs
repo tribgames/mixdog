@@ -33,7 +33,9 @@ use mixdog_protocol::ProcessHandle;
 use serde_json::Value;
 use serde_json::json;
 
-const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
+fn mock_bin() -> String {
+    mixdog_testkit::bin_exe!("mixdog-mcp-mock-server")
+}
 
 /// The handlers here are `mcp_tool`s: no process is ever started.
 struct NoProcesses;
@@ -42,6 +44,9 @@ struct NoProcesses;
 impl ProcessManager for NoProcesses {
     async fn spawn(&self, _: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
         Err(ProcessError::UnknownHandle)
+    }
+    fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+        self.subscribe(handle, from_seq)
     }
     fn subscribe(&self, _: &ProcessHandle, _: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
         Err(ProcessError::UnknownHandle)
@@ -85,7 +90,7 @@ async fn wired(dir: &Path, event: &str, matcher: Option<&str>, outputs: &[Value]
     }
     std::fs::write(dir.join("hooks.json"), json!({"hooks": {event: [group]}}).to_string()).unwrap();
     let hub = McpHub::new(io, dir.join("artifacts"), OutputPolicy::default());
-    let entry = json!({"command": MOCK, "env": {"MOCK_FIXTURES": Value::Array(outputs.to_vec()).to_string()}});
+    let entry = json!({"command": mock_bin(), "env": {"MOCK_FIXTURES": Value::Array(outputs.to_vec()).to_string()}});
     hub.apply(vec![McpServerConfig::from_entry("mock", &entry, &std::env::vars().collect()).unwrap()]);
     hub.server("mock").unwrap().connect().await.unwrap();
     let bus = HookBus::new(dir.to_path_buf(), tokens.maintenance_io, Arc::new(NoProcesses), Some(Arc::clone(&hub)), None, None);

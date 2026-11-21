@@ -1,19 +1,3 @@
-//! The `author` action of the office engine: a document written from a source the model sends, landed over its target once
-//! the checks hold, opened as a session and read back for review (`authoring/pptx-author-action.mjs`,
-//! `pdf-author-action.mjs`, `html-document-author.mjs`, `pptx-author-session.mjs`).
-//!
-//! - [`pptx`]: a `.pptx` target. The source is HTML (it opens with markup) or a pptxgenjs script; with neither, the deck is
-//!   authored again from `<deck>.pptx.mixdog-source.html`. The deck is staged beside the target, the geometry, facts and plan
-//!   gates read it, and only then does it land (a reusable hidden PowerPoint session swaps its document in place).
-//! - [`pdf`]: a `.pdf` target from an HTML document printed by the shared browser; designed pages (one `section.slide` per
-//!   sheet) go through the deck's frame first.
-//! - [`html_document`]: a `.docx` or `.xlsx` target from an HTML document.
-//! - [`pptx_session`]: the staging folder, the landing, the swap and the release of the session that held the target.
-//!
-//! What touches the machine (the files, the sessions, the browser runners, the audit, the render) is an [`AuthorHost`];
-//! [`SystemAuthor`] is the one a process uses and a test supplies its own. The futures are driven by the caller and are not
-//! required to be `Send`, as the render engine's are not.
-
 pub mod html_document;
 pub mod pdf;
 pub mod pptx;

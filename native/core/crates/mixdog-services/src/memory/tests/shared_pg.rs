@@ -1,17 +1,5 @@
-//! One Postgres cluster for every test of a run that only needs a database, shared across the test processes (nextest runs
-//! each test in its own process, so a cluster per process would be a cluster per test: `initdb` and a postmaster, about four
-//! seconds and a dozen processes each).
-//!
-//! The first test that needs it starts a detached supervisor (this test binary, re-run on [`supervisor_entry`]) under
-//! `start.lock`; the supervisor makes the cluster and a template database holding what `Db::open` makes of a new cluster (the
-//! extension and the schemas), and answers by writing `ready`. Every process that uses the cluster holds a lease: a file
-//! of `leases/` it keeps locked for as long as it lives (the OS drops the lock when the process dies, however it dies). The
-//! supervisor stops the postmaster and removes the cluster when no lease has been held for [`IDLE`]; it holds `supervisor.lock`
-//! for its life, so a start that finds it free knows no supervisor is alive. A test gets its own database
-//! (`CREATE DATABASE .. TEMPLATE ..`, dropped at its end), so tests are isolated and run in parallel.
-//!
-//! What the cluster is for: tests that need a database. A test of a cluster's start, of its recovery or of its files
-//! (`TestPg::start_own`) has a cluster of its own.
+//! One Postgres cluster shared across test processes: nextest runs each test in its own process, so a cluster per process
+//! would cost an `initdb` and a postmaster per test.
 
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io::Write;

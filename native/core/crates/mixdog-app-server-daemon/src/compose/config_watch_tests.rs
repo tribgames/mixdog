@@ -1,7 +1,3 @@
-//! The config file's external-edit watch lives as long as the composed core (`Real::config_watch`, Node's `ensureConfigWatcher`).
-//! It was once a local of the composition, dropped when `real_core` returned: an edit another process (or a hand edit) made to
-//! `mixdog-config.json` then never reached the core's document, and the next settings write put the old document back. The
-//! write half (a write starts from the file, `readAllForRmW`) is `mixdog-core-config`'s `a_write_keeps_an_external_edit_not_yet_reloaded`.
 #![allow(clippy::disallowed_methods, reason = "test setup: reads and hand-edits the config file on the test thread")]
 use super::*;
 use std::time::Duration;
@@ -17,22 +13,13 @@ async fn a_hand_edit_of_the_config_file_reaches_the_composed_core() {
         Duration::from_secs(60),
         compose(
             &tokens,
-            ComposeConfig {
-                rebuild: Default::default(),
-                data_dir: data.clone(),
-                user_data_dir: dir.path().join("userdata"),
-                runtime_root: dir.path().join("runtime"),
-                js_runtime: crate::js_runtime::fixture(dir.path()),
-                ort_library: OrtRuntime::NoBinding,
-                outgoing: mixdog_app_server::Outgoing::new(),
-                ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
-                log: crate::daemon_log::DaemonLog::new(data.join("daemon.log"), tokens.maintenance_io, stop.clone()),
+            tests::config_without_postgres(
+                &data,
+                dir.path(),
+                crate::daemon_log::DaemonLog::new(data.join("daemon.log"), tokens.maintenance_io, stop.clone()),
                 stop,
-                catalog_http: crate::compose_test_support::offline_http(),
-                pg_install: Some(Arc::new(|_| {
-                    Box::pin(async { Err(mixdog_services::memory::error::MemoryError::Runtime("the config watch test must not install PostgreSQL".into())) })
-                })),
-            },
+                "the config watch test must not install PostgreSQL",
+            ),
         ),
     )
     .await

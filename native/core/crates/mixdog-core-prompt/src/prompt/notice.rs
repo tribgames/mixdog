@@ -1,12 +1,12 @@
-//! The prompt-settings notice (`session/manager/prompt-settings.mjs`): a conversation that meets other
+//! The prompt-settings notice: a conversation that meets other
 //! prompt-shaping settings than its prompt presents keeps its cached prefix, is told once by a
 //! `<system-reminder>` and folds the settings in at the next cold point.
 //!
 //! * [`stage_prompt_settings_notice`] compares a conversation's header with the sections as they stand
-//!   now (`stagePromptSettingsNotice`) and stages the notice in `promptSettingsNotice`.
+//!   now and stages the notice in `promptSettingsNotice`.
 //! * [`snapshot_pending`] / [`acknowledge_pending`] are what the turn that carries the notice reads and what it
 //!   writes once the provider accepted the turn.
-//! * [`note_presented`] is what a rebuilt prompt records (`notePromptSettingsPresented`).
+//! * [`note_presented`] is what a rebuilt prompt records.
 //!
 //! The sections are the ones the prompt composition renders ([`OwnedSections`], built by
 //! `compose_session_prompt` from the same texts that make the prompt's own record).
@@ -463,39 +463,12 @@ fn notice_items(keys: &[String], sections: &OwnedSections, told: &Map<String, Va
             continue;
         }
         match key {
-            "meta" => {
-                let style = output_style_of(&sections.meta);
-                for part in meta_sections(told_text(told, "meta"), sections) {
-                    if part.starts_with("# Output Style") {
-                        let compact = style
-                            .as_ref()
-                            .map(|(name, _)| format!("# Output Style\nThe output style is now \"{name}\"; {LATER}"))
-                            .unwrap_or_else(|| part.clone());
-                        add(&mut items, key, part, Some(compact), None);
-                    } else {
-                        let lines = part.split('\n').count() - 1;
-                        add(&mut items, key, part, Some(format!("# Profile\n{lines} profile preference lines changed; {LATER}")), None);
-                    }
-                }
-            }
+            "meta" => add_meta_items(&mut items, sections, told),
             "workflow" => {
                 let name = sections.workflow_name.as_deref().filter(|name| !name.is_empty()).map_or_else(|| "active".to_owned(), |name| format!("\"{name}\""));
                 add(&mut items, key, format!("# Workflow\nThe {name} workflow pack changed; {LATER}"), None, None);
             }
-            "orchestration" => {
-                // The text of the active mode was edited. A switch to another mode is the mode-switch notice's, and a
-                // record that predates the text has nothing to diff.
-                let mode = sections.orchestration_mode.as_str();
-                if !told.contains_key("orchestration") || mode.is_empty() || told_text(told, "orchestrationMode") != mode {
-                    continue;
-                }
-                let diff = line_diff(told_text(told, "orchestration"), &sections.orchestration, DIFF_MAX_BYTES);
-                if diff.is_empty() {
-                    continue;
-                }
-                let head = format!("# Orchestration Mode\nThe {} orchestration mode instructions were edited", mode_name(mode));
-                add(&mut items, key, format!("{head}:\n{diff}"), Some(format!("{head}; {LATER}")), None);
-            }
+            "orchestration" => add_orchestration_item(&mut items, sections, told),
             "skills" => {
                 let full = skills_section(told, sections);
                 let was = told_skills(told);
@@ -516,25 +489,52 @@ fn notice_items(keys: &[String], sections: &OwnedSections, told: &Map<String, Va
                     items.push(instruction_files_item(full, told, sections));
                 }
             }
-            "coreMemory" => {
-                if sections.core_memory.is_empty() {
-                    add(&mut items, key, "# Core Memory\nNo core memory is currently supplied.".to_owned(), None, None);
-                    continue;
-                }
-                let later = format!("# Core Memory\nCore memory was updated; {LATER}");
-                let diff = if told.contains_key("coreMemory") {
-                    line_diff(told_text(told, "coreMemory"), &sections.core_memory, DIFF_MAX_BYTES)
-                } else {
-                    String::new()
-                };
-                let full = if diff.is_empty() { later.clone() } else { format!("# Core Memory\nCore memory was updated:\n{diff}") };
-                add(&mut items, key, full, Some(later), None);
-            }
+            "coreMemory" => add_core_memory_item(&mut items, sections, told),
             "language" => add(&mut items, key, language_section(sections), None, None),
             _ => {}
         }
     }
     items
+}
+
+fn add_meta_items(items: &mut Vec<Item>, sections: &OwnedSections, told: &Map<String, Value>) {
+    let style = output_style_of(&sections.meta);
+    for part in meta_sections(told_text(told, "meta"), sections) {
+        if part.starts_with("# Output Style") {
+            let compact =
+                style.as_ref().map(|(name, _)| format!("# Output Style\nThe output style is now \"{name}\"; {LATER}")).unwrap_or_else(|| part.clone());
+            add(items, "meta", part, Some(compact), None);
+        } else {
+            let lines = part.split('\n').count() - 1;
+            add(items, "meta", part, Some(format!("# Profile\n{lines} profile preference lines changed; {LATER}")), None);
+        }
+    }
+}
+
+/// The text of the active mode was edited. A switch to another mode is the mode-switch notice's, and a
+/// record that predates the text has nothing to diff.
+fn add_orchestration_item(items: &mut Vec<Item>, sections: &OwnedSections, told: &Map<String, Value>) {
+    let mode = sections.orchestration_mode.as_str();
+    if !told.contains_key("orchestration") || mode.is_empty() || told_text(told, "orchestrationMode") != mode {
+        return;
+    }
+    let diff = line_diff(told_text(told, "orchestration"), &sections.orchestration, DIFF_MAX_BYTES);
+    if diff.is_empty() {
+        return;
+    }
+    let head = format!("# Orchestration Mode\nThe {} orchestration mode instructions were edited", mode_name(mode));
+    add(items, "orchestration", format!("{head}:\n{diff}"), Some(format!("{head}; {LATER}")), None);
+}
+
+fn add_core_memory_item(items: &mut Vec<Item>, sections: &OwnedSections, told: &Map<String, Value>) {
+    if sections.core_memory.is_empty() {
+        add(items, "coreMemory", "# Core Memory\nNo core memory is currently supplied.".to_owned(), None, None);
+        return;
+    }
+    let later = format!("# Core Memory\nCore memory was updated; {LATER}");
+    let diff = if told.contains_key("coreMemory") { line_diff(told_text(told, "coreMemory"), &sections.core_memory, DIFF_MAX_BYTES) } else { String::new() };
+    let full = if diff.is_empty() { later.clone() } else { format!("# Core Memory\nCore memory was updated:\n{diff}") };
+    add(items, "coreMemory", full, Some(later), None);
 }
 
 struct Built {
@@ -543,16 +543,14 @@ struct Built {
     partial: Map<String, Value>,
 }
 
-/// `buildPromptSettingsNotice(keys, sections, told, { compact })`: one `#` section per changed item of `keys`, diffed
-/// against `told`. Every item first takes its minimal form, smallest first; the budget left upgrades items to their
-/// compact form and then their full text, smallest first. An item that does not fit even minimal is left out, named by
-/// the overflow line and not acknowledged.
-fn build_notice(keys: &[String], sections: &OwnedSections, told: &Map<String, Value>, compact_only: bool) -> Built {
-    let items = notice_items(keys, sections, told);
-    if items.is_empty() {
-        return Built { content: String::new(), emitted: Vec::new(), partial: Map::new() };
-    }
-    let cost = |text: &str| text.len() as i64 + 2;
+fn cost(text: &str) -> i64 {
+    text.len() as i64 + 2
+}
+
+/// Which form each item that fits the notice budget takes, in the order chosen. Every item first takes its minimal
+/// form, smallest first; the budget left upgrades items to their compact form and then their full text, smallest first.
+/// An item that does not fit even minimal is left out.
+fn pack_items(items: &[Item], compact_only: bool) -> Vec<(usize, Tier)> {
     let reserve = cost("99 more changes; see the setup tool.");
     let max = NOTICE_MAX_BYTES as i64;
     let mut used = (NOTICE_OPEN.len() + NOTICE_CLOSE.len()) as i64;
@@ -580,6 +578,17 @@ fn build_notice(keys: &[String], sections: &OwnedSections, told: &Map<String, Va
             used += extra;
         }
     }
+    chosen
+}
+
+/// One `#` section per changed item of `keys`, diffed against `told`, packed by [`pack_items`]. The overflow line
+/// names what did not fit; those items are not acknowledged.
+fn build_notice(keys: &[String], sections: &OwnedSections, told: &Map<String, Value>, compact_only: bool) -> Built {
+    let items = notice_items(keys, sections, told);
+    if items.is_empty() {
+        return Built { content: String::new(), emitted: Vec::new(), partial: Map::new() };
+    }
+    let chosen = pack_items(&items, compact_only);
     let left = items.len() - chosen.len();
     let mut parts: Vec<String> = Vec::new();
     for (index, item) in items.iter().enumerate() {
@@ -611,7 +620,7 @@ fn build_notice(keys: &[String], sections: &OwnedSections, told: &Map<String, Va
     Built { content, emitted, partial }
 }
 
-/// `promptSettingsNoticeContent(keys, sections, told)`: the notice text alone.
+/// The notice text alone.
 pub fn notice_content(keys: &[String], sections: &OwnedSections, told: &Map<String, Value>) -> String {
     build_notice(keys, sections, told, false).content
 }
@@ -646,7 +655,7 @@ fn crate_truthy(value: &Value) -> bool {
     }
 }
 
-/// `stagePromptSettingsNotice(session, sections)`: compare a conversation's settings with `sections` as they stand now.
+/// Compare a conversation's settings with `sections` as they stand now.
 /// Returns the keys that differ from the prompt (a later fold presents them), staging one notice for what differs from
 /// what the model was last told: a setting moved back to the prompt's value is told too.
 pub fn stage_prompt_settings_notice(session: &mut Header, sections: &OwnedSections, now_ms: i64) -> Vec<String> {
@@ -655,19 +664,7 @@ pub fn stage_prompt_settings_notice(session: &mut Header, sections: &OwnedSectio
     let compact = session.get("promptSettingsRecheck").and_then(Value::as_str) == Some("compact");
     session.shift_remove("promptSettingsRecheck");
     let next = sections.record();
-    // A prompt from before settings were recorded: what it presents is unknown.
-    if !session.get("promptSettings").is_some_and(|presented| presented.get("hashes").is_some_and(Value::is_object)) {
-        session.insert("promptSettings".into(), next);
-        return Vec::new();
-    }
-    // Sections a record predates are adopted as presented.
-    let mut presented = session["promptSettings"].clone();
-    for key in SECTIONS {
-        if presented["hashes"].get(key).is_none() {
-            presented["hashes"][key] = next["hashes"][key].clone();
-        }
-    }
-    session.insert("promptSettings".into(), presented.clone());
+    let Some(presented) = adopt_presented(session, &next) else { return Vec::new() };
     let changed = changed_keys(&presented, &next);
     let told = told_record(session, &presented);
     let fresh = changed_keys(&told, &next);
@@ -692,16 +689,37 @@ pub fn stage_prompt_settings_notice(session: &mut Header, sections: &OwnedSectio
     {
         return changed;
     }
-    // One notice per change: an unsent one is replaced by what is current.
+    store_notice(session, built, next, fresh, now_ms);
+    changed
+}
+
+/// The settings the prompt presents, as recorded on `session`: sections a record predates are adopted from `next`.
+/// `None` for a prompt from before settings were recorded, whose presented settings are unknown: `next` is recorded.
+fn adopt_presented(session: &mut Header, next: &Value) -> Option<Value> {
+    if !session.get("promptSettings").is_some_and(|presented| presented.get("hashes").is_some_and(Value::is_object)) {
+        session.insert("promptSettings".into(), next.clone());
+        return None;
+    }
+    let mut presented = session["promptSettings"].clone();
+    for key in SECTIONS {
+        if presented["hashes"].get(key).is_none() {
+            presented["hashes"][key] = next["hashes"][key].clone();
+        }
+    }
+    session.insert("promptSettings".into(), presented.clone());
+    Some(presented)
+}
+
+/// One notice per change: an unsent one is replaced by what is current, under the next revision.
+fn store_notice(session: &mut Header, built: Built, record: Value, fresh: Vec<String>, now_ms: i64) {
     let previous = mixdog_js::to_number_of(session.get("promptSettingsNoticeRevision"));
     let revision = (if previous.is_nan() { 0.0 } else { previous }) + 1.0;
     session.insert("promptSettingsNoticeRevision".into(), mixdog_js::json_number(revision));
     session.insert(
         "promptSettingsNotice".into(),
-        json!({ "revision": mixdog_js::json_number(revision), "record": next, "content": built.content, "emitted": built.emitted, "partial": built.partial, "fresh": fresh }),
+        json!({ "revision": mixdog_js::json_number(revision), "record": record, "content": built.content, "emitted": built.emitted, "partial": built.partial, "fresh": fresh }),
     );
     session.insert("updatedAt".into(), json!(now_ms));
-    changed
 }
 
 // What the model knows after a notice reached it: the record's sections it carried, the earlier told state for the rest.
@@ -753,14 +771,14 @@ fn told_after(session: &Header, notice: &Value) -> Value {
     json!({ "revision": revision_of(&hashes), "hashes": hashes, "texts": texts })
 }
 
-/// `snapshotPendingPromptSettingsNotice(session)`: the notice the next user turn carries, `(revision, content)`.
+/// The notice the next user turn carries, `(revision, content)`.
 pub fn snapshot_pending(session: &Header) -> Option<(i64, String)> {
     let pending = session.get("promptSettingsNotice")?;
     let content = pending.get("content").and_then(Value::as_str).filter(|content| !content.is_empty())?;
     Some((pending.get("revision").and_then(Value::as_i64)?, content.to_owned()))
 }
 
-/// `acknowledgePendingPromptSettingsNotice(session, revision)`: the notice of `revision` reached the model.
+/// The notice of `revision` reached the model.
 pub fn acknowledge_pending(session: &mut Header, revision: i64) -> bool {
     let Some(pending) = session.get("promptSettingsNotice").cloned() else { return false };
     if pending.get("revision").and_then(Value::as_i64) != Some(revision) {
@@ -789,11 +807,10 @@ pub fn acknowledge_change(header: &Header, revision: i64) -> Option<HeaderChange
     Some(HeaderChange { set, unset })
 }
 
-/// The user message that carries the turn's reminder block (`buildUserTurn`, `ask-turn-prepare.mjs:205-246`):
-/// `withRuntimeUserContext(message, { suffix: suffixUserTurnReminders('', block) })` over the meta the reminders
-/// leave on the message (`agentListing`: what the agent list reminder told; `promptSettingsNoticeRevision`: the
-/// settings notice it carried, so a retry resubmits the message as it is). A turn with no reminder keeps its
-/// message. `None` for content that is neither text nor blocks.
+/// The user message that carries the turn's reminder block as a suffix, with the meta the reminders leave on the
+/// message (`agentListing`: what the agent list reminder told; `promptSettingsNoticeRevision`: the settings notice it
+/// carried, so a retry resubmits the message as it is). A turn with no reminder keeps its message. `None` for
+/// content that is neither text nor blocks.
 pub fn carry_reminders(message: &Value, block: &str, agent_listing: Option<&Value>, settings_revision: Option<i64>) -> Option<Value> {
     if block.is_empty() {
         return Some(message.clone());
@@ -817,7 +834,7 @@ pub fn carry_reminders(message: &Value, block: &str, agent_listing: Option<&Valu
     Some(carried)
 }
 
-/// `notePromptSettingsPresented(session, sections)`: the prompt now presents `sections`; nothing is pending any more.
+/// The prompt now presents `sections`; nothing is pending any more.
 pub fn note_presented(session: &mut Header, sections: &OwnedSections) {
     session.insert("responseLanguage".into(), sections.response_language.clone());
     session.insert("promptSettings".into(), sections.record());

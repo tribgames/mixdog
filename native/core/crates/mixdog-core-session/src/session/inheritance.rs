@@ -1,7 +1,6 @@
-//! `thread/inheritancePreflight` (`inheritancePreflight` of `session-runtime/lifecycle/
-//! inheritance.mjs`): the read-only verdict of whether another session's conversation fits the
-//! heir this session would open, on the route it would open with. The fit math runs on the
-//! target route's compaction policy, which the host owns ([`InheritanceFit`]).
+//! `thread/inheritancePreflight`: the read-only verdict of whether another session's conversation
+//! fits the heir this session would open, on the route it would open with. The fit math runs on
+//! the target route's compaction policy, which the host owns ([`InheritanceFit`]).
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::params::ThreadInheritancePreflightParams;
@@ -85,6 +84,72 @@ pub trait InheritanceFit: Send + Sync {
     async fn bind_to_heir_prefix(&self, source: &ThreadId, heir: &ThreadId, system_differs: bool, rows: Vec<Value>) -> Vec<Value>;
 }
 
+struct CopyMark<'a> {
+    handle: &'a SessionHandle,
+    heir: &'a ThreadId,
+}
+
+impl<'a> CopyMark<'a> {
+    async fn stored_before_any_row(
+        handle: &'a SessionHandle,
+        heir: &'a ThreadId,
+        source_fields: &Map<String, Value>,
+        source: &ThreadId,
+    ) -> Result<Self, CoreError> {
+        let (marking, unset) = carry_mark(&handle.cell.header.load_full(), source_fields, source);
+        let mark = Self { handle, heir };
+        mark.patch(marking, unset, "inheritance").await?;
+        Ok(mark)
+    }
+
+    async fn withdraw(&self) {
+        for _ in 0..UNMARK_TRIES {
+            if self.patch(Map::new(), vec![offload_sources::INHERITING, offload_sources::INHERITING_BOOT], "inheritance-unmark").await.is_ok() {
+                break;
+            }
+        }
+    }
+
+    async fn patch(&self, set: Map<String, Value>, unset: Vec<&str>, caller: &'static str) -> Result<Reply, CoreError> {
+        let ctx = CallContext::internal(caller);
+        self.handle
+            .request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": self.heir, "set": set, "unset": unset }), op: None, ctx })
+            .await
+    }
+}
+
+fn carry_mark(before: &Map<String, Value>, source_fields: &Map<String, Value>, source: &ThreadId) -> (Map<String, Value>, Vec<&'static str>) {
+    let mut sources: std::collections::BTreeSet<String> = offload_sources::sources(before).into_iter().collect();
+    sources.extend(offload_sources::sources(source_fields));
+    sources.insert(offload_sources::safe_segment(source.as_str()));
+    let mut marking = Map::new();
+    marking.insert(offload_sources::INHERITING.into(), json!(source.as_str()));
+    marking.insert(offload_sources::INHERITING_BOOT.into(), json!(offload_sources::boot()));
+    let mut unset = Vec::new();
+    if offload_sources::holds_set(source_fields) {
+        offload_sources::set_sources(&mut marking, sources.into_iter().collect());
+    } else {
+        marking.insert(offload_sources::SOURCES.into(), json!(sources));
+        unset.push(offload_sources::SOURCES_RULES);
+    }
+    (marking, unset)
+}
+
+fn system_rows(rows: &[Value]) -> Vec<Value> {
+    rows.iter().filter(|row| row.get("role").and_then(Value::as_str) == Some("system")).cloned().collect()
+}
+
+fn attach_boundary(carried: &mut [Value], boundary: Value) {
+    if let Some(Value::Object(last)) = carried.last_mut() {
+        let meta = last.entry("meta").or_insert_with(|| json!({}));
+        if !meta.is_object() {
+            *meta = json!({});
+        }
+        let earlier = meta.get("sessionInheritances").and_then(Value::as_array).cloned().unwrap_or_default();
+        meta["sessionInheritances"] = Value::Array(earlier.into_iter().chain([boundary]).collect());
+    }
+}
+
 fn clean(value: Option<&Value>) -> String {
     value.and_then(Value::as_str).map(|text| mixdog_js::js_trim(text).to_owned()).unwrap_or_default()
 }
@@ -139,11 +204,6 @@ impl SessionDirectory {
         }
     }
 
-    /// `inheritFrom` into a session that already exists (`inheritance.mjs`): the heir keeps its own record and route and
-    /// takes the source's conversation after what it holds (`target.messages.push(...)`), which must be none - "interleaving
-    /// two transcripts would produce a conversation neither model ever had". The checks run in Node's order: the heir is
-    /// not the source, it holds no conversation, the source has one to carry. The heir has no lineage of its own to
-    /// share with the source's, so the messages are appended to it as rows of no turn, as an import's are.
     pub(super) async fn carry_into(&self, source_handle: &SessionHandle, heir: &ThreadId, snapshot: &ForkSource, mode: CarryMode) -> Result<Reply, CoreError> {
         let source = &source_handle.id;
         let refused = |message: &str| mixdog_core_base::support::failed("inheritance", message);
@@ -152,64 +212,16 @@ impl SessionDirectory {
         }
         let ctx = CallContext::internal("inheritance");
         let handle = self.open_handle(heir, &ctx).await?;
-        // `hasUserConversationMessage(target.messages) || hasUserConversationMessage(target.liveTurnMessages)`.
         let live = (**handle.cell.turn_messages.borrow()).clone();
         if super::route_session::has_user_conversation(&self.rows_of(heir.as_str()).await?) || super::route_session::has_user_conversation(&live) {
             return Err(refused("inheritFrom: this session already holds a conversation"));
         }
-        // The heir holds the source's text: the source's sensitive values, now and later, are the heir's to redact.
         self.deps().sensitive.carry(source, heir);
-        // The heir's rows will name the source's sidecars (and those the source's set names): its reference set is
-        // stored before anything is copied, with the mark of a copy this boot is making, so no prune of a session the
-        // copy names runs while rows of it may exist that a prune cannot read. In order, on disk at each point:
-        // 1. before the marking: the heir as it was (a failed marking returns; one whose records reached the log is
-        //    point 2).
-        // 2. set and mark stored, no row: a carry that stops before the append (a refusal, a failed read or fit) is
-        //    known to have stored none: the mark is taken off, the set stays (a superset is always safe).
-        // 3. the append attempted: its rows may be in the log even when it failed (a batch whose sync failed), unread
-        //    by any prune until the heir's log is read again; the set and the mark stay. The mark names this boot: once
-        //    the process stops (one process owns the data dir), the next one ignores it and reads whatever rows the
-        //    log holds, under the set.
-        // 4. the header patched (source link, mark off): complete. A failed patch is point 3.
-        // The set is never taken back.
-        let before = handle.cell.header.load_full();
-        let source_fields = &snapshot.header;
-        let mut sources: std::collections::BTreeSet<String> = offload_sources::sources(&before).into_iter().collect();
-        sources.extend(offload_sources::sources(source_fields));
-        sources.insert(offload_sources::safe_segment(source.as_str()));
-        let mut marking = Map::new();
-        marking.insert(offload_sources::INHERITING.into(), json!(source.as_str()));
-        marking.insert(offload_sources::INHERITING_BOOT.into(), json!(offload_sources::boot()));
-        // The heir's rows name what the source's name: its set is known when the source's is (under the present
-        // rules); else it is stored unknown, and read once the copy is stored.
-        let mut unset = Vec::new();
-        if offload_sources::holds_set(source_fields) {
-            offload_sources::set_sources(&mut marking, sources.into_iter().collect());
-        } else {
-            marking.insert(offload_sources::SOURCES.into(), json!(sources));
-            unset.push(offload_sources::SOURCES_RULES);
-        }
-        let patch = |set: Map<String, Value>, unset: Vec<&str>, caller: &'static str| {
-            let ctx = CallContext::internal(caller);
-            handle.request(CoreRequest {
-                method: Method("thread/header/patch"),
-                params: json!({ "threadId": heir, "set": set, "unset": unset }),
-                op: None,
-                ctx,
-            })
-        };
-        patch(marking, unset, "inheritance").await?;
+        let mark = CopyMark::stored_before_any_row(&handle, heir, &snapshot.header, source).await?;
         let (count, compacted) = match self.carry_rows(source_handle, &handle, snapshot, mode).await {
             Ok(done) => done,
             Err(Carry { error, appended: false }) => {
-                // The "being copied" mark is the core's own carry mark (Node's inheritance has no unmark operation). One left
-                // standing stops every reference query of the heir until the process restarts, so a failed removal is heard
-                // and tried again (a failed write is not kept: the next one is a write of its own).
-                for _ in 0..UNMARK_TRIES {
-                    if patch(Map::new(), vec![offload_sources::INHERITING, offload_sources::INHERITING_BOOT], "inheritance-unmark").await.is_ok() {
-                        break;
-                    }
-                }
+                mark.withdraw().await;
                 return Err(error);
             }
             Err(Carry { error, appended: true }) => return Err(error),
@@ -224,14 +236,9 @@ impl SessionDirectory {
         })))
     }
 
-    /// The rest of `carry_into`, once the heir's reference set is stored: the source's rows copied, fitted to the heir
-    /// (compacted when asked or when they cannot fit) and appended to it with its inheritance boundary, the heir's
-    /// header naming its source and no longer inheriting. The number of rows carried; a failure says whether the append
-    /// was attempted.
     async fn carry_rows(&self, source: &SessionHandle, handle: &SessionHandle, snapshot: &ForkSource, mode: CarryMode) -> Result<(usize, bool), Carry> {
         let existing = matches!(mode, CarryMode::Existing { .. });
         let (carried, set, compacted) = self.fit_rows(source, handle, snapshot, mode).await.map_err(|error| Carry { error, appended: false })?;
-        // Only the existing-heir path keeps its historical write-behind behavior.
         let ctx = CallContext::internal(if existing { "inheritance" } else { "inheritance-durable" });
         let count = carried.len();
         let params = json!({ "messages": carried, "set": set, "unset": [offload_sources::INHERITING, offload_sources::INHERITING_BOOT] });
@@ -272,15 +279,11 @@ impl SessionDirectory {
             CarryMode::Existing { compact } | CarryMode::New { compact } => compact,
         };
         let source_rows = source.completed_history(snapshot).await?;
-        let system_of =
-            |rows: &[Value]| -> Vec<Value> { rows.iter().filter(|row| row.get("role").and_then(Value::as_str) == Some("system")).cloned().collect() };
-        let source_system = system_of(&source_rows);
-        let heir_system = system_of(&self.rows_of(heir.as_str()).await?);
+        let source_system = system_rows(&source_rows);
+        let heir_system = system_rows(&self.rows_of(heir.as_str()).await?);
         let system_differs = !source_system.is_empty() && !heir_system.is_empty() && source_system != heir_system;
         let Plan { rows: carried, compacted } = self.plan_carry(source, source_rows, &target, compact, system_differs).await?;
-        // `stripEffortConfiguration`: the source's turns' effort snapshots stay with the source.
         let mut carried = mixdog_agent::effort::strip_effort_configuration(carried);
-        // `recordInheritanceBoundary`: display-only, on the last carried row, naming the source, the heir and the route the heir holds.
         let boundary = json!({
             "sourceSessionId": source.id,
             "sessionId": heir.as_str(),
@@ -288,14 +291,7 @@ impl SessionDirectory {
             "modelId": held.get("model").cloned().unwrap_or(Value::Null),
             "at": self.deps().clock.now_ms(),
         });
-        if let Some(Value::Object(last)) = carried.last_mut() {
-            let meta = last.entry("meta").or_insert_with(|| json!({}));
-            if !meta.is_object() {
-                *meta = json!({});
-            }
-            let earlier = meta.get("sessionInheritances").and_then(Value::as_array).cloned().unwrap_or_default();
-            meta["sessionInheritances"] = Value::Array(earlier.into_iter().chain([boundary]).collect());
-        }
+        attach_boundary(&mut carried, boundary);
         Ok((carried, set, compacted))
     }
 
@@ -317,7 +313,7 @@ impl SessionDirectory {
                 None => rows,
             }
         };
-        let system: Vec<Value> = rows.iter().filter(|row| row.get("role").and_then(Value::as_str) == Some("system")).cloned().collect();
+        let system = system_rows(&rows);
         let mut carried = bind(inheritable(rows)).await;
         if !super::route_session::has_user_conversation(&carried) {
             return Err(refused("inheritFrom: the source session has no conversation to carry"));
@@ -362,6 +358,22 @@ impl SessionDirectory {
         Ok(Plan { rows: carried, compacted: was_compacted })
     }
 
+    async fn preflight_source(
+        &self,
+        requested: Option<&ThreadId>,
+        current: Option<&ThreadId>,
+        header: &Map<String, Value>,
+    ) -> Result<(Option<String>, Vec<Value>), CoreError> {
+        let trimmed = |thread: Option<&ThreadId>| thread.map(|thread| mixdog_js::js_trim(thread.as_str()).to_owned()).filter(|id| !id.is_empty());
+        if let Some(id) = trimmed(requested) {
+            let rows = self.rows_of(&id).await?;
+            return Ok((Some(id), rows));
+        }
+        let Some(id) = trimmed(current) else { return Ok((None, Vec::new())) };
+        let rows = self.rows_of(&id).await?;
+        Ok(if has_session(header, &rows) { (Some(id), rows) } else { (None, Vec::new()) })
+    }
+
     pub(super) async fn inheritance_preflight(&self, params: &Value) -> Result<Value, CoreError> {
         let params: ThreadInheritancePreflightParams = serde_json::from_value(params.clone())
             .map_err(|_| CoreError::InvalidParams { path: "params".into(), expected: "ThreadInheritancePreflightParams".into() })?;
@@ -375,25 +387,8 @@ impl SessionDirectory {
         let (own_provider, own_model) = (clean(header.get("provider")), clean(header.get("model")));
         let provider = Some(route("provider")).filter(|name| !name.is_empty()).unwrap_or_else(|| own_provider.clone());
         let model = Some(route("model")).filter(|name| !name.is_empty()).unwrap_or_else(|| own_model.clone());
-        let id = params.source_thread_id.as_ref().map(|id| mixdog_js::js_trim(id.as_str()).to_owned()).filter(|id| !id.is_empty());
-        let (id, messages) = match id {
-            Some(id) => {
-                let rows = self.rows_of(&id).await?;
-                (Some(id), rows)
-            }
-            // With no source the current session is the one measured (`getSessionId()`), when it has a session: a thread
-            // that has none yet names no source.
-            None => match current.map(|thread| mixdog_js::js_trim(thread.as_str()).to_owned()).filter(|id| !id.is_empty()) {
-                Some(id) => {
-                    let rows = self.rows_of(&id).await?;
-                    if has_session(&header, &rows) { (Some(id), rows) } else { (None, Vec::new()) }
-                }
-                None => (None, Vec::new()),
-            },
-        };
+        let (id, messages) = self.preflight_source(params.source_thread_id.as_ref(), current, &header).await?;
         let carried = inheritable(messages);
-        // A picked window belongs to the route that picked it; another provider/model pair falls
-        // back to that model's own default.
         let selected_context_window = (provider == own_provider && model == own_model)
             .then(|| mixdog_agent::agent_tool::scope::positive_int(header.get("selectedContextWindow")))
             .flatten();

@@ -358,10 +358,6 @@ pub struct MemoryStack {
     /// What an opening that ended after the stop began opened: never served, only handed to the stop, which closes its pools and stops its cluster.
     late: std::sync::OnceLock<Opened>,
     opening: std::sync::Mutex<Opening>,
-    /// The lifecycle owner of every piece of work and every connection driver that touches the stack's databases (Rule A): all the stack's handles
-    /// carry it ([`Db::scope`]), the trace store and the watcher are groups of it, the drivers its transport group, and the opening and the
-    /// shutdown's own finalizers are its work. Accepted work is service-owned: a caller that stops waiting leaves it running to completion (no cap),
-    /// as a Node promise outlives its caller; only the owner's revocation at the cutoff ends it early.
     scope: Scope,
     /// What follows the opening (`run_background`), as work of [`Self::scope`].
     background: std::sync::Mutex<Option<Owned<()>>>,
@@ -1076,10 +1072,8 @@ impl MemoryStack {
         self.opened.get().is_some() && (!opening.stopped || opening.stop_running)
     }
 
-    /// The host's stop at quit (and at a failed composition): in Node the memory process stops when its last client is gone and writes a
-    /// failed stop to its stderr (`memory-daemon-lifecycle.mjs:66-71`, `log` = `__mixdogMemoryLog`, `index.mjs:170`), which the daemon's spawner
-    /// mirrors into `memory-runtime-proxy.log`. The core writes the same line to the memory worker's stderr. Node's preceding "client grace
-    /// elapsed" line names a timer the core does not have, and the separate process's exit code has no counterpart.
+    /// The host's stop at quit (and at a failed composition); a failed stop is written to the memory worker's stderr as Node's memory process
+    /// wrote it (`memory-daemon-lifecycle.mjs:66-71`), which the spawner mirrors into `memory-runtime-proxy.log`.
     pub async fn stop_for_quit(&self) {
         if let Err(error) = self.stop().await {
             mixdog_rt::memory_stderr!("[memory-service] daemon client-grace shutdown failed: {}", error.message());
@@ -1183,15 +1177,6 @@ impl MemoryStack {
         flight
     }
 
-    /// The stop controller. It runs no SQL itself:
-    /// 1. `stopped` is set under the opening lock (no opening, start or watcher publication begins after it), then the owner enters `Draining` with
-    ///    the shutdown work registered in the same step ([`Self::shutdown_work`]: the background's end, the watcher's ingests, the offsets' write,
-    ///    the trace store's drain, the remaining accepted work), so the finalizers are owned work like any other.
-    /// 2. Until the cutoff: the shutdown work completes, then the pools close and the transport group (the drivers) retires.
-    /// 3. At the cutoff, or once 2 completed: local revocation is requested (synchronous: it marks and wakes, it destroys nothing itself), the stop is
-    ///    dispatched at once (it never waits for the local acknowledgement, so a stuck poll cannot delay the signal), then the acknowledgement is
-    ///    awaited. Only when graceful progress completed before the cutoff is the postmaster's exit observed, with what is left of the cutoff; at the
-    ///    cutoff the observation is abandoned, never the shutdown.
     async fn run_stop(self: Arc<Self>, began: tokio::time::Instant, shutdown: Option<Owned<()>>) -> StopReport {
         let cutoff = self.shutdown_began.get().copied().unwrap_or(began) + PG_FORCED_STOP_AT;
         let mut forced_rx = self.forced.subscribe();
@@ -1306,36 +1291,34 @@ impl MemoryStack {
         // Every other piece of accepted work and its descendants (session ingests, their embedding and queued flushes, actions, recalls, the
         // snapshot refresh, search writes, an opening cancelled by the stop) ends.
         self.scope.idle().await;
-        // The last finalizer: the cluster commits asynchronously (`synchronous_commit = off`). PostgreSQL 17's `RecordTransactionCommit` flushes
-        // synchronously only when the transaction has an XID, wrote WAL, and `synchronous_commit > off` (then `XLogFlush(XactLastRecEnd)`), and a
-        // flush to an LSN writes out every WAL record before it: one transaction that really writes WAL under `synchronous_commit = on` flushes
-        // the WAL past every earlier asynchronous commit. `flushed` is set from evidence: the flush position after the commit against the insert
-        // position read after the write.
         if let Some(opened) = self.opened.get() {
-            let flushed = async {
-                let lease = crate::memory::pg::db::Lease::take(&opened.memory_db).await?;
-                lease.begin().await?;
-                lease.batch_execute("SET LOCAL synchronous_commit = on").await?;
-                lease
-                    .execute(
-                        "INSERT INTO meta(key, value) VALUES ('state.shutdown_wal_flush', to_jsonb(now()::text))
-                         ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
-                        &[],
-                    )
-                    .await?;
-                #[cfg(test)]
-                crate::memory::lifecycle::fences::pass("wal-flush").await;
-                let written: String = lease.query_one("SELECT pg_current_wal_insert_lsn()::text", &[]).await?.get(0);
-                lease.commit().await?;
-                let covered: bool = lease.query_one("SELECT pg_current_wal_flush_lsn() >= $1::text::pg_lsn", &[&written]).await?.get(0);
-                lease.release(None).await;
-                Ok::<bool, MemoryError>(covered)
-            }
-            .await;
-            match flushed {
+            match flush_wal(&opened.memory_db).await {
                 Ok(covered) => self.flushed.store(covered, std::sync::atomic::Ordering::SeqCst),
                 Err(error) => tracing::warn!(error = %error.message(), "[memory] the shutdown's WAL flush failed"),
             }
         }
     }
+}
+
+/// The cluster commits asynchronously (`synchronous_commit = off`). PostgreSQL 17 flushes synchronously only for a transaction with an XID that wrote
+/// WAL under `synchronous_commit > off`, and a flush to an LSN writes out every earlier WAL record. One such transaction therefore flushes every earlier
+/// asynchronous commit; the result is whether the flush position after the commit covers the insert position read after the write.
+async fn flush_wal(db: &Db) -> Result<bool> {
+    let lease = crate::memory::pg::db::Lease::take(db).await?;
+    lease.begin().await?;
+    lease.batch_execute("SET LOCAL synchronous_commit = on").await?;
+    lease
+        .execute(
+            "INSERT INTO meta(key, value) VALUES ('state.shutdown_wal_flush', to_jsonb(now()::text))
+             ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
+            &[],
+        )
+        .await?;
+    #[cfg(test)]
+    crate::memory::lifecycle::fences::pass("wal-flush").await;
+    let written: String = lease.query_one("SELECT pg_current_wal_insert_lsn()::text", &[]).await?.get(0);
+    lease.commit().await?;
+    let covered: bool = lease.query_one("SELECT pg_current_wal_flush_lsn() >= $1::text::pg_lsn", &[&written]).await?.get(0);
+    lease.release(None).await;
+    Ok(covered)
 }

@@ -240,10 +240,6 @@ pub struct SetAside {
     pub project_rows: usize,
 }
 
-/// Whether the file may be set aside: SQLite itself, with the WAL applied (a newer schema's `user_version` may live only there,
-/// while another reader holds the WAL open), reads it as damage (not a database, or a damaged page) or as another identity or an
-/// older schema. Only a file of this application a newer build wrote is intact and never set aside (Node's newer-version
-/// guard), and one SQLite cannot be asked about (busy, I/O) is not judged. The probe opens read-only: it changes nothing.
 #[allow(clippy::disallowed_methods, reason = "part of `CoreState::open_or_set_aside`, which opens the SQLite file itself on the same boot call")]
 fn may_be_set_aside(path: &Path) -> bool {
     let read = || -> rusqlite::Result<(i32, i32)> {
@@ -262,8 +258,6 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
-// Test support: the step a set-aside fails before (0 = the marker write, 1-3 = the `-wal`, `-shm` and `-journal` moves, 4 = the
-// database's, 5 = the marker's removal), as a crash would stop it.
 #[cfg(test)]
 thread_local! {
     pub(crate) static SET_ASIDE_FAULT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };

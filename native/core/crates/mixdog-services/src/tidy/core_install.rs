@@ -168,31 +168,16 @@ impl Drop for FinishInstall<'_> {
     }
 }
 
-/// Installs the requested core engines and returns their settled results. An invalid request
-/// starts no job; per-engine failures do not fail a valid request. Overlapping requests wait
-/// their turn; `job` shows the active set.
-pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -> Result<Value, String> {
-    const CANCELLED: &str = "Code Tidy installation canceled.";
-    let wanted: Vec<&str> = match &options.only {
-        Some(only) => {
-            if let Some(id) = only.iter().find(|id| !TIDY_CORE_ENGINE_IDS.contains(&id.as_str())) {
-                return Err(format!("Unknown Code Tidy core engine ID: {id:?}."));
-            }
-            TIDY_CORE_ENGINE_IDS.iter().copied().filter(|id| only.iter().any(|o| o == id)).collect()
-        }
-        None => TIDY_CORE_ENGINE_IDS.to_vec(),
-    };
-    let _turn = tokio::select! {
-        biased;
-        () = options.cancel.cancelled() => return Err(CANCELLED.into()),
-        turn = job.install_turn() => turn,
-    };
-    let manifest = options.manifest.clone().unwrap_or_else(read_engines_manifest);
-    let tools_dir =
-        if options.plugin_data.as_os_str().is_empty() { String::new() } else { managed_tools_dir(options.plugin_data).to_string_lossy().into_owned() };
-    assert!(job.begin(&wanted), "the install turn owns the progress slot");
-    // Settle the slot even if the caller drops the future; release the turn only after cleanup.
-    let finish = FinishInstall(job);
+fn wanted_engines(only: Option<&[String]>) -> Result<Vec<&'static str>, String> {
+    let Some(only) = only else { return Ok(TIDY_CORE_ENGINE_IDS.to_vec()) };
+    if let Some(id) = only.iter().find(|id| !TIDY_CORE_ENGINE_IDS.contains(&id.as_str())) {
+        return Err(format!("Unknown Code Tidy core engine ID: {id:?}."));
+    }
+    Ok(TIDY_CORE_ENGINE_IDS.iter().copied().filter(|id| only.iter().any(|o| o == id)).collect())
+}
+
+/// Settles the engines that are already present or cannot be installed here; the rest are returned for installation.
+async fn settle_without_install(job: &InstallJob, options: &CoreInstall<'_>, manifest: &Value, wanted: &[&str]) -> Vec<String> {
     let resolver = SystemEngineResolver::new(options.processes.clone(), options.plugin_data, Some(manifest.clone()), options.env.clone());
     let resolved = resolve_engines(
         &options.processes,
@@ -209,7 +194,7 @@ pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -
     )
     .await;
     let mut pending: Vec<String> = Vec::new();
-    for id in &wanted {
+    for id in wanted {
         let catalog = engine_entry(id).expect("core ids are catalog ids");
         let engine = resolved.engines.iter().find(|e| e.id == *id);
         if *id == "psscriptanalyzer" && !power_shell_host(options.processes.durability(), options.env.as_ref()).await {
@@ -234,7 +219,7 @@ pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -
             });
             continue;
         }
-        if manifest_asset(&manifest, id).is_none() {
+        if manifest_asset(manifest, id).is_none() {
             let hint = catalog.install_hint.clone();
             job.settle(id, |e| {
                 e.status = "skipped".into();
@@ -244,58 +229,122 @@ pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -
         }
         pending.push((*id).to_owned());
     }
-    if !pending.is_empty() {
-        let progress: OnProgress = {
-            let shared = job.clone();
-            Arc::new(move |id, received, total| shared.track_download(id, received.max(0) as u64, total.max(0) as u64))
-        };
-        // An explicit Install is the approval: policy gating exists for the model-driven tool
-        // path, not for a button the user just pressed.
-        let outcome = install_engines(
-            &options.processes,
-            &pending,
-            Some(&manifest),
-            options.plugin_data,
-            "auto",
-            true,
-            options.fetcher,
-            &options.cancel,
-            Some(progress),
-            None,
-        )
-        .await;
-        for item in outcome["installed"].as_array().into_iter().flatten() {
-            let id = item["id"].as_str().unwrap_or("");
-            let version = item["version"].as_str().unwrap_or("").to_owned();
-            let present = item["status"] == "present";
-            let bytes = managed_engine_bytes(options.processes.durability(), options.plugin_data, id, &version).await as u64;
-            job.settle(id, |e| {
-                e.status = if present { "present" } else { "installed" }.into();
-                e.version = version;
-                e.bytes = bytes;
+    pending
+}
+
+/// An explicit Install is the approval: policy gating exists for the model-driven tool path, not for a button the user just pressed.
+async fn install_pending(job: &Arc<InstallJob>, options: &CoreInstall<'_>, manifest: &Value, wanted: &[&str], pending: &[String]) {
+    let progress: OnProgress = {
+        let shared = job.clone();
+        Arc::new(move |id, received, total| shared.track_download(id, received.max(0) as u64, total.max(0) as u64))
+    };
+    let outcome =
+        install_engines(&options.processes, pending, Some(manifest), options.plugin_data, "auto", true, options.fetcher, &options.cancel, Some(progress), None)
+            .await;
+    for item in outcome["installed"].as_array().into_iter().flatten() {
+        let id = item["id"].as_str().unwrap_or("");
+        let version = item["version"].as_str().unwrap_or("").to_owned();
+        let present = item["status"] == "present";
+        let bytes = managed_engine_bytes(options.processes.durability(), options.plugin_data, id, &version).await as u64;
+        job.settle(id, |e| {
+            e.status = if present { "present" } else { "installed" }.into();
+            e.version = version;
+            e.bytes = bytes;
+        });
+    }
+    for failure in outcome["errors"].as_array().into_iter().flatten() {
+        let error = failure["error"].as_str().unwrap_or("install failed").to_owned();
+        let hint = failure["installHint"].as_str().map(str::to_owned);
+        let failed_id = failure["id"].as_str().unwrap_or("");
+        // The installer reports set-wide problems (no data dir) as id '*'.
+        let targets: Vec<String> = if wanted.contains(&failed_id) { vec![failed_id.to_owned()] } else { job.pending_ids() };
+        for id in targets {
+            let (error, hint) = (error.clone(), hint.clone());
+            job.settle(&id, |e| {
+                e.status = "failed".into();
+                e.error = Some(error);
+                e.install_hint = hint;
             });
         }
-        for failure in outcome["errors"].as_array().into_iter().flatten() {
-            let error = failure["error"].as_str().unwrap_or("install failed").to_owned();
-            let hint = failure["installHint"].as_str().map(str::to_owned);
-            let failed_id = failure["id"].as_str().unwrap_or("");
-            // The installer reports set-wide problems (no data dir) as id '*'.
-            let targets: Vec<String> = if wanted.contains(&failed_id) { vec![failed_id.to_owned()] } else { job.pending_ids() };
-            for id in targets {
-                let (error, hint) = (error.clone(), hint.clone());
-                job.settle(&id, |e| {
-                    e.status = "failed".into();
-                    e.error = Some(error);
-                    e.install_hint = hint;
-                });
-            }
-        }
+    }
+}
+
+/// Installs the requested core engines and returns their settled results. An invalid request
+/// starts no job; per-engine failures do not fail a valid request. Overlapping requests wait
+/// their turn; `job` shows the active set.
+pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -> Result<Value, String> {
+    const CANCELLED: &str = "Code Tidy installation canceled.";
+    let wanted = wanted_engines(options.only.as_deref())?;
+    let _turn = tokio::select! {
+        biased;
+        () = options.cancel.cancelled() => return Err(CANCELLED.into()),
+        turn = job.install_turn() => turn,
+    };
+    let manifest = options.manifest.clone().unwrap_or_else(read_engines_manifest);
+    let tools_dir =
+        if options.plugin_data.as_os_str().is_empty() { String::new() } else { managed_tools_dir(options.plugin_data).to_string_lossy().into_owned() };
+    assert!(job.begin(&wanted), "the install turn owns the progress slot");
+    // Settle the slot even if the caller drops the future; release the turn only after cleanup.
+    let finish = FinishInstall(job);
+    let pending = settle_without_install(job, &options, &manifest, &wanted).await;
+    if !pending.is_empty() {
+        install_pending(job, &options, &manifest, &wanted, &pending).await;
     }
     drop(finish);
     if options.cancel.is_cancelled() {
         return Err(CANCELLED.into());
     }
     Ok(json!({"toolsDir": tools_dir, "engines": job.snapshot_results().iter().map(engine_result).collect::<Vec<_>>()}))
+}
+
+impl SystemEngineResolver {
+    pub fn new(processes: Processes, plugin_data: &Path, manifest: Option<Value>, env: Option<HashMap<String, String>>) -> Self {
+        Self { processes, plugin_data: plugin_data.to_owned(), manifest: manifest.unwrap_or_else(read_engines_manifest), env, host_modules: Arc::default() }
+    }
+
+    /// Status/install resolution is project-free: the managed tools dir holds no config,
+    /// node_modules or virtualenv, so resolution sees exactly manifest, PATH and managed installs.
+    fn scope(&self) -> PathBuf {
+        if self.plugin_data.as_os_str().is_empty() { std::env::temp_dir().join("mixdog-tidy-status") } else { managed_tools_dir(&self.plugin_data) }
+    }
+
+    fn cached_probe(&self) -> HostModuleProbe {
+        let cache = self.host_modules.clone();
+        let processes = self.processes.clone();
+        Arc::new(move |engine: Resolved| {
+            let cache = cache.clone();
+            let processes = processes.clone();
+            Box::pin(async move {
+                let key = engine.command.clone();
+                if key.is_empty() {
+                    return String::new();
+                }
+                let (version, stale) = {
+                    let mut c = cache.lock().unwrap();
+                    let entry = c.entry(key.clone()).or_insert_with(|| (String::new(), None, false));
+                    let stale = entry.1.is_none_or(|at| at.elapsed() >= HOST_MODULE_PROBE_TTL) && !entry.2;
+                    if stale {
+                        entry.2 = true;
+                    }
+                    (entry.0.clone(), stale)
+                };
+                if stale {
+                    // The caller's request is long gone by then; publish for the next poll.
+                    tokio::spawn(async move {
+                        // The status card is project-free: the module answers the same anywhere.
+                        let here = std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir());
+                        let version = probe_host_managed_module(&processes, &engine, &here, None).await;
+                        cache.lock().unwrap().insert(key, (version, Some(Instant::now()), false));
+                    });
+                }
+                version
+            })
+        })
+    }
+
+    fn host_module_probed(&self, command: &str) -> bool {
+        self.host_modules.lock().unwrap().get(command).is_some_and(|e| e.1.is_some())
+    }
 }
 
 #[cfg(test)]
@@ -482,55 +531,5 @@ mod tests {
         assert!(!by("rustfmt").installable, "toolchain engines are never installable");
         assert_eq!(all.len(), engines().len());
         assert!(resolver.tools_dir().ends_with("tools"));
-    }
-}
-
-impl SystemEngineResolver {
-    pub fn new(processes: Processes, plugin_data: &Path, manifest: Option<Value>, env: Option<HashMap<String, String>>) -> Self {
-        Self { processes, plugin_data: plugin_data.to_owned(), manifest: manifest.unwrap_or_else(read_engines_manifest), env, host_modules: Arc::default() }
-    }
-
-    /// Status/install resolution is project-free: the managed tools dir holds no config,
-    /// node_modules or virtualenv, so resolution sees exactly manifest, PATH and managed installs.
-    fn scope(&self) -> PathBuf {
-        if self.plugin_data.as_os_str().is_empty() { std::env::temp_dir().join("mixdog-tidy-status") } else { managed_tools_dir(&self.plugin_data) }
-    }
-
-    fn cached_probe(&self) -> HostModuleProbe {
-        let cache = self.host_modules.clone();
-        let processes = self.processes.clone();
-        Arc::new(move |engine: Resolved| {
-            let cache = cache.clone();
-            let processes = processes.clone();
-            Box::pin(async move {
-                let key = engine.command.clone();
-                if key.is_empty() {
-                    return String::new();
-                }
-                let (version, stale) = {
-                    let mut c = cache.lock().unwrap();
-                    let entry = c.entry(key.clone()).or_insert_with(|| (String::new(), None, false));
-                    let stale = entry.1.is_none_or(|at| at.elapsed() >= HOST_MODULE_PROBE_TTL) && !entry.2;
-                    if stale {
-                        entry.2 = true;
-                    }
-                    (entry.0.clone(), stale)
-                };
-                if stale {
-                    // The caller's request is long gone by then; publish for the next poll.
-                    tokio::spawn(async move {
-                        // The status card is project-free: the module answers the same anywhere.
-                        let here = std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir());
-                        let version = probe_host_managed_module(&processes, &engine, &here, None).await;
-                        cache.lock().unwrap().insert(key, (version, Some(Instant::now()), false));
-                    });
-                }
-                version
-            })
-        })
-    }
-
-    fn host_module_probed(&self, command: &str) -> bool {
-        self.host_modules.lock().unwrap().get(command).is_some_and(|e| e.1.is_some())
     }
 }

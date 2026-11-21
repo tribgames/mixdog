@@ -285,6 +285,46 @@ impl Parser {
         out
     }
 
+    /// One double-quoted escape after its backslash; `None` for an escaped line break, which joins the lines.
+    fn escape(&mut self) -> Result<Option<char>, SkillDocumentError> {
+        let Some(esc) = self.peek() else { return Err(invalid("bad escape")) };
+        self.i += 1;
+        let hex = |p: &mut Parser, n: usize| -> Option<char> {
+            let digits: String = p.c.get(p.i..p.i + n)?.iter().collect();
+            p.i += n;
+            char::from_u32(u32::from_str_radix(&digits, 16).ok()?)
+        };
+        let decoded = match esc {
+            '\n' => {
+                while matches!(self.peek(), Some(' ' | '\t')) {
+                    self.i += 1;
+                }
+                return Ok(None);
+            }
+            '0' => '\0',
+            'a' => '\u{7}',
+            'b' => '\u{8}',
+            't' | '\t' => '\t',
+            'n' => '\n',
+            'v' => '\u{b}',
+            'f' => '\u{c}',
+            'r' => '\r',
+            'e' => '\u{1b}',
+            ' ' => ' ',
+            '"' => '"',
+            '/' => '/',
+            '\\' => '\\',
+            'N' => '\u{85}',
+            '_' => '\u{a0}',
+            'L' => '\u{2028}',
+            'P' => '\u{2029}',
+            'x' => hex(self, 2).ok_or_else(|| invalid("bad escape"))?,
+            'u' => hex(self, 4).ok_or_else(|| invalid("bad escape"))?,
+            'U' => hex(self, 8).ok_or_else(|| invalid("bad escape"))?,
+            _ => return Err(invalid("bad escape")),
+        };
+        Ok(Some(decoded))
+    }
     fn quoted(&mut self, quote: char) -> Result<Node, SkillDocumentError> {
         self.i += 1;
         let mut out = String::new();
@@ -302,43 +342,10 @@ impl Parser {
                 break;
             }
             if quote == '"' && ch == '\\' {
-                let Some(esc) = self.peek() else { return Err(invalid("bad escape")) };
-                self.i += 1;
-                let hex = |p: &mut Parser, n: usize| -> Option<char> {
-                    let digits: String = p.c.get(p.i..p.i + n)?.iter().collect();
-                    p.i += n;
-                    char::from_u32(u32::from_str_radix(&digits, 16).ok()?)
-                };
-                match esc {
-                    '\n' => {
-                        while matches!(self.peek(), Some(' ' | '\t')) {
-                            self.i += 1;
-                        }
-                        continue;
-                    }
-                    '0' => out.push('\0'),
-                    'a' => out.push('\u{7}'),
-                    'b' => out.push('\u{8}'),
-                    't' | '\t' => out.push('\t'),
-                    'n' => out.push('\n'),
-                    'v' => out.push('\u{b}'),
-                    'f' => out.push('\u{c}'),
-                    'r' => out.push('\r'),
-                    'e' => out.push('\u{1b}'),
-                    ' ' => out.push(' '),
-                    '"' => out.push('"'),
-                    '/' => out.push('/'),
-                    '\\' => out.push('\\'),
-                    'N' => out.push('\u{85}'),
-                    '_' => out.push('\u{a0}'),
-                    'L' => out.push('\u{2028}'),
-                    'P' => out.push('\u{2029}'),
-                    'x' => out.push(hex(self, 2).ok_or_else(|| invalid("bad escape"))?),
-                    'u' => out.push(hex(self, 4).ok_or_else(|| invalid("bad escape"))?),
-                    'U' => out.push(hex(self, 8).ok_or_else(|| invalid("bad escape"))?),
-                    _ => return Err(invalid("bad escape")),
+                if let Some(decoded) = self.escape()? {
+                    out.push(decoded);
+                    keep = out.len();
                 }
-                keep = out.len();
                 continue;
             }
             if ch == '\n' {

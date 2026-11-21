@@ -1,6 +1,5 @@
-//! The desktop notices a session's own events raise (`desktop-notice-host.mjs` callers in the live
-//! turn close and the session store): a provider refusing the sign-in, and a transcript the disk
-//! no longer keeps up with. The session reports the events; what is shown, and under which key,
+//! The desktop notices a session's own events raise: a provider refusing the sign-in, and a
+//! transcript the disk no longer keeps up with. The session reports the events; what is shown, and under which key,
 //! is the composition's (`DesktopNotices`).
 
 /// Told of the events of every thread's turns and saves.

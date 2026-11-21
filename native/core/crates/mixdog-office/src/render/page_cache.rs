@@ -11,8 +11,9 @@ use mixdog_js::{json_number, json_stringify};
 use mixdog_office_base::values::{sha256, truthy};
 use mixdog_ooxml::opc::{part_relationship_path, posix};
 use mixdog_ooxml::package::load_package;
-use mixdog_ooxml::pptx_package::presentation_slides;
+use mixdog_ooxml::pptx_package::{SlideRef, presentation_slides};
 use mixdog_ooxml::xml::{compiled, xml_attribute, xml_decode};
+use mixdog_ooxml::zipio::Package;
 use serde_json::{Value, json};
 
 use super::RenderEngine;
@@ -37,6 +38,22 @@ pub fn pptx_page_signatures<P: ReadProof>(proof: &P, path: &Path) -> Result<Vec<
     let zip = load_package(proof, path)?;
     let slides = presentation_slides(&zip);
     let slide_parts: HashSet<String> = slides.iter().flat_map(|slide| [slide.path.clone(), part_relationship_path(&slide.path)]).collect();
+    let seed = shared_resources_seed(&zip, &slide_parts);
+    let facts = read_slide_facts(&zip, &slides, &slide_parts);
+    let visible: Vec<_> = slides.iter().filter(|slide| !facts.hidden.contains(&slide.path)).collect();
+    Ok(visible
+        .iter()
+        .enumerate()
+        .map(|(index, slide)| {
+            let dependencies = slide_dependencies(&facts.links, &slide.path);
+            let pairs: Vec<Value> = dependencies.iter().map(|part| json!([part, facts.locals.get(part).cloned().unwrap_or_default()])).collect();
+            PageSignature { page: index + 1, slide_id: slide.id, signature: sha256(json_stringify(&json!([seed, index, pairs]))) }
+        })
+        .collect())
+}
+
+/// The hash of every part no slide owns: a change to any of them is a change to every page.
+fn shared_resources_seed(zip: &Package, slide_parts: &HashSet<String>) -> String {
     let mut names = zip.names();
     names.sort_by(|left, right| utf16_order(left, right));
     let mut global: Vec<u8> = Vec::new();
@@ -48,14 +65,24 @@ pub fn pptx_page_signatures<P: ReadProof>(proof: &P, path: &Path) -> Result<Vec<
         global.extend_from_slice(name.as_bytes());
         global.extend_from_slice(&entry.data);
     }
-    let seed = sha256(&global);
+    sha256(&global)
+}
+
+/// What each slide says of itself: its own signature, the slides it links to, and whether it is hidden.
+struct SlideFacts {
+    locals: HashMap<String, String>,
+    links: HashMap<String, Vec<String>>,
+    hidden: HashSet<String>,
+}
+
+fn read_slide_facts(zip: &Package, slides: &[SlideRef], slide_parts: &HashSet<String>) -> SlideFacts {
     let hidden_pattern = compiled(r#"<p:sld\b[^>]*\bshow="(?:0|false)""#, "");
     let relationship_pattern = compiled(r"<Relationship\b([^>]+)\/?>", "g");
     let mut locals: HashMap<String, String> = HashMap::new();
     let mut links: HashMap<String, Vec<String>> = HashMap::new();
     // A hidden slide is skipped by every renderer, so it owns no exported page.
     let mut hidden: HashSet<String> = HashSet::new();
-    for slide in &slides {
+    for slide in slides {
         let xml = zip.text(&slide.path);
         if hidden_pattern.is_match(&xml) {
             hidden.insert(slide.path.clone());
@@ -79,26 +106,23 @@ pub fn pptx_page_signatures<P: ReadProof>(proof: &P, path: &Path) -> Result<Vec<
         }
         links.insert(slide.path.clone(), linked);
     }
-    let visible: Vec<_> = slides.iter().filter(|slide| !hidden.contains(&slide.path)).collect();
-    Ok(visible
-        .iter()
-        .enumerate()
-        .map(|(index, slide)| {
-            let mut dependencies: Vec<String> = Vec::new();
-            let mut seen: HashSet<String> = HashSet::new();
-            let mut pending = vec![slide.path.clone()];
-            while let Some(part) = pending.pop() {
-                if !seen.insert(part.clone()) {
-                    continue;
-                }
-                dependencies.push(part.clone());
-                pending.extend(links.get(&part).into_iter().flatten().cloned());
-            }
-            dependencies.sort_by(|left, right| utf16_order(left, right));
-            let pairs: Vec<Value> = dependencies.iter().map(|part| json!([part, locals.get(part).cloned().unwrap_or_default()])).collect();
-            PageSignature { page: index + 1, slide_id: slide.id, signature: sha256(json_stringify(&json!([seed, index, pairs]))) }
-        })
-        .collect())
+    SlideFacts { locals, links, hidden }
+}
+
+/// The slide and every slide it links to, directly or not, in code-unit order.
+fn slide_dependencies(links: &HashMap<String, Vec<String>>, slide: &str) -> Vec<String> {
+    let mut dependencies: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut pending = vec![slide.to_owned()];
+    while let Some(part) = pending.pop() {
+        if !seen.insert(part.clone()) {
+            continue;
+        }
+        dependencies.push(part.clone());
+        pending.extend(links.get(&part).into_iter().flatten().cloned());
+    }
+    dependencies.sort_by(|left, right| utf16_order(left, right));
+    dependencies
 }
 
 /// `reusablePptxPages(cache, signatures, request)`: the page images of the last render whose slide and signature are unchanged,

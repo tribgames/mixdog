@@ -98,21 +98,44 @@ async fn a_cancelled_flush_keeps_the_turn_until_its_lane_job_ends() {
     assert!(!turn.running && !turn.job_live && !turn.orphaned);
 }
 
-/// A run's tool log writes Node's `batch` row and each call's `tool` row to the agent trace (`recordToolBatch`, `traceAgentTool`): the
-/// tool row names its batch, keeps every run of the call (an ambiguous edit and its retry) and carries what the tool reported about
-/// its result and its search; an error call also gets its failure row.
-#[tokio::test]
-async fn a_runs_tool_log_writes_its_batch_and_tool_rows_to_the_agent_trace() {
-    use mixdog_agent::env::{CrossTurnReceipt, ToolBatch, ToolBatchCall, TracedCall};
-    let tokens = mixdog_rt::testing::tokens();
-    let data = tempfile::tempdir().unwrap();
-    let config = TraceConfig::from_env(data.path(), &|name| (name == "MIXDOG_DIAGNOSTICS").then(|| "1".to_owned()), false);
-    let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
-    let writer = Arc::new(FailureWriter::new(&config, io, Arc::new(At(1))));
-    let log = RunFailureLog::new(Arc::clone(&writer), "s", Some("lead"), "/ws");
-    let call = |id: &str, name: &str| ToolBatchCall { tool_call_id: id.into(), tool_name: name.into(), array_lengths: None };
-    log.batch(&ToolBatch { iteration: 1, calls: vec![call("x1", "edit"), call("l1", "list"), call("r1", "read"), call("g1", "grep")] });
-    let traced = |id: &str, name: &str, kind: &'static str| TracedCall {
+struct TraceRig {
+    data: tempfile::TempDir,
+    writer: Arc<FailureWriter>,
+    log: RunFailureLog,
+}
+
+impl TraceRig {
+    fn new() -> Self {
+        let tokens = mixdog_rt::testing::tokens();
+        let data = tempfile::tempdir().unwrap();
+        let config = TraceConfig::from_env(data.path(), &|name| (name == "MIXDOG_DIAGNOSTICS").then(|| "1".to_owned()), false);
+        let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
+        let writer = Arc::new(FailureWriter::new(&config, io, Arc::new(At(1))));
+        let log = RunFailureLog::new(Arc::clone(&writer), "s", Some("lead"), "/ws");
+        Self { data, writer, log }
+    }
+
+    fn batch(&self, calls: &[(&str, &str)]) {
+        use mixdog_agent::env::{ToolBatch, ToolBatchCall};
+        let calls = calls.iter().map(|(id, name)| ToolBatchCall { tool_call_id: (*id).into(), tool_name: (*name).into(), array_lengths: None }).collect();
+        self.log.batch(&ToolBatch { iteration: 1, calls });
+    }
+
+    async fn trace_rows(&self) -> Vec<Value> {
+        self.writer.flush().await;
+        mixdog_testkit::read_string(self.data.path().join("history").join("agent-trace.jsonl"))
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    }
+
+    fn failure_rows(&self) -> usize {
+        mixdog_testkit::read_string(self.data.path().join("history").join("tool-failures.jsonl")).lines().count()
+    }
+}
+
+fn traced(id: &str, name: &str, kind: &'static str) -> mixdog_agent::env::TracedCall {
+    mixdog_agent::env::TracedCall {
         iteration: 1,
         tool_call_id: id.into(),
         tool_name: name.into(),
@@ -127,27 +150,19 @@ async fn a_runs_tool_log_writes_its_batch_and_tool_rows_to_the_agent_trace() {
         execution_intervals: Vec::new(),
         result_telemetry: None,
         local_search: None,
-    };
-    log.tool(TracedCall { execution_intervals: vec![(10, 20), (20, 30)], result: json!("ok"), result_text: "ok".into(), ..traced("x1", "edit", "normal") });
-    let integrity = json!({ "kind": "directory-walk", "status": "complete", "entriesVisited": 3, "warnings": 0 });
-    let search = json!({ "native_hits": 1, "native_ms": 4 });
-    log.tool(TracedCall { result_telemetry: Some(json!({ "integrity": integrity })), local_search: Some(search.clone()), ..traced("l1", "list", "error") });
-    for (id, name, kind) in [("r1", "read", "cache-hit"), ("g1", "grep", "scoped-cache-hit")] {
-        log.tool(TracedCall {
-            tool_ms: 0,
-            tool_args: json!({ "path": "private-path", "pattern": "private-query" }),
-            result: json!("private-body"),
-            result_text: "private-body".into(),
-            ..traced(id, name, kind)
-        });
     }
-    log.cross_turn_receipt(CrossTurnReceipt { iteration: 2, tool: "grep", occurrence: 2, first_iteration: 1, total: 1 });
-    writer.flush().await;
+}
 
-    let rows: Vec<Value> =
-        mixdog_testkit::read_string(data.path().join("history").join("agent-trace.jsonl")).lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+/// A tool row names its batch and keeps every run of the call (an ambiguous edit and its retry): `recordToolBatch`, `traceAgentTool`.
+#[tokio::test]
+async fn a_tool_row_names_its_batch_and_keeps_every_run_of_the_call() {
+    use mixdog_agent::env::TracedCall;
+    let rig = TraceRig::new();
+    rig.batch(&[("x1", "edit")]);
+    rig.log.tool(TracedCall { execution_intervals: vec![(10, 20), (20, 30)], result: json!("ok"), result_text: "ok".into(), ..traced("x1", "edit", "normal") });
+    let rows = rig.trace_rows().await;
     let kinds: Vec<&str> = rows.iter().map(|row| row["kind"].as_str().unwrap()).collect();
-    assert_eq!(kinds, ["batch", "tool", "tool", "tool", "tool", "steer"]);
+    assert_eq!(kinds, ["batch", "tool"]);
     let batch_id = rows[0]["payload"]["batch_id"].as_str().unwrap();
     assert_eq!(rows[1]["payload"]["batch"], json!({ "batch_id": batch_id, "tool_call_id": "x1" }));
     assert_eq!(
@@ -155,23 +170,72 @@ async fn a_runs_tool_log_writes_its_batch_and_tool_rows_to_the_agent_trace() {
         json!([{ "started_at_ms": 10, "completed_at_ms": 20 }, { "started_at_ms": 20, "completed_at_ms": 30 }])
     );
     assert_eq!(rows[1]["local_search"], Value::Null);
-    assert_eq!(rows[2]["payload"]["integrity"], integrity);
-    assert_eq!(rows[2]["local_search"], search);
-    for (row, id, kind) in [(&rows[3], "r1", "cache-hit"), (&rows[4], "g1", "scoped-cache-hit")] {
+}
+
+/// A tool row carries what the tool reported about its result and its search.
+#[tokio::test]
+async fn a_tool_row_carries_the_result_telemetry_and_search_the_tool_reported() {
+    use mixdog_agent::env::TracedCall;
+    let rig = TraceRig::new();
+    rig.batch(&[("l1", "list")]);
+    let integrity = json!({ "kind": "directory-walk", "status": "complete", "entriesVisited": 3, "warnings": 0 });
+    let search = json!({ "native_hits": 1, "native_ms": 4 });
+    rig.log.tool(TracedCall { result_telemetry: Some(json!({ "integrity": integrity })), local_search: Some(search.clone()), ..traced("l1", "list", "error") });
+    let rows = rig.trace_rows().await;
+    assert_eq!(rows[1]["payload"]["integrity"], integrity);
+    assert_eq!(rows[1]["local_search"], search);
+}
+
+/// An error call also gets its failure row, once.
+#[tokio::test]
+async fn an_error_call_also_gets_its_failure_row_once() {
+    let rig = TraceRig::new();
+    rig.batch(&[("l1", "list")]);
+    rig.log.tool(traced("l1", "list", "error"));
+    rig.writer.flush().await;
+    assert_eq!(rig.failure_rows(), 1);
+}
+
+/// A cache hit's row keeps its batch and its (empty) execution, and nothing of what the call asked or answered.
+#[tokio::test]
+async fn a_cache_hit_row_keeps_nothing_of_what_the_call_asked_or_answered() {
+    use mixdog_agent::env::TracedCall;
+    let rig = TraceRig::new();
+    rig.batch(&[("r1", "read"), ("g1", "grep")]);
+    for (id, name, kind) in [("r1", "read", "cache-hit"), ("g1", "grep", "scoped-cache-hit")] {
+        rig.log.tool(TracedCall {
+            tool_ms: 0,
+            tool_args: json!({ "path": "private-path", "pattern": "private-query" }),
+            result: json!("private-body"),
+            result_text: "private-body".into(),
+            ..traced(id, name, kind)
+        });
+    }
+    let rows = rig.trace_rows().await;
+    let batch_id = rows[0]["payload"]["batch_id"].as_str().unwrap();
+    for (row, id, kind) in [(&rows[1], "r1", "cache-hit"), (&rows[2], "g1", "scoped-cache-hit")] {
         assert_eq!(row["result_kind"], kind);
         assert_eq!(row["payload"]["batch"], json!({ "batch_id": batch_id, "tool_call_id": id }));
         assert_eq!(row["payload"]["execution_intervals"], json!([]));
         assert!(row["tool_args"].is_null() && row["tool_args_hash"].is_null());
         assert!(!row.to_string().contains("private-"));
     }
+}
+
+/// A cross-turn dedup receipt is a `steer` row with its tag and counts.
+#[tokio::test]
+async fn a_cross_turn_receipt_is_a_steer_row() {
+    use mixdog_agent::env::CrossTurnReceipt;
+    let rig = TraceRig::new();
+    rig.log.cross_turn_receipt(CrossTurnReceipt { iteration: 2, tool: "grep", occurrence: 2, first_iteration: 1, total: 1 });
+    let rows = rig.trace_rows().await;
+    assert_eq!(rows[0]["kind"], "steer");
     assert_eq!(
-        rows[5]["payload"],
+        rows[0]["payload"],
         json!({
             "tag": "cross_turn_dedup", "tool": "grep", "occurrence": 2, "first_iteration": 1, "dedup_stub_total": 1,
         })
     );
-    let failures = mixdog_testkit::read_string(data.path().join("history").join("tool-failures.jsonl"));
-    assert_eq!(failures.lines().count(), 1, "the error call's failure row, once");
 }
 
 /// A completed send's `loop` row and a host browser command's `browser_timing` row join the agent trace in Node's shape

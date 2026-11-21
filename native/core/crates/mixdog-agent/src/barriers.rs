@@ -1,5 +1,4 @@
-//! The ordering barriers of calls that start together, as Node's eager dispatcher keeps them
-//! (`session/eager-dispatch/barriers.mjs`). Every call of a batch runs at once except that
+//! The ordering barriers of calls that start together. Every call of a batch runs at once except that
 //!
 //! - an `edit` waits for the earlier edits of its file (an edit whose file cannot be told waits for every earlier edit,
 //!   and later edits of any file wait for it);

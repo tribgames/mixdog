@@ -615,10 +615,6 @@ async fn a_failed_exchange_leaves_the_retry_a_fresh_socket_and_a_full_frame() {
     assert_eq!(sent[2].get("previous_response_id"), None);
     assert_eq!(sent[2]["input"].as_array().unwrap().len(), 3);
 }
-// A socket goes back to the pool only through `Checkout::finish`, which `ResponsesStream::park` calls once the decoder
-// has seen the terminal event. A response the consumer drops half way drops its `Checkout` with the socket still in it
-// (`pool.rs` `Drop for Checkout`): the socket closes and the key is marked fresh, so the next request dials and sends
-// a full frame, and no deflate context or half-read message is ever carried to it.
 #[tokio::test]
 async fn a_response_abandoned_mid_stream_never_returns_its_socket_to_the_pool() {
     let dial = Dial::with(vec![Dialed::Socket(answer("resp_1", "first")), Dialed::Socket(answer("resp_2", "second"))]);

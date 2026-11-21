@@ -407,6 +407,27 @@ impl Cycle1Runner {
         }
     }
 
+    /// A request that cannot run now: recorded for the coalescer, retried later, answered as skipped.
+    async fn defer(
+        self: &Arc<Self>,
+        config: &Value,
+        options: &Cycle1Options,
+        signature: &str,
+        max_retries: u32,
+        reason: &'static str,
+        message: &str,
+    ) -> Cycle1Result {
+        let (retried, attempt) = (options.coalesced_retry, options.retry_attempt);
+        if !retried {
+            mark_cycle_request(&self.db, "cycle1", reason, signature, (self.now)()).await;
+        }
+        if !retried || attempt < max_retries {
+            self.schedule_retry(config, options, signature);
+        }
+        self.log_throttled(reason, message);
+        self.skip().await
+    }
+
     /// `runCycle1`.
     pub fn run_cycle1(self: Arc<Self>, config: Value, options: Cycle1Options) -> BoxFuture<'static, Result<Cycle1Result>> {
         Box::pin(async move {
@@ -414,19 +435,12 @@ impl Cycle1Runner {
             if cancel.is_cancelled() {
                 return Err(MemoryError::Cancelled);
             }
-            let (retried, attempt) = (options.coalesced_retry, options.retry_attempt);
+            let retried = options.coalesced_retry;
             let max_retries = resolve_coalesce_max_retries(&config, 3.0) as u32;
             let signature = Self::signature(&config, &options);
             let now = || (self.now)();
             if self.is_running() {
-                if !retried {
-                    mark_cycle_request(&self.db, "cycle1", "in-flight", &signature, now()).await;
-                }
-                if !retried || attempt < max_retries {
-                    self.schedule_retry(&config, &options, &signature);
-                }
-                self.log_throttled("in-flight", "[cycle1] skipped: already in flight for this db\n");
-                return Ok(self.skip().await);
+                return Ok(self.defer(&config, &options, &signature, max_retries, "in-flight", "[cycle1] skipped: already in flight for this db\n").await);
             }
             let client = self.db.client().await?;
             let locked = client.query_one("SELECT pg_try_advisory_lock(hashtext($1)) AS got", &[&ADVISORY_KEY]).await;
@@ -446,14 +460,9 @@ impl Cycle1Runner {
             };
             if !got {
                 drop(client);
-                if !retried {
-                    mark_cycle_request(&self.db, "cycle1", "advisory-lock", &signature, now()).await;
-                }
-                if !retried || attempt < max_retries {
-                    self.schedule_retry(&config, &options, &signature);
-                }
-                self.log_throttled("advisory-lock", "[cycle1] skipped: advisory lock held by another worker\n");
-                return Ok(self.skip().await);
+                return Ok(self
+                    .defer(&config, &options, &signature, max_retries, "advisory-lock", "[cycle1] skipped: advisory lock held by another worker\n")
+                    .await);
             }
             self.set_running(true);
             let outcome = self.locked_run(&config, &options, &signature, max_retries).await;

@@ -253,6 +253,62 @@ fn l_offset(text: &str) -> Option<i64> {
     ((1..=2).contains(&n.len()) && all_digits(n)).then(|| parse_num(n))
 }
 
+fn field_numbers(list: &[Tok], field: usize) -> Option<Vec<u32>> {
+    list.iter()
+        .map(|tok| match tok {
+            Tok::Num(n) if (VALID_MIN[field]..=VALID_MAX[field]).contains(n) => Some(*n as u32),
+            _ => None,
+        })
+        .collect()
+}
+
+fn sorted_numbers(list: &[Tok], field: usize) -> Option<Vec<u32>> {
+    let mut numbers = field_numbers(list, field)?;
+    numbers.sort_unstable();
+    numbers.dedup();
+    Some(numbers)
+}
+
+/// Day of month: the special members (`L`, `L-n`, `nW`, `LW`) leave the list, the rest are checked as numbers.
+fn day_field_of(days: Vec<Tok>, raw: &str) -> Option<DayField> {
+    if raw.to_ascii_lowercase().contains('w') && raw.split(',').any(|t| t.to_ascii_lowercase().contains('w') && w_token(mixdog_js::js_trim(t)).is_none()) {
+        return None;
+    }
+    let mut field = DayField::default();
+    let mut plain = Vec::new();
+    for tok in days {
+        match &tok {
+            Tok::Text(text) if text == "L" => field.last = true,
+            Tok::Text(text) if w_token(text).is_some() => match w_token(text).unwrap() {
+                None => push_unique(&mut field.nearest_weekday, None),
+                Some(target) if (1..=31).contains(&target) => push_unique(&mut field.nearest_weekday, Some(target as u32)),
+                Some(_) => return None,
+            },
+            Tok::Text(text) if l_offset(text).is_some() => match l_offset(text).unwrap() {
+                n if (1..=30).contains(&n) => push_unique(&mut field.last_offsets, n as u32),
+                _ => return None,
+            },
+            _ => plain.push(tok),
+        }
+    }
+    field.numbers = sorted_numbers(&plain, 3)?;
+    Some(field)
+}
+
+fn weekday_field_of(weekdays: Vec<Tok>) -> Option<WeekdayField> {
+    let mut field = WeekdayField::default();
+    let mut plain = Vec::new();
+    for tok in weekdays {
+        match &tok {
+            Tok::Text(text) if nth_weekday(text).is_some() => push_unique(&mut field.nth, nth_weekday(text).unwrap()),
+            Tok::Text(text) if last_weekday(text).is_some() => push_unique(&mut field.last, last_weekday(text).unwrap()),
+            _ => plain.push(tok),
+        }
+    }
+    field.numbers = sorted_numbers(&plain, 5)?;
+    Some(field)
+}
+
 impl CronExpr {
     /// A schedule's expression as Mixdog stores it: five or six fields, then node-cron's `validate`.
     pub fn parse(expression: &str) -> Result<Self, CronError> {
@@ -282,61 +338,16 @@ impl CronExpr {
         let raw_dom = raw[3].clone();
         let fields: [String; 6] = raw.try_into().map_err(|_| invalid())?;
         let [seconds, minutes, hours, days, months, weekdays] = interpret(&fields);
-        let numbers = |list: &[Tok], field: usize| -> Option<Vec<u32>> {
-            list.iter()
-                .map(|tok| match tok {
-                    Tok::Num(n) if (VALID_MIN[field]..=VALID_MAX[field]).contains(n) => Some(*n as u32),
-                    _ => None,
-                })
-                .collect()
-        };
-        let sorted = |mut list: Vec<u32>| {
-            list.sort_unstable();
-            list.dedup();
-            list
-        };
-        let seconds = sorted(numbers(&seconds, 0).ok_or_else(invalid)?);
-        let minutes = sorted(numbers(&minutes, 1).ok_or_else(invalid)?);
-        let hours = sorted(numbers(&hours, 2).ok_or_else(invalid)?);
-        // Day of month: the special members leave the list, the rest are checked as numbers.
-        if raw_dom.to_ascii_lowercase().contains('w')
-            && raw_dom.split(',').any(|t| t.to_ascii_lowercase().contains('w') && w_token(mixdog_js::js_trim(t)).is_none())
-        {
-            return Err(invalid());
-        }
-        let mut day_field = DayField::default();
-        let mut plain = Vec::new();
-        for tok in days {
-            match &tok {
-                Tok::Text(text) if text == "L" => day_field.last = true,
-                Tok::Text(text) if w_token(text).is_some() => match w_token(text).unwrap() {
-                    None => push_unique(&mut day_field.nearest_weekday, None),
-                    Some(target) if (1..=31).contains(&target) => push_unique(&mut day_field.nearest_weekday, Some(target as u32)),
-                    Some(_) => return Err(invalid()),
-                },
-                Tok::Text(text) if l_offset(text).is_some() => match l_offset(text).unwrap() {
-                    n if (1..=30).contains(&n) => push_unique(&mut day_field.last_offsets, n as u32),
-                    _ => return Err(invalid()),
-                },
-                _ => plain.push(tok),
-            }
-        }
-        day_field.numbers = sorted(numbers(&plain, 3).ok_or_else(invalid)?);
-        let months_list = numbers(&months, 4).ok_or_else(invalid)?;
+        let seconds = sorted_numbers(&seconds, 0).ok_or_else(invalid)?;
+        let minutes = sorted_numbers(&minutes, 1).ok_or_else(invalid)?;
+        let hours = sorted_numbers(&hours, 2).ok_or_else(invalid)?;
+        let day_field = day_field_of(days, &raw_dom).ok_or_else(invalid)?;
+        let months_list = field_numbers(&months, 4).ok_or_else(invalid)?;
         let mut month_set = [false; 13];
         for m in &months_list {
             month_set[*m as usize] = true;
         }
-        let mut weekday_field = WeekdayField::default();
-        let mut plain = Vec::new();
-        for tok in weekdays {
-            match &tok {
-                Tok::Text(text) if nth_weekday(text).is_some() => push_unique(&mut weekday_field.nth, nth_weekday(text).unwrap()),
-                Tok::Text(text) if last_weekday(text).is_some() => push_unique(&mut weekday_field.last, last_weekday(text).unwrap()),
-                _ => plain.push(tok),
-            }
-        }
-        weekday_field.numbers = sorted(numbers(&plain, 5).ok_or_else(invalid)?);
+        let weekday_field = weekday_field_of(weekdays).ok_or_else(invalid)?;
         // `isImpossibleDayOfMonth`: only plain day numbers, none that exists in any listed month.
         let only_numbers = !day_field.last && day_field.last_offsets.is_empty() && day_field.nearest_weekday.is_empty();
         if only_numbers && !months_list.iter().any(|m| day_field.numbers.iter().any(|d| *d <= MAX_DAYS_IN_MONTH[*m as usize])) {

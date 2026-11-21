@@ -1,21 +1,3 @@
-//! The length of each thread's model context, kept in memory.
-//!
-//! A status pass asks the message count of every running worker, and each handoff asks it again. Counting it scans the
-//! thread's context rows in the index on an I/O lane. A thread's context grows only through the thread's own log, so
-//! once it is counted it is followed here: the thread's writer adds what each batch adds, taken from the projection the
-//! index is written from, and a reader takes the number without the index.
-//!
-//! The count and what is added to it are of one position in the thread's batches. The writer is inside a batch from
-//! before it touches the log ([`ContextLens::batch`]) until the batch's projection is with the index writer, and the
-//! batch is added here in that same step ([`Batch::stored`]). A count from the index is kept only when the writer was
-//! outside a batch at the count's end and ended none since its start: the index, waited for after that start, then
-//! held the rows of exactly the batches stored by then, and each later batch is added once. A thread's creation is a
-//! batch, so a count of a fork begins after the rows it takes from its bases were stored.
-//!
-//! A kept count stands while the shape of the thread's history does ([`LogShape::stands`]): a rewind, a rewrite, a
-//! repair or a delete drops it, and the next ask counts again. It is the log's count: an index that lost a batch of
-//! the thread holds fewer rows, and the store answers for such a thread from the index, never from here.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;

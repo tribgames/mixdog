@@ -170,16 +170,26 @@ fn failure(error: FreshError) -> CompactError {
 }
 
 impl FreshCompactor {
-    /// A session's compactor as Node wires it (`resolveSessionCompactionPolicy` and
-    /// `runFreshContextCompact`): sized by the policy the settings resolve to with `auto` forced
+    /// A session's compactor, sized by the policy the settings resolve to with `auto` forced
     /// on, because a manual or auto-clear compaction needs the same numbers while automatic
     /// compaction is off. The reserve is the policy's, the window is the session's (else the
     /// boundary), and the hard budget is the window in the provider's calibrated tokens.
-    /// `None` when the session knows no boundary: Node has no policy then, and a forced
-    /// compaction fails with "no context window is available".
+    /// `None` when the session knows no boundary: a forced compaction then fails with
+    /// "no context window is available".
     pub fn for_session(session: SessionCompactor) -> Option<Arc<Self>> {
         let (summary, config) = PlannedHandoff::for_session(&session)?;
         Some(Arc::new(Self { parts: session.parts, triggers: Some(session.triggers), summary: Some(Arc::new(summary)), config }))
+    }
+
+    async fn dropped_by(&self, before: &[AgentMessage], after: &[AgentMessage]) -> Result<(u64, Option<crate::env::Dropped>), CompactError> {
+        if after == before {
+            return Ok((0, None));
+        }
+        let (before, after) = (before.to_vec(), after.to_vec());
+        let (rows, redactor) = (Arc::clone(&self.parts.rows), Arc::clone(&self.parts.redactor));
+        with_blobs(&*self.parts.blobs, move |blobs| dropped_summary(&before, &after, &*rows, &*redactor, &mut UserText::new(blobs)))
+            .await
+            .map_err(|unavailable| CompactError::Failed(unavailable.to_string()))
     }
 
     fn options(&self, request: &CompactRequest<'_>, handoff_text: String, preview: bool, preview_summary: bool) -> FreshOptions {
@@ -222,8 +232,6 @@ impl Compactor for FreshCompactor {
     }
 
     async fn prepare(&self, messages: &[AgentMessage]) {
-        // A read that fails for now leaves the part unpriced here; the pass reads the blob again for its summary and
-        // fails there (`referencedText` rethrows it).
         let _ = self.parts.media.prepare(messages).await;
     }
 
@@ -260,7 +268,6 @@ impl Compactor for FreshCompactor {
 
     async fn compact(&self, request: CompactRequest<'_>) -> Result<CompactOutput, CompactError> {
         self.prepare(request.messages).await;
-        // `runFreshContextCompact`'s `startedAt`: from the summary decision to the rebuilt transcript.
         let started = tokio::time::Instant::now();
         let mut usage = None;
         let mut input_excludes_cache = false;
@@ -300,15 +307,7 @@ impl Compactor for FreshCompactor {
                 summary_route,
             });
         }
-        let (dropped_count, dropped) = if result.messages == request.messages {
-            (0, None)
-        } else {
-            let (before, after) = (request.messages.to_vec(), result.messages.clone());
-            let (rows, redactor) = (Arc::clone(&self.parts.rows), Arc::clone(&self.parts.redactor));
-            with_blobs(&*self.parts.blobs, move |blobs| dropped_summary(&before, &after, &*rows, &*redactor, &mut UserText::new(blobs)))
-                .await
-                .map_err(|unavailable| CompactError::Failed(unavailable.to_string()))?
-        };
+        let (dropped_count, dropped) = self.dropped_by(request.messages, &result.messages).await?;
         Ok(CompactOutput {
             messages: result.messages,
             usage,

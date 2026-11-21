@@ -36,11 +36,10 @@ pub fn held_request_push_text(agent_name: &str) -> String {
     format!("{}가 승인을 기다립니다", slice_utf16(name, NAME_UNITS))
 }
 
-/// The desktop service's held-request notifier (`registerHeldRequestNotifier(event =>
-/// pushNotifier.onHeldRequest(event))`): asks who is listening, plans the push and hands it to the
+/// The desktop service's held-request notifier: asks who is listening, plans the push and hands it to the
 /// relay. A device whose PC-in-use preference holds it waits `DESKTOP_HOLD_MS`, then gets it unless
-/// the notifier was switched off meanwhile; a request is never "seen on screen" (Node's `due` is
-/// always true for it), so nothing else cancels the hold.
+/// the notifier was switched off meanwhile; a request is never "seen on screen", so nothing else
+/// cancels the hold.
 pub struct HeldPushNotifier {
     engine: Arc<NotificationEngine>,
     audience: Arc<dyn AudienceSource>,

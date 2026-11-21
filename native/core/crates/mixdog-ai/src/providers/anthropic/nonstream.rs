@@ -1,8 +1,3 @@
-//! The non-streaming re-issue of an API-key send (`issueNonStreamingFallback`, anthropic-api-recovery.mjs:41-64):
-//! the request body as `{ ...params, stream: false }` capped for a non-streaming request (`capForNonStreaming`,
-//! anthropic-max-tokens-recovery.mjs), and the whole Messages response as the turn's events
-//! (`normalizeAnthropicNonStreamingResponse`, lib/anthropic-request-utils.mjs).
-
 use mixdog_core_api::domain::provider::ProviderReplay;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::ToolCall;
@@ -39,10 +34,6 @@ pub(super) fn body(streaming: &[u8]) -> Option<Vec<u8>> {
     serde_json::to_vec(&body).ok()
 }
 
-/// The whole response `message` to a request for `requested` as the events of one turn: the text, the calls, the
-/// model that answered (a fallback block's target first), the replay blocks (fallback blocks kept, as Node's
-/// `sanitizeAnthropicReplayBlocks` keeps them), the native server-tool blocks, usage, the fallback metadata, the block
-/// summary and the stop. No output start: Node measures no generation window for it.
 pub(super) fn events(owner: &ProviderId, requested: &str, message: &Value) -> Vec<StreamEvent> {
     let blocks: Vec<Value> = message.get("content").and_then(Value::as_array).cloned().unwrap_or_default();
     let kind = |block: &Value| block.get("type").and_then(Value::as_str).unwrap_or("").to_owned();

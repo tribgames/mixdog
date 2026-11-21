@@ -1,8 +1,3 @@
-//! `ModelRequest` → the Gemini-shaped request object (`contents`,
-//! `systemInstruction`, `tools`, `toolConfig`, `generationConfig`) shared by
-//! the Gemini API, Vertex AI and Antigravity. The three differ only in the
-//! [`Dialect`] flags.
-
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
@@ -303,53 +298,56 @@ fn metadata_text_parts(message: &Message) -> Option<Vec<Value>> {
 }
 
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-fn model_content(message: &Message, dialect: &Dialect, model: &str, traits: &dyn ModelTraits) -> Result<Option<Value>, ProviderError> {
-    // Antigravity first takes the parts it recorded itself (`signatureSafeMessages`); every route then builds the turn
-    // as `toGeminiContent` does: a Gemini-wire envelope's parts, else the stored metadata and the message itself.
-    let own = if dialect.family_gated { antigravity_own_parts(message, dialect, model) } else { None };
-    let recorded = own.is_some();
-    let mut parts = if let Some(parts) = own.or_else(|| replayed_parts(message, model, traits)) {
-        parts
+fn rebuilt_model_parts(message: &Message, model: &str, traits: &dyn ModelTraits) -> Result<Vec<Value>, ProviderError> {
+    let metadata = !foreign_replay(message, model, traits);
+    let text_parts = || if metadata { metadata_text_parts(message) } else { None };
+    let mut parts = if message.tool_calls.is_empty() {
+        match text_parts() {
+            Some(parts) => parts,
+            None => content_parts(&message.content)?,
+        }
     } else {
-        let metadata = !foreign_replay(message, model, traits);
-        let text_parts = || if metadata { metadata_text_parts(message) } else { None };
-        let mut parts = if message.tool_calls.is_empty() {
+        let mut parts = if metadata { metadata_thought_parts(message) } else { Vec::new() };
+        if !matches!(&message.content, Content::Text(text) if text.is_empty()) {
             match text_parts() {
-                Some(parts) => parts,
-                None => content_parts(&message.content)?,
+                Some(text) => parts.extend(text),
+                None => parts.extend(content_parts(&message.content)?),
             }
-        } else {
-            let mut parts = if metadata { metadata_thought_parts(message) } else { Vec::new() };
-            if !matches!(&message.content, Content::Text(text) if text.is_empty()) {
-                match text_parts() {
-                    Some(text) => parts.extend(text),
-                    None => parts.extend(content_parts(&message.content)?),
-                }
-            }
-            parts
-        };
-        for call in &message.tool_calls {
-            let mut function_call = json!({ "name": call.name, "args": call.arguments });
-            if !call.id.is_empty() {
-                function_call["id"] = json!(call.id);
-            }
-            parts.push(json!({ "functionCall": function_call }));
         }
         parts
     };
+    for call in &message.tool_calls {
+        let mut function_call = json!({ "name": call.name, "args": call.arguments });
+        if !call.id.is_empty() {
+            function_call["id"] = json!(call.id);
+        }
+        parts.push(json!({ "functionCall": function_call }));
+    }
+    Ok(parts)
+}
+
+fn sign_thoughts(parts: &mut [Value], recorded: bool) {
+    for part in parts {
+        let signed = part.get("thoughtSignature").is_some_and(Value::is_string);
+        if (is_thought(part) || signed) && (!recorded || !part.get("thoughtSignature").and_then(Value::as_str).is_some_and(|s| !s.is_empty())) {
+            part["thoughtSignature"] = json!(SIGNATURE_SENTINEL);
+        }
+    }
+}
+
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+fn model_content(message: &Message, dialect: &Dialect, model: &str, traits: &dyn ModelTraits) -> Result<Option<Value>, ProviderError> {
+    let own = if dialect.family_gated { antigravity_own_parts(message, dialect, model) } else { None };
+    let recorded = own.is_some();
+    let mut parts = match own.or_else(|| replayed_parts(message, model, traits)) {
+        Some(parts) => parts,
+        None => rebuilt_model_parts(message, model, traits)?,
+    };
     if dialect.family_gated {
         if antigravity_claude(model) {
-            // A turn that held only empty or dropped parts is omitted, not sent as `parts: []`.
             parts = claude_replay_parts(parts, recorded);
         }
-        // Signatures this route recorded are kept; a thought or signed part with no recorded signature carries
-        // the recovery sentinel, and a missing one is never made up.
-        for part in &mut parts {
-            let signed = part.get("thoughtSignature").is_some_and(Value::is_string);
-            if (is_thought(part) || signed) && (!recorded || !part.get("thoughtSignature").and_then(Value::as_str).is_some_and(|s| !s.is_empty())) {
-                part["thoughtSignature"] = json!(SIGNATURE_SENTINEL);
-            }
-        }
+        sign_thoughts(&mut parts, recorded);
     }
     if !dialect.function_ids {
         strip_ids(&mut parts);
@@ -652,25 +650,31 @@ fn thinking_config(request: &ModelRequest, traits: &dyn ModelTraits, include_tho
         _ => {}
     }
     if let Some(budget) = budget {
-        if let ThinkingControl::Budget(spec) = &control
-            && budget != -1
-        {
-            if budget == 0 && !spec.can_disable {
-                return Err(invalid(format!("{model} ({}) cannot disable thinking; thinkingBudget 0 is not allowed.", spec.name)));
-            }
-            if budget != 0 && (budget < spec.min || budget > spec.max) {
-                return Err(invalid(format!(
-                    "{model} ({}) thinkingBudget must be -1, {}{}–{}; received {budget}.",
-                    spec.name,
-                    if spec.can_disable { "0, or " } else { "" },
-                    spec.min,
-                    spec.max
-                )));
-            }
-        }
+        check_budget_range(model, &control, budget)?;
         config.insert("thinkingBudget".into(), json!(budget));
     }
     Ok((!config.is_empty()).then_some(Value::Object(config)))
+}
+
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+fn check_budget_range(model: &str, control: &ThinkingControl, budget: i64) -> Result<(), ProviderError> {
+    if let ThinkingControl::Budget(spec) = control
+        && budget != -1
+    {
+        if budget == 0 && !spec.can_disable {
+            return Err(invalid(format!("{model} ({}) cannot disable thinking; thinkingBudget 0 is not allowed.", spec.name)));
+        }
+        if budget != 0 && (budget < spec.min || budget > spec.max) {
+            return Err(invalid(format!(
+                "{model} ({}) thinkingBudget must be -1, {}{}–{}; received {budget}.",
+                spec.name,
+                if spec.can_disable { "0, or " } else { "" },
+                spec.min,
+                spec.max
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn max_output_tokens(options: &RequestOptions) -> Option<u32> {
@@ -707,33 +711,7 @@ pub fn build_request(request: &ModelRequest, dialect: &Dialect, traits: &dyn Mod
     if contents.is_empty() {
         return Err(invalid("No messages to send"));
     }
-    // A Claude model behind Antigravity: its own output cap and thinking config, and with thinking on, an unthought
-    // tool loop closed on the wire (`buildAntigravityRequest`, antigravity-request.mjs:236-252). The tail reminder is
-    // not history: the closure sees the real tail and the reminder stays last.
-    let claude = dialect.family_gated && antigravity_claude(&request.model);
-    let claude_generation = if claude {
-        let cap = request.options.model_max_output_tokens.filter(|n| *n > 0).unwrap_or(CLAUDE_MAX_OUTPUT_TOKENS);
-        let thinking = claude_thinking_config(&request.options, cap)?;
-        let thinks = thinking.contains_key("thinkingLevel")
-            || thinking.contains_key("thinkingBudget")
-            || request.model.len().checked_sub(9).and_then(|at| request.model.get(at..)).is_some_and(|tail| tail.eq_ignore_ascii_case("-thinking"));
-        if thinks {
-            let reminder = request
-                .messages
-                .last()
-                .is_some_and(|m| m.role == Role::User && m.source == Some(MessageSource::TailReminder) && !text_of(&m.content).is_empty())
-                .then(|| contents.pop())
-                .flatten();
-            contents = close_unthought_tool_loop(contents);
-            contents.extend(reminder);
-        }
-        let mut generation = Map::new();
-        generation.insert("maxOutputTokens".into(), json!(cap));
-        generation.insert("thinkingConfig".into(), Value::Object(thinking));
-        Some(generation)
-    } else {
-        None
-    };
+    let claude_generation = if dialect.family_gated && antigravity_claude(&request.model) { Some(claude_generation(request, &mut contents)?) } else { None };
     let system: Vec<String> = request.messages.iter().filter(|m| m.role == Role::System).map(|m| text_of(&m.content)).collect();
     let system = system.join("\n\n");
     let mut body = Map::new();
@@ -747,10 +725,6 @@ pub fn build_request(request: &ModelRequest, dialect: &Dialect, traits: &dyn Mod
         instruction.insert("parts".into(), json!([{ "text": system }]));
         body.insert("systemInstruction".into(), Value::Object(instruction));
     }
-    // A Gemini endpoint rejects the whole request for one bad declaration, so a Gemini-family
-    // model's tools are checked (a tool it would reject is left out and reported); a Claude model
-    // behind Antigravity gets the 2020-12 schema its Anthropic bridge takes; another family behind
-    // the same endpoint keeps the plain conversion (`toGeminiTools`' options).
     let mode = if dialect.family_gated && antigravity_claude(&request.model) {
         tool_accept::Declarations::ClaudeBridge
     } else if gemini_fields {
@@ -777,6 +751,38 @@ pub fn build_request(request: &ModelRequest, dialect: &Dialect, traits: &dyn Mod
         body.insert("generationConfig".into(), Value::Object(generation));
         return Ok(Value::Object(body));
     }
+    let generation = generation_config(request, dialect, traits, gemini_fields)?;
+    if !generation.is_empty() {
+        body.insert("generationConfig".into(), Value::Object(generation));
+    }
+    Ok(Value::Object(body))
+}
+
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+fn claude_generation(request: &ModelRequest, contents: &mut Vec<Value>) -> Result<Map<String, Value>, ProviderError> {
+    let cap = request.options.model_max_output_tokens.filter(|n| *n > 0).unwrap_or(CLAUDE_MAX_OUTPUT_TOKENS);
+    let thinking = claude_thinking_config(&request.options, cap)?;
+    let thinks = thinking.contains_key("thinkingLevel")
+        || thinking.contains_key("thinkingBudget")
+        || request.model.len().checked_sub(9).and_then(|at| request.model.get(at..)).is_some_and(|tail| tail.eq_ignore_ascii_case("-thinking"));
+    if thinks {
+        let reminder = request
+            .messages
+            .last()
+            .is_some_and(|m| m.role == Role::User && m.source == Some(MessageSource::TailReminder) && !text_of(&m.content).is_empty())
+            .then(|| contents.pop())
+            .flatten();
+        *contents = close_unthought_tool_loop(std::mem::take(contents));
+        contents.extend(reminder);
+    }
+    let mut generation = Map::new();
+    generation.insert("maxOutputTokens".into(), json!(cap));
+    generation.insert("thinkingConfig".into(), Value::Object(thinking));
+    Ok(generation)
+}
+
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+fn generation_config(request: &ModelRequest, dialect: &Dialect, traits: &dyn ModelTraits, gemini_fields: bool) -> Result<Map<String, Value>, ProviderError> {
     let mut generation = Map::new();
     if let Some(thinking) = thinking_config(request, traits, gemini_fields.then_some(true))? {
         generation.insert("thinkingConfig".into(), thinking);
@@ -792,10 +798,7 @@ pub fn build_request(request: &ModelRequest, dialect: &Dialect, traits: &dyn Mod
             generation.insert("temperature".into(), json!(temperature));
         }
     }
-    if !generation.is_empty() {
-        body.insert("generationConfig".into(), Value::Object(generation));
-    }
-    Ok(Value::Object(body))
+    Ok(generation)
 }
 
 #[cfg(test)]

@@ -1,11 +1,7 @@
-//! Who is using the mouse and keyboard: low-level hooks on a thread of their
-//! own record every input event as this host's (injected with its marker) or
-//! someone else's, into the shared ledger, with the processes it went to.
 //! Windows can stop calling a hook without telling its owner, and delivers
-//! none on the secure desktop, so the thread also compares the system's
-//! last-input clock with the last event it saw and treats a difference as a
-//! gap: fresh hooks, and no input until the desktop was quiet again
-//! (MixInputObservation, InputObservation.cs).
+//! none on the secure desktop, so the thread compares the system's last-input
+//! clock with the last event it saw and treats a difference as a gap: fresh
+//! hooks, and no input until the desktop was quiet again.
 
 use super::input::{any_held, desktop_ready, note_foreign, unassigned};
 use super::native;
@@ -86,7 +82,7 @@ impl Lookup for Live {
     }
 }
 
-/// MouseProcesses: a mouse event reaches the window under it and, through a
+/// A mouse event reaches the window under it and, through a
 /// cross-process child, that window's top level; a wheel may also go to the
 /// foreground. A window holding mouse capture receives moves and releases
 /// wherever the pointer is, and while a button is down the foreground may hold
@@ -201,7 +197,7 @@ struct HookMonitor {
 }
 
 impl Monitor for HookMonitor {
-    /// ReadMonitor's drain: hook callbacks for input the system already took
+    /// Hook callbacks for input the system already took
     /// reach the hook thread's queue first, so a drain posted behind them is
     /// answered with them accounted for. A drain an earlier reader gave up on
     /// may be answered late; its number does not end this wait.

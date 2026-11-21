@@ -55,10 +55,6 @@ pub fn sanitize_tool_pairs(messages: &[AgentMessage]) -> Vec<AgentMessage> {
     out
 }
 
-/// An assistant turn left without results for all its calls (an abort between
-/// the assistant push and the tool pushes) is removed with its contiguous tool
-/// block; a tool result with no anchoring assistant call is dropped. Returns
-/// how many messages were removed.
 fn ensure_pairing(messages: &mut Vec<AgentMessage>) -> usize {
     let mut popped = 0;
     while let Some(last_assistant) = messages.iter().rposition(|m| m.role() == Role::Assistant && !m.tool_calls().is_empty()) {

@@ -1,9 +1,3 @@
-//! Vertex AI credentials: Application Default Credentials (a gcloud login,
-//! a service-account key, an impersonated service account), a stored
-//! service-account key, or an express-mode API key ([`super::ApiKeyAuth`]).
-//! A token is minted once per credential identity and shared by every
-//! attempt until five minutes before it expires.
-
 use crate::transport::deadlines::VERTEX_TOKEN;
 use std::sync::Arc;
 use std::sync::Mutex;

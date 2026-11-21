@@ -3,7 +3,7 @@
 
 use mixdog_js::{json_number, math, value_to_string};
 use mixdog_office_base::a1::column_label;
-use mixdog_office_base::labels::preset_labels;
+use mixdog_office_base::labels::{PresetLabels, preset_labels};
 use mixdog_office_base::line_breaks::{without_runt, wrap_units};
 use mixdog_office_base::values::truthy;
 use serde_json::{Map, Value};
@@ -185,26 +185,47 @@ pub(super) struct Panel<'a> {
     pub gates: Option<&'a Value>,
     pub actions: Option<&'a Value>,
     pub label: &'a str,
-    /// The panel's printed width, from which the decision's merged row takes its height: a merged cell never grows to
-    /// its lines, and a two-sentence decision showed its first line and hid the rest in Excel.
+    /// The panel's printed width, from which the decision's merged row takes its height; a merged cell never grows to its lines.
     pub width_points: f64,
+}
+
+/// Where a panel sits on its sheet.
+struct PanelGrid<'a> {
+    sheet: &'a str,
+    tokens: &'a Tokens<'a>,
+    first_column: usize,
+    final_column: usize,
+    width: usize,
 }
 
 /// Writes the decision panel; the row after its last one.
 pub(super) fn add_xlsx_decision_panel(output: &mut Vec<Value>, panel: &Panel) -> usize {
     let tokens = Tokens::of(panel.design);
-    let sheet = panel.sheet;
     let first_column = panel.start_column.max(1);
     // Four columns hold the gate row's three spans; a panel under a four-column table keeps the table's width.
     let width = panel.columns.max(4);
-    let final_column = first_column + width - 1;
-    let mut cursor = panel.row;
+    let grid = PanelGrid { sheet: panel.sheet, tokens: &tokens, first_column, final_column: first_column + width - 1, width };
     let sample = Value::Array(vec![
         Value::String(panel.decision.to_owned()),
         panel.gates.cloned().unwrap_or(Value::Null),
         panel.actions.cloned().unwrap_or(Value::Null),
     ]);
     let preset = preset_labels(&sample);
+    let mut cursor = add_decision_rows(output, &grid, panel, preset, panel.row);
+    let gate_rows = normalized_gates(panel.gates);
+    let action_list = strings(panel.actions);
+    if !gate_rows.is_empty() {
+        cursor = add_gate_rows(output, &grid, preset, &gate_rows, cursor);
+    }
+    if !gate_rows.is_empty() && !action_list.is_empty() {
+        cursor += 1;
+    }
+    add_action_rows(output, &grid, &action_list, cursor)
+}
+
+fn add_decision_rows(output: &mut Vec<Value>, grid: &PanelGrid, panel: &Panel, preset: &PresetLabels, row: usize) -> usize {
+    let PanelGrid { sheet, tokens, first_column, final_column, .. } = *grid;
+    let mut cursor = row;
     merged_block(
         output,
         Block {
@@ -225,8 +246,6 @@ pub(super) fn add_xlsx_decision_panel(output: &mut Vec<Value>, panel: &Panel) ->
         },
     );
     cursor += 1;
-    // Beside a table the panel shares the table's rows: a taller decision row made the table's first record taller
-    // than the rest. There the decision spans as many 15 pt rows as its lines need instead of growing one.
     let beside_table = first_column > 1;
     let decision_text = if panel.width_points > 0.0 { wrap_words(panel.decision, 15.0, panel.width_points) } else { panel.decision.to_owned() };
     let decision_rows = if beside_table && panel.width_points > 0.0 {
@@ -261,78 +280,79 @@ pub(super) fn add_xlsx_decision_panel(output: &mut Vec<Value>, panel: &Panel) ->
         ));
     }
     cursor += decision_rows + 1;
-    let gate_rows = normalized_gates(panel.gates);
-    let action_list = strings(panel.actions);
-    if !gate_rows.is_empty() {
-        let third = width / 3;
-        let two_thirds = width * 2 / 3;
-        let relative = [(1, third.max(1)), ((third + 1).max(2), two_thirds.max(3)), ((two_thirds + 1).max(4), width)];
-        let spans: Vec<(usize, usize)> = relative.iter().map(|(start, end)| (first_column + start - 1, first_column + end - 1)).collect();
-        // The gate columns are named in the copy's language: "트랙 / Release / Stop" put two English words the caller
-        // never wrote into a Korean sheet.
-        for (index, label) in preset.gate.iter().enumerate() {
+    cursor
+}
+
+fn add_gate_rows(output: &mut Vec<Value>, grid: &PanelGrid, preset: &PresetLabels, gate_rows: &[[String; 3]], row: usize) -> usize {
+    let PanelGrid { sheet, tokens, first_column, width, .. } = *grid;
+    let mut cursor = row;
+    let third = width / 3;
+    let two_thirds = width * 2 / 3;
+    let relative = [(1, third.max(1)), ((third + 1).max(2), two_thirds.max(3)), ((two_thirds + 1).max(4), width)];
+    let spans: Vec<(usize, usize)> = relative.iter().map(|(start, end)| (first_column + start - 1, first_column + end - 1)).collect();
+    for (index, label) in preset.gate.iter().enumerate() {
+        merged_block(
+            output,
+            Block {
+                sheet,
+                start_column: spans[index].0,
+                end_column: spans[index].1,
+                row: cursor,
+                rows: 1,
+                value: label,
+                properties: props(vec![
+                    ("fontName", tokens.face("body")),
+                    ("fontSize", Some(num(10.0))),
+                    ("bold", Some(Value::Bool(true))),
+                    ("color", tokens.color("onInverse")),
+                    ("fillColor", tokens.color("inverse")),
+                    ("horizontalAlignment", Some(text_value("left"))),
+                    ("verticalAlignment", Some(text_value("center"))),
+                ]),
+            },
+        );
+    }
+    cursor += 1;
+    for (row_index, values) in gate_rows.iter().enumerate() {
+        for (column_index, value) in values.iter().enumerate() {
+            let mut color = tokens.color("ink");
+            let mut fill = if row_index % 2 == 0 { tokens.color("canvas") } else { tokens.color("surface2") };
+            if column_index == 1 {
+                color = tokens.color_or("positiveText", "accent");
+                fill = tokens.color_or("positiveWeak", "surface");
+            } else if column_index == 2 {
+                color = tokens.color_or("criticalText", "accent2");
+                fill = tokens.color_or("criticalWeak", "surface2");
+            }
             merged_block(
                 output,
                 Block {
                     sheet,
-                    start_column: spans[index].0,
-                    end_column: spans[index].1,
+                    start_column: spans[column_index].0,
+                    end_column: spans[column_index].1,
                     row: cursor,
                     rows: 1,
-                    value: label,
+                    value,
                     properties: props(vec![
                         ("fontName", tokens.face("body")),
                         ("fontSize", Some(num(10.0))),
-                        ("bold", Some(Value::Bool(true))),
-                        ("color", tokens.color("onInverse")),
-                        ("fillColor", tokens.color("inverse")),
-                        ("horizontalAlignment", Some(text_value("left"))),
+                        ("bold", Some(Value::Bool(column_index == 0))),
+                        ("color", color),
+                        ("fillColor", fill),
                         ("verticalAlignment", Some(text_value("center"))),
+                        ("wrapText", Some(Value::Bool(true))),
                     ]),
                 },
             );
         }
         cursor += 1;
-        for (row_index, values) in gate_rows.iter().enumerate() {
-            for (column_index, value) in values.iter().enumerate() {
-                // Release is a positive state, Stop a critical one: the state fields and words, never a literal tint.
-                let mut color = tokens.color("ink");
-                let mut fill = if row_index % 2 == 0 { tokens.color("canvas") } else { tokens.color("surface2") };
-                if column_index == 1 {
-                    color = tokens.color_or("positiveText", "accent");
-                    fill = tokens.color_or("positiveWeak", "surface");
-                } else if column_index == 2 {
-                    color = tokens.color_or("criticalText", "accent2");
-                    fill = tokens.color_or("criticalWeak", "surface2");
-                }
-                merged_block(
-                    output,
-                    Block {
-                        sheet,
-                        start_column: spans[column_index].0,
-                        end_column: spans[column_index].1,
-                        row: cursor,
-                        rows: 1,
-                        value,
-                        properties: props(vec![
-                            ("fontName", tokens.face("body")),
-                            ("fontSize", Some(num(10.0))),
-                            ("bold", Some(Value::Bool(column_index == 0))),
-                            ("color", color),
-                            ("fillColor", fill),
-                            ("verticalAlignment", Some(text_value("center"))),
-                            ("wrapText", Some(Value::Bool(true))),
-                        ]),
-                    },
-                );
-            }
-            cursor += 1;
-        }
     }
-    // The actions follow the gates rather than stand in for them: given both, the actions would be dropped.
-    if !gate_rows.is_empty() && !action_list.is_empty() {
-        cursor += 1;
-    }
+    cursor
+}
+
+fn add_action_rows(output: &mut Vec<Value>, grid: &PanelGrid, action_list: &[String], row: usize) -> usize {
+    let PanelGrid { sheet, tokens, first_column, final_column, .. } = *grid;
+    let mut cursor = row;
     for action in action_list.iter().take(4) {
         merged_block(
             output,

@@ -1,9 +1,3 @@
-//! The routine runtime: what runs a schedule or webhook fire as a turn in its owner bot's
-//! home thread. The `impl` blocks live beside the Node modules they port: `turn`
-//! (routine-home-turn.mjs), `executor` (routine-executor.mjs), `owned` (owned-automation-run.mjs,
-//! the guards every run passes), `delivery` (its redelivery half) and `sessions`
-//! (schedule-session-run.mjs, webhook-session-run.mjs).
-
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};

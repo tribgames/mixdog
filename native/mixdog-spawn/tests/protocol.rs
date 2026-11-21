@@ -1,5 +1,5 @@
-use std::io::{BufRead, Write};
-use std::process::{Command, Stdio};
+use std::io::{BufRead, BufReader, Write};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -10,11 +10,29 @@ fn read_message(stdout: &mut impl BufRead) -> serde_json::Value {
     serde_json::from_str(line.trim()).unwrap()
 }
 
+fn start_server() -> (Child, BufReader<ChildStdout>, ChildStdin) {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-spawn")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+    let stdout = BufReader::new(child.stdout.take().unwrap());
+    let stdin = child.stdin.take().unwrap();
+    (child, stdout, stdin)
+}
+
+fn slow_command() -> serde_json::Value {
+    #[cfg(windows)]
+    return serde_json::json!({
+        "program": std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into()),
+        "args": ["/d", "/s", "/c", "ping 127.0.0.1 -n 6 >nul"],
+    });
+    #[cfg(not(windows))]
+    return serde_json::json!({
+        "program": "/bin/sh",
+        "args": ["-c", "sleep 5"],
+    });
+}
+
 #[test]
 fn serve_spawn_echoes_and_exits() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-spawn")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
-    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
-    let mut stdin = child.stdin.take().unwrap();
+    let (mut child, mut stdout, mut stdin) = start_server();
     let ready_json = read_message(&mut stdout);
     assert_eq!(ready_json["ready"], true);
 
@@ -62,31 +80,16 @@ fn serve_spawn_echoes_and_exits() {
 
 #[test]
 fn foreground_job_is_tracked_before_promotion() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-spawn")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
-    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
-    let mut stdin = child.stdin.take().unwrap();
+    let (mut child, mut stdout, mut stdin) = start_server();
     let ready_json = read_message(&mut stdout);
     assert_eq!(ready_json["caps"]["trackedForeground"], true);
     assert_eq!(ready_json["caps"]["promoteTask"], true);
 
-    #[cfg(windows)]
-    let request = serde_json::json!({
-        "id": 11,
-        "program": std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into()),
-        "args": ["/d", "/s", "/c", "ping 127.0.0.1 -n 6 >nul"],
-        "jobId": "job_foreground_tracked",
-        "ownerSessionId": "sess_owner",
-        "command": "slow foreground command",
-    });
-    #[cfg(not(windows))]
-    let request = serde_json::json!({
-        "id": 11,
-        "program": "/bin/sh",
-        "args": ["-c", "sleep 5"],
-        "jobId": "job_foreground_tracked",
-        "ownerSessionId": "sess_owner",
-        "command": "slow foreground command",
-    });
+    let mut request = slow_command();
+    request["id"] = serde_json::json!(11);
+    request["jobId"] = serde_json::json!("job_foreground_tracked");
+    request["ownerSessionId"] = serde_json::json!("sess_owner");
+    request["command"] = serde_json::json!("slow foreground command");
     writeln!(stdin, "{request}").unwrap();
 
     let mut initial_task = None;
@@ -139,105 +142,101 @@ fn foreground_job_is_tracked_before_promotion() {
 }
 
 #[test]
-fn track_and_promote_preserve_omitted_metadata_and_apply_present_values() {
-    for operation in ["track", "promote"] {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-spawn")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
-        let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
-        let mut stdin = child.stdin.take().unwrap();
-        assert_eq!(read_message(&mut stdout)["ready"], true);
+fn track_preserves_omitted_metadata_and_applies_present_values() {
+    metadata_updates_follow_the_present_values("track");
+}
 
-        let cwd = std::env::current_dir().unwrap().to_str().unwrap().to_owned();
-        #[cfg(windows)]
-        let mut request = serde_json::json!({
-            "program": std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into()),
-            "args": ["/d", "/s", "/c", "ping 127.0.0.1 -n 6 >nul"],
-        });
-        #[cfg(not(windows))]
-        let mut request = serde_json::json!({
-            "program": "/bin/sh",
-            "args": ["-c", "sleep 5"],
-        });
-        request["id"] = serde_json::json!(11);
-        request["jobId"] = serde_json::json!("job_metadata");
-        request["command"] = serde_json::json!("original command");
-        request["cwd"] = serde_json::json!(cwd);
-        request["shellType"] = serde_json::json!("original shell");
-        request["ownerSessionId"] = serde_json::json!("original owner");
-        request["clientHostPid"] = serde_json::json!(101);
+#[test]
+fn promote_preserves_omitted_metadata_and_applies_present_values() {
+    metadata_updates_follow_the_present_values("promote");
+}
+
+fn metadata_updates_follow_the_present_values(operation: &str) {
+    let (mut child, mut stdout, mut stdin) = start_server();
+    assert_eq!(read_message(&mut stdout)["ready"], true);
+
+    let cwd = std::env::current_dir().unwrap().to_str().unwrap().to_owned();
+    let mut request = slow_command();
+    request["id"] = serde_json::json!(11);
+    request["jobId"] = serde_json::json!("job_metadata");
+    request["command"] = serde_json::json!("original command");
+    request["cwd"] = serde_json::json!(cwd);
+    request["shellType"] = serde_json::json!("original shell");
+    request["ownerSessionId"] = serde_json::json!("original owner");
+    request["clientHostPid"] = serde_json::json!(101);
+    writeln!(stdin, "{request}").unwrap();
+    assert_eq!(read_message(&mut stdout)["event"], "spawned");
+    assert_eq!(read_message(&mut stdout)["event"], "task_started");
+
+    let cases = [
+        (serde_json::json!({}), serde_json::json!(["original command", cwd, "original shell", "original owner", 101])),
+        (
+            serde_json::json!({
+                "command": null,
+                "cwd": null,
+                "shellType": null,
+                "ownerSessionId": null,
+                "clientHostPid": null,
+            }),
+            serde_json::json!(["original command", cwd, "original shell", "original owner", 101]),
+        ),
+        (
+            serde_json::json!({
+                "command": "updated command",
+                "cwd": "updated cwd",
+                "shellType": "updated shell",
+                "ownerSessionId": "updated owner",
+                "clientHostPid": 202,
+            }),
+            serde_json::json!(["updated command", "updated cwd", "updated shell", "updated owner", 202]),
+        ),
+        (
+            serde_json::json!({
+                "cwd": "",
+                "shellType": null,
+                "ownerSessionId": "",
+                "clientHostPid": 0,
+            }),
+            serde_json::json!(["updated command", "", "updated shell", "", 0]),
+        ),
+        (serde_json::json!({"command": "", "shellType": ""}), serde_json::json!(["", "", "", "", 0])),
+        (serde_json::json!({}), serde_json::json!(["", "", "", "", 0])),
+    ];
+    let fields = ["command", "cwd", "shellType", "ownerSessionId", "clientHostPid"];
+    for (index, (mut request, expected)) in cases.into_iter().enumerate() {
+        let id = 20 + index as u64;
+        request["id"] = serde_json::json!(id);
+        if operation == "track" {
+            request["track"] = serde_json::json!(11);
+            request["jobId"] = serde_json::json!("job_metadata");
+        } else {
+            request["promoteTask"] = serde_json::json!("job_metadata");
+        }
         writeln!(stdin, "{request}").unwrap();
-        assert_eq!(read_message(&mut stdout)["event"], "spawned");
-        assert_eq!(read_message(&mut stdout)["event"], "task_started");
-
-        let cases = [
-            (serde_json::json!({}), serde_json::json!(["original command", cwd, "original shell", "original owner", 101])),
-            (
-                serde_json::json!({
-                    "command": null,
-                    "cwd": null,
-                    "shellType": null,
-                    "ownerSessionId": null,
-                    "clientHostPid": null,
-                }),
-                serde_json::json!(["original command", cwd, "original shell", "original owner", 101]),
-            ),
-            (
-                serde_json::json!({
-                    "command": "updated command",
-                    "cwd": "updated cwd",
-                    "shellType": "updated shell",
-                    "ownerSessionId": "updated owner",
-                    "clientHostPid": 202,
-                }),
-                serde_json::json!(["updated command", "updated cwd", "updated shell", "updated owner", 202]),
-            ),
-            (
-                serde_json::json!({
-                    "cwd": "",
-                    "shellType": null,
-                    "ownerSessionId": "",
-                    "clientHostPid": 0,
-                }),
-                serde_json::json!(["updated command", "", "updated shell", "", 0]),
-            ),
-            (serde_json::json!({"command": "", "shellType": ""}), serde_json::json!(["", "", "", "", 0])),
-            (serde_json::json!({}), serde_json::json!(["", "", "", "", 0])),
-        ];
-        let fields = ["command", "cwd", "shellType", "ownerSessionId", "clientHostPid"];
-        for (index, (mut request, expected)) in cases.into_iter().enumerate() {
-            let id = 20 + index as u64;
-            request["id"] = serde_json::json!(id);
-            if operation == "track" {
-                request["track"] = serde_json::json!(11);
-                request["jobId"] = serde_json::json!("job_metadata");
-            } else {
-                request["promoteTask"] = serde_json::json!("job_metadata");
-            }
-            writeln!(stdin, "{request}").unwrap();
-            let message = read_message(&mut stdout);
-            assert_eq!(message["id"], id, "{operation}: {message}");
-            assert_eq!(message["event"], "task_started", "{operation}: {message}");
-            assert_eq!(message["task"]["jobId"], "job_metadata");
-            assert_eq!(message["task"]["requestId"], 11);
-            assert_eq!(message["task"]["status"], "running");
-            for (field, value) in fields.iter().zip(expected.as_array().unwrap()) {
-                assert_eq!(&message["task"][field], value, "{operation}, case {index}, field {field}");
-            }
+        let message = read_message(&mut stdout);
+        assert_eq!(message["id"], id, "{operation}: {message}");
+        assert_eq!(message["event"], "task_started", "{operation}: {message}");
+        assert_eq!(message["task"]["jobId"], "job_metadata");
+        assert_eq!(message["task"]["requestId"], 11);
+        assert_eq!(message["task"]["status"], "running");
+        for (field, value) in fields.iter().zip(expected.as_array().unwrap()) {
+            assert_eq!(&message["task"][field], value, "{operation}, case {index}, field {field}");
         }
-
-        writeln!(stdin, "{}", serde_json::json!({"id": 99, "cancelTask": "job_metadata"})).unwrap();
-        let mut exited = false;
-        for _ in 0..16 {
-            let message = read_message(&mut stdout);
-            assert_ne!(message["event"], "error", "{operation}: {message}");
-            if message["event"] == "exit" {
-                exited = true;
-                break;
-            }
-        }
-        drop(stdin);
-        child.wait().unwrap();
-        assert!(exited, "{operation}: cancelled process did not exit");
     }
+
+    writeln!(stdin, "{}", serde_json::json!({"id": 99, "cancelTask": "job_metadata"})).unwrap();
+    let mut exited = false;
+    for _ in 0..16 {
+        let message = read_message(&mut stdout);
+        assert_ne!(message["event"], "error", "{operation}: {message}");
+        if message["event"] == "exit" {
+            exited = true;
+            break;
+        }
+    }
+    drop(stdin);
+    child.wait().unwrap();
+    assert!(exited, "{operation}: cancelled process did not exit");
 }
 
 // Windows containment: a command spawned with `contain` runs in a job object
@@ -507,9 +506,7 @@ fn server_does_not_forward_inherited_descriptors_to_spawned_commands() {
         libc::fcntl(marker_fd, libc::F_SETFD, 0);
     }
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-spawn")).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
-    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
-    let mut stdin = child.stdin.take().unwrap();
+    let (mut child, mut stdout, mut stdin) = start_server();
     assert_eq!(read_message(&mut stdout)["ready"], true);
 
     let command = format!(

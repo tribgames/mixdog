@@ -1,12 +1,9 @@
-//! One worker turn under its job (Node `runSpawn` in `spawn-flow/spawn-run.mjs` and `runSend` in
-//! `send-flow.mjs`, which differ in the identity they report, the route the turn takes and the
-//! subagent events a spawn emits): turn-review collection, the terminal completion value
+//! One worker turn under its job: turn-review collection, the terminal completion value
 //! (abnormal-empty finishes promoted to errors), the cancelled turn's partial handoff and
 //! terminal accounting.
 //!
 //! A turn the progress watchdog aborted on silence hands its owner the partial output behind the
-//! stop (`watchdogStoppedHandoff`) and names the background shells the stop ended
-//! (`takeStoppedShellJobs`); a user's abort never reaches that branch.
+//! stop and names the background shells the stop ended; a user's abort never reaches that branch.
 
 use std::sync::Arc;
 
@@ -94,6 +91,23 @@ impl TurnRunner {
         }
     }
 
+    /// The watchdog stopped the turn on silence: with partial output the owner gets it as the
+    /// result and the job fails as stalled; without any, the stop is the turn's failure.
+    async fn settle_watchdog_stop(&self, plan: &TurnPlan, job: Option<&Arc<JobHandle>>, start: usize, failure: &TurnError) -> Option<WorkerResult> {
+        let rows = self.sessions.assistant_texts(&plan.session_id, start).await;
+        let partial = turn_partial_handoff(failure.partial_handoff.as_deref(), &rows).filter(|p| !p.is_empty())?;
+        let mut value = plan.identity.clone();
+        let jobs = self.sessions.take_stopped_shell_jobs(&plan.session_id);
+        value.insert("content".into(), Value::String(stopped_handoff(&failure.message, &partial, &jobs.stopped, &jobs.stopping)));
+        value.insert("stallAbort".into(), Value::Bool(true));
+        let value = WorkerResult { value: Value::Object(value), error: None };
+        if let Some(job) = job {
+            job.set_terminal_value(value.clone());
+            reconcile_watchdog_partial(job, &value);
+        }
+        Some(value)
+    }
+
     async fn attempt(
         &self,
         plan: &TurnPlan,
@@ -161,27 +175,13 @@ impl TurnRunner {
             *status = FinalStatus::Cancelled;
             return Err(failure.message);
         }
-        // The watchdog stopped the turn on silence: with partial output the owner gets it as the
-        // result and the job fails as stalled; without any, the stop is the failure below.
         if is_watchdog_abort(&failure.message) {
-            let rows = self.sessions.assistant_texts(&plan.session_id, start).await;
-            if let Some(partial) = turn_partial_handoff(failure.partial_handoff.as_deref(), &rows).filter(|p| !p.is_empty()) {
+            if let Some(value) = self.settle_watchdog_stop(plan, job, start, &failure).await {
                 *status = FinalStatus::Idle;
-                let mut value = plan.identity.clone();
-                let jobs = self.sessions.take_stopped_shell_jobs(&plan.session_id);
-                value.insert("content".into(), Value::String(stopped_handoff(&failure.message, &partial, &jobs.stopped, &jobs.stopping)));
-                value.insert("stallAbort".into(), Value::Bool(true));
-                let value = WorkerResult { value: Value::Object(value), error: None };
-                if let Some(job) = job {
-                    job.set_terminal_value(value.clone());
-                    reconcile_watchdog_partial(job, &value);
-                }
                 return Ok(value);
             }
         }
         *status = FinalStatus::Error;
-        // `noteStoppedShellJobsOnError`: a failure with no partial output still names the shells
-        // the stop ended, so the owner learns them.
         let jobs = self.sessions.take_stopped_shell_jobs(&plan.session_id);
         failure.notes.extend(stopped_jobs_note(&jobs.stopped, &jobs.stopping));
         if let Some(job) = job {

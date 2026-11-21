@@ -19,7 +19,13 @@ fn parse_i32(value: Option<&String>) -> Option<i32> {
     value.and_then(|v| v.parse().ok())
 }
 
-pub fn run(args: &[String]) -> i32 {
+struct ProbeArgs {
+    frames: u32,
+    activate: bool,
+    pending: Vec<InputEvent>,
+}
+
+fn parse_args(args: &[String]) -> ProbeArgs {
     let mut frames = 10u32;
     let mut activate = true;
     let mut pending: Vec<InputEvent> = Vec::new();
@@ -68,6 +74,11 @@ pub fn run(args: &[String]) -> i32 {
             }
         }
     }
+    ProbeArgs { frames, activate, pending }
+}
+
+pub fn run(args: &[String]) -> i32 {
+    let ProbeArgs { frames, activate, pending } = parse_args(args);
 
     let state = match std::fs::read_to_string(paths::state_file()).ok().and_then(|text| InstallState::from_json(&text).ok()) {
         Some(state) => state,
@@ -138,4 +149,45 @@ pub fn run(args: &[String]) -> i32 {
     let _ = protocol::write_all(&mut io, &protocol::encode_control(&Message::Control { active: false }));
     println!("probe: done ({seen} frames)");
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|arg| arg.to_string()).collect()
+    }
+
+    #[test]
+    fn no_arguments_activate_control_and_read_ten_frames() {
+        let parsed = parse_args(&[]);
+        assert_eq!(parsed.frames, 10);
+        assert!(parsed.activate);
+        assert!(parsed.pending.is_empty());
+    }
+
+    #[test]
+    fn flags_become_input_events_in_argument_order() {
+        let parsed = parse_args(&args(&["--frames", "3", "--no-active", "--move", "1", "2", "--click", "3", "4", "--text", "hi", "--key", "65", "--bogus"]));
+        assert_eq!(parsed.frames, 3);
+        assert!(!parsed.activate);
+        assert_eq!(
+            parsed.pending,
+            vec![
+                InputEvent::PointerMove { x: 1, y: 2 },
+                InputEvent::PointerButton { button: PointerButton::Left, down: true, x: 3, y: 4 },
+                InputEvent::PointerButton { button: PointerButton::Left, down: false, x: 3, y: 4 },
+                InputEvent::Text { text: "hi".to_string() },
+                InputEvent::Key { down: true, vk: 65, scan: 0, extended: false },
+                InputEvent::Key { down: false, vk: 65, scan: 0, extended: false },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_flag_with_an_unparseable_value_adds_nothing() {
+        let parsed = parse_args(&args(&["--move", "x", "2", "--key", "nope"]));
+        assert!(parsed.pending.is_empty());
+    }
 }

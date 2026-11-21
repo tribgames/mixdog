@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use mixdog_agent::compact::blob_reads::{BlobReads, StoreUnavailable, StoreWork};
+use mixdog_agent::compact::blob_reads::{BlobReads, LaneFault, StoreUnavailable, StoreWork, turn_cancel};
 use mixdog_core_api::domain::ext::{DocumentText, PdfCounts, PdfIntake};
 // The waiting form: these reads and writes carry a user's or an agent's message; a full lane is waited out, never
 // answered as a store that is unavailable.
@@ -46,7 +46,9 @@ impl StoreBlobs {
 impl BlobReads for StoreBlobs {
     async fn read_with(&self, work: StoreWork) -> Result<(), StoreUnavailable> {
         let blobs = self.blobs.clone();
-        on_lane(self.interactive, &CancellationToken::new(), move |lane| work(&LaneBlobs { blobs: &blobs, lane })).await.map_err(|_| StoreUnavailable)
+        on_lane(self.interactive, &turn_cancel(), move |lane| work(&LaneBlobs { blobs: &blobs, lane }))
+            .await
+            .map_err(|error| StoreUnavailable(LaneFault::of(&error)))
     }
 }
 
