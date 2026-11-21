@@ -56,6 +56,41 @@ export interface SessionFold {
    *  session lane): every snapshot's fold gets a fresh object (`initialSteps`), and every incremental step keeps it as it is
    *  (the reducer spreads the fold). test/framed-states.test.ts fails when either stops holding. */
   readonly origin?: object;
+  /** The ids of the core items this fold holds, oldest first: the snapshot's, then each item the feed brought, whether or not it
+   *  has a row (a reasoning item has none, a run of tool calls is one card). A `thread/resume` window counts these, and the first
+   *  is where the window begins (`transcriptWindowStart`); both are read here, never counted beside the fold. */
+  readonly coreItems?: readonly string[];
+  /** What the core holds above the window, as its last snapshot or history reset said: 'held', the thread's start is inside
+   *  the window; 'older', older items exist. Stated either way (`transcriptHistory`): a state without it comes from a host that
+   *  says nothing, which is neither. */
+  readonly history?: 'held' | 'older';
+  /** The history resets (`thread/historyReset`: a rewind, a clear) folded since the snapshot: the window after one is another
+   *  window, even when it still begins at the same item (`transcriptGeneration`). */
+  readonly generation?: number;
+}
+
+/** The core item each row was folded from (a row's id is not always its item's: a prompt's row is named by its submission). */
+const rowItems = new WeakMap<Obj, string>();
+
+/** `held` with `item`: unchanged when the fold holds it already, or when it is re-sent archived (an archived item the fold does
+ *  not hold lies above its window, older than the compaction's divider). */
+function holding(held: readonly string[], item: Obj): readonly string[] {
+  const id = item.id;
+  if (typeof id !== 'string' || held.lastIndexOf(id) >= 0) return held;
+  if (asObj(asObj(item.meta).ext).archived === true) return held;
+  return [...held, id];
+}
+
+/** Where in `held` the item lies that the core names `shown`: the core names an item by the id a client shows for it, which
+ *  is the submission id for a prompt that carries one (mutation.rs `before_rewind`) and the item's own id otherwise, row or
+ *  no row. -1 when the fold does not hold it. */
+function boundaryItem(s: SessionFold, held: readonly string[], shown: string): number {
+  const own = held.lastIndexOf(shown);
+  if (own >= 0) return own;
+  let at = s.items.length - 1;
+  while (at >= 0 && s.items[at]!.id !== shown) at--;
+  const item = at < 0 ? undefined : rowItems.get(s.items[at]!);
+  return item === undefined ? -1 : held.lastIndexOf(item);
 }
 
 // ───────────────────────────── sections ─────────────────────────────
@@ -233,11 +268,10 @@ function queueOf(queued: Json | undefined): Json[] {
   });
 }
 
-function fieldsOfState(state: Obj, hasOlder: boolean): Obj {
+function fieldsOfState(state: Obj): Obj {
   let fields: Obj = {};
   for (const def of Object.values(SECTIONS)) fields = withSection(fields, def, state[def.stateKey]);
   if (typeof state.title === 'string') fields.desktopSessionTitle = state.title;
-  if (hasOlder) fields.transcriptHasOlder = true;
   if (Array.isArray(state.promptHistoryList)) fields.promptHistoryList = state.promptHistoryList;
   fields.queued = queueOf(state.queued);
   return fields;
@@ -272,14 +306,21 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
   const p = asObj(snapshot);
   const source = Array.isArray(p.items) ? p.items : [];
   const items: Obj[] = [];
+  const coreItems: string[] = [];
   let live: Live | null = null;
   for (let i = 0; i < source.length; i++) {
     const item = asObj(source[i]);
+    const id = typeof item.id === 'string' ? item.id : undefined;
+    if (id !== undefined) coreItems.push(id);
     // The reply the turn is streaming (the core's in-progress item, its text so far) is the live row `item/started` and its deltas
     // made, not a settled row: a snapshot taken mid-stream folds to the state the live feed had, and the next delta extends it.
     const row = item.type === 'agentMessage' && asObj(item.meta).status === 'inProgress' ? rowOf(item) : null;
     if (row) live = liveOf(item, row);
-    else items.push(...rowsOf(item));
+    else
+      for (const folded of rowsOf(item)) {
+        if (id !== undefined) rowItems.set(folded, id);
+        items.push(folded);
+      }
     if (i % ITEMS_PER_STEP === ITEMS_PER_STEP - 1) yield;
   }
   transcriptCache.set(items, yield* mergeToolRowsSteps(items));
@@ -289,12 +330,15 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
   const fold: SessionFold = {
     sessionId: String(asObj(p.thread).id ?? ''),
     items,
-    fields: fieldsOfState(asObj(p.state), p.hasOlder === true),
+    fields: fieldsOfState(asObj(p.state)),
     live: null,
     structureRevision: items.length ? 1 : 0,
     frames: 0,
     framedRevision: items.length ? 1 : 0,
     origin: {},
+    coreItems,
+    history: p.hasOlder === true ? 'older' : 'held',
+    generation: 0,
   };
   return live ? withLive(fold, live) : fold;
 }
@@ -334,13 +378,18 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
       case 'item/started':
       case 'item/completed': {
         const item = asObj(p.item);
-        const [row, ...batched] = itemRows(item);
-        if (row === undefined) return s;
+        const rows = itemRows(item);
+        const [row, ...batched] = rows;
         // After a compaction the core sends each row of its window again, archived (`show_archived`). A row this store does not
         // hold lies above its tail window, older than the divider; appended, it showed below the divider, inside the current turn.
         // Node dims only the rows its store holds (`archiveItemsForCompaction`); paging reads the older ones, already archived.
-        if (row.archived === true && !s.items.some((held) => held.id === row.id)) return s;
-        if (item.type === 'agentMessage' && n.method === 'item/started') return withLive(s, liveOf(item, row));
+        if (row?.archived === true && !s.items.some((held) => held.id === row.id)) return s;
+        // The item is held from here on, whatever it folds to below: every later return starts from `held`.
+        const coreItems = holding(s.coreItems ?? [], item);
+        const held = coreItems === s.coreItems ? s : { ...s, coreItems };
+        if (row === undefined) return held;
+        if (item.type === 'agentMessage' && n.method === 'item/started') return withLive(held, liveOf(item, row));
+        for (const folded of rows) rowItems.set(folded, String(item.id));
         const live = s.live?.id === item.id && n.method === 'item/completed' ? null : s.live;
         // A room log's row and the view that landed with it are one revision: the view rides on the row's notification
         // (`roomView`), so both are folded here, before any subscriber is told.
@@ -348,10 +397,20 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
           p.roomView === undefined ? s.fields : withSection(s.fields, SECTIONS['thread/roomView/updated']!, p.roomView);
         const upserted = batched.reduce(upsert, upsert(s.items, row));
         const drop = upserted.length - FOLD_MAX_ITEMS;
-        const items = drop > 0 ? upserted.slice(drop) : upserted;
-        const fields =
-          drop > 0 && viewed.transcriptHasOlder !== true ? { ...viewed, transcriptHasOlder: true } : viewed;
-        return { ...s, items, live, fields, structureRevision: s.structureRevision + 1 };
+        const revision = s.structureRevision + 1;
+        if (drop <= 0) return { ...held, items: upserted, live, fields: viewed, structureRevision: revision };
+        // The dropped rows' items go with them: the window begins at the item of the first row kept.
+        const items = upserted.slice(drop);
+        const first = coreItems.indexOf(rowItems.get(items[0]!) ?? '');
+        return {
+          ...held,
+          items,
+          live,
+          fields: viewed,
+          structureRevision: revision,
+          coreItems: first > 0 ? coreItems.slice(first) : coreItems,
+          history: 'older',
+        };
       }
       case 'item/agentMessage/delta': {
         const id = String(p.itemId);
@@ -363,12 +422,38 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
         return withLive(s, live);
       }
       case 'thread/historyReset': {
-        const from = p.fromItemId;
-        const at = from === undefined ? -1 : s.items.findIndex((r) => r.id === from);
-        // `hasOlder` is the transcript's flag after the reset; an absent flag reads false, as in a snapshot.
-        const flagged = withField(s, 'transcriptHasOlder', p.hasOlder === true ? true : undefined);
-        if (from !== undefined && at < 0) return withLive(flagged, null);
-        return { ...flagged, items: s.items.slice(0, at + 1), live: null, structureRevision: s.structureRevision + 1 };
+        // `hasOlder` speaks of the core's own window (mutation.rs `history_reset`), which may reach further back than this
+        // one. A clear leaves nothing anywhere, so it is this window's answer too. A rewind keeps the items up to its boundary:
+        // with the boundary inside this window the window begins where it did, and what lies above it is what the fold
+        // already said, or what the core says is older still; with the boundary above this window everything held goes and
+        // what the rewind kept is above it.
+        const held = s.coreItems;
+        const boundary = p.fromItemId === undefined ? undefined : String(p.fromItemId);
+        const kept = boundary === undefined || !held ? 0 : boundaryItem(s, held, boundary) + 1;
+        const above = boundary !== undefined && (kept === 0 ? held !== undefined : s.history === 'older');
+        const reset: SessionFold = {
+          ...s,
+          live: null,
+          history: p.hasOlder === true || above ? 'older' : 'held',
+          generation: (s.generation ?? 0) + 1,
+        };
+        // A fold that names no core items (one built outside this reducer) is cut where its rows name the boundary.
+        if (!held) {
+          const at = p.fromItemId === undefined ? -1 : s.items.findIndex((r) => r.id === p.fromItemId);
+          if (p.fromItemId !== undefined && at < 0) return reset;
+          return { ...reset, items: s.items.slice(0, at + 1), structureRevision: s.structureRevision + 1 };
+        }
+        // The items past the boundary are no longer the thread's. One cut, at a core item, takes them and their rows; a
+        // boundary the fold does not hold lies above its window, and nothing it holds stays.
+        const order = new Map(held.map((id, at) => [id, at]));
+        let rows = s.items.length;
+        while (rows > 0 && (order.get(rowItems.get(s.items[rows - 1]!) ?? '') ?? -1) >= kept) rows--;
+        return {
+          ...reset,
+          items: s.items.slice(0, rows),
+          structureRevision: s.structureRevision + 1,
+          coreItems: held.slice(0, kept),
+        };
       }
       default:
         return s;
@@ -474,6 +559,13 @@ export function desktopSessionState(
     toolApproval: null,
     toolApprovalsWaiting: 0,
   };
+  // The window, stated: what the core holds above it, the core item it begins at, and its generation. `transcriptHasOlder`
+  // is the same fact for readers that predate `transcriptHistory`, present only when true as it always was.
+  if (fold.history !== undefined) out.transcriptHistory = fold.history;
+  if (fold.history === 'older') out.transcriptHasOlder = true;
+  if (fold.generation !== undefined) out.transcriptGeneration = fold.generation;
+  const windowStart = fold.coreItems?.[0];
+  if (windowStart !== undefined) out.transcriptWindowStart = windowStart;
   if (fold.items.length) out.transcriptSpilled = { epoch: 0, rows: 0 };
   if (hostShellJobs !== undefined) out.hostShellJobs = hostShellJobs;
   if (fold.live) Object.assign(out, liveFields(fold.live));

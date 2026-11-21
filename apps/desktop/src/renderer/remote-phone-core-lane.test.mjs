@@ -102,7 +102,7 @@ function core() {
       });
       return conn.serverSend({
         method: 'thread/snapshot',
-        params: { thread: row(params.threadId), items, state: { title: 'T' }, hasOlder: false },
+        params: { thread: row(params.threadId), items, state: { title: 'T' }, hasOlder: c.hasOlder },
         feed: { id: params.threadId, epoch, seq: 1 },
       });
     }
@@ -116,7 +116,8 @@ function core() {
   const answerHeld = () => {
     for (const { request, conn } of held.splice(0)) conn.serverSend({ id: request.id, result: {} });
   };
-  return { serve, sent, epochOf, gone, holding, answerHeld, items };
+  const c = { serve, sent, epochOf, gone, holding, answerHeld, items, hasOlder: false };
+  return c;
 }
 
 /** A page served by the adapter: its host hands it `client` and each client `replace` hands it later. `viewSettled()` is what the
@@ -198,6 +199,8 @@ test("the phone's calls that name no session ask the core for a control thread o
 
 test('the page is handed each state of a thread the phone follows: its first fold, every frame, and a resume that replaces the fold', async () => {
   const c = core();
+  // Older rows than the window exist, so a read of more rows has something to ask for.
+  c.hasOlder = true;
   const phone = await realClient(c.serve);
   const adapter = phoneChatAdapter();
   const page = pageOf(phone.client);

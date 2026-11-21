@@ -6,7 +6,11 @@ import type {
   DesktopTranscriptHistoryRequest,
   SessionSnapshot,
 } from '../shared/contract';
-import { CORE_TRANSCRIPT_HISTORY_POSITION, validTranscriptHistoryPosition } from '../shared/contract-session';
+import {
+  CORE_TRANSCRIPT_HISTORY_POSITION,
+  validTranscriptHistoryCursor,
+  validTranscriptHistoryPosition,
+} from '../shared/contract-session';
 import { blankSnapshot, remoteSessionIdOf, startFolder, withRemoteSession } from '../shared/blank-snapshot.ts';
 import type { StartCall } from '../shared/blank-snapshot.ts';
 import { MAX_SECRET_LENGTH, SECRET_REQUEST_ID } from '../shared/secret-slots.ts';
@@ -68,7 +72,8 @@ export function requiredTranscriptHistoryRequest(value: unknown): DesktopTranscr
     (limit as number) < 1 ||
     (limit as number) > HISTORY_PAGE_ITEMS ||
     (budget !== undefined && budget !== null && (!Number.isSafeInteger(budget) || (budget as number) < 1)) ||
-    (input.position != null && !validTranscriptHistoryPosition(input.position))
+    (input.position != null && !validTranscriptHistoryPosition(input.position)) ||
+    (input.cursor != null && !validTranscriptHistoryCursor(input.cursor))
   ) {
     throw new TypeError('transcript history request is invalid.');
   }
@@ -77,6 +82,7 @@ export function requiredTranscriptHistoryRequest(value: unknown): DesktopTranscr
     limit: limit as number,
     ...(typeof budget === 'number' ? { byteBudget: budget } : {}),
     ...(typeof input.position === 'string' ? { position: input.position } : {}),
+    ...(typeof input.cursor === 'string' ? { cursor: input.cursor } : {}),
   } as DesktopTranscriptHistoryRequest;
 }
 
@@ -131,13 +137,21 @@ function createTranscriptHistory(send: Send, shared: ChatHostShared) {
       const older = 'before' in history;
       const anchor = (history as { before?: string; after?: string })[older ? 'before' : 'after'];
       const boundary = older ? state.items?.[0] : state.items?.at(-1);
+      // The core's own continuation first: it names an item, row or no row, where the row anchor may not have moved.
       const cursor =
-        history.position && CORE_TRANSCRIPT_HISTORY_POSITION.test(history.position)
+        history.cursor ??
+        (history.position && CORE_TRANSCRIPT_HISTORY_POSITION.test(history.position)
           ? history.position
           : boundary?.id === anchor
             ? historyPositionOf(boundary, older ? 'before' : 'after')
-            : undefined;
-      let page: { data?: unknown[]; hasOlder?: boolean; hasNewer?: boolean };
+            : undefined);
+      let page: {
+        data?: unknown[];
+        hasOlder?: boolean;
+        hasNewer?: boolean;
+        nextCursor?: string;
+        backwardsCursor?: string;
+      };
       try {
         page = (await send('thread/items/list', {
           threadId: sessionId,
@@ -161,7 +175,12 @@ function createTranscriptHistory(send: Send, shared: ChatHostShared) {
           : { ...(before === undefined ? {} : { before }), ...(after === undefined ? {} : { after }) };
       });
       holdHistory(sessionId, items);
+      // `nextCursor` goes on in the direction read, `backwardsCursor` the other way (reads.rs `items_window_in`).
+      const olderCursor = older ? page.nextCursor : page.backwardsCursor;
+      const newerCursor = older ? page.backwardsCursor : page.nextCursor;
       return {
+        ...(validTranscriptHistoryCursor(olderCursor) ? { olderCursor } : {}),
+        ...(validTranscriptHistoryCursor(newerCursor) ? { newerCursor } : {}),
         items: desktop ? items : items.map((item) => remoteTranscriptRow(item, false).row),
         hasOlder: page.hasOlder === true,
         hasNewer: page.hasNewer === true,

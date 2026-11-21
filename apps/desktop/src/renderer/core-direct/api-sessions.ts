@@ -200,14 +200,15 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
 
     // ── the transcript ──
     previewSession: (sessionId) => withDirectErrors(session.previewSession(trimmed(sessionId))),
-    prefetchSession(sessionId, transcriptItemLimit, readTraceId) {
+    prefetchSession(sessionId, transcriptItemLimit, readTraceId, options) {
       const id = trimmed(sessionId);
       const limit =
         typeof transcriptItemLimit === 'number'
           ? Math.min(transcriptItemLimit, TRANSCRIPT_WINDOW_MAX_ITEMS)
           : undefined;
       const traceId = typeof readTraceId === 'string' && readTraceId ? readTraceId : undefined;
-      return states.read(id, traceId, () => withDirectErrors(session.prefetchSession(id, limit, traceId)));
+      const retry = options?.retry === true ? { retry: true } : undefined;
+      return states.read(id, traceId, () => withDirectErrors(session.prefetchSession(id, limit, traceId, retry)));
     },
     readTranscriptHistory: async (sessionId, request) =>
       withDirectErrors((await session.chat()).readTranscriptHistory(trimmed(sessionId), request, true)),

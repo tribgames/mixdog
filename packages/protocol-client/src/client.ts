@@ -245,6 +245,8 @@ interface CallLimit {
   expired: boolean;
   /** Its request is out (written, not refused). */
   sent: boolean;
+  /** Rejects when the work the request belongs to ended: `run` then leaves whatever it waits in (readiness, backpressure). */
+  readonly ended?: Promise<never>;
 }
 /** A `thread/start` of a control thread: the client keeps the subscription its reply gave. */
 const startsControlThread = (method: string, params: unknown): boolean =>
@@ -270,7 +272,29 @@ const windowCovers = (held: ResumeWindow, asked: ResumeWindow): boolean => {
 };
 const retainWindow = (asked: ResumeWindow, held: ResumeWindow | undefined): ResumeWindow =>
   held && windowCovers(held, asked) ? held : asked;
-const FEED_REQUEST_DEADLINE_MS = 10_000;
+/** The one attach of a thread: its `thread/resume` from the moment it is queued to its answer, and the snapshot request a
+ *  legacy replay needs after it. It belongs to the thread, not to a caller or a window. */
+interface Attach {
+  readonly window: ResumeWindow;
+  readonly sent: Promise<void>;
+  /** How it ends, for everyone who waits on it; no waiter's own bound is part of it. */
+  readonly outcome: Promise<ThreadResumeResponse>;
+  /** What `run` holds of it: an attach that ended is not written, or written again. */
+  readonly limit: CallLimit;
+  token?: number;
+  /** Its answer promised a snapshot that is not folded yet: receiving the snapshot is not having it. */
+  owes: boolean;
+  /** It has its outcome. One that succeeded stays listed while its snapshot is owed. */
+  done: boolean;
+  /** Ended without an answer (`end`): its answer, when it comes, changes nothing. */
+  ended: boolean;
+  /** The callers waiting on it now. */
+  waiters: number;
+  /** The caller that started it stopped waiting. */
+  ownerLeft(cause: ClientErrorDetail): void;
+  /** Ends it with `detail` for every waiter: the thread's loss, or nobody left waiting for a request not written yet. */
+  end(detail: ClientErrorDetail): void;
+}
 const validFeed = (f: unknown): boolean =>
   f === undefined ||
   (isObj(f) &&
@@ -335,10 +359,10 @@ class Engine implements ProtocolClient<Json> {
   /** The latest `thread/resume` this client sent of each thread whose snapshot is not folded yet (a replay's reply folds nothing, so
    *  it leaves no entry): a caller that only needs the thread followed joins it instead of sending a second resume, which would replace
    *  the first subscription and have the core encode the whole snapshot again. */
-  private readonly resuming = new Map<
-    string,
-    { reply: Promise<ThreadResumeResponse>; window: ResumeWindow; sent: Promise<void>; token?: number }
-  >();
+  private readonly resuming = new Map<string, Attach>();
+  /** The id of the core subscription each feed is delivered on, as its attach answered it. An answer naming the same id
+   *  carries that lane on: nothing of the feed's position changes. */
+  private readonly subId = new Map<string, string>();
   private readonly awaitingSnapshot = new Set<string>();
   /** A null boundary is a legacy replay whose authoritative head is not known yet. */
   private readonly replayThrough = new Map<string, number | null>();
@@ -359,6 +383,8 @@ class Engine implements ProtocolClient<Json> {
   private chain: Promise<void> = Promise.resolve();
   /** Orders the folds of one feed. */
   private readonly feedChains = new Map<string, Promise<void>>();
+  /** Told each thread `unsubscribeThread` lets go: the waits for its transcript (`whenThreadSettled`). */
+  private readonly unsubscribed = new Set<(threadId: string) => void>();
   private responses = 0;
   private classResponses = classes();
   private feedEvents = 0;
@@ -576,6 +602,7 @@ class Engine implements ProtocolClient<Json> {
     this.awaitingSnapshot.clear();
     this.replayThrough.clear();
     this.resuming.clear();
+    this.subId.clear();
     this.tokenWindow.clear();
     const dropped = [...this.serverRequests.values()];
     this.serverRequests.clear();
@@ -710,7 +737,11 @@ class Engine implements ProtocolClient<Json> {
       () => this.requestResume(threadId, window, undefined, true),
       () => this.subs.get(threadId) === window
     );
+    // The thread was lost while this restore was out (`loseThread` ended its registration): that loss was its end, and
+    // whatever the thread is now belongs to a later open, which this restore reports nothing of.
+    const owned = this.restoring.get(threadId) === mine;
     settled();
+    if (!owned) return generation === this.generation ? 'lost' : 'failed';
     const followed = this.subs.get(threadId);
     if (generation === this.generation && followed && (outcome === 'done' || followed !== window)) {
       this.store.emit({ type: 'subscription', feedId: threadId, state: 'restored' });
@@ -724,7 +755,17 @@ class Engine implements ProtocolClient<Json> {
     return 'lost';
   }
 
+  /** The one end of a thread that is not followed, reported once. It ends the ownership of whatever attach or restore of the
+   *  thread is out (its waiters are rejected with the loss, its request is not written or written again, and its answer, when
+   *  it comes, changes nothing), invalidates the folds under way, and keeps the window that was wanted but no cursor: the
+   *  next resume is a new request for a snapshot. */
   private loseThread(threadId: string, window: ResumeWindow, outcome: ClientErrorDetail): void {
+    this.resuming.get(threadId)?.end(outcome);
+    this.resuming.delete(threadId);
+    this.restoring.delete(threadId);
+    this.subId.delete(threadId);
+    this.awaitingSnapshot.delete(threadId);
+    this.recv.delete(threadId);
     this.lostWindows.set(threadId, window);
     this.subs.delete(threadId);
     this.subToken.delete(threadId);
@@ -732,6 +773,8 @@ class Engine implements ProtocolClient<Json> {
     this.replayThrough.delete(threadId);
     this.store.threads.delete(threadId);
     this.foldedWindow.delete(threadId);
+    // A fold of the lost subscription may wait on a read that is never answered: the next open does not queue behind it.
+    this.feedChains.delete(threadId);
     this.emit({ type: 'subscriptionLost', threadId, error: outcome });
     this.store.emit({ type: 'subscription', feedId: threadId, state: 'lost', error: outcome });
   }
@@ -762,20 +805,26 @@ class Engine implements ProtocolClient<Json> {
     return entry.done;
   }
   /** Resolves once this client is ready and no resume of `threadId` is in flight: the point from which a held thread is, or is not,
-   *  subscribed on the current connection (`threadSubscription(id).held`). Rejects when the client is closed. */
-  async whenHeldSettled(threadId: string): Promise<void> {
-    for (;;) {
-      await this.whenReady();
-      const restoring = this.heldRestoring.get(threadId);
-      if (!restoring) return;
-      await restoring.done;
-    }
+   *  subscribed on the current connection (`threadSubscription(id).held`). Rejects when the client is closed, and with `requestTimeout`
+   *  when the bound the caller gave ends first: the wait is part of the call that needs the thread. Without one it has no limit. */
+  whenHeldSettled(threadId: string, options?: Pick<CallOptions, 'timeoutMs'>): Promise<void> {
+    const settled = async (limit?: CallLimit): Promise<void> => {
+      for (;;) {
+        await this.whenReady();
+        const restoring = this.heldRestoring.get(threadId);
+        if (!restoring || limit?.expired) return;
+        await restoring.done;
+      }
+    };
+    return options?.timeoutMs === undefined
+      ? settled()
+      : this.bounded('thread/resume', options.timeoutMs, null, settled);
   }
   private async restoreApp(): Promise<boolean> {
     const outcome = await this.restoreRun(
       WIRE.appFeedId,
       () =>
-        this.bounded('app/subscribe', FEED_REQUEST_DEADLINE_MS, null, (limit) =>
+        this.bounded('app/subscribe', undefined, null, (limit) =>
           this.run(
             'app/subscribe',
             this.appParams(),
@@ -1184,7 +1233,11 @@ class Engine implements ProtocolClient<Json> {
       else this.foldedWindow.delete(f.id);
       if (tok !== undefined) this.tokenWindow.delete(tok);
     }
-    if (snapshot && this.resuming.get(f.id)?.token === tok) this.resuming.delete(f.id);
+    const attach = this.resuming.get(f.id);
+    if (snapshot && attach && attach.token === tok) {
+      attach.owes = false;
+      this.resuming.delete(f.id);
+    }
     const boundary = this.replayThrough.get(f.id);
     const replayComplete = typeof boundary === 'number' && f.seq >= boundary;
     if (replayComplete) this.replayThrough.delete(f.id);
@@ -1320,6 +1373,11 @@ class Engine implements ProtocolClient<Json> {
   }
   private attached(feedId: string, r: Json, window?: ResumeWindow): void {
     const s = (r as unknown as ThreadResumeResponse).subscription;
+    // The core kept the subscription this feed is delivered on (it names the same one): the lane runs on. What was received
+    // and what is being folded stand, and nothing is delivered twice. Only the id says so, never a position.
+    if (s.id !== undefined && this.subId.get(feedId) === s.id) return;
+    if (s.id === undefined) this.subId.delete(feedId);
+    else this.subId.set(feedId, s.id);
     // A reply that arrives after its feed already ran past the position it names is a stale read: it resets nothing, so the
     // events already received stay in order (the transcript is the feed's, not the reply's). A replay then repeats them: the core
     // replaced the subscription that delivered them, and the new one starts at `startSeq` (`repeated`). A snapshot resets the position.
@@ -1359,8 +1417,7 @@ class Engine implements ProtocolClient<Json> {
     threadId: string,
     window: ResumeWindow,
     options?: ResumeOptions,
-    restoring = false,
-    requireSnapshot = false
+    restoring = false
   ): Promise<ThreadResumeResponse> {
     const current = this.resuming.get(threadId);
     if (!restoring) {
@@ -1373,38 +1430,63 @@ class Engine implements ProtocolClient<Json> {
       window = retainWindow(window, this.subs.get(threadId));
       window = retainWindow(window, current?.window);
     }
-    const pending = options?.force ? undefined : current;
-    // A join never yields less than was asked: only a resume whose window holds the asked one answers it.
-    if (pending && windowCovers(pending.window, window) && (options?.join || windowCovers(window, pending.window))) {
-      // The joiner's frame is the one in flight: it has left when that one has.
-      options?.sent?.(pending.sent);
-      return pending.reply;
+    if (current && !current.done) {
+      // One attach of a thread is out at a time, whoever asks and for whatever window: a caller it answers waits for it.
+      if (windowCovers(current.window, window)) return this.awaitAttach(current, options, false);
+      // A join never yields less than was asked: more than the attach in flight brings is asked once that one has ended,
+      // never beside it.
+      const asked = window;
+      return this.bounded(
+        'thread/resume',
+        options?.timeoutMs,
+        null,
+        async (limit, abandoned) => {
+          await current.outcome.catch(() => undefined);
+          if (limit.expired) throw fail({ kind: 'requestTimeout', method: 'thread/resume', sent: false });
+          const left = new AbortController();
+          void abandoned.then(() => left.abort());
+          return this.requestResume(threadId, asked, { ...options, timeoutMs: undefined, signal: left.signal }, restoring);
+        },
+        options?.signal,
+        current.limit
+      );
     }
+    // Answered, its snapshot not folded yet: a caller that only needs the thread followed sends nothing.
+    const answered = options?.force ? undefined : current;
+    if (answered && windowCovers(answered.window, window) && (options?.join || windowCovers(window, answered.window)))
+      return this.awaitAttach(answered, options, false);
+
     const params = this.resumeParams(
       threadId,
       window,
-      requireSnapshot || (options?.force === true && this.awaitingSnapshot.has(threadId))
+      options?.force === true && this.awaitingSnapshot.has(threadId)
     );
     let departed!: (sent: Promise<void>) => void;
     const sent = new Promise<void>((resolve) => (departed = resolve));
     void sent.catch(() => undefined);
+    let quit!: (error: ClientFailure) => void;
+    const ended = new Promise<never>((_, reject) => (quit = reject));
+    ended.catch(() => undefined);
+    let ownerLeft!: (cause: ClientErrorDetail) => void;
+    const abandoned = new Promise<ClientErrorDetail>((resolve) => (ownerLeft = resolve));
+    const limit: CallLimit = { method: 'thread/resume', expired: false, sent: false, ended };
     const generation = this.generation;
-    const start = async (limit?: CallLimit): Promise<ThreadResumeResponse> => {
-      // Register the shared request before any transport can answer it.
+    const work = async (): Promise<ThreadResumeResponse> => {
+      // Register the attach before any transport can answer it.
       await Promise.resolve();
       if (restoring && generation !== this.generation) throw fail({ kind: 'connectionLost' });
-      return (await this.run(
+      const r = (await this.run(
         'thread/resume',
         params,
         INTERNAL,
         (v) => {
-          this.attached(threadId, v, window);
+          // The thread was lost while the request was out: its answer cannot revive it.
+          if (attach.ended) return;
+          this.answered(threadId, attach, v);
           if (!restoring) {
             this.subs.set(threadId, retainWindow(window, this.subs.get(threadId)));
             this.lostWindows.delete(threadId);
           }
-          const token = this.subToken.get(threadId);
-          if (token !== undefined) entry.token = token;
         },
         restoring,
         (frame) => {
@@ -1413,52 +1495,119 @@ class Engine implements ProtocolClient<Json> {
         },
         limit
       )) as unknown as ThreadResumeResponse;
+      // A replay an older core could not bound is resolved before the attach is: a phase of this attach, not another one.
+      if (
+        r.subscription.mode === 'replay' &&
+        !Number.isSafeInteger(r.subscription.liveSeq) &&
+        this.subs.has(threadId) &&
+        this.replayThrough.get(threadId) === null
+      ) {
+        await this.resolveLegacyReplay(threadId, attach, r.subscription, generation, abandoned);
+      }
+      return r;
     };
-    const reply = this.bounded('thread/resume', restoring ? FEED_REQUEST_DEADLINE_MS : options?.timeoutMs, null, start);
-    const entry: { reply: Promise<ThreadResumeResponse>; window: ResumeWindow; sent: Promise<void>; token?: number } = {
-      reply,
+    const attach: Attach = {
       window,
       sent,
-    };
-    this.resuming.set(threadId, entry);
-    const settled = (folds: boolean): void => {
-      // A held control thread is never folded: nothing later ends its entry but its reply.
-      if ((!folds || this.held.has(threadId)) && this.resuming.get(threadId) === entry) this.resuming.delete(threadId);
-    };
-    reply.then(
-      (r) => {
-        settled(r.subscription.mode === 'snapshot');
-        if (
-          !requireSnapshot &&
-          r.subscription.mode === 'replay' &&
-          !Number.isSafeInteger(r.subscription.liveSeq) &&
-          this.subs.has(threadId) &&
-          this.replayThrough.get(threadId) === null
-        ) {
-          void this.resolveLegacyReplay(threadId, window, r.subscription, generation, entry.token);
-        }
+      limit,
+      outcome: Promise.race([work(), ended]),
+      owes: false,
+      done: false,
+      ended: false,
+      waiters: 0,
+      ownerLeft,
+      end(detail) {
+        if (attach.done || attach.ended) return;
+        attach.ended = true;
+        limit.expired = true;
+        quit(fail(detail));
       },
+    };
+    this.resuming.set(threadId, attach);
+    const settled = (answered: boolean): void => {
+      attach.done = true;
+      // What stays of an answered attach is the snapshot it owes, until that is folded. A held control thread is never
+      // folded: nothing later ends its entry.
+      const owes = answered && attach.owes && !this.held.has(threadId);
+      if (!owes && this.resuming.get(threadId) === attach) this.resuming.delete(threadId);
+    };
+    attach.outcome.then(
+      () => settled(true),
       () => settled(false)
     );
-    return reply;
+    return this.awaitAttach(attach, options, true);
   }
 
+  /** An attach's answer applied: the subscription it names, and whether a snapshot of that subscription is now owed. */
+  private answered(threadId: string, attach: Attach, r: Json): void {
+    const before = this.subToken.get(threadId);
+    this.attached(threadId, r, attach.window);
+    const token = this.subToken.get(threadId);
+    if (token !== undefined) attach.token = token;
+    attach.owes = token !== before && (r as unknown as ThreadResumeResponse).subscription.mode === 'snapshot';
+  }
+
+  /** One caller's wait for an attach: its own bound or signal ends that wait and nothing else, except that a request nobody
+   *  waits for any more is not written (or written again), and that the caller who started the attach owns the resolution of
+   *  a legacy replay (`resolveLegacyReplay`). */
+  private awaitAttach(attach: Attach, options: ResumeOptions | undefined, own: boolean): Promise<ThreadResumeResponse> {
+    // A joiner's frame is the one in flight: it has left when that one has.
+    if (!own) options?.sent?.(attach.sent);
+    attach.waiters += 1;
+    return this.bounded(
+      'thread/resume',
+      options?.timeoutMs,
+      null,
+      (_limit, abandoned) => {
+        void abandoned.then((cause) => {
+          attach.waiters -= 1;
+          if (own) attach.ownerLeft(cause);
+          if (attach.waiters === 0 && !attach.limit.sent)
+            attach.end({ kind: 'requestTimeout', method: 'thread/resume', sent: false });
+        });
+        return attach.outcome;
+      },
+      options?.signal,
+      attach.limit
+    );
+  }
+
+  /** The second phase of an attach an older core answered with a replay that names no live boundary: the head is asked
+   *  (`feed/heads`), and an unusable one is replaced by a snapshot of the thread, requested under the same attach. Throws as
+   *  that phase failed: the attach is then not a followed thread. */
   private async resolveLegacyReplay(
     threadId: string,
-    window: ResumeWindow,
+    attach: Attach,
     subscription: ThreadResumeResponse['subscription'],
     generation: number,
-    token: number | undefined
+    abandoned: Promise<ClientErrorDetail>
   ): Promise<void> {
+    const { window } = attach;
     const pending = () =>
-      this.current(threadId, generation, token) && this.subs.has(threadId) && this.replayThrough.get(threadId) === null;
+      !attach.ended &&
+      this.current(threadId, generation, attach.token) &&
+      this.subs.has(threadId) &&
+      this.replayThrough.get(threadId) === null;
+    let quit: ClientErrorDetail | undefined;
+    const givenUp = abandoned.then((detail) => {
+      quit = detail;
+      throw fail(detail);
+    });
+    givenUp.catch(() => undefined);
     let head: FeedHeadsResponse['positions'][number] | undefined;
     try {
-      const reply = (await this.bounded('feed/heads', FEED_REQUEST_DEADLINE_MS, null, (limit) =>
-        this.run('feed/heads', { feedIds: [threadId] }, INTERNAL, undefined, true, undefined, limit)
-      )) as unknown as FeedHeadsResponse;
+      const reply = (await Promise.race([
+        this.bounded('feed/heads', undefined, null, (limit) =>
+          this.run('feed/heads', { feedIds: [threadId] }, INTERNAL, undefined, true, undefined, limit)
+        ),
+        givenUp,
+      ])) as unknown as FeedHeadsResponse;
       [head] = reply.positions;
     } catch (error) {
+      if (quit) {
+        if (pending()) this.loseThread(threadId, window, quit);
+        throw error;
+      }
       const detail = detailOf(error);
       if (
         detail.kind !== 'rpc' ||
@@ -1478,36 +1627,109 @@ class Engine implements ProtocolClient<Json> {
       return;
     }
 
-    // Read the bounded tail as a fresh snapshot of this already-followed thread. Register it as a restore
-    // so unsubscribe convergence also accounts for a recovery that was in flight when the view left.
+    // Read the bounded tail as a fresh snapshot of this already-followed thread. Outside a reconnect restore it is registered
+    // as one, so unsubscribe convergence also accounts for a recovery that was in flight when the view left.
     const mine = {};
-    this.restoring.set(threadId, mine);
-    this.restoreStarts++;
-    let failure: ClientErrorDetail | undefined;
+    const registered = !this.restoring.has(threadId);
+    if (registered) {
+      this.restoring.set(threadId, mine);
+      this.restoreStarts++;
+    }
+    let failure: { error: unknown } | undefined;
     try {
-      await this.requestResume(threadId, window, { force: true }, true, true);
+      await Promise.race([
+        this.run(
+          'thread/resume',
+          this.resumeParams(threadId, window, true),
+          INTERNAL,
+          (v) => {
+            if (!attach.ended) this.answered(threadId, attach, v);
+          },
+          true,
+          undefined,
+          attach.limit
+        ),
+        givenUp,
+      ]);
     } catch (error) {
-      failure = detailOf(error);
-    } finally {
-      if (this.restoring.get(threadId) === mine) {
-        this.restoring.delete(threadId);
-        if (failure && pending()) {
-          // Keep the requested window for Retry, but never offer the unconfirmed cursor again.
-          this.loseThread(threadId, window, failure);
-        } else if (generation === this.generation) {
-          this.store.emit({
-            type: 'subscription',
-            feedId: threadId,
-            state: this.subs.has(threadId) ? 'restored' : 'cancelled',
-          });
+      failure = { error };
+    }
+    // Keep the requested window for Retry, but never offer the unconfirmed cursor again.
+    const lost = failure !== undefined && pending();
+    // A lost thread's restore registration ended with it: what was registered here reports only its own end.
+    const reports = registered && this.restoring.get(threadId) === mine;
+    if (reports) this.restoring.delete(threadId);
+    if (lost) this.loseThread(threadId, window, detailOf(failure?.error));
+    else if (reports && generation === this.generation) {
+      this.store.emit({
+        type: 'subscription',
+        feedId: threadId,
+        state: this.subs.has(threadId) ? 'restored' : 'cancelled',
+      });
+    }
+    // The attach ends as its fallback did: an unresolved replay is never a followed thread.
+    if (failure) throw failure.error;
+  }
+  /** `ProtocolClient.reopenThread`. */
+  reopenThread(threadId: string, window: ResumeWindow, options?: ResumeOptions): Promise<ThreadResumeResponse> {
+    const out = this.resuming.get(threadId);
+    const desired = this.subs.get(threadId) ?? out?.window;
+    if (desired)
+      this.loseThread(threadId, desired, {
+        kind: 'requestTimeout',
+        method: 'thread/resume',
+        sent: out ? out.limit.sent : true,
+      });
+    return this.requestResume(threadId, window, options);
+  }
+  /** `ProtocolClient.whenThreadSettled`. */
+  async whenThreadSettled(threadId: string): Promise<boolean> {
+    // An unsubscribe produces no fold, loss or connection change: it ends the wait itself.
+    let gone = false;
+    let leave = (): void => undefined;
+    const left = new Promise<void>((resolve) => (leave = resolve));
+    const onLeft = (id: string): void => {
+      if (id !== threadId) return;
+      gone = true;
+      leave();
+    };
+    this.unsubscribed.add(onLeft);
+    try {
+      for (;;) {
+        if (gone) return false;
+        const attach = this.resuming.get(threadId);
+        if (attach && !attach.done) {
+          await Promise.race([attach.outcome, left]);
+          continue;
         }
+        if (!attach && !this.awaitingSnapshot.has(threadId) && !this.replayThrough.has(threadId)) return true;
+        // Owed by an answered attach: the fold that brings it, the thread's loss or the end of the connection is next.
+        await new Promise<void>((resolve, reject) => {
+          const settle = (error?: ClientFailure): void => {
+            offStore();
+            offEvents();
+            if (error) reject(error);
+            else resolve();
+          };
+          const offStore = this.store.subscribe((change) => {
+            if (change.type === 'thread' && change.threadId === threadId) settle();
+            else if (change.type === 'subscription' && change.feedId === threadId && change.state === 'lost')
+              settle(fail(change.error ?? { kind: 'connectionLost' }));
+          });
+          const offEvents = this.on((event) => {
+            if (event.type === 'status' && event.status.state !== 'ready') settle(fail({ kind: 'connectionLost' }));
+          });
+          void left.then(() => settle());
+        });
       }
+    } finally {
+      this.unsubscribed.delete(onLeft);
     }
   }
   async confirmFeeds(feedIds: readonly string[]): Promise<boolean> {
     const generation = this.generation;
     // Positions received while the request was out count too. A relay pong says nothing about these heads.
-    const { feedIds: active, positions } = (await this.bounded('feed/heads', FEED_REQUEST_DEADLINE_MS, null, (limit) =>
+    const { feedIds: active, positions } = (await this.bounded('feed/heads', undefined, null, (limit) =>
       this.run('feed/heads', {}, INTERNAL, undefined, true, undefined, limit)
     )) as unknown as FeedHeadsResponse;
     if (generation !== this.generation || !active || active.length !== positions.length) return false;
@@ -1553,9 +1775,11 @@ class Engine implements ProtocolClient<Json> {
     this.awaitingSnapshot.delete(threadId);
     this.replayThrough.delete(threadId);
     this.resuming.delete(threadId);
+    this.subId.delete(threadId);
     this.store.threads.delete(threadId);
     this.foldedWindow.delete(threadId);
     this.feedChains.delete(threadId);
+    for (const told of [...this.unsubscribed]) told(threadId);
     await this.run('thread/unsubscribe', { threadId }, INTERNAL, undefined, false, options?.sent);
   }
   async subscribeApp(options?: Pick<CallOptions, 'sent'>): Promise<void> {
@@ -1597,6 +1821,7 @@ class Engine implements ProtocolClient<Json> {
               this.repeated.delete(feedId);
               this.awaitingSnapshot.delete(feedId);
               this.subToken.delete(feedId);
+              this.subId.delete(feedId);
             }
           : undefined;
     return this.bounded(method, options?.timeoutMs, opId, (limit) =>
@@ -1608,27 +1833,45 @@ class Engine implements ProtocolClient<Json> {
     method: string,
     timeoutMs: number | undefined,
     opId: string | null,
-    start: (limit: CallLimit) => Promise<T>
+    start: (limit: CallLimit, abandoned: Promise<ClientErrorDetail>) => Promise<T>,
+    signal?: AbortSignal,
+    /** The request this wait is for, when it is not the caller's own (a shared attach): whether it is out is read there. */
+    of?: CallLimit
   ): Promise<T> {
     const limit: CallLimit = { method, expired: false, sent: false };
+    const out = (): boolean => (of ?? limit).sent;
     const explicit = timeoutMs !== undefined;
     const ms = timeoutMs ?? this.o.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    let abandon!: (cause: ClientErrorDetail) => void;
+    // Resolves when the caller stops waiting (its bound, or its signal), so work owed to that wait can end with it.
+    const abandoned = new Promise<ClientErrorDetail>((resolve) => (abandon = resolve));
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        if (limit.sent && !explicit) return;
+      const end = (): void => {
+        if (limit.expired) return;
         limit.expired = true;
-        const cause: ClientErrorDetail = { kind: 'requestTimeout', method, sent: limit.sent };
+        const cause: ClientErrorDetail = { kind: 'requestTimeout', method, sent: out() };
+        abandon(cause);
         reject(
-          fail(opId !== null && limit.sent ? { kind: 'opOutcomeUnknown', opId, state: 'statusFailed', cause } : cause)
+          fail(opId !== null && out() ? { kind: 'opOutcomeUnknown', opId, state: 'statusFailed', cause } : cause)
         );
+      };
+      const timer = setTimeout(() => {
+        if (out() && !explicit) return;
+        end();
       }, ms);
-      start(limit).then(
+      const settle = (): void => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', end);
+      };
+      signal?.addEventListener('abort', end, { once: true });
+      if (signal?.aborted) end();
+      start(limit, abandoned).then(
         (value) => {
-          clearTimeout(timer);
+          settle();
           resolve(value);
         },
         (error) => {
-          clearTimeout(timer);
+          settle();
           reject(error);
         }
       );
@@ -1665,11 +1908,13 @@ class Engine implements ProtocolClient<Json> {
     limit?: CallLimit
   ): Promise<Json> {
     const generation = this.generation;
+    // Work that ended leaves the wait it is in at once; it is never written after that.
+    const unlessEnded = <T>(wait: Promise<T>): Promise<T> => (limit?.ended ? Promise.race([wait, limit.ended]) : wait);
     for (;;) {
       if (stay) {
         if (this.status.state !== 'ready' || generation !== this.generation) throw fail({ kind: 'connectionLost' });
       } else {
-        await this.whenReady();
+        await unlessEnded(this.whenReady());
         // A request naming a held control thread leaves only once that thread is subscribed again on this connection. A resume the
         // core refused (the thread is gone) never lets the request go on naming it: it fails here, nothing sent.
         const naming = (params as { threadId?: unknown } | null)?.threadId;
@@ -1693,7 +1938,7 @@ class Engine implements ProtocolClient<Json> {
         if (d.kind === 'rpc' && d.code === -32001) {
           // Refused before it ran: it has not been out.
           if (limit) limit.sent = false;
-          await this.awaitRetryTrigger(d, sent);
+          await unlessEnded(this.awaitRetryTrigger(d, sent));
           if (sentGeneration !== this.generation && (method === 'feed/subscribe' || method === 'feed/unsubscribe')) {
             throw fail({ kind: 'connectionLost' });
           }

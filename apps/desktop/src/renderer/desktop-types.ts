@@ -150,8 +150,16 @@ export type Snapshot = RecordValue & {
   items?: TranscriptItem[];
   /** `items` is a tail window with older history available on demand. */
   transcriptHasOlder?: boolean;
+  /** What the core holds above the tail window, the id of the oldest core item the window holds, and the window's
+   *  generation (DesktopSessionState). */
+  transcriptHistory?: 'held' | 'older';
+  transcriptWindowStart?: string;
+  transcriptGeneration?: number;
   /** A provisional stored tail, not a live lane or a completed recovery. */
   transcriptPreview?: true;
+  /** The host is restoring this session's subscription and has not finished: the state shown is the one held before. Read
+   *  by the pane's watch only (use-session-lane-read.ts); the frame after the restore does not carry it. */
+  restoreOwed?: true;
   streamingTail?: TranscriptItem | null;
   busy?: boolean;
   commandBusy?: boolean;

@@ -25,11 +25,11 @@ test('prompt history and history reset fold from the core', () => {
   s = at(s, 'thread/promptHistory/updated', { threadId: 't', value: { kind: 'replaced', prompts: full } });
   s = at(s, 'thread/promptHistory/updated', { threadId: 't', value: { kind: 'added', prompt: 'new' } });
   assert.deepEqual(s.fields.promptHistoryList, ['new', ...full.slice(0, 49)]);
-  assert.equal(s.fields.transcriptHasOlder, true);
+  assert.equal(s.history, 'older');
   s = at(s, 'thread/historyReset', { threadId: 't', reason: 'clear', hasOlder: false });
-  assert.equal('transcriptHasOlder' in s.fields, false);
+  assert.equal(s.history, 'held');
   s = at(s, 'thread/historyReset', { threadId: 't', reason: 'rewind', fromItemId: 'gone', hasOlder: true });
-  assert.equal(s.fields.transcriptHasOlder, true);
+  assert.deepEqual([s.history, s.generation], ['older', 2]);
 });
 
 test('a compaction archives the rows the store holds in place and adds none of the older ones below the divider', () => {

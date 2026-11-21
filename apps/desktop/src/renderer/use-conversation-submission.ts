@@ -100,7 +100,6 @@ export function useConversationSubmission(
     queuedBehindTurnAtSubmit,
     routeSessionIdRef,
     setOptimisticPrompts,
-    settledUsersRef: pending.settledUsersRef,
     suppressDraftSubmitPaintHandoff,
   });
   // A slash command sent while a turn runs that the session holds for the

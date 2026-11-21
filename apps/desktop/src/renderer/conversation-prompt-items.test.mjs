@@ -6,48 +6,31 @@ import {
   pendingPromptImages,
   pendingPromptTranscriptItems,
   promptWaitsBehindActiveTurn,
-  settledUserRowCount,
   unsettledQueueEntries,
 } from './conversation-prompt-items.ts';
 
-test("a group room's live user row (a notice) releases the sent prompt's pending twin", () => {
+test("a group room's user row, posted under the submission id, releases the sent prompt's pending twin", () => {
+  // The room posts the row under the submission id (rooms/live.rs `submission_row_id`), its `messageId` the row's id.
   const settled = [
-    { kind: 'notice', id: 'n1', text: 'hi', room: { kind: 'user', id: 'user_s1' } },
+    { kind: 'user', id: 's1', text: 'hi', messageId: 's1', room: { kind: 'user', id: 's1' } },
     { kind: 'notice', id: 'n2', text: 'ok', room: { kind: 'speech', id: 'row_1' } },
   ];
-  assert.equal(settledUserRowCount(settled), 1);
   const pending = { id: 's1', kind: 'user', text: 'hi', pending: true, accepted: true, submittedAt: 1 };
-  assert.deepEqual(pendingPromptTranscriptItems([{ ...pending, settledUserBaseline: 0 }], settled), []);
+  assert.deepEqual(pendingPromptTranscriptItems([pending], settled), []);
 });
 
-test("a room's later prompt is released by its own renamed row, not held for one more", () => {
-  // Rows renamed by the room (id mismatch): the earlier twin stays in state,
-  // and the second prompt was sent after the first row had settled.
+test("another surface's user row never releases this pane's prompt, before or after its own row", () => {
   const pending = { kind: 'user', pending: true, accepted: true };
   const optimistic = [
-    { ...pending, id: 's1', text: 'hi', submittedAt: 1, settledUserBaseline: 0 },
-    { ...pending, id: 's2', text: 'hm', submittedAt: 2, settledUserBaseline: 1 },
+    { ...pending, id: 's1', text: 'hi', submittedAt: 1 },
+    { ...pending, id: 's2', text: 'hm', submittedAt: 2 },
   ];
-  const room = (id, text) => ({ kind: 'notice', id, text, room: { kind: 'user', id: `user_${id}` } });
+  const user = (id, text) => ({ kind: 'user', id, text });
   const held = (prompts, settled) => pendingPromptTranscriptItems(prompts, settled).map((item) => item.id);
-  assert.deepEqual(held(optimistic, [room('n1', 'hi')]), ['s2']);
-  assert.deepEqual(held(optimistic, [room('n1', 'hi'), room('n2', 'hm')]), []);
-  // Two prompts sent before either settled still wait for a row each.
-  const together = optimistic.map((item) => ({ ...item, settledUserBaseline: 0 }));
-  assert.deepEqual(held(together, [room('n1', 'hi')]), ['s2']);
-});
-
-test('settledUserRowCount counts user rows correctly', () => {
-  assert.equal(settledUserRowCount([]), 0);
-  assert.equal(
-    settledUserRowCount([
-      { kind: 'user', text: 'hi' },
-      { kind: 'assistant', text: 'hello' },
-      { kind: 'tool', text: 'run' },
-      { kind: 'user', text: 'do something' },
-    ]),
-    2
-  );
+  const old = [user('u0', 'earlier'), { kind: 'assistant', id: 'a0', text: 'ok' }];
+  assert.deepEqual(held(optimistic, [...old, user('other-device', 'from the phone')]), ['s1', 's2']);
+  assert.deepEqual(held(optimistic, [...old, user('other-device', 'x'), user('s1', 'hi')]), ['s2']);
+  assert.deepEqual(held(optimistic, [user('older', 'paged in'), ...old, user('s2', 'hm')]), ['s1']);
 });
 
 test('nextComposerSubmissionId mints unique id tokens', () => {
@@ -118,7 +101,6 @@ test('pendingPromptTranscriptItems holds optimistic items until own durable row 
       pending: true,
       accepted: false,
       submittedAt: 100,
-      settledUserBaseline: 0,
     },
   ];
 
@@ -133,10 +115,9 @@ test('pendingPromptTranscriptItems holds optimistic items until own durable row 
   const releasedById = pendingPromptTranscriptItems(optimistic, settledWithId);
   assert.equal(releasedById.length, 0);
 
-  // 3. Settled by baseline count safety net when id is rewritten
-  const settledRenamed = [{ id: 'runtime-uuid-99', kind: 'user', text: 'hello world' }];
-  const releasedByBaseline = pendingPromptTranscriptItems(optimistic, settledRenamed);
-  assert.equal(releasedByBaseline.length, 0);
+  // 3. A user row of another submission is not this one's
+  const other = [{ id: 'runtime-uuid-99', kind: 'user', text: 'hello world' }];
+  assert.equal(pendingPromptTranscriptItems(optimistic, other).length, 1);
 });
 
 test('promptWaitsBehindActiveTurn checks active/queued state unless in draft mode', () => {

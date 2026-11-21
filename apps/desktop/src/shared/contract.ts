@@ -718,7 +718,14 @@ export interface DesktopApi {
   resolveRemoteClientClaim?(claimId: string, approved: boolean): Promise<boolean>;
   /** A persisted transcript tail for paint only. Does not open or follow the session. */
   previewSession?(sessionId: string): Promise<SessionSnapshot | null>;
-  prefetchSession?(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean>;
+  /** `retry`: the user's Retry of a transcript that did not arrive; the host starts a new attach instead of waiting on the
+   *  one that is out. */
+  prefetchSession?(
+    sessionId: string,
+    transcriptItemLimit?: number,
+    readTraceId?: string,
+    options?: { retry?: boolean }
+  ): Promise<boolean>;
   /** A historical-position read (rows next to one row), outside the session's
    *  shared window: nothing is published. */
   readTranscriptHistory?(

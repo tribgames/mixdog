@@ -93,8 +93,9 @@ export function createViewManager(
   let restored = [...options.restored];
   let appOpen = false;
   let refresh = false;
-  // The connection that is up began with the library re-attaching what was open: its first sync is that re-attachment's outcome.
-  let reattach = false;
+  // The library's re-attachment of what was open on the connection that is up: owed by every sync until each restore was answered,
+  // so a retry after a failed sync waits for the same restores instead of taking the feeds as attached.
+  let reattach: Promise<void> | undefined;
   let cancelReattach: (() => void) | undefined;
   // Which connection a sync ran on: a refresh that failed because its connection ended is not owed to the next one.
   let connection = 0;
@@ -142,7 +143,7 @@ export function createViewManager(
   /** `c` is the sync's own client: the frames it writes carry this sync's claim, whichever connection they end up on. The app feed and
    *  every thread go out together, one request per feed (so each feed's order is its own); a thread's resume joins one the page already
    *  has in flight rather than replacing it. */
-  const attach = async (force: boolean, c: ViewClient): Promise<void> => {
+  const attach = async (force: boolean, c: ViewClient, signal: AbortSignal): Promise<void> => {
     const want = target();
     const gate = appGate;
     const sent: Array<Promise<void>> = [];
@@ -162,7 +163,7 @@ export function createViewManager(
     for (const id of want) {
       if (open.has(id) && !force) continue;
       sent.push(
-        c.resumeThread(id, VIEW_WINDOW, force ? { force: true, follow: true } : { join: true, follow: true }).then(
+        c.resumeThread(id, VIEW_WINDOW, { ...(force ? { force: true } : { join: true }), follow: true, signal }).then(
           () => {
             open.add(id);
           },
@@ -186,11 +187,17 @@ export function createViewManager(
     clearTimeout: (handle: number) => clearTimeout(handle as unknown as ReturnType<typeof setTimeout>),
   };
   // The sync request is a call like any other: its deadline starts when it is sent, and an overdue one probes the connection before it times out.
-  const underDeadline = <T>(run: (c: ViewClient) => Promise<T>): Promise<T> =>
+  const underDeadline = <T>(run: (c: ViewClient, signal: AbortSignal) => Promise<T>): Promise<T> =>
     new Promise<T>((resolve, reject) => {
       const id = ++syncId;
       inFlight.set(id, true);
-      const watch = armCallWatch(inFlight, id, reject, options.probe, options.silentSince, timers);
+      // The watch's failure ends the client's waits it covers, too.
+      const ended = new AbortController();
+      const failed = (error: Error): void => {
+        ended.abort(error);
+        reject(error);
+      };
+      const watch = armCallWatch(inFlight, id, failed, options.probe, options.silentSince, timers);
       // This sync's own claim, carried by its own frames (the first one it writes): a reconnect between the claim and the write cannot hand the
       // frame to another sync.
       const own = scopeClient(
@@ -201,7 +208,7 @@ export function createViewManager(
         watch.cancel();
         inFlight.delete(id);
       };
-      run(own).then(
+      run(own, ended.signal).then(
         (value) => {
           done();
           resolve(value);
@@ -214,16 +221,23 @@ export function createViewManager(
     });
   const sync = createViewSync({
     synchronize: () =>
-      underDeadline(async (c) => {
+      underDeadline(async (c, signal) => {
         const force = refresh;
         const mine = connection;
         refresh = false;
         try {
-          if (reattach) {
-            reattach = false;
-            await reattached();
+          const owed = reattach;
+          if (owed) {
+            try {
+              await owed;
+            } finally {
+              // Answered, or refused (the refused feeds were dropped and are attached anew below); still owed otherwise.
+              if (reattach === owed) reattach = undefined;
+            }
           }
-          await attach(force, c);
+          // A sync its watch already failed attaches nothing: the retry does.
+          if (signal.aborted) throw signal.reason;
+          await attach(force, c, signal);
         } catch (error) {
           if (force && mine === connection) refresh = true;
           throw error;
@@ -247,7 +261,8 @@ export function createViewManager(
   const begin = (): void => {
     connection += 1;
     opened = true;
-    reattach = appOpen || open.size > 0;
+    reattach = appOpen || open.size > 0 ? reattached() : undefined;
+    reattach?.catch(() => undefined);
     appGate = newGate();
     // What the library restores on its own: the app feed is attached again once its subscription is restored, before the threads'.
     if (appOpen) {
@@ -277,6 +292,7 @@ export function createViewManager(
       appGate.shut(remoteConnectionInterruptedError());
       cancelReattach?.();
       cancelReattach = undefined;
+      reattach = undefined;
       // A refresh still owed to the connection that ended is not asked again of the next one: its first sync is the full one.
       refresh = false;
       sync.close();
@@ -312,7 +328,8 @@ export function createViewManager(
       try {
         await sync.ready();
         if (mine !== connection) return true;
-        const confirmed = await client.confirmFeeds([APP_FEED, ...open, ...expectedFeeds]);
+        // Under the watch of the sync it checks: an unanswered check fails as that watch does, which recovers the leg.
+        const confirmed = await underDeadline((c) => c.confirmFeeds([APP_FEED, ...open, ...expectedFeeds]));
         return mine !== connection || confirmed;
       } catch (error) {
         if (mine !== connection) return true;

@@ -10,6 +10,8 @@ import { createChatHostApi, type ChatHostApi } from '../../renderer/remote-chat-
 import {
   createChatApi,
   createRosterFeed,
+  pageLanded,
+  pageWindow,
   remoteSession,
   sharedFor,
   type ChatClient,
@@ -32,8 +34,15 @@ export interface SessionLane {
   /** The stored tail for a paint preview, without starting a runtime or publishing a state frame;
    *  null when the thread is already followed or has no stored items. */
   previewSession(sessionId: string): Promise<SessionSnapshot | null>;
-  /** Prefetch: the session's transcript tail is published as a state frame (`readTraceId` names it). */
-  prefetchSession(sessionId: string, itemLimit?: number, readTraceId?: string): Promise<boolean>;
+  /** Prefetch: the session's transcript tail is published as a state frame (`readTraceId` names it). While an attach still
+   *  owes the transcript, the read first waits for it and its fold (rejecting when the thread cannot be followed), sending
+   *  nothing; `retry`, the user's Retry, ends that attach as the thread's loss and opens the thread again instead. */
+  prefetchSession(
+    sessionId: string,
+    itemLimit?: number,
+    readTraceId?: string,
+    options?: { retry?: boolean }
+  ): Promise<boolean>;
   /** The followed thread's state is published again, whole. */
   requestSessionStateResync(sessionId: string): void;
   /** Whether an attach still owes a usable transcript; held projections must not be delivered meanwhile. */
@@ -89,18 +98,78 @@ export function createSessionLane({
     ) as unknown as SessionSnapshot;
   const publisher = createStatePublisher({ protocol, held, decorated });
   const { emit, publish, transcriptPending } = publisher;
+  const stateOf = (client: Client, fold: SessionFold): SessionSnapshot =>
+    decorated(
+      client,
+      desktopSessionState(fold, client.pendingServerRequests(), client.store.section('hostShellJobs')?.value)
+    );
 
-  /** Resolves once the library has folded the snapshot `resume` brings (the fold follows the reply; client.ts `fold`). */
-  const folded = async (threadId: string, resume: () => Promise<unknown>): Promise<void> => {
+  // A state this lane published is owed again while the client restores its thread after a reconnect. The window is told so
+  // (the state it holds, with `restoreOwed`: a fact of its own that only the pane's watch reads), which puts the restore
+  // under that watch, and it gets the restored state when the restore ends. A lost thread ends its lane as any loss does.
+  const shownLive = new Set<string>();
+  const owed = new Set<string>();
+  let interest: ((threadId: string) => boolean) | null = null;
+  publisher.subscribe((update) => {
+    if (update.snapshot && update.frameSource !== 'live') return;
+    owed.delete(update.sessionId);
+    if (update.snapshot) shownLive.add(update.sessionId);
+    else shownLive.delete(update.sessionId);
+  });
+  const markRestoring = (): void => {
+    const client = held();
+    if (!client) return;
+    for (const threadId of [...shownLive]) {
+      const fold = client.store.thread(threadId)?.state;
+      if (!fold) shownLive.delete(threadId);
+      else if (
+        !owed.has(threadId) &&
+        (interest === null || interest(threadId)) &&
+        client.threadSubscription?.(threadId).restoring
+      ) {
+        owed.add(threadId);
+        emit({
+          sessionId: threadId,
+          snapshot: { ...stateOf(client, fold), restoreOwed: true } as unknown as SessionSnapshot,
+          frameSource: 'replay',
+        });
+      }
+    }
+  };
+  const offReady = protocol.onEvent((event) => {
+    // The client starts its restores in the turn it becomes ready, after this event.
+    if (event.type === 'status' && (event as { status: { state: string } }).status.state === 'ready')
+      queueMicrotask(markRestoring);
+  });
+  const offRestored = protocol.onStoreChange((change) => {
+    if (change.type === 'subscription' && change.state === 'restored' && change.feedId && owed.has(change.feedId))
+      publish(change.feedId);
+  });
+
+  /** The fold the snapshot of the page `resume` asks for brings (a fold of another `origin` than `before`: the fold follows
+   *  the reply; client.ts `fold`), or undefined when the core answered with a replay, which brings none. An event folded
+   *  meanwhile is not that page. Rejects when the thread is lost first. */
+  const paged = async (
+    threadId: string,
+    before: SessionFold,
+    resume: () => Promise<unknown>
+  ): Promise<SessionFold | undefined> => {
     let off = (): void => undefined;
-    const arrived = new Promise<void>((resolve) => {
+    const landed = new Promise<SessionFold>((resolve, reject) => {
       off = protocol.onStoreChange((change) => {
-        if (change.type === 'thread' && change.threadId === threadId) resolve();
+        if (change.type === 'thread' && change.threadId === threadId) {
+          const next = held()?.store.thread(threadId)?.state;
+          if (next && next.origin !== before.origin) resolve(next);
+        } else if (change.type === 'subscription' && change.feedId === threadId && change.state === 'lost') {
+          reject(new Error('The session is no longer available.'));
+        }
       });
     });
+    landed.catch(() => undefined);
     try {
-      await resume();
-      await arrived;
+      const reply = (await resume()) as { subscription?: { mode?: unknown } } | null | undefined;
+      if (reply?.subscription?.mode === 'replay') return undefined;
+      return await landed;
     } finally {
       off();
     }
@@ -108,12 +177,7 @@ export function createSessionLane({
   /** A thread this connection does not follow, read once: its state as a snapshot of that read would fold. */
   const readOnce = async (client: Client, threadId: string, lastItems: number): Promise<SessionSnapshot> => {
     const read = await call('thread/read', { threadId, window: { lastItems } });
-    const state = desktopSessionState(
-      sessionReducer.initial(read as Parameters<typeof sessionReducer.initial>[0]),
-      client.pendingServerRequests(),
-      client.store.section('hostShellJobs')?.value
-    );
-    return decorated(client, state);
+    return stateOf(client, sessionReducer.initial(read as Parameters<typeof sessionReducer.initial>[0]));
   };
 
   return {
@@ -143,10 +207,24 @@ export function createSessionLane({
       const fold = sessionReducer.initial({ thread: { id: sessionId }, items: page.data, hasOlder: false });
       return decorated(client, desktopSessionState(fold, []));
     },
-    async prefetchSession(sessionId, itemLimit, readTraceId) {
+    async prefetchSession(sessionId, itemLimit, readTraceId, options) {
       const client = await live();
-      if (transcriptPending(sessionId)) return true;
       const lastItems = typeof itemLimit === 'number' ? itemLimit : DESKTOP_TRANSCRIPT_TAIL_ITEMS;
+      if (transcriptPending(sessionId)) {
+        // An attach still owes the transcript. The user's Retry, once the pane's watch gave up on that attach, ends it as
+        // the thread's loss and opens the thread again; any other read waits for the attach and its fold, offering no
+        // window of its own as grounds for another one. What the read asks beyond that is decided below, on the fold.
+        let arrived: boolean;
+        try {
+          if (options?.retry === true) await client.reopenThread(sessionId, { lastItems });
+          arrived = await client.whenThreadSettled(sessionId);
+        } catch (error) {
+          throw coreErrorForWindow(error);
+        }
+        // The thread was let go while the read waited: the read ends here. It sends nothing and publishes nothing (a read
+        // answered later would land over the state of whoever opened the thread again), and it asks for no repeat.
+        if (!arrived) return true;
+      }
       const fold = client.store.thread(sessionId)?.state;
       if (!fold) {
         // Not followed: one read, published as the replay it is. Following it is `setVisibleSessions`' decision.
@@ -155,23 +233,46 @@ export function createSessionLane({
         return true;
       }
       if (readTraceId) publisher.expectRead(sessionId, readTraceId);
-      // The held window answers unless the read asks for more rows than it holds and the core has older ones.
-      if (fold.items.length >= lastItems || fold.fields.transcriptHasOlder !== true) publish(sessionId);
-      else
-        await folded(sessionId, () => protocol.resumeThread(sessionId, { lastItems })).catch((error: unknown) => {
-          publisher.forgetRead(sessionId);
-          throw coreErrorForWindow(error);
-        });
-      return true;
+      // A read that names no rows is a read of the state: the state held answers it and no resume is sent. Filling the
+      // screen is the renderer's own page request.
+      if (typeof itemLimit !== 'number') {
+        publish(sessionId);
+        return true;
+      }
+      // A page answers whether older rows joined the window (false: the window is exhausted). The held window answers unless
+      // the page asks for more rows than it shows and the core has older ones; it grows in core items (`pageWindow`), one
+      // page at a time.
+      const items = pageWindow(fold, (desktopSessionState(fold, []).items as unknown[]).length, lastItems);
+      if (!items) {
+        publish(sessionId);
+        return items === 0;
+      }
+      let page: SessionFold | undefined;
+      try {
+        page = await paged(sessionId, fold, () => protocol.resumeThread(sessionId, { lastItems: items }));
+      } catch (error) {
+        publisher.forgetRead(sessionId);
+        throw coreErrorForWindow(error);
+      }
+      // A page's fold publishes itself; without one the state held answers the read.
+      if (!page) publish(sessionId);
+      return pageLanded(fold, page, items);
     },
     requestSessionStateResync(sessionId) {
       publish(sessionId);
     },
     transcriptPending,
-    setInterest: publisher.setInterest,
+    setInterest(next) {
+      interest = next;
+      publisher.setInterest(next);
+    },
     dispose() {
       offRoster();
       offReplaced();
+      offReady();
+      offRestored();
+      shownLive.clear();
+      owed.clear();
       publisher.dispose();
       sessionListeners.clear();
     },

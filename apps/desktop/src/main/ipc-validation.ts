@@ -57,7 +57,7 @@ import {
   DESKTOP_TRANSCRIPT_HISTORY_PAGE_ITEMS,
   type ToolApprovalDecision,
 } from '../shared/contract';
-import { validTranscriptHistoryPosition } from '../shared/contract-session';
+import { validTranscriptHistoryCursor, validTranscriptHistoryPosition } from '../shared/contract-session';
 import {
   canonicalPromptFileMimeType,
   MAX_PROMPT_FILE_BASE64_LENGTH,
@@ -1070,7 +1070,8 @@ export function requiredTranscriptHistoryRequest(value: unknown): DesktopTranscr
     (limit as number) < 1 ||
     (limit as number) > DESKTOP_TRANSCRIPT_HISTORY_PAGE_ITEMS ||
     (budget !== undefined && budget !== null && (!Number.isSafeInteger(budget) || (budget as number) < 1)) ||
-    (input.position != null && !validTranscriptHistoryPosition(input.position))
+    (input.position != null && !validTranscriptHistoryPosition(input.position)) ||
+    (input.cursor != null && !validTranscriptHistoryCursor(input.cursor))
   ) {
     throw new TypeError('transcript history request is invalid.');
   }
@@ -1079,6 +1080,7 @@ export function requiredTranscriptHistoryRequest(value: unknown): DesktopTranscr
     limit: limit as number,
     ...(typeof budget === 'number' ? { byteBudget: budget } : {}),
     ...(typeof input.position === 'string' ? { position: input.position } : {}),
+    ...(typeof input.cursor === 'string' ? { cursor: input.cursor } : {}),
   };
 }
 
