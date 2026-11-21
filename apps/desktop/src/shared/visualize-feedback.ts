@@ -113,8 +113,9 @@ export type VisualizeFeedbackPageMessage =
   | { type: 'inspected'; id: string; inspection: PageInspection | { error: string } }
   /** The page's mx-tweaks block text (null: it has none), sent once the page is ready. */
   | { type: 'tweaks'; raw: string | null }
-  /** The page's document scroll position (settled), so a reload of the same file can restore it. */
-  | { type: 'scrolled'; x: number; y: number };
+  /** The page's document scroll position (settled), so a reload of the same file can restore it,
+   *  and the viewport height it was read at. */
+  | { type: 'scrolled'; x: number; y: number; height: number };
 
 /** Renderer → page. `choices` (the pane's queued picks) is sent only in
  *  answer to `ready`, so a reloaded page shows them again. Points are in the
@@ -207,7 +208,9 @@ export function visualizeFeedbackPageMessage(value: unknown): VisualizeFeedbackP
   const data = value as Record<string, unknown>;
   if (data[VISUALIZE_FEEDBACK_TAG] !== 1) return null;
   if (data.type === 'ready' || data.type === 'exit-comment') return { type: data.type };
-  if (data.type === 'scrolled') return { type: 'scrolled', x: finite(data.x), y: finite(data.y) };
+  if (data.type === 'scrolled') {
+    return { type: 'scrolled', x: finite(data.x), y: finite(data.y), height: finite(data.height) };
+  }
   if (data.type === 'link') {
     const url = webUrl(data.url);
     return url ? { type: 'link', url, external: data.external === true } : null;
@@ -881,7 +884,7 @@ const FEEDBACK_SOURCE = String.raw`(function (target) {
     var scrollTimer = 0;
     addEventListener('scroll', function () {
       if (scrollTimer) return;
-      scrollTimer = setTimeout(function () { scrollTimer = 0; post({ type: 'scrolled', x: window.scrollX, y: window.scrollY }); }, 100);
+      scrollTimer = setTimeout(function () { scrollTimer = 0; post({ type: 'scrolled', x: window.scrollX, y: window.scrollY, height: window.innerHeight }); }, 100);
     });
     if (window.MutationObserver) {
       new MutationObserver(schedule).observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });

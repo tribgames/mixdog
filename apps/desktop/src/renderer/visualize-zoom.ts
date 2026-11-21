@@ -2,8 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import { flushSync } from 'react-dom';
 
 import type { VisualizeZoomInput } from '../shared/visualize';
+import { postToPage, visualizeFeedbackPageMessage } from '../shared/visualize-feedback';
 import { watchTouchZoom } from './touch-zoom';
 import {
+  PREVIEW_ZOOM_PRESETS,
   PREVIEW_ZOOM_RANGE,
   anchoredScroll,
   clampZoom,
@@ -14,6 +16,8 @@ import {
 import { dispatchZoomAt, dispatchZoomKey, registerZoomTarget, type ZoomPoint } from './zoom-target';
 
 export const VISUALIZE_ZOOM_RANGE = PREVIEW_ZOOM_RANGE;
+/** 1x is the fit itself (the pill's lead entry), never a second entry. */
+export const VISUALIZE_ZOOM_PRESETS = PREVIEW_ZOOM_PRESETS.filter((preset) => preset !== 1);
 
 const modifierListeners = new Set<(held: boolean) => void>();
 
@@ -49,6 +53,8 @@ export function visualizeZoomStyle(scale: number, kind: string): CSSProperties |
       '--visualize-zoom': scale,
     } as CSSProperties;
   }
+  // Zoomed in, the page keeps the pane's layout width (a page that fits itself to its width would otherwise shrink back) and only magnifies: the pane scrolls sideways, the page itself up and down.
+  if (scale > 1) return { width: '100%', height: `${100 / scale}%`, transform: `scale(${scale})` };
   // Chromium counts a flex item's untransformed 1/scale box as scrollable overflow; out of flow, only the scaled box sets the scroll range.
   return {
     position: 'absolute',
@@ -67,6 +73,52 @@ interface ScrollAnchor {
   left: number;
   top: number;
   ratio: number;
+  from: number;
+  to: number;
+  /** The document the pane shows and where it stood before the resize (a
+   *  resize that grows the view clamps it at the end of the page). */
+  place: DocumentPlace | null;
+}
+
+type DocumentPlace = { frame: HTMLIFrameElement; x: number; y: number } | { pages: HTMLElement; y: number };
+
+/** Each page frame's document scroll, as its page reported it at the view
+ *  height it has now, or as the zoom last put it. */
+const pageScrolls = new WeakMap<Window, { x: number; y: number }>();
+
+/** Takes a page's scroll report, unless it was read at another view height
+ *  (before a zoom step that came after it). */
+function notePageScroll(panel: HTMLElement, event: MessageEvent): void {
+  const message = visualizeFeedbackPageMessage(event.data);
+  if (message?.type !== 'scrolled' || !event.source) return;
+  for (const frame of panel.querySelectorAll('iframe')) {
+    const view = frame.contentWindow;
+    if (view !== event.source) continue;
+    if (Math.abs(message.height - frame.clientHeight) <= 1) pageScrolls.set(view, { x: message.x, y: message.y });
+    return;
+  }
+}
+
+/** The document a pane shows (its page frame, or a remote document's page list) and its place now. */
+function paneDocumentPlace(content: HTMLElement): DocumentPlace | null {
+  const frame = content.querySelector<HTMLIFrameElement>('.visualize-zoom-layer iframe');
+  if (frame) {
+    const known = frame.contentWindow ? pageScrolls.get(frame.contentWindow) : undefined;
+    return { frame, x: known?.x ?? 0, y: known?.y ?? 0 };
+  }
+  const pages = content.querySelector<HTMLElement>('.visualize-zoom-layer .visualize-document-pages');
+  return pages ? { pages, y: pages.scrollTop } : null;
+}
+
+/** Puts the document `dy` of its own px from where it stood before the resize. */
+function placePaneDocument(place: DocumentPlace, dy: number): void {
+  const y = place.y + dy;
+  if ('pages' in place) {
+    place.pages.scrollTop = y;
+    return;
+  }
+  postToPage(place.frame, { type: 'scroll-to', x: place.x, y });
+  if (place.frame.contentWindow) pageScrolls.set(place.frame.contentWindow, { x: place.x, y });
 }
 
 export function useVisualizeZoom({
@@ -104,6 +156,9 @@ export function useVisualizeZoom({
                 left: content.scrollLeft,
                 top: content.scrollTop,
                 ratio,
+                from: live.current.scale,
+                to: next,
+                place: live.current.scale >= 1 && next >= 1 ? paneDocumentPlace(content) : null,
               };
             })
           : [];
@@ -129,12 +184,21 @@ export function useVisualizeZoom({
   // Once the new scale has laid out, put the anchored point back under the pointer.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the scale is the trigger; the anchors ride in a ref
   useLayoutEffect(() => {
-    for (const { content, px, py, left, top, ratio } of anchors.current) {
+    for (const { content, px, py, left, top, ratio, from, to, place } of anchors.current) {
       content.scrollLeft = anchoredScroll(left, px, ratio);
       content.scrollTop = anchoredScroll(top, py, ratio);
+      // At 1x and above a page or document scrolls itself up and down, at an unchanged layout width.
+      if (place) placePaneDocument(place, py / from - py / to);
     }
     anchors.current = [];
   }, [scale]);
+
+  useEffect(() => {
+    if (!panel) return undefined;
+    const onMessage = (event: MessageEvent) => notePageScroll(panel, event);
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [panel]);
 
   useEffect(() => {
     if (!panel || !enabled) return undefined;

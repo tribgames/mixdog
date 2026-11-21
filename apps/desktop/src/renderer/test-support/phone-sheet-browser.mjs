@@ -2,6 +2,9 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { launchPuppeteerBrowser } from '../../../../../src/runtime/shared/browser-launch.mjs';
+import { PREVIEW_FRAME_PATH, sendPreviewFrame } from '../../../../relay/lib/relay-preview-frame.mjs';
+
+const RELAY_ORIGIN = 'https://relay.test';
 
 const BODY = `<div id="root"><div class="app-shell"><div class="pane-side-dock" data-open="true"><div class="pane-side-dock-main">
   <aside class="workbench-side-panel" data-side="right" data-embedded="true"><div class="workbench-side-panel-content">
@@ -21,7 +24,8 @@ const noLazyChunks = {
 
 export const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export async function openPhone(t, harness, name) {
+/** `relay`: the shell is served from a relay origin that answers /preview-frame. */
+export async function openPhone(t, harness, name, { relay = false } = {}) {
   const resolveDir = fileURLToPath(new URL('..', import.meta.url));
   const assets = { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl', '.png': 'dataurl' };
   const [bundle, styles] = await Promise.all([
@@ -66,11 +70,26 @@ export async function openPhone(t, harness, name) {
   const messages = [];
   page.on('pageerror', (error) => messages.push(error.message));
   page.on('console', (message) => messages.push(message.text()));
-  await page.setContent(
-    `<!doctype html><html data-mixdog-mobile-tabs><head><meta name="viewport" content="${VIEWPORT}"><style>${css
-      .map((file) => file.text)
-      .join('\n')}</style></head><body>${BODY}</body></html>`
-  );
+  const shell = `<!doctype html><html data-mixdog-mobile-tabs><head><meta name="viewport" content="${VIEWPORT}"><style>${css
+    .map((file) => file.text)
+    .join('\n')}</style></head><body>${BODY}</body></html>`;
+  if (relay) {
+    // The relay's own /preview-frame (its page and headers), so a page reaches
+    // its frame the way it does on a paired phone, scripts and paint report included.
+    const frame = {};
+    sendPreviewFrame(
+      { method: 'GET' },
+      { writeHead: (status, headers) => Object.assign(frame, { status, headers }), end: (body) => (frame.body = body) }
+    );
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.origin !== RELAY_ORIGIN) return request.continue();
+      if (url.pathname === PREVIEW_FRAME_PATH) return request.respond(frame);
+      return request.respond({ status: 200, contentType: 'text/html; charset=utf-8', body: shell });
+    });
+    await page.goto(`${RELAY_ORIGIN}/`);
+  } else await page.setContent(shell);
   await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
   const cdp = await page.target().createCDPSession();
   await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });

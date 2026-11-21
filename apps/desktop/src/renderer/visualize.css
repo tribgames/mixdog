@@ -287,6 +287,10 @@ html[data-mixdog-mobile-tabs] .visualize-pane:has(> .browser-zoom-pill) > .visua
   width: 100%;
   height: 100%;
 }
+/* Block, not inline: an inline frame's line box grew the stack past the pane. */
+.visualize-frame-stack > iframe {
+  display: block;
+}
 .visualize-frame-stack > iframe.visualize-frame-pending {
   position: absolute;
   inset: 0;

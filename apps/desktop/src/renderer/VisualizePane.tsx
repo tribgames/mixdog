@@ -1,5 +1,14 @@
 import { Columns3, ListTree, Maximize2, MessageSquarePlus, SlidersHorizontal, X } from 'lucide-react';
-import { type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import type { DesktopApi, DesktopDocumentPreviewPages } from '../shared/contract';
 import { type VisualizePaneSource, type VisualizePaneView, visualizeProblemLocation } from '../shared/visualize';
@@ -39,11 +48,17 @@ import {
   visualizePanesStacked,
   visualizeTabTooltip,
 } from './visualize-store';
-import { VISUALIZE_ZOOM_RANGE, visualizeZoomStyle, useImagePaneTouch, useVisualizeZoom } from './visualize-zoom';
+import {
+  VISUALIZE_ZOOM_PRESETS,
+  VISUALIZE_ZOOM_RANGE,
+  visualizeZoomStyle,
+  useImagePaneTouch,
+  useVisualizeZoom,
+} from './visualize-zoom';
 import { setVisualizeSoloPane, useVisualizeSoloPane, visualizeSoloStep } from './visualize-solo-pane';
 import { useZoomBarVisible, zoomBarAction } from './zoom-bar-pref';
 import { ZoomPill } from './ZoomPill';
-import { PREVIEW_ZOOM_PRESETS, stepSnapped } from './zoom-range';
+import { stepSnapped } from './zoom-range';
 import './visualize.css';
 
 /** How long a reloaded page may take to run its page script before it is
@@ -52,37 +67,26 @@ const SCROLL_RESTORE_WAIT_MS = 1_500;
 /** Lets the restored scroll reach the page and paint before the swap. */
 const SCROLL_RESTORE_SETTLE_MS = 60;
 
-interface BufferedFrameSpec {
-  src: string;
-  revision: number;
+interface FrameBufferSpec {
   /** Same value = same document (the file), so its scroll position carries over. */
   doc: string;
-  id: number;
 }
 
-function BufferedFrame({
-  src,
-  revision,
-  doc,
-  page,
-  title,
-  className,
-  sandbox,
-  referrerPolicy,
-}: {
-  src: string;
-  revision: number;
-  doc: string;
-  /** A live page running the feedback page script (scroll can be restored). */
-  page: boolean;
-  title: string;
-  className?: string;
-  sandbox?: string;
-  referrerPolicy?: 'no-referrer';
-}) {
+/** A pane frame's double buffer: new content (a `spec` that is not `same` as
+ *  the shown one) loads in a hidden frame over the shown one, which it
+ *  replaces once `backLoaded` is called and its page has taken the restored
+ *  scroll. `spec` changes identity only when its content does; one that
+ *  `retires` the shown page replaces it at once, unbuffered. */
+function useFrameBuffer<S extends FrameBufferSpec>(
+  spec: S,
+  same: (left: S, right: S) => boolean,
+  page: boolean,
+  retires?: (shown: S, next: S) => boolean
+) {
+  type Spec = S & { id: number };
   const ids = useRef(0);
-  const [front, setFront] = useState<BufferedFrameSpec>({ src, revision, doc, id: 0 });
-  const [back, setBack] = useState<BufferedFrameSpec | null>(null);
+  const [front, setFront] = useState<Spec>({ ...spec, id: 0 });
+  const [back, setBack] = useState<Spec | null>(null);
   const frontFrame = useRef<HTMLIFrameElement>(null);
   const backFrame = useRef<HTMLIFrameElement>(null);
   const scroll = useRef<{ x: number; y: number } | null>(null);
@@ -100,16 +104,20 @@ function BufferedFrame({
   // New content goes to the back frame; a newer one replaces a pending one.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the shown spec is read at the moment the content changes
   useEffect(() => {
-    if (src === front.src && revision === front.revision) {
+    if (same(spec, front)) {
       setBack(null);
       return;
     }
     ids.current += 1;
     const id = ids.current;
-    setBack((pending) =>
-      pending?.src === src && pending.revision === revision ? pending : { src, revision, doc, id }
-    );
-  }, [src, revision, doc]);
+    if (retires?.(front, spec)) {
+      clearTimers();
+      setFront({ ...spec, id });
+      setBack(null);
+      return;
+    }
+    setBack((pending) => (pending && same(pending, spec) ? pending : { ...spec, id }));
+  }, [spec]);
 
   // The shown page's scroll, as its page script reports it; the pending
   // page's `ready` says its script is there to take the restored scroll.
@@ -155,13 +163,13 @@ function BufferedFrame({
     for (const data of queued) window.dispatchEvent(new window.MessageEvent('message', { data, source }));
   }, [front.id]);
 
-  const swap = (spec: BufferedFrameSpec) => {
+  const swap = (shown: Spec) => {
     clearTimers();
-    if (spec.doc !== front.doc) scroll.current = null;
-    setFront(spec);
+    if (shown.doc !== front.doc) scroll.current = null;
+    setFront(shown);
     setBack(null);
   };
-  const onBackLoad = () => {
+  const backLoaded = () => {
     const pending = back;
     const frame = backFrame.current;
     if (!pending) return;
@@ -183,7 +191,41 @@ function BufferedFrame({
       timers.current.push(window.setTimeout(() => swap(pending), SCROLL_RESTORE_WAIT_MS));
     }
   };
+  return { front, back, frontFrame, backFrame, backLoaded };
+}
 
+const sameFrameSource = (left: { src: string; revision: number }, right: { src: string; revision: number }): boolean =>
+  left.src === right.src && left.revision === right.revision;
+
+function BufferedFrame({
+  src,
+  revision,
+  doc,
+  page,
+  title,
+  className,
+  sandbox,
+  referrerPolicy,
+  networkAllowed = false,
+}: {
+  src: string;
+  revision: number;
+  doc: string;
+  /** A live page running the feedback page script (scroll can be restored). */
+  page: boolean;
+  networkAllowed?: boolean;
+  title: string;
+  className?: string;
+  sandbox?: string;
+  referrerPolicy?: 'no-referrer';
+}) {
+  const spec = useMemo(() => ({ src, revision, doc, networkAllowed }), [src, revision, doc, networkAllowed]);
+  const { front, back, frontFrame, backFrame, backLoaded } = useFrameBuffer(
+    spec,
+    sameFrameSource,
+    page,
+    revokesNetwork
+  );
   // `allow` lets a page's own video fullscreen button work; the sandbox still
   // isolates everything else.
   const frameProps = { title, className, sandbox, referrerPolicy, allow: 'fullscreen' };
@@ -199,14 +241,22 @@ function BufferedFrame({
           className={`${className ?? ''} visualize-frame-pending`.trim()}
           aria-hidden="true"
           tabIndex={-1}
-          onLoad={onBackLoad}
+          onLoad={backLoaded}
         />
       ) : null}
     </div>
   );
 }
 
-function PaneContent({ pane, revision = 0 }: { pane: VisualizePaneView; revision?: number }) {
+function PaneContent({
+  pane,
+  revision = 0,
+  networkAllowed = false,
+}: {
+  pane: VisualizePaneView;
+  revision?: number;
+  networkAllowed?: boolean;
+}) {
   const doc = `${pane.target}\0${pane.version ?? ''}`;
   if (pane.kind === 'html') {
     // A project page from the tokenized loopback page server: its own origin,
@@ -217,6 +267,7 @@ function PaneContent({ pane, revision = 0 }: { pane: VisualizePaneView; revision
         revision={revision}
         doc={doc}
         page
+        networkAllowed={networkAllowed}
         title={pane.label}
         sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
         referrerPolicy="no-referrer"
@@ -381,6 +432,7 @@ function mountRemotePage({
   fetchRef,
   networkAllowed,
   report,
+  onShown,
 }: {
   frame: HTMLIFrameElement;
   srcdoc: string;
@@ -390,11 +442,17 @@ function mountRemotePage({
   fetchRef: RefObject<VisualizePaneSource['fetch']>;
   networkAllowed: boolean;
   report(url: string, resource: string): void;
+  /** The page has painted (or will not): see loadSandboxedPage. */
+  onShown(): void;
 }): () => void {
   let page = withVisualizeOverlay(withVisualizeFeedbackScript(srcdoc), marks);
   if (servesFetches && pagePath !== undefined) page = withPageFetchBridge(page, pagePath);
   page = withFrameZoomBridge(page);
-  const unload = loadSandboxedPage(frame, networkAllowed ? withBlockedNetworkReporter(page) : withBlockedNetwork(page));
+  const unload = loadSandboxedPage(
+    frame,
+    networkAllowed ? withBlockedNetworkReporter(page) : withBlockedNetwork(page),
+    onShown
+  );
   const unserve = servesFetches
     ? servePageFetches(
         frame,
@@ -410,6 +468,117 @@ function mountRemotePage({
     unzoom();
     unblocked();
   };
+}
+
+interface RemotePageSpec extends FrameBufferSpec {
+  srcdoc: string;
+  pageId: string | undefined;
+  pagePath: string | undefined;
+  servesFetches: boolean;
+  marks: Array<{ selector: string; label: string }>;
+  marksKey: string;
+  networkAllowed: boolean;
+}
+
+const sameRemotePage = (left: RemotePageSpec, right: RemotePageSpec): boolean =>
+  left.srcdoc === right.srcdoc &&
+  left.pageId === right.pageId &&
+  left.pagePath === right.pagePath &&
+  left.servesFetches === right.servesFetches &&
+  left.marksKey === right.marksKey &&
+  left.networkAllowed === right.networkAllowed;
+
+/** Revoked outside network: the permissive page must not keep running while its replacement loads. */
+function revokesNetwork(shown: { networkAllowed: boolean }, next: { networkAllowed: boolean }): boolean {
+  return shown.networkAllowed && !next.networkAllowed;
+}
+
+/** One remote page frame: its page is mounted once, for its whole life. */
+function RemotePageFrame({
+  spec,
+  title,
+  pending,
+  frameRef,
+  fetchRef,
+  report,
+  onShown,
+}: {
+  spec: RemotePageSpec;
+  title: string;
+  pending: boolean;
+  frameRef: RefObject<HTMLIFrameElement | null>;
+  fetchRef: RefObject<VisualizePaneSource['fetch']>;
+  report(url: string, resource: string): void;
+  onShown?(): void;
+}) {
+  const [frame, setFrame] = useState<HTMLIFrameElement | null>(null);
+  const latest = useRef({ report, onShown });
+  latest.current = { report, onShown };
+  useLayoutEffect(() => {
+    frameRef.current = frame;
+    return () => {
+      if (frameRef.current === frame) frameRef.current = null;
+    };
+  }, [frame, frameRef]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a frame's spec never changes (a new one is a new frame)
+  useEffect(() => {
+    if (!frame) return undefined;
+    return mountRemotePage({
+      frame,
+      srcdoc: spec.srcdoc,
+      marks: spec.marks,
+      pagePath: spec.pagePath,
+      servesFetches: spec.servesFetches,
+      fetchRef,
+      networkAllowed: spec.networkAllowed,
+      report: (url, resource) => latest.current.report(url, resource),
+      onShown: () => latest.current.onShown?.(),
+    });
+  }, [frame]);
+  return (
+    <iframe
+      ref={setFrame}
+      title={title}
+      sandbox="allow-scripts allow-forms allow-modals"
+      referrerPolicy="no-referrer"
+      allow="fullscreen"
+      className={pending ? 'visualize-frame-pending' : undefined}
+      aria-hidden={pending || undefined}
+      tabIndex={pending ? -1 : undefined}
+    />
+  );
+}
+
+/** A remote page, double-buffered like a desktop pane frame: changed content
+ *  loads behind the shown page and replaces it once painted, at its scroll. */
+function RemoteBufferedPage({
+  title,
+  fetchRef,
+  report,
+  ...content
+}: Omit<RemotePageSpec, 'marksKey'> & {
+  title: string;
+  fetchRef: RefObject<VisualizePaneSource['fetch']>;
+  report(url: string, resource: string): void;
+}) {
+  const { doc, srcdoc, pageId, pagePath, servesFetches, networkAllowed } = content;
+  // Marks change with the tab state; the page reloads to show the new set.
+  const marksKey = JSON.stringify(content.marks);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: marksKey stands for marks
+  const spec = useMemo(
+    () => ({ doc, srcdoc, pageId, pagePath, servesFetches, marks: content.marks, marksKey, networkAllowed }),
+    [doc, srcdoc, pageId, pagePath, servesFetches, marksKey, networkAllowed]
+  );
+  const { front, back, frontFrame, backFrame, backLoaded } = useFrameBuffer(spec, sameRemotePage, true, revokesNetwork);
+  const frameProps = { title, fetchRef, report };
+  return (
+    <div className="visualize-frame-stack">
+      <RemotePageFrame key={front.id} spec={front} pending={false} frameRef={frontFrame} {...frameProps} />
+      {back ? (
+        <RemotePageFrame key={back.id} spec={back} pending frameRef={backFrame} onShown={backLoaded} {...frameProps} />
+      ) : null}
+    </div>
+  );
 }
 
 function RemotePaneContent({
@@ -479,34 +648,14 @@ function RemotePaneContent({
       if (url.startsWith('blob:')) URL.revokeObjectURL(url);
     };
   }, [load, sessionId, tabId, index, asPages, mediaEpoch, revision]);
-  const [frame, setFrame] = useState<HTMLIFrameElement | null>(null);
-  const srcdoc = source?.srcdoc;
   // A revision's load is a new source object; the frame reloads only for a
   // different page (content identity, document, path), while the page's
   // fetch handler follows the latest load.
-  const pageId = source?.contentId;
-  const pagePath = source?.page;
-  const servesFetches = !!source?.fetch;
   const fetchRef = useRef(source?.fetch);
   fetchRef.current = source?.fetch;
-  // Marks change with the tab state; the page reloads to show the new set.
-  const marksKey = JSON.stringify(marks);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: marksKey stands for marks; pageId is the page's identity
-  useEffect(() => {
-    if (!frame || srcdoc === undefined) return undefined;
-    return mountRemotePage({
-      frame,
-      srcdoc,
-      marks,
-      pagePath,
-      servesFetches,
-      fetchRef,
-      networkAllowed,
-      report: (url, resource) => reportVisualizeBlockedNetwork(sessionId, tabId, index, url, resource),
-    });
-  }, [frame, srcdoc, pageId, pagePath, servesFetches, marksKey, networkAllowed, sessionId, tabId, index]);
   if (asPages) return <RemoteDocumentPages label={pane.label} read={pages} onFail={pagesUnavailable} />;
-  if (error && pane.inline) {
+  // A failed reload (a relay reconnect mid-read) keeps the page it had.
+  if (error && !source && pane.inline) {
     // The interactive page could not be built here: the static render stands in.
     return (
       <div className="visualize-script-pane">
@@ -517,17 +666,22 @@ function RemotePaneContent({
       </div>
     );
   }
-  if (error) return <div className="visualize-empty mx-empty-state">{error}</div>;
-  if (!source) return <div className="visualize-empty mx-empty-state">{t('Loading…')}</div>;
-  if (srcdoc !== undefined) {
+  if (!source) {
+    return <div className="visualize-empty mx-empty-state">{error || t('Loading…')}</div>;
+  }
+  if (source.srcdoc !== undefined) {
     return (
-      <iframe
-        key="live"
-        ref={setFrame}
+      <RemoteBufferedPage
         title={pane.label}
-        sandbox="allow-scripts allow-forms allow-modals"
-        referrerPolicy="no-referrer"
-        allow="fullscreen"
+        doc={`${pane.target}\0${pane.version ?? ''}`}
+        srcdoc={source.srcdoc}
+        pageId={source.contentId}
+        pagePath={source.page}
+        servesFetches={!!source.fetch}
+        marks={marks}
+        networkAllowed={networkAllowed}
+        fetchRef={fetchRef}
+        report={(url, resource) => reportVisualizeBlockedNetwork(sessionId, tabId, index, url, resource)}
       />
     );
   }
@@ -686,7 +840,7 @@ function visualizePaneContent({
   }
   // Pane frames double-buffer a reload, so the cell survives it.
   return {
-    content: <PaneContent pane={pane} revision={shown.revision} />,
+    content: <PaneContent pane={pane} revision={shown.revision} networkAllowed={shown.networkAllowed === true} />,
     buffered: pane.kind === 'html' || pane.kind === 'pdf' || pane.kind === 'document',
     showSource,
   };
@@ -941,7 +1095,7 @@ function VisualizeZoomPill({
       }
       level={zoom}
       range={VISUALIZE_ZOOM_RANGE}
-      presets={PREVIEW_ZOOM_PRESETS}
+      presets={VISUALIZE_ZOOM_PRESETS}
       step={(current, direction) => stepSnapped(current, direction, VISUALIZE_ZOOM_RANGE)}
       onChange={setZoom}
       lead={{ label: t('Fit to window'), checked: zoom === 1, onSelect: () => setZoom(1) }}
@@ -1234,8 +1388,15 @@ function useKeptTabs(tabs: VisualizeTab[], tabId: string): VisualizeTab[] {
   const keptKey = keptIds.join('\n');
   // biome-ignore lint/correctness/useExhaustiveDependencies: keptKey carries keptIds
   useEffect(() => setRecentTabs(keptIds), [keptKey]);
-  // State order, never the viewing order: a moved iframe would reload.
-  return tabs.filter((candidate) => keptIds.includes(candidate.id));
+  // Mount order, never the viewing or the state's order (an agent's reopen
+  // moves its tab last): a moved iframe would reload.
+  const mounted = useRef<string[]>([]);
+  const stay = mounted.current.filter((id) => keptIds.includes(id));
+  mounted.current = [
+    ...stay,
+    ...tabs.filter((candidate) => keptIds.includes(candidate.id) && !stay.includes(candidate.id)).map(({ id }) => id),
+  ];
+  return mounted.current.flatMap((id) => tabs.filter((candidate) => candidate.id === id));
 }
 
 /** Remembers whether the session's panel is on screen, and closes the panel

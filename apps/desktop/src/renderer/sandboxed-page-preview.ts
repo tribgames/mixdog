@@ -84,8 +84,9 @@ function openPageLink(href: unknown): void {
 
 /** Loads `srcdoc` into a `sandbox="allow-scripts"` frame: through the relay's
  *  /preview-frame page when it answers, else as a plain srcdoc. Returns the
- *  cleanup. Shared by the full-window viewer and the visualize panel. */
-export function loadSandboxedPage(frame: HTMLIFrameElement, page: string): () => void {
+ *  cleanup. Shared by the full-window viewer and the visualize panel.
+ *  `onShown` runs once the page has painted (never after the cleanup). */
+export function loadSandboxedPage(frame: HTMLIFrameElement, page: string, onShown?: () => void): () => void {
   const srcdoc = sandboxedPageDocument(page);
   const onMessage = (event: MessageEvent): void => {
     if (event.source !== frame.contentWindow) return;
@@ -96,7 +97,7 @@ export function loadSandboxedPage(frame: HTMLIFrameElement, page: string): () =>
       return;
     }
     if (data.type === PREVIEW_PAINTED) {
-      if (sent) reveal();
+      if (sent) reveal(true);
       return;
     }
     if (sent || data.type !== PREVIEW_READY) return;
@@ -111,6 +112,7 @@ export function loadSandboxedPage(frame: HTMLIFrameElement, page: string): () =>
     frame.removeAttribute('src');
     frame.srcdoc = srcdoc;
     loadsToReveal = loads + 1;
+    scriptless = true;
   }, PREVIEW_READY_TIMEOUT_MS);
   window.addEventListener('message', onMessage);
   // The frame stays hidden (the panel's own background shows) until the page
@@ -121,17 +123,26 @@ export function loadSandboxedPage(frame: HTMLIFrameElement, page: string): () =>
   // the document written into it (a srcdoc fallback has just the one).
   let loads = 0;
   let loadsToReveal = 2;
+  // The srcdoc fallback (no page script): its load is the only sign it is drawn.
+  let scriptless = false;
   const priorVisibility = frame.style.visibility;
-  const reveal = (): void => {
+  let notifyShown = onShown;
+  // `onShown` waits for the page's own paint report; a load or the timeout
+  // only unhides the frame.
+  const reveal = (painted: boolean): void => {
     clearTimeout(revealTimer);
     frame.removeEventListener('load', onLoad);
     frame.style.visibility = priorVisibility;
+    if (!painted) return;
+    const notify = notifyShown;
+    notifyShown = undefined;
+    notify?.();
   };
   const onLoad = (): void => {
     loads += 1;
-    if (loads >= loadsToReveal) reveal();
+    if (loads >= loadsToReveal) reveal(scriptless);
   };
-  const revealTimer = setTimeout(reveal, PREVIEW_REVEAL_TIMEOUT_MS);
+  const revealTimer = setTimeout(() => reveal(false), PREVIEW_REVEAL_TIMEOUT_MS);
   frame.style.visibility = 'hidden';
   frame.addEventListener('load', onLoad);
   // A frame that already shows a page reloads in place by replacing its
@@ -143,7 +154,7 @@ export function loadSandboxedPage(frame: HTMLIFrameElement, page: string): () =>
   else frame.src = PREVIEW_FRAME_PATH;
   return () => {
     clearTimeout(fallbackTimer);
-    reveal();
+    reveal(false);
     window.removeEventListener('message', onMessage);
   };
 }
