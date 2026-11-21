@@ -200,10 +200,12 @@ enum WatchSignal {
 }
 
 fn signal_watch_event(root: &Path, events: &std::sync::mpsc::Sender<WatchSignal>, event: notify::Result<notify::Event>) {
+    let names_root = |root: &Path, event: &notify::Event| event.paths.iter().any(|p| p == &path(root) || p == root || root.starts_with(p));
     let relevant = match event {
         Ok(event) => {
             event.need_rescan()
-                || (!matches!(event.kind, notify::EventKind::Access(_)) && event.paths.iter().any(|p| p == &path(root) || p == root || root.starts_with(p)))
+                || (!matches!(event.kind, notify::EventKind::Access(_))
+                    && (names_root(root, &event) || names_root(&mixdog_workspace::pathguard::resolved(root), &event)))
         }
         Err(error) => {
             tracing::warn!(%error, "discovery watch lost; waiting for an ancestor event");

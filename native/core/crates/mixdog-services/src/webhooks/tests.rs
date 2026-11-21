@@ -454,6 +454,23 @@ const DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 async fn within<T>(waiting_for: &str, future: impl std::future::Future<Output = T>) -> T {
     mixdog_rt::time::timeout(DEADLINE, future).await.unwrap_or_else(|_| panic!("{waiting_for} did not arrive within {DEADLINE:?}"))
 }
+/// Awaits loopback I/O with the paused clock held still. The kernel completes it on its own schedule (macOS hands loopback
+/// packets to its network thread), and a paused runtime with nothing ready meanwhile jumps the clock to its next timer: a
+/// keep-alive or header expiry, or the [`within`] deadline. A running blocking task keeps tokio from auto-advancing; the
+/// deadline here is wall time.
+async fn on_the_wire<T>(waiting_for: &str, future: impl std::future::Future<Output = T>) -> T {
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let mut hold = tokio::task::spawn_blocking(move || held.recv_timeout(DEADLINE));
+    tokio::select! {
+        biased;
+        out = future => {
+            drop(release);
+            let _ = hold.await;
+            out
+        }
+        _ = &mut hold => panic!("{waiting_for} did not arrive within {DEADLINE:?} of wall time"),
+    }
+}
 async fn read_response(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>) -> Option<(u16, String)> {
     read_response_typed(stream, pending, "a reply").await.map(|(status, _, body, _)| (status, body))
 }
@@ -772,10 +789,16 @@ async fn a_request_in_flight_is_cut_at_the_shutdown_grace() {
     let len = body.len().to_string();
     let mut request = post("/webhook/hook", &[JSON_CT, ("x-hub-signature-256", &signature), ("content-length", &len)], "");
     request.extend_from_slice(body);
-    let reply = tokio::spawn(async move { try_exchange(port, &[&request], false).await });
-    reached.notified().await;
+    let (mut read, mut write) = on_the_wire("the loopback connection", connect(port)).await.into_split();
+    on_the_wire("the request", send(&mut write, &request, "the request")).await;
+    on_the_wire("the request reaching its handler", reached.notified()).await;
     listener.stop().await;
-    assert_eq!(reply.await.unwrap(), None, "the request ran to the 25 s bound instead of the grace");
+    // The grace is a timer of the paused clock, which must move for it; only the cut's way over the socket is waited with the
+    // clock held. A connection not cut at the grace stays open, and the wait ends at its wall deadline.
+    advance(super::listener::SHUTDOWN_GRACE.as_millis() as u64).await;
+    let mut pending = Vec::new();
+    let reply = on_the_wire("the cut", read_response(&mut read, &mut pending)).await;
+    assert_eq!(reply, None, "the request ran to the 25 s bound instead of the grace");
 }
 
 /// Node's `headersTimeout` and `requestTimeout`: a head that never completes and a body that does not arrive are each
@@ -785,14 +808,17 @@ async fn a_request_in_flight_is_cut_at_the_shutdown_grace() {
 async fn a_head_that_never_completes_is_answered_with_a_bare_408_and_the_connection_ends() {
     let f = fx(WebhookConfig::default());
     let listener = serve_on_loopback(&f).await;
-    let (mut read, mut write) = connect(listener.port()).await.into_split();
-    send(&mut write, b"POST /hook HTTP/1.1\r\nHost: x\r\n", "half a head").await;
+    let mut begun = listener.heads_begun();
+    let (mut read, mut write) = on_the_wire("the loopback connection", connect(listener.port())).await.into_split();
+    on_the_wire("half a head", send(&mut write, b"POST /hook HTTP/1.1\r\nHost: x\r\n", "half a head")).await;
+    // The server has its first byte: the head's own timeout runs, not the one of a connection that never sent anything.
+    on_the_wire("the head being read", begun.changed()).await.expect("the listener lives");
     // The head is due in 60 s, and the server looks for expired connections every 30 s.
     advance(super::listener::HEADERS_TIMEOUT.as_millis() as u64 + super::listener::CONNECTIONS_CHECKING_INTERVAL.as_millis() as u64 + 1).await;
     let mut pending = Vec::new();
-    let answered = read_response_typed(&mut read, &mut pending, "the 408 for a head that never completed").await;
+    let answered = on_the_wire("the 408", read_response_typed(&mut read, &mut pending, "the 408 for a head that never completed")).await;
     assert_eq!(answered.map(|r| r.0), Some(408));
-    assert_eq!(read_response_typed(&mut read, &mut pending, "the close after the 408").await, None);
+    assert_eq!(on_the_wire("the close", read_response_typed(&mut read, &mut pending, "the close after the 408")).await, None);
     listener.stop().await;
 }
 
@@ -806,18 +832,19 @@ async fn an_idle_connection_is_closed_after_the_keep_alive_timeout_and_its_buffe
     let f = fx(WebhookConfig::default());
     let listener = serve_on_loopback(&f).await;
     let request = "GET / HTTP/1.1\r\nHost: x\r\n\r\n";
-    let (mut again, mut idle) = (connect(listener.port()).await, connect(listener.port()).await);
+    let (mut again, mut idle) = (on_the_wire("a connection", connect(listener.port())).await, on_the_wire("a connection", connect(listener.port())).await);
     let (mut again_pending, mut idle_pending) = (Vec::new(), Vec::new());
-    send(&mut again, request.as_bytes(), "the first request").await;
-    send(&mut idle, request.as_bytes(), "the first request").await;
-    assert_eq!(read_response(&mut again, &mut again_pending).await.unwrap().0, 200);
-    assert_eq!(read_response(&mut idle, &mut idle_pending).await.unwrap().0, 200);
+    on_the_wire("a request", send(&mut again, request.as_bytes(), "the first request")).await;
+    on_the_wire("a request", send(&mut idle, request.as_bytes(), "the first request")).await;
+    assert_eq!(on_the_wire("a reply", read_response(&mut again, &mut again_pending)).await.unwrap().0, 200);
+    assert_eq!(on_the_wire("a reply", read_response(&mut idle, &mut idle_pending)).await.unwrap().0, 200);
     advance(closes_after - 1).await;
-    send(&mut again, request.as_bytes(), "the request just before the timeout").await;
-    let answered = read_response_typed(&mut again, &mut again_pending, "the reply on a connection used just before the keep-alive timeout").await;
+    on_the_wire("a request", send(&mut again, request.as_bytes(), "the request just before the timeout")).await;
+    let answered =
+        on_the_wire("a reply", read_response_typed(&mut again, &mut again_pending, "the reply on a connection used just before the keep-alive timeout")).await;
     assert_eq!(answered.map(|r| r.0), Some(200));
     advance(1).await;
-    let closed = read_response_typed(&mut idle, &mut idle_pending, "the idle connection closing at the keep-alive timeout").await;
+    let closed = on_the_wire("the close", read_response_typed(&mut idle, &mut idle_pending, "the idle connection closing at the keep-alive timeout")).await;
     assert_eq!(closed, None);
     listener.stop().await;
 }

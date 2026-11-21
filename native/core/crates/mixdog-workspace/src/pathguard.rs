@@ -40,6 +40,18 @@ pub fn lexical(path: &Path) -> PathBuf {
     out
 }
 
+/// `path` with its nearest existing ancestor resolved ([`canonical`]) and the rest appended; `path` itself when nothing resolves.
+/// macOS' file events name resolved paths (`/private/var/…` for a watch on `/var/…`).
+pub fn resolved(path: &Path) -> PathBuf {
+    path.ancestors()
+        .find_map(|ancestor| {
+            let real = canonical(ancestor).ok()?;
+            let rest = path.strip_prefix(ancestor).ok()?;
+            Some(if rest.as_os_str().is_empty() { real } else { real.join(rest) })
+        })
+        .unwrap_or_else(|| path.to_path_buf())
+}
+
 /// `fs::canonicalize` without the Windows verbatim prefix.
 pub fn canonical(path: &Path) -> io::Result<PathBuf> {
     let real = std::fs::canonicalize(path)?;

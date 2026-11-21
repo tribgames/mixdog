@@ -3174,13 +3174,17 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             .map_err(|e| ComposeError::StateDir(std::io::Error::other(e)))?
             .map_err(|e| ComposeError::StateDir(std::io::Error::other(format!("{e:?}"))))?;
     }
+    let trusted_root_cleanup =
+        crate::worktree_cache_cleanups::TrustedRootCleanup::new(project_registry.clone(), &b.data_dir, b.tokens.maintenance_io, &b.cancel)
+            .await
+            .map_err(|e| ComposeError::StateDir(std::io::Error::other(e)))?;
     let worktrees = Arc::new(
         mixdog_scm::worktree::manager::Worktrees::new(scm.clone(), b.data_dir.clone())
             .with_root_cleanup(Arc::new(mixdog_scm::worktree::release::FolderReleaseCleanup::new(folder_releases.clone())))
             // `registerWorktreeCacheCleanups` (`daemon.mjs`): a removed worktree leaves no turn-review shadow or code-graph cache.
             .with_root_cleanup(Arc::new(crate::worktree_cache_cleanups::TurnSnapshotCleanup::new(turn_review.clone())))
             .with_root_cleanup(Arc::new(crate::worktree_cache_cleanups::CodeGraphCleanup::new(code_graph_cache.clone(), b.tokens.maintenance_io)))
-            .with_root_cleanup(Arc::new(crate::worktree_cache_cleanups::TrustedRootCleanup::new(project_registry.clone())))
+            .with_root_cleanup(Arc::new(trusted_root_cleanup))
             .with_settings(Arc::new(mixdog_core_config::config::ConfigWorktreeSettings::new(config.clone())))
             .with_activity(Arc::new(mixdog_scm::worktree::activity::Activity::new(&b.data_dir))),
     );

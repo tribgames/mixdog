@@ -69,6 +69,40 @@ struct Noted {
     stamp: Option<Stamp>,
 }
 
+/// Whether the folder that holds `path` ignores case in its names. Windows' folders do (one set case-sensitive is not asked).
+/// macOS asks the file system, through the nearest ancestor that answers: a folder the call has yet to make is made on that
+/// ancestor's volume. No other system's folders do.
+fn ignores_case<P: ReadProof>(proof: &P, path: &Path) -> bool {
+    let _ = proof;
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        path.ancestors()
+            .skip(1)
+            .find_map(|folder| {
+                let name = std::ffi::CString::new(folder.as_os_str().as_bytes()).ok()?;
+                // SAFETY: `name` is a NUL-terminated string that outlives the call, which only reads it.
+                match unsafe { libc::pathconf(name.as_ptr(), libc::_PC_CASE_SENSITIVE) } {
+                    -1 => None,
+                    sensitive => Some(sensitive == 0),
+                }
+            })
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        cfg!(windows)
+    }
+}
+
+/// The key of a file's receipt: two spellings that differ only in case are one file, and one receipt, exactly where the folder
+/// holding it ignores case.
+fn receipt_key<P: ReadProof>(proof: &P, path: &Path) -> String {
+    let text = path.to_string_lossy();
+    if ignores_case(proof, path) { js_to_lowercase(&text) } else { text.into_owned() }
+}
+
 struct Notes {
     budget: SnapshotBudget,
     keys: HashSet<String>,
@@ -246,13 +280,35 @@ mod tests {
         put(&work.join("Case.docx"), b"one");
         w.ledger.note_write(&work.join("Case.docx"));
         put(&work.join("Case.docx"), b"two");
-        // On Windows this names the same file, whose first receipt was already taken.
+        // The fixture's folder decides, not the system: Windows' and macOS' default volumes ignore case, Linux's do not.
+        let ignores_case = mixdog_fsio::metadata(&Unlaned, work.join("CASE.DOCX")).is_ok();
+        assert_eq!(super::ignores_case(&Unlaned, &work.join("Case.docx")), ignores_case, "the folder was asked");
+        // The same file where case is ignored, whose first receipt was already taken; a second file where it is not.
         w.ledger.note_write(&work.join("CASE.DOCX"));
-        put(&work.join("Case.docx"), b"three");
+        put(&work.join("CASE.DOCX"), b"three");
         let changes = w.ledger.changes(&Unlaned);
-        assert_eq!(changes.len(), 1);
-        assert_eq!(changes[0].before, ChangeSide::Bytes(b"one".to_vec()));
-        assert_eq!(changes[0].after, ChangeSide::Bytes(b"three".to_vec()));
+        if ignores_case {
+            assert_eq!(changes.len(), 1, "{changes:?}");
+            assert_eq!(changes[0].before, ChangeSide::Bytes(b"one".to_vec()));
+            assert_eq!(changes[0].after, ChangeSide::Bytes(b"three".to_vec()));
+        } else {
+            assert_eq!(
+                changes,
+                vec![
+                    FileChange { path: work.join("Case.docx"), before: ChangeSide::Bytes(b"one".to_vec()), after: ChangeSide::Bytes(b"two".to_vec()) },
+                    FileChange { path: work.join("CASE.DOCX"), before: ChangeSide::Absent, after: ChangeSide::Bytes(b"three".to_vec()) },
+                ]
+            );
+            return;
+        }
+        // A file made under one spelling and removed under the other is no change of the call.
+        let w = world();
+        let work = w.root.join("work");
+        w.ledger.note_write(&work.join("New.docx"));
+        put(&work.join("New.docx"), b"made");
+        w.ledger.note_write(&work.join("NEW.DOCX"));
+        mixdog_fsio::remove_file(&Unlaned, work.join("NEW.DOCX")).expect("remove");
+        assert_eq!(w.ledger.changes(&Unlaned), vec![]);
     }
 
     #[test]
@@ -294,7 +350,7 @@ impl CallLedger {
             return;
         }
         let full_path = resolve_path(&self.cwd, Path::new(&text));
-        let key = path_key(&full_path);
+        let key = receipt_key(proof, &full_path);
         let mut notes = self.notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if notes.keys.contains(&key) {
             return;

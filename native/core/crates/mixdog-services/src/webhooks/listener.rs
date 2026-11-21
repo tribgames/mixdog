@@ -50,13 +50,36 @@ pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 /// How long a connection may keep finishing its request after the listener is stopped. Codex bounds
 /// its connection workers' shutdown at 5 s (`app-server-transport/.../remote_control/websocket.rs:86`,
 /// `app-server/src/in_process.rs:106`); Node's `server.close()` waits without limit.
-const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+pub(super) const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
 pub struct WebhookListener {
     port: u16,
     stop: CancellationToken,
     accept: JoinHandle<()>,
     _listening: WorkGuard,
+    #[cfg(test)]
+    heads: HeadsBegun,
+}
+
+/// Counts the connections whose first byte arrived, so their head is read under its own timeout; only a test listens.
+#[derive(Clone)]
+struct HeadsBegun {
+    #[cfg(test)]
+    count: Arc<tokio::sync::watch::Sender<u64>>,
+}
+
+impl HeadsBegun {
+    fn new() -> Self {
+        Self {
+            #[cfg(test)]
+            count: Arc::new(tokio::sync::watch::channel(0).0),
+        }
+    }
+
+    fn tell(&self) {
+        #[cfg(test)]
+        self.count.send_modify(|count| *count += 1);
+    }
 }
 
 impl WebhookListener {
@@ -82,12 +105,26 @@ impl WebhookListener {
         mixdog_rt::node_stderr!("mixdog webhook: listening on 127.0.0.1:{port}");
         let stop = CancellationToken::new();
         let listening = service.listening();
-        let accept = tokio::spawn(accept_loop(listener, service, stop.clone()));
-        Ok(Self { port, stop, accept, _listening: listening })
+        let heads = HeadsBegun::new();
+        let accept = tokio::spawn(accept_loop(listener, service, stop.clone(), heads.clone()));
+        Ok(Self {
+            port,
+            stop,
+            accept,
+            _listening: listening,
+            #[cfg(test)]
+            heads,
+        })
     }
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// Changes once per connection whose head the server has begun to read.
+    #[cfg(test)]
+    pub(crate) fn heads_begun(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.heads.count.subscribe()
     }
 
     /// Stops accepting and releases the port; a request already in flight finishes, then its
@@ -99,13 +136,13 @@ impl WebhookListener {
     }
 }
 
-async fn accept_loop(listener: TcpListener, service: Arc<WebhookService>, stop: CancellationToken) {
+async fn accept_loop(listener: TcpListener, service: Arc<WebhookService>, stop: CancellationToken, heads: HeadsBegun) {
     loop {
         tokio::select! {
             () = stop.cancelled() => break,
             accepted = listener.accept() => match accepted {
                 Ok((stream, _)) => {
-                    tokio::spawn(serve(stream, Arc::clone(&service), stop.clone()));
+                    tokio::spawn(serve(stream, Arc::clone(&service), stop.clone(), heads.clone()));
                 }
                 Err(e) => tracing::warn!("webhook: accept failed: {e}"),
             },
@@ -129,8 +166,9 @@ async fn await_first_byte(stream: TcpStream, stop: &CancellationToken) -> Option
     }
 }
 
-async fn serve(stream: TcpStream, service: Arc<WebhookService>, stop: CancellationToken) {
+async fn serve(stream: TcpStream, service: Arc<WebhookService>, stop: CancellationToken, heads: HeadsBegun) {
     let Some(stream) = await_first_byte(stream, &stop).await else { return };
+    heads.tell();
     let farewell = Arc::new(Mutex::new(None));
     let state = Arc::new(ConnState::default());
     let handler = {

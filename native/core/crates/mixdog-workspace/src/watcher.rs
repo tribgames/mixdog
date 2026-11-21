@@ -107,6 +107,8 @@ struct Sub {
 struct OsPath {
     /// The path the backend knows the watch by (the first one registered of its case-folded key).
     path: PathBuf,
+    /// `path` resolved, as the backend may name it in events ([`crate::pathguard::resolved`]).
+    real: PathBuf,
     recursive_refs: usize,
     direct_refs: usize,
     coverage: Option<Arc<()>>,
@@ -266,6 +268,15 @@ fn classify(kind: &EventKind) -> ChangeKind {
     }
 }
 
+/// What follows `root` in `path`; `None` when `path` is neither `root` nor under it.
+fn below(root: &Path, path: &Path) -> Option<PathBuf> {
+    is_within(root, path).then(|| path.components().skip(root.components().count()).collect())
+}
+
+fn joined(root: &Path, rest: &Path) -> PathBuf {
+    if rest.as_os_str().is_empty() { root.to_path_buf() } else { root.join(rest) }
+}
+
 impl State {
     fn apply(&mut self, path: &Path) -> WsResult<()> {
         let key = comparable(path);
@@ -289,6 +300,8 @@ impl State {
             return Ok(());
         }
         w.watch(&path, mode).map_err(|error| watch_failure(&error, &path))?;
+        // Resolved at each open: a hold's end may reopen the watch on a folder that replaced the old one.
+        entry.real = crate::pathguard::resolved(&path);
         entry.coverage = Some(Arc::new(()));
         Ok(())
     }
@@ -321,7 +334,7 @@ impl State {
     }
 
     fn add_os(&mut self, path: &Path, recursive: bool) -> WsResult<()> {
-        let entry = self.os.entry(comparable(path)).or_insert_with(|| OsPath { path: path.to_path_buf(), ..OsPath::default() });
+        let entry = self.os.entry(comparable(path)).or_insert_with(|| OsPath { path: path.to_path_buf(), real: path.to_path_buf(), ..OsPath::default() });
         let before = (entry.recursive_refs > 0, entry.direct_refs + entry.recursive_refs > 0);
         let uncovered = entry.coverage.is_none();
         if recursive {
@@ -337,6 +350,27 @@ impl State {
             return Err(error);
         }
         Ok(())
+    }
+
+    /// A reported path in every form the watches are compared in: first as the backend named it, then with each registered root it
+    /// is under replaced by that root's resolved form ([`OsPath::real`]). A backend names a file under one spelling of its folder
+    /// only: inotify keeps one path per directory (the one registered last), macOS names the resolved one. The roots were resolved
+    /// when their watches opened, so nothing is read from the disk here (a held root admits no handle).
+    fn forms(&self, path: &Path) -> Vec<PathBuf> {
+        let mut forms = vec![path.to_path_buf()];
+        forms.extend(self.os.values().filter_map(|entry| Some(joined(&entry.real, &below(&entry.path, path)?))));
+        forms
+    }
+
+    /// The path whose `forms` ([`Self::forms`]) these are, as the watch registered at `registered` names it: as the backend named it
+    /// when that is the watch's own spelling, else the form under the watch's resolved root, moved to the registered one. `None`
+    /// when no form is under the watch.
+    fn spelled(&self, registered: &Path, forms: &[PathBuf]) -> Option<PathBuf> {
+        if let Some(named) = forms.first().filter(|named| is_within(registered, named)) {
+            return Some(named.clone());
+        }
+        let real = &self.os.get(&comparable(registered))?.real;
+        forms.iter().find_map(|form| below(real, form)).map(|rest| joined(registered, &rest))
     }
 
     fn remove_os(&mut self, path: &Path, recursive: bool) {
@@ -502,23 +536,33 @@ fn route(state: &mut State, event: &notify::Event, pending: &mut Pending) {
         return;
     }
     let mut changed_roots = BTreeSet::new();
-    for (id, sub) in &state.subs {
-        for path in &event.paths {
-            let in_git = sub.git_dirs.iter().find(|g| is_within(g, path));
+    for reported in &event.paths {
+        // Matched by resolved root, whatever spelling the backend named the file in; each watch takes it in its own spelling: two
+        // watches may name one folder through different links.
+        let forms = state.forms(reported);
+        for (id, sub) in &state.subs {
+            let in_folder = state.spelled(&sub.path, &forms);
+            let in_git = in_folder
+                .as_ref()
+                .and_then(|path| sub.git_dirs.iter().find(|g| is_within(g, path)).map(|g| (g, path.clone())))
+                .or_else(|| sub.git_dirs.iter().find_map(|g| state.spelled(g, &forms).map(|path| (g, path))));
+            let path = match (&in_git, in_folder) {
+                (Some((_, path)), _) => path.clone(),
+                (None, Some(path)) => path,
+                (None, None) => continue,
+            };
             // Cache coverage observes every change, including git events the
             // public feed deliberately filters out.
-            if sub.recursive && (in_git.is_some() || is_within(&sub.path, path)) {
+            if sub.recursive {
                 changed_roots.insert(comparable(&sub.path));
             }
-            let kind = if let Some(git) = in_git {
+            let kind = if let Some((git, _)) = in_git {
                 let relative = path.strip_prefix(git).unwrap_or(Path::new(""));
                 if !git_event_delivered(relative) {
                     continue;
                 }
                 ChangeKind::Git
-            } else if is_within(&sub.path, path)
-                && (sub.recursive || path.parent().is_some_and(|p| comparable(p) == comparable(&sub.path)) || comparable(path) == comparable(&sub.path))
-            {
+            } else if sub.recursive || path.parent().is_some_and(|p| comparable(p) == comparable(&sub.path)) || comparable(&path) == comparable(&sub.path) {
                 base_kind
             } else {
                 continue;
@@ -556,8 +600,9 @@ impl Batcher {
             return;
         }
         if matches!(classify(&event.kind), ChangeKind::Removed | ChangeKind::Renamed) {
+            let affected: Vec<PathBuf> = event.paths.iter().flat_map(|path| state.forms(path)).collect();
             for (root, path) in &mut state.os {
-                if event.paths.iter().any(|affected| is_within(affected, root)) {
+                if affected.iter().any(|affected| is_within(affected, root) || is_within(affected, &path.real)) {
                     path.coverage = None;
                 }
             }
@@ -784,6 +829,38 @@ mod tests {
             let (id, paths, _) = rx.recv_timeout(Duration::from_secs(5)).expect("the reopened watch reports the new folder");
             if id == "skills" && paths.iter().any(|p| p.ends_with("new.txt")) {
                 break;
+            }
+        }
+    }
+
+    /// Two recursive watches on one folder through two spellings (a link and its target; macOS' `/var/…` and `/private/var/…`): an
+    /// event reaches both, each in its own spelling, and both revisions change, whichever spelling the backend names the file in
+    /// (macOS the resolved one, inotify the one registered last) and whichever watch was registered first.
+    #[test]
+    fn one_event_reaches_the_watches_of_both_spellings_of_a_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = crate::pathguard::canonical(dir.path()).unwrap().join("project");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = real.with_file_name("link-to-project");
+        let shown = |path: &Path| BTreeSet::from([path.join("a.txt").to_string_lossy().into_owned()]);
+        for order in [["real", "link"], ["link", "real"]] {
+            for named in [&real, &link] {
+                let case = format!("registered {order:?}, named under {}", named.display());
+                let watcher = FolderWatcher::without_backend(Arc::new(Collect(Mutex::new(mpsc::channel().0))));
+                for id in order {
+                    watcher.watch(id, if id == "real" { &real } else { &link }, true).unwrap();
+                }
+                // What opening the link's watch on a backend finds; this watcher has none, and the link is not on the disk.
+                watcher.lock().os.get_mut(&comparable(&link)).unwrap().real = real.clone();
+                let (real_before, link_before) = (watcher.recursive_revision(&real).unwrap(), watcher.recursive_revision(&link).unwrap());
+                let start = Instant::now();
+                let mut batcher = Batcher::default();
+                let event = notify::Event::new(EventKind::Modify(ModifyKind::Any)).add_path(named.join("a.txt"));
+                batcher.event(&mut watcher.lock(), &event, start);
+                let batch = batcher.flush(start + Duration::from_millis(BATCH_WINDOW_MS));
+                assert_eq!(batch, [(("link".into(), ChangeKind::Modified), shown(&link)), (("real".into(), ChangeKind::Modified), shown(&real))], "{case}");
+                assert!(!Arc::ptr_eq(&real_before, &watcher.recursive_revision(&real).unwrap()), "{case}");
+                assert!(!Arc::ptr_eq(&link_before, &watcher.recursive_revision(&link).unwrap()), "{case}");
             }
         }
     }

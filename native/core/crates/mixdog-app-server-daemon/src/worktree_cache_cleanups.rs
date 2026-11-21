@@ -71,10 +71,32 @@ impl RootCleanup for CodeGraphCleanup {
 /// no longer a trusted code-graph target once its worktree is gone. A path that cannot be unregistered is the cleanup's failure.
 pub struct TrustedRootCleanup {
     registry: Arc<mixdog_workspace::catalog::Catalog>,
+    /// The key of the managed worktree store (`<data>/worktrees-v1`) as a removal names its roots: the data folder as configured.
+    store: String,
+    /// The key of the store as the registry names a folder in it: the real path, which is what a registration records.
+    real_store: String,
 }
 impl TrustedRootCleanup {
-    pub fn new(registry: Arc<mixdog_workspace::catalog::Catalog>) -> Self {
-        Self { registry }
+    /// The store is resolved here, once: a removal reads nothing from the disk, so a root that was replaced by a link since its
+    /// registration is still the folder it was registered as, never the one the link names.
+    pub async fn new(
+        registry: Arc<mixdog_workspace::catalog::Catalog>,
+        data_dir: &Path,
+        lane: mixdog_rt::MaintenanceIo,
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<Self, String> {
+        let store = data_dir.join(mixdog_scm::worktree::registry::STORE_DIR);
+        let named = mixdog_scm::locks::path_key(&store);
+        let real =
+            mixdog_workspace::lanes::run(lane, cancel, move || mixdog_workspace::pathguard::resolved(&store)).await.map_err(|error| error.to_string())?;
+        Ok(Self { registry, store: named, real_store: mixdog_scm::locks::path_key(&real) })
+    }
+
+    /// The keys a registration of `root` can have: `root` as named, and under the store its place in the real store.
+    fn keys(&self, root: &Path) -> Vec<String> {
+        let named = mixdog_scm::locks::path_key(root);
+        let real = named.strip_prefix(&self.store).filter(|rest| rest.starts_with('/')).map(|rest| format!("{}{rest}", self.real_store));
+        std::iter::once(named.clone()).chain(real).collect()
     }
 }
 #[async_trait]
@@ -84,10 +106,10 @@ impl RootCleanup for TrustedRootCleanup {
     }
 
     async fn run(&self, root: &Path, _entry_id: &str) -> Result<(), String> {
-        let key = mixdog_scm::locks::path_key(root);
+        let keys = self.keys(root);
         let rows = self.registry.list().await.map_err(|error| error.to_string())?;
         let mut kept = Vec::new();
-        for row in rows.into_iter().filter(|row| !row.path.is_empty() && mixdog_scm::locks::path_key(Path::new(&row.path)) == key) {
+        for row in rows.into_iter().filter(|row| !row.path.is_empty() && keys.contains(&mixdog_scm::locks::path_key(Path::new(&row.path)))) {
             match self.registry.remove(&row.path, None).await {
                 Ok(answer) if answer["removed"] == true => {}
                 _ => kept.push(PathBuf::from(row.path)),
@@ -115,8 +137,22 @@ mod tests {
         assert_eq!(kept_error(&[PathBuf::from("a"), PathBuf::from("b")]), Err("kept: a, b".to_owned()));
     }
 
-    /// `forgetTrustedCodeGraphRoot`: the registry entry of the removed root goes, a sibling's stays, and a root nothing registered
-    /// is not a failure.
+    /// A directory link: a junction on Windows, a symlink elsewhere. `false` when it cannot be made.
+    #[allow(clippy::disallowed_types, reason = "test setup makes a junction with the system's own tool")]
+    fn link_dir(target: &Path, link: &Path) -> bool {
+        #[cfg(windows)]
+        {
+            std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(link).arg(target).output().is_ok_and(|o| o.status.success())
+        }
+        #[cfg(not(windows))]
+        {
+            std::os::unix::fs::symlink(target, link).is_ok()
+        }
+    }
+
+    /// `forgetTrustedCodeGraphRoot`: the registry entry of the removed root goes (the removal names it through the data folder as
+    /// configured, here a link, and the registry holds the real path), a sibling's stays, a checkout that was replaced by a link to
+    /// another registered project leaves that project registered, and a root nothing registered is not a failure.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_trusted_root_cleanup_unregisters_only_the_removed_root() {
         let tokens = mixdog_rt::testing::tokens();
@@ -130,17 +166,38 @@ mod tests {
             cpu_bulk: tokens.cpu_bulk,
         };
         let registry = Arc::new(mixdog_workspace::catalog::Catalog::new(state, lanes));
-        let (gone, kept) = (tmp.path().join("gone"), tmp.path().join("kept"));
-        for dir in [&gone, &kept] {
+        let (real_data, linked_data) = (tmp.path().join("real-data"), tmp.path().join("data"));
+        std::fs::create_dir_all(&real_data).expect("dir");
+        // Where no link can be made the data folder is named as it is, which is the case of a real data folder.
+        let data = if link_dir(&real_data, &linked_data) { linked_data } else { real_data };
+        let repo = data.join(mixdog_scm::worktree::registry::STORE_DIR).join("hash");
+        // A checkout and the session root in it (`projectSubdir`): a removal runs the cleanup for both.
+        let (gone, kept) = (repo.join("gone"), tmp.path().join("kept"));
+        for dir in [&gone.join("app"), &kept.join("app")] {
             std::fs::create_dir_all(dir).expect("dir");
+        }
+        for dir in [&gone, &gone.join("app"), &kept, &kept.join("app")] {
             registry.add(&dir.to_string_lossy(), &tokio_util::sync::CancellationToken::new(), None).await.expect("registered");
         }
-        let cleanup = TrustedRootCleanup::new(registry.clone());
+        let cleanup =
+            TrustedRootCleanup::new(registry.clone(), &data, tokens.maintenance_io, &tokio_util::sync::CancellationToken::new()).await.expect("cleanup");
         assert_eq!(cleanup.name(), "trusted-code-graph-root");
-        cleanup.run(&gone, "entry").await.expect("cleaned");
-        let listed: Vec<String> = registry.list().await.expect("list").into_iter().map(|row| row.path).collect();
-        assert_eq!(listed.len(), 1, "{listed:?}");
-        assert_eq!(mixdog_scm::locks::path_key(Path::new(&listed[0])), mixdog_scm::locks::path_key(&kept));
+        let swapped = repo.join("swapped");
+        if link_dir(&kept, &swapped) {
+            for root in [swapped.clone(), swapped.join("app")] {
+                cleanup.run(&root, "entry").await.expect("nothing of its own to clean");
+            }
+            assert_eq!(registry.list().await.expect("list").len(), 4, "the project the link names stays registered");
+        }
+        for root in [gone.clone(), gone.join("app")] {
+            cleanup.run(&root, "entry").await.expect("cleaned");
+        }
+        let mut listed: Vec<String> = registry.list().await.expect("list").into_iter().map(|row| mixdog_scm::locks::path_key(Path::new(&row.path))).collect();
+        listed.sort();
+        let real_kept = mixdog_workspace::pathguard::canonical(&kept).unwrap();
+        let mut expected = vec![mixdog_scm::locks::path_key(&real_kept), mixdog_scm::locks::path_key(&real_kept.join("app"))];
+        expected.sort();
+        assert_eq!(listed, expected, "the kept project's two rows stay, under their real paths");
         cleanup.run(&tmp.path().join("never"), "entry").await.expect("nothing to clean");
     }
 }
