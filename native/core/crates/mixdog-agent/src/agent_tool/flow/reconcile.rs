@@ -64,11 +64,38 @@ pub struct JobHandle {
     terminal: Mutex<Option<WorkerResult>>,
     early_notified: AtomicBool,
     slot: std::sync::OnceLock<std::sync::Arc<dyn crate::env::Yielder>>,
+    turn: tokio::sync::watch::Sender<Option<JobTurn>>,
+}
+
+/// The turn a job submitted to a session, from the session's start of it until its run is over.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct JobTurn {
+    pub session_id: String,
+    pub turn_id: String,
 }
 
 impl JobHandle {
     pub fn new(board: JobBoard, task_id: String, operation: String, host_pid: Option<u64>) -> Self {
-        Self { board, task_id, operation, host_pid, terminal: Mutex::new(None), early_notified: AtomicBool::new(false), slot: std::sync::OnceLock::new() }
+        Self {
+            board,
+            task_id,
+            operation,
+            host_pid,
+            terminal: Mutex::new(None),
+            early_notified: AtomicBool::new(false),
+            slot: std::sync::OnceLock::new(),
+            turn: tokio::sync::watch::channel(None).0,
+        }
+    }
+
+    /// The job's turn started on its session (`Some`), or is over (`None`).
+    pub fn set_turn(&self, turn: Option<JobTurn>) {
+        self.turn.send_replace(turn);
+    }
+
+    /// The job's turn as it changes: what its cancellation stops, and nothing while it has none.
+    pub fn turns(&self) -> tokio::sync::watch::Receiver<Option<JobTurn>> {
+        self.turn.subscribe()
     }
 
     /// The admitted slot the job's turn hands back around provider requests.

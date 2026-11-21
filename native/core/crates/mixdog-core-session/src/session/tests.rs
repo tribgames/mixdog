@@ -6104,6 +6104,15 @@ async fn every_way_a_thread_leaves_the_directory_lets_go_of_its_surface_memory()
 
     let kept = start_thread(&directory).await;
     assert_eq!(let_go(&kept.id), 0, "another thread, still loaded, keeps what it has");
+
+    // The shutdown takes every slot the same way, and no slot is taken behind it, by a load or by a create.
+    directory.shutdown().await;
+    assert_eq!(let_go(&kept.id), 1, "the shutdown's drain");
+    let late = directory.request(request("thread/start", json!({ "opId": "op-late", "kind": "task", "projectPath": "/ws" }), "op-late")).await;
+    assert!(late.is_err(), "a thread created behind the drain");
+    let control = directory.request(request("thread/start", json!({ "opId": "op-late-control", "kind": "control" }), "op-late-control")).await;
+    assert!(matches!(control, Err(CoreError::ThreadClosing { .. })), "a control start holds no id behind the drain: {:?}", control.err());
+    assert!(directory.loaded_ids().is_empty(), "nothing is loaded behind the drain");
 }
 
 /// Retention's delete (`deleteSession(id, { isSessionLive: treeChanged })`) asks again under the

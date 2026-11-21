@@ -24,6 +24,7 @@ use super::host::CallerScopes;
 use super::host::CloseOptions;
 use super::host::DispatchOptions;
 use super::host::Environment;
+use super::host::Hide;
 use super::host::Job;
 use super::host::ListOptions;
 use super::host::MemberClose;
@@ -328,11 +329,13 @@ pub async fn close_resolved(
     if ok && !keep_row {
         // The sessions stay open (a send reuses them), so a later scan, even after a
         // restart, would list them again: the owner's close is remembered on each.
-        registry.release_closed(scope, tag.as_deref(), session_id, &descendants);
-        let mut released = vec![session_id.to_owned()];
-        released.extend(descendants.iter().cloned());
-        // A closed agent's session is hidden from the lists; a send that uses it again lists it again.
-        hide_failed = sessions.hide_sessions(&released).await;
+        let Released { releases, spared } = registry.release_closed_at(scope, tag.as_deref(), session_id, &descendants, None);
+        let Receipts { hides, unstored, .. } = receipts(releases).await;
+        // A closed agent's session is hidden from the lists once its release is stored; a send that uses it again
+        // lists it again. A member that was spared, or whose release is not stored, stays listed and says why.
+        hide_failed.extend(spared.into_iter().map(|Spared { session_id, reason }| HideFailed { session_id, reason }));
+        hide_failed.extend(unstored.into_iter().map(|(session_id, reason)| HideFailed { session_id, reason: format!("its release was not stored: {reason}") }));
+        hide_failed.extend(sessions.hide_sessions(&hides).await);
     }
     // A close that did not land names why. Node reads the barrier failure its runtime entry kept; a close that fails
     // its durable stamp is this function's `Err` here, so what is left is the close that recorded nothing.
@@ -464,9 +467,14 @@ async fn apply_cleanup(parts: CleanupParts, plan: CleanupPlan, recovered: Recove
     drop(scan_holds);
     let mut report = CleanupReport::default();
     let mut removed = HashSet::new();
-    // What an earlier cleanup released and could not store is stored first, as the operation it was.
-    for (member, reason) in receipts(registry.recover_releases(&plan.scope)).await.1 {
+    // What an earlier cleanup released and could not store is stored first, as the operation it was, and hidden now
+    // that it is: its hide waited for this receipt.
+    let recovered = receipts(registry.recover_releases(&plan.scope)).await;
+    for (member, reason) in recovered.unstored {
         report.not_closed.push(release_not_stored("", &member, &reason));
+    }
+    for failed in sessions.hide_sessions(&recovered.hides).await {
+        report.not_hidden.push(json!({ "tag": Value::Null, "sessionId": failed.session_id, "reason": failed.reason }));
     }
     for row in &plan.gone {
         if cancel.is_cancelled() {
@@ -520,19 +528,30 @@ fn cancel_planned_jobs(tasks: &dyn Tasks, jobs: &[TaskFacts], session_id: &str, 
     }
 }
 
-/// Each release's own receipt, awaited: the members released, and those whose release did not come back stored with why.
-async fn receipts(releases: Vec<Release>) -> (Vec<String>, Vec<(String, String)>) {
-    let (mut released, mut unstored) = (Vec::new(), Vec::new());
+/// What a batch of releases came to, each one's own receipt awaited.
+#[derive(Default)]
+struct Receipts {
+    /// Every member a release was decided for, whatever became of it.
+    released: Vec<String>,
+    /// The hide of each release that came back stored. No other outcome hides its session: what the store holds of it
+    /// is then not this release, whatever the registry's map says.
+    hides: Vec<Hide>,
+    /// Those whose release did not come back stored, with why.
+    unstored: Vec<(String, String)>,
+}
+
+async fn receipts(releases: Vec<Release>) -> Receipts {
+    let mut receipts = Receipts::default();
     for Release { receipt, done } in releases {
         match done.outcome().await {
-            ReleaseOutcome::Stored => {}
-            ReleaseOutcome::Refused(reason) => unstored.push((receipt.session_id.clone(), reason)),
-            ReleaseOutcome::Superseded(reason) => unstored.push((receipt.session_id.clone(), format!("superseded: {reason}"))),
-            ReleaseOutcome::Indeterminate(reason) => unstored.push((receipt.session_id.clone(), format!("{reason} (outcome unknown)"))),
+            ReleaseOutcome::Stored => receipts.hides.push(receipt.hide()),
+            ReleaseOutcome::Refused(reason) => receipts.unstored.push((receipt.session_id.clone(), reason)),
+            ReleaseOutcome::Superseded(reason) => receipts.unstored.push((receipt.session_id.clone(), format!("superseded: {reason}"))),
+            ReleaseOutcome::Indeterminate(reason) => receipts.unstored.push((receipt.session_id.clone(), format!("{reason} (outcome unknown)"))),
         }
-        released.push(receipt.session_id);
+        receipts.released.push(receipt.session_id);
     }
-    (released, unstored)
+    receipts
 }
 
 /// The `notClosed` entry of a member whose release is not stored: the session a later cleanup recovers.
@@ -576,7 +595,10 @@ async fn close_tree(
     // No turn is admitted in the tree from here.
     let _cancelling = sessions.begin_cancellation(&ids);
     let tag = registry.tag_for_session(&root);
-    let (mut closed, mut stamped, mut failures, mut moved) = (false, Vec::new(), Vec::new(), None);
+    // Each member's own outcome, under its own id: none stands in for another's.
+    let of_member = |member: &str, reason: String| json!({ "tag": tag_or_null(if member == root { &row.tag } else { "" }), "sessionId": member, "reason": reason });
+    let another_turn = |member: &str| format!("agent close: \"{member}\" started another turn during the cleanup");
+    let (mut closed, mut stamped, mut failed, mut moved) = (false, Vec::new(), false, None);
     for member in &tree.members {
         if cancel.is_cancelled() {
             report.cancelled = true;
@@ -584,7 +606,15 @@ async fn close_tree(
         }
         let fence = MemberClose { turn: member.turn.clone(), stamped: registry.is_released(&member.id) };
         match sessions.close_member(&member.id, AGENT_CLOSE_REASON, CloseOptions { tombstone: false, owner_close: true }, fence).await {
-            Ok(MemberOutcome::Moved) => {
+            // Neither has anything of this close to stop: the member's jobs are its running turn's. A member that
+            // moved on before anything was done to it leaves the tree as it was, which is said only when members
+            // before it were closed; one stamped and then resumed was not left as it was, and always says so.
+            Ok(outcome @ (MemberOutcome::Moved | MemberOutcome::Resumed)) => {
+                if outcome == MemberOutcome::Resumed {
+                    report.not_closed.push(of_member(&member.id, another_turn(&member.id)));
+                } else if !stamped.is_empty() {
+                    report.not_closed.push(not_closed(another_turn(&member.id)));
+                }
                 moved = Some(member.id.clone());
                 break;
             }
@@ -602,28 +632,26 @@ async fn close_tree(
                     stamped.push(member.id.clone());
                 }
             }
-            Err(error) => failures.push(error),
+            Err(error) => {
+                failed = true;
+                report.not_closed.push(of_member(&member.id, error));
+            }
         }
     }
     let whole = moved.is_none() && !report.cancelled;
-    // A tree left as it was (the first member moved on, or the cancellation came first) is no failure.
-    let failure = match (tree_outcome(closed, failures, ids.len()), &moved) {
-        (Err(reason), _) => Some(reason),
-        (Ok(_), Some(member)) if !stamped.is_empty() => Some(format!("agent close: \"{member}\" started another turn during the cleanup")),
-        (Ok(false), None) if whole => Some(CLOSE_NOT_RECORDED.to_owned()),
-        _ => None,
-    };
-    let complete = whole && failure.is_none();
-    if let Some(reason) = failure {
-        report.not_closed.push(not_closed(reason));
+    // A tree left as it was (the first member moved on, or the cancellation came first) is no failure; one every
+    // member of which was tried and none closed recorded nothing.
+    if whole && !failed && !closed {
+        report.not_closed.push(not_closed(CLOSE_NOT_RECORDED.to_owned()));
     }
+    let complete = whole && !failed && closed;
     // A member a turn started on since its close keeps its row: it is released only at the turn the plan judged idle.
     let at: HashMap<String, Option<TurnMark>> = tree.members.iter().map(|member| (member.id.clone(), member.turn.clone())).collect();
     // A release of the root unbinds its tag only while the tag is still its own.
     let bound = tag.as_deref().is_some_and(|tag| registry.tag_session(tag).as_deref() == Some(root.as_str()));
-    let (released, unstored, spared) = if complete {
-        let Released { releases, mut spared } = registry.release_closed_at(&plan.scope, tag.as_deref(), &root, &ids[..ids.len() - 1], &at);
-        let (released, unstored) = receipts(releases).await;
+    let (hides, released, unstored, spared) = if complete {
+        let Released { releases, mut spared } = registry.release_closed_at(&plan.scope, tag.as_deref(), &root, &ids[..ids.len() - 1], Some(&at));
+        let Receipts { released, hides, unstored } = receipts(releases).await;
         // A planned member the registry answered nothing for has no receipt either: it is spared like the others.
         for id in ids.iter().filter(|id| !released.contains(id)) {
             if !spared.iter().any(|member| member.session_id == *id) {
@@ -637,16 +665,16 @@ async fn close_tree(
             report.agents_closed += u64::from(unstored.is_empty() && spared.is_empty());
             report.tags_removed += u64::from(bound);
         }
-        (released, unstored, spared)
+        (hides, released, unstored, spared)
     } else {
         // The root comes last. One that closed gives its tag back as in a whole close: the next scan indexes it again and
         // the cleanup after it reaches the members left open below it. One left open keeps its tag and row.
         let Some((last, rest)) = stamped.split_last() else { return };
         let tag = if *last == root { tag.as_deref() } else { None };
-        let Released { releases, spared } = registry.release_closed_at(&plan.scope, tag, last, rest, &at);
-        let (released, unstored) = receipts(releases).await;
+        let Released { releases, spared } = registry.release_closed_at(&plan.scope, tag, last, rest, Some(&at));
+        let Receipts { released, hides, unstored } = receipts(releases).await;
         report.tags_removed += u64::from(tag.is_some() && bound && released.contains(&root));
-        (released, unstored, spared)
+        (hides, released, unstored, spared)
     };
     // Each spared member is its own outcome, under its own id and with its own reason.
     for Spared { session_id, reason } in spared {
@@ -656,15 +684,16 @@ async fn close_tree(
     for (member, reason) in unstored {
         report.not_closed.push(release_not_stored(if member == root { &row.tag } else { "" }, &member, &reason));
     }
-    removed.extend(released.iter().cloned());
-    for failed in sessions.hide_sessions(&released).await {
+    removed.extend(released);
+    for failed in sessions.hide_sessions(&hides).await {
         report.not_hidden.push(json!({ "tag": tag_or_null(&row.tag), "sessionId": failed.session_id, "reason": failed.reason }));
     }
 }
 
 /// `hideLeftovers`: the idle sessions of the scope's agents that no worker row points to (what earlier closes left open)
-/// are hidden, not closed; a session this cleanup closed was hidden with its close. Answers how many were hidden and
-/// the ones that stay listed.
+/// are hidden, not closed; a session this cleanup closed was hidden with its close. What is read here only picks them:
+/// each hide is written only while no turn runs on its session ([`Hide`]), so one taken up since stays listed. Answers
+/// how many hides were asked for and did not fail, and the ones that failed.
 async fn hide_leftovers(parts: &CleanupParts, plan: &CleanupPlan, closed: &HashSet<String>) -> (usize, Vec<HideFailed>) {
     let CleanupParts { registry, sessions, tasks } = parts;
     let mut pointed: HashSet<String> = registry.read_worker_rows(&Scope::default()).unwrap_or_default().iter().map(|row| clean_str(&row.session_id)).collect();
@@ -684,7 +713,7 @@ async fn hide_leftovers(parts: &CleanupParts, plan: &CleanupPlan, closed: &HashS
         // The row Node builds here names the session and its tag only: the tag's owner is the caller.
         let row = TagRecord { session_id: id.clone(), tag, ..TagRecord::default() };
         if result_delivered(&**tasks, &row, &plan.scope) {
-            leftovers.push(id);
+            leftovers.push(Hide { session_id: id, released_at: None });
         }
     }
     let failed = sessions.hide_sessions(&leftovers).await;

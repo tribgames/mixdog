@@ -177,6 +177,16 @@ impl ThreadState for Sections {
         Err(PortError::NotFound { target: thread.as_str().to_owned(), message: "no header".into() })
     }
 
+    async fn patch_header_at(
+        &self,
+        thread: &ThreadId,
+        at: &mixdog_core_ports::ports::threads::RunFence,
+        expect: Map<String, Value>,
+        set: Map<String, Value>,
+        unset: Vec<String>,
+    ) -> Result<mixdog_core_ports::ports::threads::FencedPatch, PortError> {
+        mixdog_core_ports::ports::threads::patch_at_rest(self, thread, at, expect, set, unset).await
+    }
     async fn patch_header_if(
         &self,
         thread: &ThreadId,

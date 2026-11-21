@@ -23,6 +23,8 @@ use mixdog_core_ports::ports::threads::HeaderStored;
 use mixdog_core_ports::ports::threads::HeaderUpdate;
 use mixdog_core_ports::ports::threads::HeaderUpdates;
 use mixdog_core_ports::ports::threads::HeaderWrite;
+use mixdog_core_ports::ports::threads::FencedPatch;
+use mixdog_core_ports::ports::threads::RunFence;
 use mixdog_core_ports::ports::threads::Section;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_ports::ports::threads::port_error;
@@ -228,6 +230,28 @@ impl ThreadState for SessionThreads {
         let reply = self.call(thread, "thread/header/patch", json!({ "threadId": thread, "expect": expect, "set": set, "unset": unset })).await?;
         self.directory.deps().store.indexed(thread).await.map_err(port_error)?;
         Ok(reply.get("conflict").and_then(Value::as_object).cloned())
+    }
+
+    /// Decided by the thread's actor, where its turns start and end too (`whileIdle`, `whileTurn`).
+    async fn patch_header_at(
+        &self,
+        thread: &ThreadId,
+        at: &RunFence,
+        expect: Map<String, Value>,
+        set: Map<String, Value>,
+        unset: Vec<String>,
+    ) -> Result<FencedPatch, PortError> {
+        let mut params = json!({ "threadId": thread, "expect": expect, "set": set, "unset": unset });
+        match at {
+            RunFence::Idle => params["whileIdle"] = json!(true),
+            RunFence::Turn(turn) => params["whileTurn"] = json!(turn),
+        }
+        let reply = self.call(thread, "thread/header/patch", params).await?;
+        if reply.get("moved") == Some(&Value::Bool(true)) {
+            return Ok(FencedPatch::Moved);
+        }
+        self.directory.deps().store.indexed(thread).await.map_err(port_error)?;
+        Ok(reply.get("conflict").and_then(Value::as_object).cloned().map_or(FencedPatch::Written, FencedPatch::Conflict))
     }
 
     async fn publish(&self, thread: &ThreadId, section: Section) -> Result<(), PortError> {

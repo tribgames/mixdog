@@ -108,6 +108,16 @@ impl ThreadState for GatedHeaders {
         self.applied.lock().unwrap().push((thread.as_str().to_owned(), worker));
         Ok(())
     }
+    async fn patch_header_at(
+        &self,
+        thread: &ThreadId,
+        at: &mixdog_core_ports::ports::threads::RunFence,
+        expect: Map<String, Value>,
+        set: Map<String, Value>,
+        unset: Vec<String>,
+    ) -> Result<mixdog_core_ports::ports::threads::FencedPatch, PortError> {
+        mixdog_core_ports::ports::threads::patch_at_rest(self, thread, at, expect, set, unset).await
+    }
     async fn patch_header_if(
         &self,
         _: &ThreadId,

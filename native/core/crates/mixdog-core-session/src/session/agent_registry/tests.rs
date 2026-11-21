@@ -1885,6 +1885,16 @@ impl ThreadState for Detaches {
     async fn patch_header(&self, _: &ThreadId, _: serde_json::Map<String, Value>, _: Vec<String>) -> Result<(), mixdog_tools::orch::util::PortError> {
         unreachable!("no header is patched: a hide and a reveal are the archive authority's")
     }
+    async fn patch_header_at(
+        &self,
+        thread: &ThreadId,
+        at: &mixdog_core_ports::ports::threads::RunFence,
+        expect: Map<String, Value>,
+        set: Map<String, Value>,
+        unset: Vec<String>,
+    ) -> Result<mixdog_core_ports::ports::threads::FencedPatch, mixdog_tools::orch::util::PortError> {
+        mixdog_core_ports::ports::threads::patch_at_rest(self, thread, at, expect, set, unset).await
+    }
     async fn patch_header_if(
         &self,
         thread: &ThreadId,
@@ -2654,6 +2664,44 @@ async fn an_abort_of_a_running_turn_ends_it_with_the_abort_text() {
     assert_eq!(aborted.lock().unwrap().as_deref(), Some(format!("Session \"{id}\" closed: abortSessionTurn (reason=login-required)").as_str()));
     assert!(!directory.abort_session_turn(&mixdog_core_api::ids::ThreadId::from("sess_none"), "x"));
 }
+/// A turn is told started (its worker row counts it) only once it reads as running: a listing that finds the row's new
+/// count finds the turn running, and fixes no settle identity for an outcome the turn has yet to produce.
+#[tokio::test(start_paused = true)]
+async fn a_turn_is_counted_on_its_row_once_it_reads_as_running() {
+    use crate::eventually_on;
+    use crate::session::SessionDirectory;
+    use crate::session::TurnStarts;
+    use crate::session::seams::RunOutcome;
+    use crate::session::tests::idle;
+    use crate::session::tests::start_thread;
+    use crate::session::tests::turn;
+    use mixdog_core_api::ids::ThreadId;
+    use mixdog_core_api::ids::TurnId;
+
+    #[derive(Default)]
+    struct Seen {
+        directory: std::sync::OnceLock<std::sync::Weak<SessionDirectory>>,
+        running: Mutex<Vec<bool>>,
+    }
+    impl TurnStarts for Seen {
+        fn turn_started(&self, thread: &ThreadId, _: &TurnId) {
+            let directory = self.directory.get().and_then(std::sync::Weak::upgrade).expect("the directory");
+            self.running.lock().unwrap().push(LiveSessions::running(&*directory, thread.as_str()));
+        }
+    }
+
+    let srig = crate::session::testing::Rig::new();
+    srig.set_script(Arc::new(|_| Box::pin(async { RunOutcome::Completed(Default::default()) })));
+    let seen = Arc::new(Seen::default());
+    assert!(srig.turn_starts.bind(seen.clone()).is_ok());
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    assert!(seen.directory.set(Arc::downgrade(&directory)).is_ok());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    assert_eq!(*seen.running.lock().unwrap(), [true], "the turn was counted before it read as running");
+}
+
 /// `closeRuntime` (`agent-cancel.mjs:96-102`): a close that stopped a running turn leaves the session reading `cancelled`,
 /// its stage too, so a scan of the sessions builds no open idle row for it that a cleanup would close again; a turn that
 /// starts on it reads it as its runtime again (`agent-turns.mjs`), and closing a finished agent keeps its status.
@@ -3326,6 +3374,16 @@ impl ThreadState for HeldStamps {
     async fn patch_header(&self, _: &ThreadId, _: serde_json::Map<String, Value>, _: Vec<String>) -> Result<(), mixdog_tools::orch::util::PortError> {
         unreachable!("a close stamps through patch_header_if; a hide is the archive authority's")
     }
+    async fn patch_header_at(
+        &self,
+        thread: &ThreadId,
+        at: &mixdog_core_ports::ports::threads::RunFence,
+        expect: Map<String, Value>,
+        set: Map<String, Value>,
+        unset: Vec<String>,
+    ) -> Result<mixdog_core_ports::ports::threads::FencedPatch, mixdog_tools::orch::util::PortError> {
+        mixdog_core_ports::ports::threads::patch_at_rest(self, thread, at, expect, set, unset).await
+    }
     async fn patch_header_if(
         &self,
         thread: &ThreadId,
@@ -3728,6 +3786,29 @@ async fn completion_ownership_survives_terminal_reads_dequeue_and_core_restart()
     crate::eventually_on!(&[&handle.cell.stepped], || (turns.load(Ordering::SeqCst) == 3 && idle(&handle)).then_some(())).await;
     reopened.directory.shutdown().await;
 }
+
+/// A fixed-id create is for an id nothing holds: over the id of a stored session it is refused, and the record the
+/// store holds is still the first one, with what was written to it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_create_under_the_id_of_a_stored_session_leaves_its_record_as_it_was() {
+    use mixdog_core_ports::ports::threads::ThreadState;
+    let data = tempfile::tempdir().unwrap();
+    let thread = ThreadId::from("sess_taken");
+    let core = Core::up(data.path()).await;
+    core.directory.create_with_id(thread.clone(), obj(json!({ "cwd": "/first" })), json!({})).await.expect("the first create");
+    core.set_header(thread.as_str(), obj(json!({ "probe": "written" }))).await;
+    core.store.projected().await;
+    core.directory.shutdown().await;
+    drop(core);
+
+    let next = Core::up(data.path()).await;
+    let again = next.directory.create_with_id(thread.clone(), obj(json!({ "cwd": "/second" })), json!({})).await;
+    assert!(again.is_err(), "a create over the id of a stored session is refused");
+    next.directory.unload_settled(&thread).await;
+    let held = ThreadState::header(&*next.threads, &thread).await.expect("the stored record");
+    assert_eq!((held.get("cwd"), held.get("probe")), (Some(&json!("/first")), Some(&json!("written"))), "the first record and its content: {held:?}");
+    next.directory.shutdown().await;
+}
 struct ParkWorld {
     _srig: crate::session::testing::Rig,
     registry: Arc<AgentRegistry>,
@@ -3813,10 +3894,133 @@ async fn cleanup_reads_the_open_agent_sessions_the_bound_sessions_and_the_hidden
     assert_eq!(registry.bound_sessions(), ["sess_w1".to_owned()]);
     let started = loaded.id.as_str().to_owned();
     assert!(!sessions.is_hidden(&started).await);
-    assert!(sessions.hide_sessions(std::slice::from_ref(&started)).await.is_empty());
+    let hide = mixdog_agent::agent_tool::host::Hide { session_id: started.clone(), released_at: None };
+    assert!(sessions.hide_sessions(std::slice::from_ref(&hide)).await.is_empty());
     assert!(sessions.is_hidden(&started).await);
     sessions.reveal_session(&started).await;
     assert!(!sessions.is_hidden(&started).await);
+}
+
+/// A close's hide belongs to the release that close made: a session a turn or a send took up again between the release
+/// and the hide stays listed, and one nothing touched is hidden.
+#[tokio::test(start_paused = true)]
+async fn a_closes_hide_lands_only_while_the_session_still_holds_its_release() {
+    use mixdog_agent::agent_tool::host::Registry;
+    use mixdog_agent::agent_tool::host::Sessions;
+
+    let ParkWorld { registry, loaded, sessions, .. } = &park_world().await;
+    let id = loaded.id.as_str().to_owned();
+    let release = || {
+        registry.mark_released(std::slice::from_ref(&id));
+        let released_at = registry.released_stamp(&id);
+        assert!(released_at.is_some(), "the release has its stamp");
+        [mixdog_agent::agent_tool::host::Hide { session_id: id.clone(), released_at }]
+    };
+
+    let hides = release();
+    crate::session::TurnStarts::turn_started(&**registry, &loaded.id, &"turn".into());
+    assert!(sessions.hide_sessions(&hides).await.is_empty());
+    assert!(!sessions.is_hidden(&id).await, "a turn started on it before the hide");
+
+    let hides = release();
+    sessions.reveal_session(&id).await;
+    assert!(sessions.hide_sessions(&hides).await.is_empty());
+    assert!(!sessions.is_hidden(&id).await, "a send revealed it before the hide");
+
+    let hides = release();
+    assert!(sessions.hide_sessions(&hides).await.is_empty());
+    assert!(sessions.is_hidden(&id).await, "nothing took it up: it is hidden");
+    sessions.reveal_session(&id).await;
+    assert!(!sessions.is_hidden(&id).await, "a send revealed it after the hide");
+    assert_eq!(registry.released_stamp(&id), None, "and its release is over");
+}
+
+/// An owner close's stamp is for an idle session: while the session runs a turn its own writer writes nothing and says
+/// so, and the same stamp lands once the session is idle.
+#[tokio::test(start_paused = true)]
+async fn a_stamp_for_an_idle_session_is_not_written_while_it_runs() {
+    use crate::eventually_on;
+    use crate::session::SessionDirectory;
+    use crate::session::close::Detached;
+    use crate::session::close::write_detach;
+    use crate::session::seams::RunOutcome;
+    use crate::session::tests::idle;
+    use crate::session::tests::start_thread;
+    use crate::session::tests::turn;
+    use crate::session::thread_state::SessionThreads;
+
+    let srig = crate::session::testing::Rig::new();
+    srig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.cancel.cancelled().await;
+            RunOutcome::Interrupted
+        })
+    }));
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    let handle = start_thread(&directory).await;
+    let threads = SessionThreads::new(directory.clone());
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
+
+    let before = handle.cell.header.load_full().get("generation").cloned();
+    let at_rest = mixdog_core_ports::ports::threads::RunFence::Idle;
+    assert_eq!(write_detach(&threads, &handle.id, "cli-agent-close", true, 5, Some(&at_rest)).await.unwrap(), Detached::Moved);
+    let header = handle.cell.header.load_full();
+    assert_eq!((header.get("generation").cloned(), header.get("ownerClosedAt")), (before, None), "nothing was written");
+
+    assert!(directory.abort_session_turn(&handle.id, "stop"));
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    assert_eq!(write_detach(&threads, &handle.id, "cli-agent-close", true, 5, Some(&at_rest)).await.unwrap(), Detached::Stamped);
+    assert_eq!(handle.cell.header.load_full().get("ownerClosedAt"), Some(&json!(5)));
+}
+
+/// A cancelled job closes the turn it submitted, named by its id: the stamp and the stop land while that turn runs, and
+/// once it has ended nothing of the session is touched, whatever runs on it by then.
+#[tokio::test(start_paused = true)]
+async fn a_cancelled_jobs_close_reaches_the_turn_it_names_and_no_other() {
+    use crate::eventually_on;
+    use crate::session::seams::RunOutcome;
+    use crate::session::tests::idle;
+    use crate::session::tests::turn;
+    use mixdog_agent::agent_tool::host::Sessions;
+
+    let world = park_world().await;
+    world._srig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.cancel.cancelled().await;
+            RunOutcome::Interrupted
+        })
+    }));
+    let (sessions, handle) = (&world.sessions, &world.loaded);
+    let id = handle.id.as_str();
+    let running = || handle.cell.run.load_full().map(|run| run.turn.as_str().to_owned());
+    let stamp = || {
+        let header = handle.cell.header.load_full();
+        (header.get("generation").cloned(), header.get("detachedReason").cloned())
+    };
+
+    turn(handle, "first", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || running().map(|_| ())).await;
+    let first = running().expect("the first turn runs");
+    let before = stamp();
+    assert!(!sessions.close_turn(id, "another-turn", "agent-task-cancel").await, "not the turn the session runs");
+    assert_eq!((stamp(), running().as_deref()), (before, Some(first.as_str())), "nothing was written or stopped");
+    assert!(sessions.close_turn(id, &first, "agent-task-cancel").await);
+    assert_eq!(stamp().1, Some(json!("agent-task-cancel")));
+    eventually_on!(&[&handle.cell.stepped], || idle(handle).then_some(())).await;
+
+    // Its turn ended and another runs: the job has nothing on the session to stop.
+    turn(handle, "second", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || running().map(|_| ())).await;
+    let second = running().expect("the second turn runs");
+    let before = stamp();
+    assert!(!sessions.close_turn(id, &first, "agent-task-cancel").await, "its turn ended");
+    assert_eq!(stamp(), before, "nothing was written on the session another turn runs on");
+    let run = handle.cell.run.load_full().expect("the second turn still runs");
+    assert!(run.turn.as_str() == second && !run.cancel.is_aborted(), "the turn that runs now keeps running");
+
+    assert!(sessions.close_turn(id, &second, "agent-task-cancel").await);
+    eventually_on!(&[&handle.cell.stepped], || idle(handle).then_some(())).await;
 }
 
 /// `sessionGone`: only a record proven absent is gone, never a loaded session. Neither the index nor the store knows the
@@ -4110,7 +4314,7 @@ async fn a_release_leaves_the_member_a_turn_started_on_since_its_close() {
     crate::session::TurnStarts::turn_started(&registry, &"sess_b".into(), &"direct".into());
 
     let mixdog_agent::agent_tool::host::Released { releases: released, spared } =
-        registry.release_closed_at(&lead("lead"), Some("a"), "sess_a", &["sess_b".to_owned(), "sess_c".to_owned()], &judged);
+        registry.release_closed_at(&lead("lead"), Some("a"), "sess_a", &["sess_b".to_owned(), "sess_c".to_owned()], Some(&judged));
     assert_eq!(released.iter().map(|release| release.receipt.session_id.as_str()).collect::<Vec<_>>(), ["sess_a"]);
     assert_eq!(spared.iter().map(|member| member.session_id.as_str()).collect::<Vec<_>>(), ["sess_b", "sess_c"], "each spared member is answered");
     assert!(spared.iter().all(|member| member.reason.contains("started another turn")), "{spared:?}");
@@ -4164,6 +4368,42 @@ async fn a_tree_whose_descendant_started_a_turn_before_its_release_is_not_counte
     assert!(!world.registry.is_released("sess_kid") && world.rig.store.map("sess_kid").is_some_and(|map| map.contains_key("sessionId")), "the fence spared it");
 }
 
+/// Each member of a tree answers for itself. A descendant whose close stamp could not be written and a root a turn
+/// started on after its own stamp landed are both reported, each under its own id: the first one's error does not
+/// stand in for the second one's turn.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tree_reports_the_member_that_failed_and_the_member_that_started_another_turn() {
+    use mixdog_agent::agent_tool::host::Registry;
+    let (world, arrived, go) = cleanup_world(0).await;
+    let parent = world.workers[0].0.clone();
+    let below = json!({ "parentSessionId": parent, "ownerSessionId": parent });
+    world.rig.store.sessions.lock().unwrap().push(session("sess_kid", "kid", &at(NOW - HOUR), below.clone()));
+    world.rig.store.write_row("sess_kid", Some(worker_row("sess_kid", "kid", below)));
+    world.rig.store.touch_sessions();
+    world.threads.refused.lock().unwrap().insert("sess_kid".to_owned());
+    let (root_told, root_arrived) = tokio::sync::oneshot::channel();
+    let (root_go, root_held) = tokio::sync::oneshot::channel();
+    *world.threads.hold_of.lock().unwrap() = Some((parent.clone(), root_told, root_held));
+    let cleanup = world.cleanup(mixdog_rt::CancellationToken::new());
+    arrived.await.expect("the first close stamps");
+    go.send(()).unwrap();
+    root_arrived.await.expect("the root's close stamps");
+    crate::session::TurnStarts::turn_started(&*world.registry, &ThreadId::from(parent.as_str()), &"direct".into());
+    root_go.send(()).unwrap();
+    let report = cleanup.await.unwrap().unwrap();
+
+    let reasons = |id: &str| -> Vec<String> {
+        let of = report.not_closed.iter().filter(|entry| entry["sessionId"] == json!(id));
+        of.map(|entry| entry["reason"].as_str().unwrap_or_default().to_owned()).collect()
+    };
+    let (kid, root) = (reasons("sess_kid"), reasons(&parent));
+    assert!(matches!(&kid[..], [reason] if reason.contains("could not be durably closed")), "{:?}", report.not_closed);
+    assert!(matches!(&root[..], [reason] if reason.contains(&parent) && reason.contains("started another turn")), "{:?}", report.not_closed);
+    assert_eq!(report.not_closed.len(), 2, "{:?}", report.not_closed);
+    assert_eq!(report.agents_closed, CLEANUP_WORKERS as u64 - 1, "{report:?}");
+    assert!(!world.registry.is_released(&parent) && !world.registry.is_released("sess_kid"), "neither was released");
+}
+
 /// A release that was not stored is recovered by the scope its tree was released under. A descendant's own owner is the
 /// agent above it, which the cleanup's scope does not own: it is recovered all the same, with its root, and a cleanup
 /// of another Lead recovers neither.
@@ -4186,7 +4426,7 @@ async fn a_descendants_unstored_release_is_recovered_by_the_scope_that_released_
     let judged: HashMap<_, _> = members.into_iter().map(|id| (id.to_owned(), registry.turn_mark(id))).collect();
 
     rig.store.refuse_releases.store(true, Ordering::SeqCst);
-    let released = registry.release_closed_at(&lead("lead"), Some("root"), "sess_root", &["sess_kid".to_owned(), "sess_bare".to_owned()], &judged).releases;
+    let released = registry.release_closed_at(&lead("lead"), Some("root"), "sess_root", &["sess_kid".to_owned(), "sess_bare".to_owned()], Some(&judged)).releases;
     assert_eq!(released.len(), 3);
     assert!(released.iter().all(|release| matches!(release.done.now(), Some(ReleaseOutcome::Refused(_)))), "the store refused each");
     assert!(rig.store.map("sess_kid").is_some_and(|map| map.contains_key("sessionId")), "nothing of the refused release is stored");
@@ -4233,7 +4473,7 @@ async fn a_member_whose_identity_is_unknown_is_spared_with_nothing_of_it_changed
     let before = (held("sess_root"), held("sess_kid"));
 
     rig.store.unknown.lock().unwrap().extend(["sess_root".to_owned(), "sess_kid".to_owned()]);
-    let released = registry.release_closed_at(&lead("lead"), Some("root"), "sess_root", &["sess_kid".to_owned()], &judged);
+    let released = registry.release_closed_at(&lead("lead"), Some("root"), "sess_root", &["sess_kid".to_owned()], Some(&judged));
     assert!(released.releases.is_empty(), "no release was decided");
     assert_eq!(released.spared.iter().map(|member| member.session_id.as_str()).collect::<Vec<_>>(), ["sess_root", "sess_kid"]);
     assert!(released.spared.iter().all(|member| member.reason.contains("identity") && !member.reason.contains("turn")), "{:?}", released.spared);
@@ -4244,7 +4484,7 @@ async fn a_member_whose_identity_is_unknown_is_spared_with_nothing_of_it_changed
 
     // Known again, the root is released; its descendant alone stays spared, and the next cleanup decides it afresh.
     rig.store.unknown.lock().unwrap().remove("sess_root");
-    let released = registry.release_closed_at(&lead("lead"), Some("root"), "sess_root", &["sess_kid".to_owned()], &judged);
+    let released = registry.release_closed_at(&lead("lead"), Some("root"), "sess_root", &["sess_kid".to_owned()], Some(&judged));
     assert_eq!(released.releases.iter().map(|release| release.receipt.session_id.as_str()).collect::<Vec<_>>(), ["sess_root"]);
     assert_eq!(released.spared.iter().map(|member| member.session_id.as_str()).collect::<Vec<_>>(), ["sess_kid"]);
     let (kid, was) = (held("sess_kid"), before.1);

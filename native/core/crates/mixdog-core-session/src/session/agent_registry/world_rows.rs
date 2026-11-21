@@ -292,7 +292,7 @@ mod tests {
             context: None,
             cwd: String::new(),
             skill_selection: None,
-            hooks: TurnHooks { submission_id: String::new(), notify: Arc::new(|_, _| false), on_tool_result: Arc::new(|_| {}), on_terminal_result: None },
+            hooks: TurnHooks { submission_id: String::new(), notify: Arc::new(|_, _| false), on_tool_result: Arc::new(|_| {}), on_terminal_result: None, on_submitted: None },
             slot: None,
         };
         let error = turns.run_turn(request).await.unwrap_err();

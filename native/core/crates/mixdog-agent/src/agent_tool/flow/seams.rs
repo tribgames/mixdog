@@ -78,6 +78,9 @@ pub struct TurnHooks {
     pub on_tool_result: Arc<dyn Fn(&ToolResultMessage) + Send + Sync>,
     /// Set for a job's turn only.
     pub on_terminal_result: Option<Arc<TerminalResultCallback>>,
+    /// Set for a job's turn only: told the id of the turn this request started, once the session started it. The job's
+    /// cancellation stops that turn and no other.
+    pub on_submitted: Option<Arc<dyn Fn(&str) + Send + Sync>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

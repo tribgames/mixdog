@@ -311,6 +311,16 @@ mod tests {
         ) -> Result<(), mixdog_tools::orch::util::PortError> {
             unimplemented!()
         }
+        async fn patch_header_at(
+            &self,
+            thread: &ThreadId,
+            at: &mixdog_core_ports::ports::threads::RunFence,
+            expect: serde_json::Map<String, serde_json::Value>,
+            set: serde_json::Map<String, serde_json::Value>,
+            unset: Vec<String>,
+        ) -> Result<mixdog_core_ports::ports::threads::FencedPatch, mixdog_tools::orch::util::PortError> {
+            mixdog_core_ports::ports::threads::patch_at_rest(self, thread, at, expect, set, unset).await
+        }
         async fn patch_header_if(
             &self,
             _: &ThreadId,

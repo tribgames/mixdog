@@ -524,7 +524,7 @@ async fn a_recovered_release_keeps_its_precondition_and_the_decision_after_a_mis
 
     fault(None, Fault::Refuse);
     let judged: HashMap<String, _> = HashMap::from([(id.to_owned(), registry.turn_mark(id))]);
-    let released = registry.release_closed_at(&lead("lead"), None, id, &[], &judged);
+    let released = registry.release_closed_at(&lead("lead"), None, id, &[], Some(&judged));
     let [first] = &released.releases[..] else { panic!("one release: {:?}", released.spared) };
     let decided = first.receipt.clone();
     assert_eq!(decided.prior, Some(row.clone()), "decided on the registry's map");
@@ -552,7 +552,7 @@ async fn a_recovered_release_keeps_its_precondition_and_the_decision_after_a_mis
     assert!(registry.lock().map(id).is_some_and(|map| !map.contains_key("tombstone")), "the registry's own map lacks the tombstone");
     assert_eq!(WorkerStore::bound(&*core.workers, id).expect("the session is named").holds, Some(Some(newer.clone())));
     let judged: HashMap<String, _> = HashMap::from([(id.to_owned(), registry.turn_mark(id))]);
-    let released = registry.release_closed_at(&lead("lead"), None, id, &[], &judged);
+    let released = registry.release_closed_at(&lead("lead"), None, id, &[], Some(&judged));
     let [next] = &released.releases[..] else { panic!("one release: {:?}", released.spared) };
     assert_eq!(next.receipt.prior, Some(newer), "decided on what the header holds, not on the registry's own map");
     assert_ne!(next.receipt.operation, decided.operation, "a new decision is a new operation");
@@ -628,7 +628,7 @@ async fn a_release_asked_for_right_behind_a_row_write_waits_its_turn_and_is_deci
         registry.persist(&mut st, id, Some(row.clone()));
     }
     let judged: HashMap<String, _> = HashMap::from([(id.to_owned(), registry.turn_mark(id))]);
-    let released = registry.release_closed_at(&lead("lead"), None, id, &[], &judged);
+    let released = registry.release_closed_at(&lead("lead"), None, id, &[], Some(&judged));
     assert!(released.spared.is_empty(), "a row write still open spares no member: {:?}", released.spared);
     let [release] = &released.releases[..] else { panic!("one release") };
     assert_eq!(release.receipt.prior, Some(row), "decided, there and then, on the row written just before it");
@@ -682,9 +682,10 @@ async fn cleanup(parts: &CleanupParts) -> CleanupReport {
     tokio::time::timeout(DEADLINE, run).await.expect("the cleanup ended within 30 s").expect("the cleanup ran")
 }
 
-/// A cleanup whose release could not be stored does not count its tree: the session is stamped closed, unbound and hidden,
-/// and none of those stands in for the receipt. The member is named, its record holds no release, and the next cleanup
-/// stores the same release again without counting a tree for it; the record the next process opens then holds it.
+/// A cleanup whose release could not be stored does not count its tree: the session is stamped closed and unbound,
+/// and neither stands in for the receipt; it is not hidden, which only a stored release authorises. The member is named,
+/// its record holds no release, and the next cleanup stores the same release again, hides the session then, and counts
+/// no tree for it; the record the next process opens then holds it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_cleanup_counts_no_tree_whose_release_was_not_stored_and_the_next_one_recovers_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -700,6 +701,8 @@ async fn a_cleanup_counts_no_tree_whose_release_was_not_stored_and_the_next_one_
     let held = registry.lock().releases.get(id).map(|held| (held.receipt.clone(), held.done.now())).expect("the release is kept for recovery");
     assert!(matches!(held.1, Some(ReleaseOutcome::Refused(_))), "{:?}", held.1);
     assert!(registry.is_released(id), "the release stands in memory");
+    let hidden = || mixdog_agent::agent_tool::host::Sessions::is_hidden(&*parts.sessions, id);
+    assert!(!hidden().await, "a release that is not stored hides nothing");
     let stored = worker_of(&core, &worker).await.expect("the row's map");
     assert!(stored.get("releasedAt").is_none() && stored.get("sessionId") == Some(&json!(id)), "the record holds no release: {stored}");
     assert_eq!(held.0.prior.clone().map(Value::Object), Some(stored), "the release was decided on the map the record still holds");
@@ -707,6 +710,7 @@ async fn a_cleanup_counts_no_tree_whose_release_was_not_stored_and_the_next_one_
     let again = cleanup(&parts).await;
     assert!(again.not_closed.is_empty(), "the same release was stored this time: {again:?}");
     assert_eq!(again.agents_closed, 0, "a recovery counts no tree: the invocation that closed it was partial");
+    assert!(hidden().await, "the release is stored now: its hide waited for this receipt");
     assert!(registry.recover_releases(&lead("lead")).is_empty() && registry.lock().releases.is_empty(), "nothing is left to recover");
     assert_eq!(fate(&core, &held.0).await, HeaderStored::Stored, "the operation that was refused is the one that was stored");
     core.written().await;

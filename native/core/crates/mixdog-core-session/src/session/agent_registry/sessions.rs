@@ -8,6 +8,7 @@ use mixdog_agent::agent_tool::board::{CancelAll, CancelNotice, JobBoard};
 use mixdog_agent::agent_tool::dispatch::{CloseParts, cancel_agent_tree, close_resolved, park_idle};
 use mixdog_agent::agent_tool::error_text::{ErrorText, PlainErrorText};
 use mixdog_agent::agent_tool::host::CloseOptions;
+use mixdog_agent::agent_tool::host::Hide;
 use mixdog_agent::agent_tool::host::MemberClose;
 use mixdog_agent::agent_tool::host::MemberOutcome;
 use mixdog_agent::agent_tool::host::OpenSession;
@@ -15,6 +16,7 @@ use mixdog_agent::agent_tool::host::Registry;
 use mixdog_agent::agent_tool::host::Sessions;
 use mixdog_agent::agent_tool::idle_release::IdleRelease;
 use mixdog_agent::agent_tool::scope::Scope;
+use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_tools::orch::agent::ClosedView;
 use mixdog_tools::orch::agent::HideFailed;
@@ -26,7 +28,9 @@ use super::Row;
 use crate::session::Clock;
 use crate::session::SessionDirectory;
 use crate::session::archive_trees::Mark;
+use crate::session::close::Detached;
 use crate::session::shell_jobs::OwnedShells;
+use mixdog_core_ports::ports::threads::RunFence;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_tools::fs::ReadState;
 
@@ -233,7 +237,7 @@ impl AgentSessions {
         // `Ok(false)`: the record is already gone (deleted), which Node's close counts as closed
         // (`finishClose`, `outcome.absent`), so releasing the tag of a deleted session goes on to
         // forget the row and the tag can start a fresh session.
-        if crate::session::close::write_detach(&*self.threads, &thread, reason, options.owner_close, self.clock.now_ms()).await.is_err() {
+        if crate::session::close::write_detach(&*self.threads, &thread, reason, options.owner_close, self.clock.now_ms(), None).await.is_err() {
             return Err(format!("agent session {session_id} could not be durably closed"));
         }
         crate::session::close::stop_session_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, "agent-close").await;
@@ -242,6 +246,33 @@ impl AgentSessions {
             self.registry.set_cancelled(session_id, true);
         }
         Ok(true)
+    }
+
+    /// What a close does to a thread's work ([`crate::session::close::stop_session_work`]), for one turn of it: decided
+    /// at the thread's start gate while `turn` is still the run registered there, so the shells cancelled and the
+    /// queued input dropped are the ones that turn left, and the abort names that turn. `false`: the turn had ended,
+    /// and nothing of the thread was touched.
+    async fn stop_turn_work(&self, thread: &ThreadId, turn: &mixdog_core_api::ids::TurnId, reason: &str) -> bool {
+        let Some(handle) = self.directory.handle(thread) else { return false };
+        let queued = handle.cell.stop_latches.while_running(thread, turn, || {
+            self.shells.cancel_owned(thread);
+            handle.cell.queued.load().iter().cloned().collect::<Vec<String>>()
+        });
+        let Some(queued) = queued else { return false };
+        // Before the abort: an aborted turn that settled first would start the next queued entry.
+        for queued_id in queued {
+            let op = format!("agent-cancel:{queued_id}:drop");
+            let request = mixdog_core_api::CoreRequest {
+                method: mixdog_core_api::ids::Method("thread/queue/delete"),
+                params: serde_json::json!({ "threadId": thread, "opId": op, "queuedId": queued_id, "restore": false }),
+                op: Some(mixdog_core_api::ids::OpId::from(op)),
+                ctx: mixdog_core_api::call::CallContext::internal("agent-cancel"),
+            };
+            if let Err(error) = handle.request(request).await {
+                tracing::warn!(thread = %thread, "a queued entry was not dropped at a job's cancel: {error:?}");
+            }
+        }
+        handle.cell.abort(turn, &mixdog_agent::cancel::Abort::close_session(thread.as_str(), reason)).is_ok()
     }
 }
 
@@ -318,6 +349,34 @@ impl Sessions for AgentSessions {
         self.try_close_session(session_id, reason, options).await.unwrap_or(false)
     }
 
+    /// The stamp is the session's own writer's, made only while `turn_id` is the turn it runs: a session whose turn
+    /// ended, or that runs another, is answered `false` with nothing written. The stop that follows is that turn's too
+    /// ([`AgentSessions::stop_turn_work`]), so a turn that started on the session meanwhile keeps all of its work.
+    async fn close_turn(&self, session_id: &str, turn_id: &str, reason: &str) -> bool {
+        if session_id.is_empty() || turn_id.is_empty() {
+            return false;
+        }
+        let (thread, turn) = (ThreadId::from(session_id), mixdog_core_api::ids::TurnId::from(turn_id.to_owned()));
+        let at = RunFence::Turn(turn.clone());
+        match crate::session::close::write_detach(&*self.threads, &thread, reason, false, self.clock.now_ms(), Some(&at)).await {
+            Ok(Detached::Stamped) => {}
+            Ok(Detached::Absent | Detached::Moved) => return false,
+            Err(error) => {
+                tracing::warn!(session = session_id, ?error, "a cancelled job's turn could not be durably closed");
+                return false;
+            }
+        }
+        // `cancelAgentTree` (`agent-cancel.mjs:111-114`): nothing is spawned or sent under the session while its turn stops.
+        let mut covered = self.registry.descendants(session_id);
+        covered.push(session_id.to_owned());
+        let _cancelling = self.registry.begin_cancellation(&covered);
+        // Only a close that stopped the running turn is a cancellation.
+        if self.stop_turn_work(&thread, &turn, reason).await {
+            self.registry.set_cancelled(session_id, true);
+        }
+        true
+    }
+
     /// `closeRuntime`: `Err` when the durable stamp cannot be written, as Node throws
     /// `agent session <id> could not be durably closed`.
     async fn try_close_session(&self, session_id: &str, reason: &str, options: CloseOptions) -> Result<bool, String> {
@@ -345,11 +404,25 @@ impl Sessions for AgentSessions {
             return Ok(MemberOutcome::Moved);
         }
         let thread = ThreadId::from(session_id);
-        if !member.stamped && crate::session::close::write_detach(&*self.threads, &thread, reason, options.owner_close, self.clock.now_ms()).await.is_err() {
-            return Err(format!("agent session {session_id} could not be durably closed"));
-        }
+        // The stamp is the session's own writer's, made only while it runs nothing: a session that took up work first
+        // is answered `Moved` with nothing written.
+        let stamped = if member.stamped {
+            false
+        } else {
+            match crate::session::close::write_detach(&*self.threads, &thread, reason, options.owner_close, self.clock.now_ms(), Some(&RunFence::Idle)).await {
+                Ok(Detached::Stamped) => true,
+                Ok(Detached::Absent) => false,
+                Ok(Detached::Moved) => return Ok(MemberOutcome::Moved),
+                Err(_) => return Err(format!("agent session {session_id} could not be durably closed")),
+            }
+        };
         let stopped = crate::session::close::stop_idle_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, at_turn);
-        Ok(if stopped { MemberOutcome::Closed } else { MemberOutcome::Moved })
+        Ok(match (stopped, stamped) {
+            (true, _) => MemberOutcome::Closed,
+            // A turn started after the stamp landed: a close the session was resumed after.
+            (false, true) => MemberOutcome::Resumed,
+            (false, false) => MemberOutcome::Moved,
+        })
     }
 
     fn descendant_session_ids(&self, session_id: &str) -> Vec<String> {
@@ -377,13 +450,28 @@ impl Sessions for AgentSessions {
         Box::new(self.registry.begin_cancellation(ids))
     }
 
-    async fn hide_sessions(&self, session_ids: &[String]) -> Vec<HideFailed> {
+    /// Each hide is the archive authority's own decision, made in its commit: against the release the registry holds
+    /// of the session then, or, for a leftover, against the turn the session runs then. A turn that starts on the
+    /// session ends both and then asks the same authority to bring it back
+    /// ([`crate::session::archive_trees::restore_at_turn_start`]), as a send's reveal does, so a session that was
+    /// taken up again is left listed whichever came first.
+    async fn hide_sessions(&self, hides: &[Hide]) -> Vec<HideFailed> {
         let mut failed = Vec::new();
-        for id in session_ids.iter().filter(|id| !id.is_empty()) {
+        for Hide { session_id: id, released_at } in hides.iter().filter(|hide| !hide.session_id.is_empty()) {
             // An archived session keeps its stamp; one that is gone has nothing to hide.
             let Ok(header) = self.threads.header(&ThreadId::from(id.as_str())).await else { continue };
             let now = self.clock.now_ms() as f64;
-            if let Err(error) = self.directory.mark_archived(id, &header, Mark::Archive(Box::new(move || now))).await {
+            let still: Box<dyn Fn() -> bool + Send> = match released_at.clone() {
+                Some(release) => {
+                    let (registry, session) = (self.registry.clone(), id.clone());
+                    Box::new(move || registry.released_stamp(&session).as_deref() == Some(release.as_str()))
+                }
+                None => {
+                    let (directory, session) = (self.directory.clone(), id.clone());
+                    Box::new(move || !super::LiveSessions::running(&*directory, &session))
+                }
+            };
+            if let Err(error) = self.directory.mark_archived(id, &header, Mark::While { stamp: Box::new(move || now), still }).await {
                 tracing::warn!(session = %id, ?error, "a closed agent's session stays listed");
                 failed.push(HideFailed { session_id: id.clone(), reason: format!("could not save the hidden sessions: {error:?}") });
             }
@@ -431,6 +519,9 @@ impl Sessions for AgentSessions {
         if session_id.is_empty() {
             return;
         }
+        // The session is used again: the release a close's hide belongs to ends here, before the reveal, so a hide
+        // of that close that is asked for after it finds the release gone.
+        self.registry.clear_released(session_id);
         // Still hidden on a failed write: the next send tries again.
         if let Ok(header) = self.threads.header(&ThreadId::from(session_id)).await {
             let _ = self.directory.mark_archived(session_id, &header, Mark::Restore).await;

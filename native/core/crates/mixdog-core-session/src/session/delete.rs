@@ -455,9 +455,9 @@ async fn client_delete(directory: &super::directory::DirInner, id: &str) -> Resu
         return Ok(false);
     };
     let threads = super::thread_state::SessionThreads::new(Arc::new(outer));
-    match super::close::write_detach(&threads, &thread, DELETE_REASON, false, directory.deps().clock.now_ms()).await {
-        Ok(true) => {}
-        Ok(false) | Err(_) => return Ok(false),
+    match super::close::write_detach(&threads, &thread, DELETE_REASON, false, directory.deps().clock.now_ms(), None).await {
+        Ok(super::close::Detached::Stamped) => {}
+        Ok(_) | Err(_) => return Ok(false),
     }
     delete_session(directory, trimmed, None).await
 }

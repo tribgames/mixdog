@@ -128,9 +128,9 @@ pub trait Registry: Send + Sync {
     fn worker_row(&self, session_id: &str) -> Option<TagRecord> {
         self.read_worker_rows(&Scope::default()).ok()?.into_iter().find(|row| row.session_id == session_id)
     }
-    /// What a landed close leaves of its tree's rows (`close-flow.mjs`): the root's tag binding and row go, the rows
-    /// below it go, and every member is released. `scope` is the caller's, entitled to close the tree at its root: a
-    /// surface that keeps a release it could not store keeps that scope with it ([`Self::recover_releases`]).
+    /// The writes of [`Self::release_closed_at`] on a surface whose writes are its store (`close-flow.mjs`): the
+    /// root's tag binding and row go, the rows below it go, and every member is released. It answers nothing: what
+    /// became of each release is that surface's own word, in its `release_closed_at`.
     fn release_closed(&self, _scope: &Scope, tag: Option<&str>, root: &str, descendants: &[String]) {
         self.forget_terminal_session(tag, root);
         for descendant in descendants {
@@ -140,12 +140,23 @@ pub trait Registry: Send + Sync {
         released.extend(descendants.iter().cloned());
         self.mark_released(&released);
     }
-    /// [`Self::release_closed`] for a cleanup: a member a turn started on since its close was decided (its turn is no
-    /// longer the one `at` names for it) keeps its row and its tag, as does one whose identity its store cannot tell:
-    /// no release is decided for a spared member, nothing of it changes, and it is answered with why. Answers the
-    /// release of each member released: what was queued for it and the handle its store answers once. Every surface
-    /// states its own answer: none is assumed stored.
-    fn release_closed_at(&self, scope: &Scope, tag: Option<&str>, root: &str, descendants: &[String], at: &HashMap<String, Option<TurnMark>>) -> Released;
+    /// What a landed close leaves of its tree's rows (`close-flow.mjs`): the root's tag binding and row go, the rows
+    /// below it go, and every member is released. `scope` is the caller's, entitled to close the tree at its root: a
+    /// surface that keeps a release it could not store keeps that scope with it ([`Self::recover_releases`]).
+    ///
+    /// `at`, a cleanup's: a member a turn started on since its close was decided (its turn is no longer the one `at`
+    /// names for it) keeps its row and its tag. So does, with or without `at`, one whose identity its store cannot
+    /// tell. No release is decided for a spared member, nothing of it changes, and it is answered with why. Answers
+    /// the release of each member released: what was queued for it and the handle its store answers once. Every
+    /// surface states its own answer: none is assumed stored, and only a stored release hides its session.
+    fn release_closed_at(
+        &self,
+        scope: &Scope,
+        tag: Option<&str>,
+        root: &str,
+        descendants: &[String],
+        at: Option<&HashMap<String, Option<TurnMark>>>,
+    ) -> Released;
     /// The releases made for `scope` (the scope its tree was closed under, whoever owns the member itself) whose receipt
     /// came back neither stored nor superseded and that no later write of the session replaced, each submitted again
     /// as the operation it was: the same identity, incarnation, precondition, map and release stamp. Its store answers
@@ -198,6 +209,11 @@ pub trait Sessions: Send + Sync {
         text
     }
     async fn close_session(&self, session_id: &str, reason: &str, options: CloseOptions) -> bool;
+    /// The close a cancelled job makes of the turn it submitted (`job-start.mjs`): the session's durable stamp with
+    /// `reason` and the stop of that turn's work, both only while `turn_id` is the turn the session runs. `false`:
+    /// the session runs no such turn (it ended, or another runs) and nothing of the session was touched, or the stamp
+    /// could not be written. Every surface states its own answer.
+    async fn close_turn(&self, session_id: &str, turn_id: &str, reason: &str) -> bool;
     /// `closeRuntime`'s answer: `Ok(false)` when there is nothing to close, `Err` (the text Node
     /// throws, `agent session <id> could not be durably closed`) when the close did not land. A
     /// surface that cannot tell the two apart keeps this default.
@@ -230,16 +246,14 @@ pub trait Sessions: Send + Sync {
     fn clear_statusline_route(&self, session_id: &str);
     /// The sessions an owner closed leave every session list; the record stays, archived through the
     /// header's `archivedAt`. A session whose flag cannot be written stays listed.
-    /// Answers the sessions that stay listed, each with the reason (`failed`).
-    async fn hide_sessions(&self, _session_ids: &[String]) -> Vec<HideFailed> {
-        Vec::new()
-    }
+    /// Answers the sessions that stay listed, each with the reason (`failed`). Each hide is written only while its
+    /// condition holds ([`Hide`]): a session taken up again since stays listed, and is no failure. Every surface
+    /// states its own answer: one that hides nothing is not counted as having hidden.
+    async fn hide_sessions(&self, hides: &[Hide]) -> Vec<HideFailed>;
     /// `revealSession(id)`: a session that is used again is listed again.
-    async fn reveal_session(&self, _session_id: &str) {}
+    async fn reveal_session(&self, session_id: &str);
     /// Whether the session is hidden from the lists already (`archivedSessions()[id] !== undefined`).
-    async fn is_hidden(&self, _session_id: &str) -> bool {
-        false
-    }
+    async fn is_hidden(&self, session_id: &str) -> bool;
     /// `mgr.sessionGone(id)`: the session's stored record is deleted. Only a record proven absent is gone: a session
     /// that is loaded, a record that is there but cannot be read, or a store that cannot be asked, is not.
     async fn session_gone(&self, _session_id: &str) -> bool {
@@ -420,6 +434,25 @@ pub struct Released {
     pub spared: Vec<Spared>,
 }
 
+/// One session a close hides ([`Sessions::hide_sessions`]), and what the hide is conditional on: it is written only
+/// while the condition holds where the hides and the reveals are ordered, so a session taken up again is never left
+/// hidden.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Hide {
+    pub session_id: String,
+    /// The stored release the hide belongs to (its `releasedAt` stamp): written only while the session still holds
+    /// that release. `None`, a leftover no release was made for: written only while no turn runs on the session.
+    pub released_at: Option<String>,
+}
+
+impl ReleaseReceipt {
+    /// The hide a stored release of this receipt authorises.
+    pub fn hide(&self) -> Hide {
+        let released_at = self.released.get("releasedAt").and_then(Value::as_str).map(str::to_owned);
+        Hide { session_id: self.session_id.clone(), released_at }
+    }
+}
+
 /// How a member's close is fenced ([`Sessions::close_member`]).
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct MemberClose {
@@ -437,6 +470,9 @@ pub enum MemberOutcome {
     Nothing,
     /// The session is at another turn, or running, since the close was decided: nothing was done to it.
     Moved,
+    /// The close was stamped while the session was idle and a turn started on it since: the stamp reads as a close
+    /// the session was resumed after, and its work is its own.
+    Resumed,
 }
 
 /// An agent session as `mgr.listSessions()` lists it.

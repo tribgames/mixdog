@@ -597,6 +597,12 @@ pub enum Mark {
     /// The automatic retention's archive: as [`Mark::Archive`], but nothing when the state is not [`Resolved::trusted`] (a lost
     /// entry may have been the user's restore).
     Automatic(Box<dyn FnOnce() -> f64 + Send>),
+    /// A closed agent's hide: as [`Mark::Archive`], but only while `still` holds (the session still holds the release
+    /// the hide belongs to; no turn runs on a leftover). `still` is asked inside the authority's commit, and a turn
+    /// that starts on an agent's session ends what `still` reads before it asks the authority to bring the session
+    /// back ([`restore_at_turn_start`]): the authority orders the two, so either the restore follows the hide or the
+    /// hide finds `still` gone, and no session is left both running and archived.
+    While { stamp: Box<dyn FnOnce() -> f64 + Send>, still: Box<dyn Fn() -> bool + Send> },
     /// Brought back now.
     Restore,
 }
@@ -615,29 +621,48 @@ impl SessionDirectory {
     /// Marks `id` alone, its header being `header`: one commit of the authority, nothing when it is in that state already. Whether
     /// it changed.
     pub async fn mark_archived(&self, id: &str, header: &Header, mark: Mark) -> Result<bool, CoreError> {
-        let stamp = header.get("archivedAt").cloned();
-        let (id, clock) = (id.to_owned(), self.deps().clock.clone());
-        let committed = self
-            .deps()
-            .archive
-            .commit(move |snapshot, _| {
-                let state = snapshot.resolve(&id, stamp.as_ref());
-                let archived = state.archived();
-                let entry = match mark {
-                    Mark::Archive(stamp) if !archived => ArchiveEntry::Archived(stamp()),
-                    Mark::Automatic(stamp) if !archived && state.trusted() => ArchiveEntry::Archived(stamp()),
-                    Mark::Restore if archived => ArchiveEntry::Restored(clock.now_ms() as f64),
-                    _ => return Ok((false, Vec::new())),
-                };
-                Ok((true, vec![(id, entry)]))
-            })
-            .await
-            .map_err(failed)?;
-        if let Err(error) = &committed.indexed {
-            tracing::warn!("[mixdog-session] The catalog did not take an archive change yet: {error}");
-        }
-        Ok(committed.answer)
+        mark_one(self.deps(), id, header.get("archivedAt").cloned(), mark).await
     }
+}
+
+/// [`SessionDirectory::mark_archived`] over the deps alone, `held` being the header's `archivedAt`.
+async fn mark_one(deps: &super::SessionDeps, id: &str, held: Option<Value>, mark: Mark) -> Result<bool, CoreError> {
+    let (id, clock) = (id.to_owned(), deps.clock.clone());
+    let committed = deps
+        .archive
+        .commit(move |snapshot, _| {
+            let state = snapshot.resolve(&id, held.as_ref());
+            let archived = state.archived();
+            let entry = match mark {
+                Mark::Archive(stamp) if !archived => ArchiveEntry::Archived(stamp()),
+                Mark::Automatic(stamp) if !archived && state.trusted() => ArchiveEntry::Archived(stamp()),
+                Mark::While { stamp, still } if !archived && still() => ArchiveEntry::Archived(stamp()),
+                Mark::Restore if archived => ArchiveEntry::Restored(clock.now_ms() as f64),
+                _ => return Ok((false, Vec::new())),
+            };
+            Ok((true, vec![(id, entry)]))
+        })
+        .await
+        .map_err(failed)?;
+    if let Err(error) = &committed.indexed {
+        tracing::warn!("[mixdog-session] The catalog did not take an archive change yet: {error}");
+    }
+    Ok(committed.answer)
+}
+
+/// A turn started on `id`, an agent's session (`header`): a session that is used again is listed again. Asked of the
+/// archive authority after the turn's run was published and its owner's release ended, off the thread's actor: a hide
+/// that was decided while neither was so ([`Mark::While`]) is committed before this, which brings the session back.
+pub(crate) fn restore_at_turn_start(deps: &Arc<super::SessionDeps>, id: &ThreadId, header: &Header) {
+    if mixdog_store::summary::session_visibility(header) != "agent-only" {
+        return;
+    }
+    let (deps, id, held) = (deps.clone(), id.clone(), header.get("archivedAt").cloned());
+    drop(mixdog_rt::spawn("turn-reveal", mixdog_rt::TaskClass::Work, async move {
+        if let Err(error) = mark_one(&deps, id.as_str(), held, Mark::Restore).await {
+            tracing::warn!(session = %id, ?error, "a session a turn started on stays hidden");
+        }
+    }));
 }
 
 #[cfg(test)]
