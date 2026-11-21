@@ -1,7 +1,7 @@
 {
   "name": "todo",
   "title": "Todo",
-  "description": "The step list for this request; the Lead and each agent keep their own. set replaces the whole plan; init refuses to replace unfinished work. Supply items or phases. advance closes the active step and starts the next pending one. done, start, drop and rm take a 1-based step number or the step's exact wording. done can close several and start another in the same call. append adds steps to an existing list under the named or last phase. set/init and view show the whole list; other mutations acknowledge the change and show the next step, so no view is needed to confirm them.",
+  "description": "The step list for this request; the Lead and each agent keep their own. set replaces the whole plan; init refuses to replace unfinished work. Supply items or phases. advance closes the active step and starts the next pending one. done can close several and start another in the same call. append adds steps to an existing list under the named or last phase. set/init and view show the whole list; other mutations acknowledge the change and show the next step, so no view is needed to confirm them.",
   "annotations": {
     "title": "Todo",
     "readOnlyHint": false,
@@ -81,7 +81,7 @@
             "minItems": 1
           }
         ],
-        "description": "done/start/drop/rm: the step number; done also takes a list of them."
+        "description": "done/start/drop/rm: the 1-based step number; done also takes a list of them."
       },
       "start": {
         "anyOf": [

@@ -22,7 +22,7 @@
           "block",
           "extend"
         ],
-        "description": "status returns the full visible Goal, or goal:null when none is visible. create requires objective and is unavailable on a heartbeat. complete refuses while there are open todo steps. block requires blocker. extend requires extend_minutes and an existing time cap; its receipt returns the new cap. Mutations return remaining_ms (null if uncapped)."
+        "description": "status returns the full visible Goal, or goal:null when none is visible. create is unavailable on a heartbeat. complete refuses while there are open todo steps. block requires blocker. extend requires extend_minutes and an existing time cap; its receipt returns the new cap. Mutations return remaining_ms (null if uncapped)."
       },
       "objective": {
         "type": "string",

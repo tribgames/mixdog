@@ -68,8 +68,7 @@
         "enum": [
           "importance",
           "date"
-        ],
-        "description": "importance or date."
+        ]
       },
       "category": {
         "anyOf": [
@@ -83,7 +82,7 @@
             }
           }
         ],
-        "description": "Category filter, string or array: rule|constraint|decision|fact|goal|preference|task|issue."
+        "description": "Category filter: rule|constraint|decision|fact|goal|preference|task|issue."
       },
       "includeArchived": {
         "type": "boolean",

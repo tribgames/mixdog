@@ -45,8 +45,7 @@
                     "tail": {
                       "type": "integer",
                       "minimum": 1,
-                      "maximum": 100000,
-                      "description": "Last N lines, not with offset. Overrides limit; very large files may return fewer lines."
+                      "maximum": 100000
                     }
                   },
                   "required": [

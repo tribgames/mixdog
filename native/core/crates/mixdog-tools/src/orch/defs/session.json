@@ -120,8 +120,7 @@
           },
           "name": {
             "type": "string",
-            "maxLength": 64,
-            "description": "mode worktree: worktree name."
+            "maxLength": 64
           }
         },
         "required": [

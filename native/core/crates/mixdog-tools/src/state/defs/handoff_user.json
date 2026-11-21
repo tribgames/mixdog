@@ -15,7 +15,7 @@
     "properties": {
       "handoff": {
         "type": "object",
-        "description": "secret = the user types into the field without exposing the value (entered/user_skipped/no_field/page_changed/blocked/expired); computer secret requires window_id and ref. An e-mailed code readable from a connected mailbox for a flow you started is yours to type. takeover requires instructions and reports Done or saved-login fill, not verification of success; user_skipped, expired and blocked are not completion.",
+        "description": "secret = the user types into the field without exposing the value (entered/user_skipped/no_field/page_changed/blocked/expired). An e-mailed code readable from a connected mailbox for a flow you started is yours to type. takeover requires instructions and reports Done or saved-login fill, not verification of success; user_skipped, expired and blocked are not completion.",
         "properties": {
           "kind": {
             "type": "string",
