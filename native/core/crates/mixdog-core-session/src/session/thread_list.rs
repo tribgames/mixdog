@@ -224,6 +224,16 @@ pub trait ListRooms: Send + Sync {
     }
 }
 
+/// One page of [`ThreadListService::summaries_page`].
+pub struct SummaryPage {
+    /// The rows `summary` answers for the page's ids, in catalog order.
+    pub rows: Vec<ThreadSummary>,
+    /// The ids whose row a failed lookup left out, in catalog order, with the failure.
+    pub failed: Vec<(ThreadId, CoreError)>,
+    /// Where the next page begins; `None` after the last.
+    pub next: Option<String>,
+}
+
 /// `thread/list` over the catalog index.
 pub struct ThreadListService {
     store: Arc<SqliteStore>,
@@ -403,6 +413,60 @@ impl ThreadListService {
         let page = self.store.lead_page(after, LeadFilter::default(), limit).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
         let next = if page.more { page.rows.last().map(|row| encode_catalog_cursor(&row.row)) } else { None };
         Ok((page.rows.into_iter().map(|row| self.catalog_row_of(row)).collect(), next))
+    }
+
+    /// For the ids [`Self::catalog_page`] lists after `cursor` (at most `limit`), what [`Self::summary`] answers for each, with
+    /// its publication, from one index read and at most one read of the rooms for the page. A lookup that fails costs only the
+    /// rows that depend on it, as it would cost `summary` of each: the workspace is asked again for each row once the page's
+    /// lookup failed, and a room-store failure costs the page's room rows. Unlike a `thread/list` call it does not mark the
+    /// catalog loaded.
+    pub async fn summaries_page(&self, cursor: Option<String>, limit: usize) -> Result<SummaryPage, CoreError> {
+        let after = decode_catalog_cursor(cursor.as_deref()).map_err(|error| coded(DOMAIN, "EINVALIDCURSOR", error.to_string()))?;
+        let shared_workspace = self.workspace().await.ok();
+        self.caught_up().await;
+        let page = self.store.lead_page(after, LeadFilter::default(), limit).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
+        let next = if page.more { page.rows.last().map(|row| encode_catalog_cursor(&row.row)) } else { None };
+        let mut failures: Vec<(usize, ThreadId, CoreError)> = Vec::new();
+        let mut ordinary: Vec<(usize, ThreadSummary)> = Vec::new();
+        let mut rooms: Vec<(usize, ThreadSummary)> = Vec::new();
+        for (at, listed) in page.rows.iter().enumerate() {
+            let id = ThreadId::from(listed.row.get("id").and_then(serde_json::Value::as_str).unwrap_or_default().to_owned());
+            let workspace = match &shared_workspace {
+                Some(workspace) => workspace.clone(),
+                None => match self.workspace().await {
+                    Ok(workspace) => workspace,
+                    Err(error) => {
+                        failures.push((at, id, error));
+                        continue;
+                    }
+                },
+            };
+            let row = self.row_of(&id, listed, &workspace);
+            // Only a room's log or member row is the rooms' to stamp or leave out (`ListRooms::with_rooms`).
+            if mixdog_core_base::rooms::ids::is_room_thread_session_id(id.as_str()) {
+                rooms.push((at, row));
+            } else {
+                ordinary.push((at, row));
+            }
+        }
+        let mut kept = ordinary;
+        if !rooms.is_empty() {
+            let ids: Vec<(usize, ThreadId)> = rooms.iter().map(|(at, row)| (*at, row.id.clone())).collect();
+            match self.rooms.with_rooms(rooms.into_iter().map(|(_, row)| row).collect()).await {
+                Ok(stamped) => {
+                    let mut by_id: std::collections::HashMap<String, ThreadSummary> = stamped.into_iter().map(|row| (row.id.as_str().to_owned(), row)).collect();
+                    kept.extend(ids.into_iter().filter_map(|(at, id)| by_id.remove(id.as_str()).map(|row| (at, row))));
+                }
+                Err(error) => failures.extend(ids.into_iter().map(|(at, id)| (at, id, failed(DOMAIN, error.clone())))),
+            }
+            kept.sort_by_key(|(at, _)| *at);
+        }
+        failures.sort_by_key(|(at, ..)| *at);
+        let rows: Vec<ThreadSummary> = kept.into_iter().map(|(_, row)| row).collect();
+        for row in &rows {
+            self.published(&[row.id.as_str()]);
+        }
+        Ok(SummaryPage { rows, failed: failures.into_iter().map(|(_, id, error)| (id, error)).collect(), next })
     }
 
     /// The catalog row of `id` read by id (`readStoredSessionCatalogRow`), `None` when the listing would not show it.
@@ -799,6 +863,15 @@ mod tests {
     }
 
     async fn service(data: &crate::session::testing::DataDir, golden: &Value) -> ThreadListService {
+        service_with(data, golden, Arc::new(NoRooms), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks"))).await
+    }
+
+    async fn service_with(
+        data: &crate::session::testing::DataDir,
+        golden: &Value,
+        rooms: Arc<dyn ListRooms>,
+        workspace: Arc<dyn TaskWorkspace>,
+    ) -> ThreadListService {
         let tokens = mixdog_rt::testing::tokens();
         let root = data.path().to_path_buf();
         let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
@@ -815,7 +888,98 @@ mod tests {
             let id = header["id"].as_str().expect("id").to_owned();
             store.upsert(CatalogHead { session: id, log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.expect("upsert");
         }
-        ThreadListService::new(store, Arc::new(Busy), Arc::new(NoRooms), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks")))
+        ThreadListService::new(store, Arc::new(Busy), rooms, workspace)
+    }
+
+    /// The golden sessions with a saved room's log (`room01`, renamed since its log was indexed), a member session of it and
+    /// the log of a room that no longer exists (`gone01`).
+    fn room_golden() -> Value {
+        let mut golden = golden();
+        let sessions = golden["sessions"].as_array_mut().expect("sessions");
+        for (id, title, updated) in
+            [("sess_room_room01", "Old name", 4000), ("sess_rmem_room01_lead", "member", 3500), ("sess_room_gone01", "gone", 3200)]
+        {
+            sessions.push(json!({ "record": { "id": id, "title": title, "updatedAt": updated, "createdAt": 500, "cwd": "C:/w" } }));
+        }
+        golden
+    }
+
+    /// The saved rooms: `room01`, named "Saved name". Counts its reads; with `fail`, every read fails.
+    #[derive(Default)]
+    struct SavedRooms {
+        reads: std::sync::atomic::AtomicUsize,
+        fail: bool,
+    }
+    #[async_trait]
+    impl ListRooms for SavedRooms {
+        async fn with_rooms(&self, rows: Vec<ThreadSummary>) -> Result<Vec<ThreadSummary>, String> {
+            self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if self.fail {
+                return Err("the room store failed".to_owned());
+            }
+            Ok(rows
+                .into_iter()
+                .filter_map(|mut row| match row.id.as_str() {
+                    "sess_room_room01" => {
+                        row.title = "Saved name".into();
+                        Some(row)
+                    }
+                    id if mixdog_core_base::rooms::ids::is_room_thread_session_id(id) => None,
+                    _ => Some(row),
+                })
+                .collect())
+        }
+        async fn room_threads(&self) -> Result<Vec<ThreadId>, String> {
+            self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if self.fail {
+                return Err("the room store failed".to_owned());
+            }
+            Ok(vec![ThreadId::from("sess_room_room01".to_owned())])
+        }
+    }
+
+    /// The ids of every catalog publication, in order.
+    #[derive(Default)]
+    struct Publications(std::sync::Mutex<Vec<String>>);
+    impl CatalogObserver for Publications {
+        fn published(&self, ids: &[&str]) {
+            self.0.lock().unwrap().extend(ids.iter().map(|id| (*id).to_owned()));
+        }
+    }
+
+    /// A task workspace whose first `failures` lookups fail.
+    struct FlakyWorkspace(std::sync::atomic::AtomicUsize);
+    #[async_trait]
+    impl TaskWorkspace for FlakyWorkspace {
+        async fn path(&self) -> Result<String, String> {
+            let left = self.0.load(std::sync::atomic::Ordering::SeqCst);
+            if left > 0 {
+                self.0.store(left - 1, std::sync::atomic::Ordering::SeqCst);
+                return Err("the workspace folder could not be made".to_owned());
+            }
+            Ok("/tasks".to_owned())
+        }
+    }
+
+    /// Every page of the seed with `limit` rows each: its rows, the ids it left out, and the number of pages.
+    async fn seeded(service: &ThreadListService, limit: usize) -> (Vec<ThreadSummary>, Vec<String>, usize) {
+        let (mut rows, mut failed, mut pages) = (Vec::new(), Vec::new(), 0);
+        let mut cursor = None;
+        loop {
+            let page = service.summaries_page(cursor.take(), limit).await.expect("summaries page");
+            pages += 1;
+            assert!(page.rows.len() + page.failed.len() <= limit, "a page holds at most its limit");
+            rows.extend(page.rows);
+            failed.extend(page.failed.into_iter().map(|(id, _)| id.as_str().to_owned()));
+            match page.next {
+                Some(next) => cursor = Some(next),
+                None => break (rows, failed, pages),
+            }
+        }
+    }
+
+    fn row_ids(rows: &[ThreadSummary]) -> Vec<&str> {
+        rows.iter().map(|row| row.id.as_str()).collect()
     }
 
     /// No rooms: every row passes as listed.
@@ -900,6 +1064,67 @@ mod tests {
         let row = listed["data"].as_array().expect("data").iter().find(|row| row["id"] == id.as_str()).expect("the row is listed");
         assert!(row.to_string().contains("after-the-write"), "{row}");
     }
+    /// The seed answers, for every id the catalog pages list, what `summary` answers for it, with the same publications: the
+    /// renamed room's log under its saved name, and neither the room member nor the log of a room that is gone. The rooms are
+    /// read at most once a page, and the catalog stays unloaded.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn summary_pages_answer_what_summary_answers_for_each_listed_id() {
+        let golden = room_golden();
+        let data = crate::session::testing::DataDir::default();
+        let rooms = Arc::new(SavedRooms::default());
+        let service = service_with(&data, &golden, rooms.clone(), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks"))).await;
+        let publications = Arc::new(Publications::default());
+        service.observe(publications.clone());
+        let (paged, failed, pages) = seeded(&service, 3).await;
+        assert!(failed.is_empty(), "{failed:?}");
+        assert!(rooms.reads.load(std::sync::atomic::Ordering::SeqCst) <= pages, "the rooms are read at most once a page");
+        let seed_published = std::mem::take(&mut *publications.0.lock().unwrap());
+        let mut listed = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let (rows, next) = service.catalog_page(cursor.as_deref(), 3).await.expect("catalog page");
+            listed.extend(rows.iter().map(|row| row["id"].as_str().expect("id").to_owned()));
+            match next {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+        let mut by_id = Vec::new();
+        for id in listed {
+            by_id.extend(service.summary(&ThreadId::from(id)).await.expect("summary"));
+        }
+        assert_eq!(serde_json::to_value(&paged).unwrap(), serde_json::to_value(&by_id).unwrap());
+        assert_eq!(seed_published, *publications.0.lock().unwrap(), "the same publications");
+        assert_eq!(row_ids(&paged), ["s_c", "sess_room_room01", "s_a", "s_b", "s_d"]);
+        assert_eq!(paged[1].title, "Saved name");
+        assert!(!seed_published.iter().any(|id| id == "sess_rmem_room01_lead" || id == "sess_room_gone01"), "{seed_published:?}");
+        assert!(!service.catalog_loaded(), "a seed is not a listing");
+    }
+
+    /// A failing room store costs the room rows only: every ordinary row is still answered.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn summary_pages_answer_every_ordinary_row_when_the_room_store_fails() {
+        let golden = room_golden();
+        let data = crate::session::testing::DataDir::default();
+        let rooms = Arc::new(SavedRooms { fail: true, ..SavedRooms::default() });
+        let service = service_with(&data, &golden, rooms, Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks"))).await;
+        let (rows, failed, _) = seeded(&service, 3).await;
+        assert_eq!(row_ids(&rows), ["s_c", "s_a", "s_b", "s_d"]);
+        assert!(!failed.is_empty() && failed.iter().all(|id| mixdog_core_base::rooms::ids::is_room_thread_session_id(id)), "{failed:?}");
+    }
+
+    /// A workspace lookup that fails costs at most the row that asked it, and the seed reads on to its last page.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_failed_workspace_lookup_costs_one_row_and_the_seed_goes_on() {
+        let golden = golden();
+        let data = crate::session::testing::DataDir::default();
+        // The page's own lookup and the first row's fail; every later one answers.
+        let workspace = Arc::new(FlakyWorkspace(std::sync::atomic::AtomicUsize::new(2)));
+        let service = service_with(&data, &golden, Arc::new(NoRooms), workspace).await;
+        let (rows, failed, pages) = seeded(&service, 2).await;
+        assert_eq!((row_ids(&rows), failed, pages), (vec!["s_a", "s_b", "s_d"], vec!["s_c".to_owned()], 2));
+    }
+
     /// Pages are newest first with the id as the tie-break, `limit` rows each; the cursor names the last row kept and comes only
     /// when more follow; the live overlay lays `working` over the row of a thread with a turn in flight.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

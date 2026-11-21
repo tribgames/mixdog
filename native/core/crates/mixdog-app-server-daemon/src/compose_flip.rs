@@ -4735,21 +4735,20 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     boot.boot_mark("before-notifier-catalog-seed");
     let mut notification_cursor: Option<String> = None;
     loop {
-        let (rows, next) = match thread_list.catalog_page(notification_cursor.as_deref(), 256).await {
+        let page = match thread_list.summaries_page(notification_cursor.clone(), 256).await {
             Ok(page) => page,
             Err(error) => {
                 (b.log.line_log())(&format!("[mixdog-turn-notification] initial catalog failed: {error}"));
                 break;
             }
         };
-        for row in rows {
-            let Some(id) = row.get("id").and_then(serde_json::Value::as_str) else { continue };
-            match thread_list.summary(&mixdog_core_api::ids::ThreadId::from(id)).await {
-                Ok(Some(summary)) => session_notifier.input().row(summary),
-                Ok(None) => {}
-                Err(error) => (b.log.line_log())(&format!("[mixdog-turn-notification] initial row {id} failed: {error}")),
-            }
+        for summary in page.rows {
+            session_notifier.input().row(summary);
         }
+        for (id, error) in page.failed {
+            (b.log.line_log())(&format!("[mixdog-turn-notification] initial row {} failed: {error}", id.as_str()));
+        }
+        let next = page.next;
         if next.is_none() {
             break;
         }
