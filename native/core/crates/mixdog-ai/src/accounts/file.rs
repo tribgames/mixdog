@@ -77,7 +77,7 @@ pub(crate) async fn read_roster(io: &CredentialIo, path: PathBuf) -> io::Result<
     #[cfg(feature = "count-work")]
     crate::work::credential_read();
     let first = path.clone();
-    let peeked = io.read_required(move |lane| mixdog_statefile::peek(lane, &first, Some(&validate))).await?;
+    let peeked = io.read_job(move |lane| mixdog_statefile::peek(lane, &first, Some(&validate))).await?;
     match peeked {
         Peek::Value(value) => Ok(value),
         Peek::Absent | Peek::Unsupported => Ok(empty_roster()),

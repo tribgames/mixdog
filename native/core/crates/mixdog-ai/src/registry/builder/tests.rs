@@ -1171,3 +1171,47 @@ mod pinned_credentials {
         }
     }
 }
+
+/// A refused key is answered with one read of the source: the value that read gives is what the request is sent again
+/// on, and the source is told which key was refused. No second read stands between the comparison and the resend.
+#[tokio::test]
+async fn a_refused_key_is_read_again_once_and_that_read_is_the_resend() {
+    #[derive(Default)]
+    struct Keys {
+        reads: std::sync::atomic::AtomicUsize,
+        refused: std::sync::Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl ApiKeySource for Keys {
+        async fn key(&self) -> Result<String, ProviderError> {
+            self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok("held".to_owned())
+        }
+        async fn reload(&self) -> Result<String, ProviderError> {
+            self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok("stored".to_owned())
+        }
+        async fn reload_after(&self, rejected: &str) -> Result<String, ProviderError> {
+            self.refused.lock().unwrap().push(rejected.to_owned());
+            self.reload().await
+        }
+    }
+
+    let keys = Arc::new(Keys::default());
+    let reads = || keys.reads.load(std::sync::atomic::Ordering::SeqCst);
+    let gateway = KeyHeader { source: keys.clone(), header: "authorization", bearer: true };
+    let sent = gateway.attempt().await.unwrap();
+    let before = reads();
+    let next = gateway.after_rejection(&sent).await.unwrap().attempt;
+    assert_eq!(next.header.map(|(_, value)| value).as_deref(), Some("Bearer stored"));
+    assert_eq!(reads() - before, 1, "the gateway key was read twice for one refusal");
+
+    let custom = CustomKey { source: Some(keys.clone()), env: None, header: "x-api-key", bearer: false, refreshable: true };
+    let sent = custom.attempt().await.unwrap();
+    let before = reads();
+    let next = custom.after_rejection(&sent).await.unwrap().attempt;
+    assert_eq!(next.header.map(|(_, value)| value).as_deref(), Some("stored"));
+    assert_eq!(reads() - before, 1, "the custom key was read twice for one refusal");
+    assert_eq!(*keys.refused.lock().unwrap(), ["held", "held"], "the source is told the key each refused request carried");
+}

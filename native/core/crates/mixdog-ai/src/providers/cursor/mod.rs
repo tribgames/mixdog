@@ -88,10 +88,42 @@ pub const CLIENT_VERSION_FLOOR: &str = "cli-2026.10.22-27dcf5f";
 /// The protocol's application heartbeat.
 const CLIENT_HEARTBEAT: Duration = Duration::from_secs(5);
 
+/// What one request is sent on: its access token, and the refresh token that one was served under (none for a token
+/// with no login behind it). A refusal hands the whole of it back, so the source acts on that login and on no other.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Access {
+    pub token: String,
+    grant: Option<String>,
+}
+
+impl Access {
+    /// A token with no login behind it (one exchanged for an API key, or a fixed one).
+    pub fn plain(token: String) -> Self {
+        Self { token, grant: None }
+    }
+
+    fn served_under(token: String, grant: Option<String>) -> Self {
+        Self { token, grant }
+    }
+}
+
+impl std::fmt::Debug for Access {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Access([redacted])")
+    }
+}
+
 /// The access token to present, refreshed on demand.
 #[async_trait]
 pub trait AccessToken: Send + Sync {
-    async fn access_token(&self, force_refresh: bool) -> Result<String, ProviderError>;
+    async fn access_token(&self) -> Result<Access, ProviderError>;
+    /// The server refused `rejected`: the token is exchanged again for the login that attempt was served under and for
+    /// no other. A login stored since is returned as it is.
+    async fn after_rejection(&self, rejected: &Access) -> Result<Access, ProviderError>;
+    /// What an in-place retry is sent on (`createCursorCredentialRefresher`, cursor-wire-guards.mjs:315): the login
+    /// stored now, exchanged again whatever its expiry. When that exchange fails the stored token is what the retry goes
+    /// out on; a sign-out is the error, and nothing is sent.
+    async fn renewed(&self) -> Result<Access, ProviderError>;
 }
 
 pub struct CursorTarget {
@@ -388,7 +420,7 @@ impl CursorAdapter {
 #[async_trait]
 impl ModelListing for CursorAdapter {
     async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
-        let token = self.tokens.access_token(false).await?;
+        let token = self.tokens.access_token().await?.token;
         let (models, fallback) = self.discover_models(&token).await;
         let rows: Vec<ModelRecord> = listing::rows(&models, self.id.as_str()).into_iter().map(listing_row::record).collect();
         // The static list answers this call only: `_loadCursorCatalog` keeps no catalog from it, so `getCachedModelInfo`
@@ -433,19 +465,12 @@ impl ProviderAdapter for CursorAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        // Every in-place retry of Node's bridge force-refreshes the credentials and keeps the previous token when the
-        // refresh fails (`createCursorCredentialRefresher`, cursor-wire-guards.mjs:315).
-        let mut token = if request.options.send_identity.next_attempt() > 0 {
-            match self.tokens.access_token(true).await {
-                Ok(next) => next,
-                Err(_) => self.tokens.access_token(false).await?,
-            }
-        } else {
-            self.tokens.access_token(false).await?
-        };
+        // Every in-place retry of Node's bridge force-refreshes the credentials. One decision either way: a token just
+        // obtained has not been refused, and a sign-out seen while obtaining it ends the attempt.
+        let mut access = if request.options.send_identity.next_attempt() > 0 { self.tokens.renewed().await? } else { self.tokens.access_token().await? };
         let mut refreshed = false;
         loop {
-            let error = match self.open(&request, &token).await {
+            let error = match self.open(&request, &access.token).await {
                 Ok(mut stream) => {
                     stream.prime().await;
                     match stream.queue.front() {
@@ -457,10 +482,11 @@ impl ProviderAdapter for CursorAdapter {
             };
             if !refreshed && is_auth_failure(&error) {
                 refreshed = true;
-                let next = self.tokens.access_token(true).await?;
+                // The refusal is of the attempt this request was sent on, whatever login the file holds by now.
+                let next = self.tokens.after_rejection(&access).await?;
                 // The same rejected credential is not sent again.
-                if next != token {
-                    token = next;
+                if next.token != access.token {
+                    access = next;
                     continue;
                 }
             }

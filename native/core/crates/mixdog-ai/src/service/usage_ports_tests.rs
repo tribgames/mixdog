@@ -258,6 +258,58 @@ async fn overlapping_readings_across_a_login_change_each_answer_for_their_own_lo
     }
 }
 
+/// The Grok proxy refuses the token a usage reading was sent with. The refusal is the reading's answer, so the retry
+/// behind a refused credential runs: the sign-in that reading carried is refreshed, once, and the reading is taken on
+/// the new token.
+#[tokio::test]
+async fn a_grok_usage_reading_the_proxy_refuses_is_retried_on_the_refreshed_sign_in() {
+    const BILLING: &str = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
+    const TOKEN: &str = "https://auth.x.ai/oauth2/token";
+
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let io = || CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let store = AccountStore::new(dir.path().to_path_buf(), io());
+    store
+        .credential_file("grok-oauth", "default")
+        .unwrap()
+        .save(&json!({ "access_token": "fixture-grok-first", "refresh_token": "fixture-grok-refresh", "token_endpoint": TOKEN, "user_id": "user-1" }))
+        .await
+        .unwrap();
+    let net = Net::from(&json!([
+        { "url": BILLING, "status": 401, "body": "" },
+        { "url": TOKEN, "body": { "access_token": "fixture-grok-second", "refresh_token": "fixture-grok-refresh-2", "expires_in": 3600 } },
+        { "url": BILLING, "body": {
+            "currentPeriod": { "type": "USAGE_PERIOD_TYPE_WEEKLY", "end": 1_900_000_000 }, "weeklyLimit": { "val": 200 }, "used": { "val": 50 } } }
+    ]));
+    let versions = ClientVersions::new(net.clone(), dir.path().to_path_buf(), io(), Arc::new(Vars(HashMap::new())));
+    let usage = OAuthUsage::new(UsageDeps {
+        http: Arc::new(RoutedUsageHttp::new(net.clone())),
+        source: Arc::new(ProviderUsageSource::new(store.clone(), net.clone())),
+        grok: Arc::new(GrokVersionHeaders::new(versions)),
+        history: Arc::new(History::default()),
+        store,
+        io: io(),
+        log: Arc::new(|_| {}),
+        data_dir: dir.path().join("data"),
+    });
+    let route = crate::service::oauth_usage::RouteInfo { provider: "grok-oauth".into(), model: String::new(), account_id: "default".into() };
+    let reading = usage.fetch_snapshot(&route, true).await.expect("the reading taken on the refreshed sign-in");
+    assert_eq!(reading["quotaWindows"][0]["usedPct"].as_f64(), Some(25.0));
+
+    // Only the usage and token requests: the proxy warm-up and the probes of other hosts are not counted.
+    let seen = net.seen.lock().unwrap();
+    let bearers: Vec<&str> = seen
+        .iter()
+        .filter(|request| request.url == BILLING)
+        .filter_map(|request| request.headers.iter().find(|(name, _)| name == "Authorization").map(|(_, value)| value.as_str()))
+        .collect();
+    assert_eq!(bearers, ["Bearer fixture-grok-first", "Bearer fixture-grok-second"]);
+    let exchanges: Vec<&WireRequest> = seen.iter().filter(|request| request.url == TOKEN).collect();
+    assert_eq!(exchanges.len(), 1);
+    assert!(String::from_utf8_lossy(&exchanges[0].body).contains("fixture-grok-refresh"), "the refused reading's own sign-in is refreshed");
+}
+
 #[tokio::test]
 async fn cursor_api_plan_read_exchanges_the_configured_key_without_a_registered_adapter() {
     use crate::providers::cursor::{API_URL, auth::EXCHANGE_URL};

@@ -499,6 +499,68 @@ async fn a_rejected_opencode_go_token_is_refreshed_once_and_the_read_is_retried_
     assert_eq!((grant["grant_type"].as_str(), grant["refresh_token"].as_str()), (Some("refresh_token"), Some("oc-refresh")));
 }
 
+/// The scripted network, with a hook run when the first request for `url` arrives.
+struct Hooked {
+    net: Arc<Net>,
+    url: &'static str,
+    hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+#[async_trait]
+impl HttpSend for Hooked {
+    async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
+        if request.url == self.url
+            && let Some(hook) = self.hook.lock().unwrap().take()
+        {
+            hook();
+        }
+        self.net.send(request, exchange).await
+    }
+}
+
+/// The status read goes out on one sign-in and is refused; another pair of the same account was stored meanwhile. The
+/// refusal is of the pair that read was sent on: the pair stored since is used as it is and its refresh token is not
+/// spent, whether both tokens changed or the same bearer came back under another refresh token.
+#[tokio::test]
+async fn a_rejected_opencode_go_read_does_not_refresh_a_sign_in_stored_since_it_was_sent() {
+    for (access, refresh) in [("oc-second", "oc-refresh-2"), ("oc-access", "oc-refresh-2")] {
+        a_sign_in_stored_since_the_read_is_not_refreshed(access, refresh).await;
+    }
+}
+
+async fn a_sign_in_stored_since_the_read_is_not_refreshed(access: &str, refresh: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = AccountStore::new(dir.path().to_path_buf(), io());
+    let file = store.credential_file(usage_opencode_go::PROVIDER_ID, "default").unwrap();
+    let sign_in = |access: &str, refresh: &str| {
+        json!({ "access_token": access, "refresh_token": refresh, "org_id": "org-1", "account_id": "acc-1", "email": "me@example.com" })
+    };
+    file.save(&sign_in("oc-access", "oc-refresh")).await.unwrap();
+    let net = Net::from(&json!([
+        { "url": STATUS, "status": 401, "body": "" },
+        { "url": REFRESH, "body": { "access_token": "oc-new", "refresh_token": "oc-refresh-3", "expires_in": 3600 } },
+        { "url": STATUS, "body": one_meter() }
+    ]));
+    let (path, other) = (file.path().to_owned(), sign_in(access, refresh).to_string().into_bytes());
+    let stored_meanwhile = move || {
+        on_lane(move |lane| mixdog_statefile::write_file(lane, &path, &other, &mixdog_statefile::Opts::default())).unwrap();
+    };
+    let http = Arc::new(Hooked { net: net.clone(), url: STATUS, hook: Mutex::new(Some(Box::new(stored_meanwhile))) });
+    let pace = Arc::new(FakePace::default());
+    pace.now.store(1_000_000, Ordering::SeqCst);
+    let source = ProviderUsageSource::with_pace(store, http, pace).with_jitter(Arc::new(|| 0.5));
+
+    let snapshot = source.provider_snapshot(usage_opencode_go::PROVIDER_ID, "default").await.unwrap().unwrap();
+    assert_eq!(num(&snapshot["quotaWindows"][0], "usedPct"), 25.0);
+    let seen = net.seen.lock().unwrap();
+    let urls: Vec<&str> = seen.iter().map(|request| request.url.as_str()).collect();
+    assert_eq!(urls, [STATUS, STATUS], "the sign-in stored since ({access}, {refresh}) was refreshed for the old read's refusal");
+    assert_eq!((bearer(&seen[0]), bearer(&seen[1])), (Some("Bearer oc-access"), Some(format!("Bearer {access}").as_str())));
+    drop(seen);
+    let stored: Value = serde_json::from_slice(&std::fs::read(file.path()).unwrap()).unwrap();
+    assert_eq!(stored["refresh_token"], refresh);
+}
+
 #[tokio::test]
 async fn opencode_go_asks_the_sign_in_again_when_the_refresh_is_rejected_and_does_not_loop() {
     let rejected = opencode_go(json!([{ "url": STATUS, "status": 401, "body": "" }, { "url": REFRESH, "status": 401, "body": "" }]));
@@ -740,8 +802,14 @@ struct Token;
 
 #[async_trait]
 impl crate::providers::cursor::AccessToken for Token {
-    async fn access_token(&self, _force_refresh: bool) -> Result<String, ProviderError> {
-        Ok("cursor-token".to_owned())
+    async fn access_token(&self) -> Result<crate::providers::cursor::Access, ProviderError> {
+        Ok(crate::providers::cursor::Access::plain("cursor-token".to_owned()))
+    }
+    async fn after_rejection(&self, _rejected: &crate::providers::cursor::Access) -> Result<crate::providers::cursor::Access, ProviderError> {
+        self.access_token().await
+    }
+    async fn renewed(&self) -> Result<crate::providers::cursor::Access, ProviderError> {
+        self.access_token().await
     }
 }
 

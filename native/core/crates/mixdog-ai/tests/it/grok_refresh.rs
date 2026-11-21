@@ -126,8 +126,13 @@ impl Setup {
         serde_json::from_str(&std::fs::read_to_string(&self.path).unwrap()).unwrap()
     }
 
+    /// The bearer of a send; `force` is the one of the resend behind that send's refusal.
     async fn bearer(&self, force: bool) -> Result<String, ProviderError> {
-        let (name, value) = self.credential.header(force).await?.expect("a header");
+        let mut attempt = self.credential.attempt().await?;
+        if force {
+            attempt = self.credential.after_rejection(&attempt).await?.attempt;
+        }
+        let (name, value) = attempt.header.expect("a header");
         assert_eq!(name, "authorization");
         Ok(value)
     }
@@ -228,6 +233,34 @@ async fn a_dead_grant_is_not_retried_and_asks_for_a_new_sign_in() {
     assert!(s.waits().is_empty());
 }
 
+/// A send goes out on one sign-in, another generation is stored (already past its expiry), and the first send is then
+/// refused. The refusal is of the generation that send carried: the one stored now is used as it is and its refresh
+/// token is not spent, whether both tokens changed or the same bearer came back under another refresh token. Once the
+/// generation stored now was itself sent and refused, its own refresh token is exchanged.
+#[tokio::test]
+async fn a_refusal_does_not_refresh_a_sign_in_stored_since_its_attempt() {
+    for (access, refresh) in [("a9", "r9"), ("a1", "r9")] {
+        let s = with_token(MINUTE as i64 * 60, vec![granted("a2", "r2")]);
+        let sent = s.credential.attempt().await.unwrap();
+        std::fs::write(&s.path, s.stored(access, refresh, -(MINUTE as i64)).to_string()).unwrap();
+        let bearer = |attempt: &mixdog_ai::providers::connect::rewrite::Attempt| attempt.header.clone().map(|(_, value)| value);
+
+        let recovered = s.credential.after_rejection(&sent).await.unwrap();
+        assert!(!recovered.exchanged, "nothing was exchanged for the sign-in stored now");
+        let next = recovered.attempt;
+        assert_eq!(bearer(&next), Some(format!("Bearer {access}")), "the sign-in stored now, as it is");
+        assert!(s.posts().is_empty(), "the new sign-in's refresh token was spent for the old attempt ({access}, {refresh})");
+        assert_eq!(s.file()["refresh_token"], refresh);
+
+        let renewed = s.credential.after_rejection(&next).await.unwrap();
+        assert!(renewed.exchanged);
+        assert_eq!(bearer(&renewed.attempt).as_deref(), Some("Bearer a2"), "the sign-in stored now answers for its own attempt");
+        let posts = s.posts();
+        assert_eq!(posts.len(), 1);
+        assert!(posts[0].1.contains(&format!("refresh_token={refresh}")), "{}", posts[0].1);
+    }
+}
+
 #[tokio::test]
 async fn a_token_endpoint_outside_x_ai_is_never_sent_the_refresh_token() {
     let s = setup(json!({}), vec![]);
@@ -247,14 +280,16 @@ async fn a_token_served_before_a_sign_out_is_not_sent_after_it() {
         let mut stored = s.stored("a1", "r1", MINUTE as i64 * 60);
         stored["user_id"] = json!("user-1");
         std::fs::write(&s.path, stored.to_string()).unwrap();
-        assert_eq!(s.bearer(false).await.unwrap(), "Bearer a1");
+        let sent = s.credential.attempt().await.unwrap();
+        assert_eq!(sent.header.as_ref().map(|(_, value)| value.as_str()), Some("Bearer a1"));
         assert_eq!(s.credential.user_id().as_deref(), Some("user-1"));
         match &signed_out {
             Some(document) => std::fs::write(&s.path, document.to_string()).unwrap(),
             None => std::fs::remove_file(&s.path).unwrap(),
         }
-        for force in [false, true] {
-            let error = s.credential.header(force).await.expect_err("no header after the sign-out");
+        // A new send, and the resend behind the refusal of the one that went out before the sign-out.
+        for error in [s.credential.attempt().await.err(), s.credential.after_rejection(&sent).await.err()] {
+            let error = error.expect("no header after the sign-out");
             assert!(error.reauth_required, "{signed_out:?}");
             assert!(error.message.starts_with("Grok OAuth is not connected"), "{}", error.message);
         }

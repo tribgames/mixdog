@@ -43,7 +43,9 @@ use crate::oauth::pages;
 use crate::oauth::scrub::oauth_body_summary;
 use crate::providers::connect::ConnectFailure;
 use crate::providers::connect::provider_error;
+use crate::providers::connect::rewrite::Attempt;
 use crate::providers::connect::rewrite::Credential;
+use crate::providers::connect::rewrite::Recovered;
 use crate::registry::keys::Environment;
 use crate::registry::keys::ProcessEnv;
 use crate::retry::advice;
@@ -129,6 +131,11 @@ impl StoredTokens {
     /// No expiry, or one at or after `valid_after` (`refreshTokens`' test of a generation it may adopt).
     fn valid_at(&self, valid_after: u64) -> bool {
         self.expires_at == 0 || self.expires_at >= valid_after
+    }
+
+    /// Whether `other` is this generation of the sign-in: the same access token under the same refresh token.
+    fn same_login(&self, other: &Self) -> bool {
+        self.access_token == other.access_token && self.refresh_token == other.refresh_token
     }
 
     /// Still usable at `now`: no expiry, or one after it (`ensureAuth`'s grace test).
@@ -336,7 +343,13 @@ fn with_claimed_expiry(mut tokens: StoredTokens) -> StoredTokens {
 /// How a refresh that did not fail ended.
 #[derive(Clone)]
 enum Refreshed {
+    /// The tokens this refresh's own exchange produced and stored.
     Tokens(StoredTokens),
+    /// The file holds another generation than the one this refresh was started for, and nothing was exchanged: it was
+    /// left as it is, whatever its expiry. Each send that shared the refresh reads it against its own attempt: it is
+    /// what a refused send goes out on unless it is the very generation that send was refused on, which is then
+    /// refreshed for it; an ordinary send treats it as any login read from the file.
+    Replaced(StoredTokens),
     /// The file was found signed out, by the read at the start of the lease or by the one after an exchange whose
     /// write the file declined. Every send joined to the refresh gets this, and none goes out on a held token.
     SignedOut,
@@ -618,9 +631,9 @@ mod tests {
         let mut contender = GrokCredential::new(endpoint.clone(), CredentialFile::new(slot, io)).with_pace(parked.clone());
         contender.process = Arc::new(RefreshProcess::new(Arc::new(LockProcess::new(mixdog_statefile::LockOwner::another_in_process()))));
 
-        let leading = tokio::spawn(async move { first.header(false).await });
+        let leading = tokio::spawn(async move { first.header().await });
         endpoint.arrived.acquire().await.unwrap().forget();
-        let trailing = tokio::spawn(async move { contender.header(false).await });
+        let trailing = tokio::spawn(async move { contender.header().await });
         // Whichever comes first: the contender waiting for the lease, or its own exchange reaching the endpoint.
         let waited = tokio::select! {
             _ = parked.waiting.acquire() => true,
@@ -664,14 +677,14 @@ mod tests {
             gate: tokio::sync::Semaphore::new(0),
         });
         let credential = Arc::new(GrokCredential::new(endpoint.clone(), file));
-        assert!(credential.header(false).await.unwrap().is_some_and(|(_, value)| value == "Bearer a1"));
+        assert!(credential.header().await.unwrap().is_some_and(|(_, value)| value == "Bearer a1"));
         assert_eq!(credential.user_id().as_deref(), Some("user-1"));
 
         // The same sign-in, now inside its refresh margin and still a minute from its expiry.
         std::fs::write(&path, stored(60_000)).unwrap();
         let refreshing = tokio::spawn({
             let credential = credential.clone();
-            async move { credential.header(false).await }
+            async move { credential.header().await }
         });
         endpoint.arrived.acquire().await.unwrap().forget();
         std::fs::remove_file(&path).unwrap();
@@ -679,7 +692,7 @@ mod tests {
         let error = refreshing.await.unwrap().expect_err("no header after the sign-out");
         assert!(error.reauth_required && error.message.starts_with("Grok OAuth is not connected"), "{}", error.message);
         assert_eq!(credential.user_id(), None);
-        assert!(credential.header(false).await.is_err(), "nor on the next call");
+        assert!(credential.header().await.is_err(), "nor on the next call");
         assert_eq!(*endpoint.seen.lock().unwrap(), 1);
     }
 
@@ -717,11 +730,12 @@ mod tests {
         let (path, file) = signed_in(&dir, 3_600_000);
         let endpoint = gated(&[(200, r#"{"access_token":"a2","refresh_token":"r2","expires_in":3600}"#)]);
         let credential = Arc::new(GrokCredential::new(endpoint.clone(), file));
-        assert!(credential.header(false).await.unwrap().is_some_and(|(_, value)| value == "Bearer a1"));
+        let sent = credential.attempt().await.unwrap();
+        assert!(sent.header.as_ref().is_some_and(|(_, value)| value == "Bearer a1"));
 
         let refreshing = tokio::spawn({
             let credential = credential.clone();
-            async move { credential.header(true).await }
+            async move { credential.after_rejection(&sent).await.map(|next| next.attempt.header) }
         });
         endpoint.arrived.acquire().await.unwrap().forget();
         std::fs::remove_file(&path).unwrap();
@@ -731,7 +745,7 @@ mod tests {
         assert_eq!(credential.user_id(), None, "the token served before the sign-out is no longer held");
 
         std::fs::write(&path, "{ half").unwrap();
-        let error = credential.header(false).await.expect_err("an unreadable file brings the signed-out token back");
+        let error = credential.header().await.expect_err("an unreadable file brings the signed-out token back");
         assert!(error.message.contains("cannot be read"), "{}", error.message);
         assert_eq!(*endpoint.seen.lock().unwrap(), 1);
     }
@@ -773,12 +787,13 @@ mod tests {
         drop(bound);
         let endpoint = gated(&[reply]);
         let credential = Arc::new(GrokCredential::new(endpoint.clone(), following));
-        assert!(credential.header(false).await.unwrap().is_some_and(|(_, value)| value == "Bearer a1"));
+        let sent = credential.attempt().await.unwrap();
+        assert!(sent.header.as_ref().is_some_and(|(_, value)| value == "Bearer a1"));
         assert_eq!(credential.user_id().as_deref(), Some("user-1"));
 
         let refreshing = tokio::spawn({
             let credential = credential.clone();
-            async move { credential.header(true).await }
+            async move { credential.after_rejection(&sent).await.map(|next| next.attempt.header) }
         });
         endpoint.arrived.acquire().await.unwrap().forget();
         std::fs::remove_file(&signed_in_path).unwrap();
@@ -787,9 +802,98 @@ mod tests {
         let error = refreshing.await.unwrap().expect_err("the forced call fails");
         assert!(error.reauth_required && error.message.starts_with("Grok OAuth is not connected"), "{}", error.message);
         assert_eq!(credential.user_id(), None, "the token served before the sign-out is no longer held");
-        let error = credential.header(false).await.expect_err("the signed-out token is sent again");
+        let error = credential.header().await.expect_err("the signed-out token is sent again");
         assert!(error.message.contains("cannot be read"), "{}", error.message);
         assert_eq!(*endpoint.seen.lock().unwrap(), 1);
+    }
+
+    /// A send on `(a1, r1)` is refused and its refresh waits for the lease another process holds. Meanwhile the same
+    /// refresh token is stored under another bearer, a send goes out on that and is refused in its turn: its refresh is
+    /// the one already waiting, which then finds the file holding a generation other than the one it was started for
+    /// and exchanges nothing. Each send reads that answer against its own attempt: the first goes out on the stored
+    /// generation as it is, and the second, refused on that very generation, has it exchanged instead of being handed
+    /// its refused bearer back.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_refused_send_that_shared_another_generations_refresh_has_its_own_refreshed() {
+        let dir = tempfile::tempdir().unwrap();
+        let (path, file) = signed_in(&dir, 3_600_000);
+        let endpoint = gated(&[(200, r#"{"access_token":"a2","refresh_token":"r2","expires_in":3600}"#)]);
+        let parked = Arc::new(Parked { waiting: tokio::sync::Semaphore::new(0), go: tokio::sync::Semaphore::new(0) });
+        let credential = Arc::new(GrokCredential::new(endpoint.clone(), file.clone()).with_pace(parked.clone()));
+        let first = credential.attempt().await.unwrap();
+
+        let (taken, release) = (Arc::new(tokio::sync::Semaphore::new(0)), Arc::new(tokio::sync::Semaphore::new(0)));
+        let holding = tokio::spawn({
+            let (file, taken, release) = (file.clone(), taken.clone(), release.clone());
+            async move {
+                let other = LockProcess::new(mixdog_statefile::LockOwner::another_in_process());
+                let held = async move {
+                    taken.add_permits(1);
+                    release.acquire().await.expect("an open gate").forget();
+                };
+                file.lease(&refresh_lock_path(file.path()), &other, &SystemPace, REFRESH_LEASE, held).await.is_ok()
+            }
+        });
+        taken.acquire().await.unwrap().forget();
+        let stale = tokio::spawn({
+            let credential = credential.clone();
+            async move { credential.after_rejection(&first).await }
+        });
+        parked.waiting.acquire().await.unwrap().forget();
+
+        let rewritten = serde_json::json!({
+            "access_token": "b1",
+            "refresh_token": "r1",
+            "expires_at": now_ms() + 3_600_000,
+            "token_endpoint": "https://auth.x.ai/oauth2/token",
+        });
+        std::fs::write(&path, rewritten.to_string()).unwrap();
+        let second = credential.attempt().await.unwrap();
+        assert!(second.header.as_ref().is_some_and(|(_, value)| value == "Bearer b1"));
+        let mut refused = Box::pin(credential.after_rejection(&second));
+        assert!(futures::poll!(refused.as_mut()).is_pending(), "the second refusal shares the refresh already waiting");
+
+        release.add_permits(1);
+        parked.go.add_permits(1_000);
+        endpoint.gate.add_permits(1);
+        assert!(holding.await.unwrap());
+        let bearer = |recovered: &Recovered| recovered.attempt.header.clone().map(|(_, value)| value);
+        let stale = stale.await.unwrap().unwrap();
+        assert_eq!((bearer(&stale).as_deref(), stale.exchanged), (Some("Bearer b1"), false), "the first send goes out on the generation stored now");
+        let renewed = refused.await.unwrap();
+        assert_eq!((bearer(&renewed).as_deref(), renewed.exchanged), (Some("Bearer a2"), true), "the second send was handed its refused bearer back");
+        assert_eq!(*endpoint.seen.lock().unwrap(), 1);
+    }
+
+    /// `(a1, r1)` is at the endpoint when a login with another bearer under the same refresh token is stored. Whether
+    /// the exchange is granted or refused as a dead grant, the stored login is another one than the exchange was made
+    /// for: it stays in the file as it is and is what the send goes out on.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_login_stored_under_the_same_refresh_token_during_the_exchange_is_left_intact() {
+        for reply in [(200, r#"{"access_token":"a2","refresh_token":"r2","expires_in":3600}"#), (400, r#"{"error":"invalid_grant"}"#)] {
+            let dir = tempfile::tempdir().unwrap();
+            let (path, file) = signed_in(&dir, 60_000);
+            let endpoint = gated(&[reply]);
+            let credential = Arc::new(GrokCredential::new(endpoint.clone(), file));
+            let sending = tokio::spawn({
+                let credential = credential.clone();
+                async move { credential.header().await }
+            });
+            endpoint.arrived.acquire().await.unwrap().forget();
+            let other = serde_json::json!({
+                "access_token": "b1",
+                "refresh_token": "r1",
+                "expires_at": now_ms() + 3_600_000,
+                "token_endpoint": "https://auth.x.ai/oauth2/token",
+            });
+            std::fs::write(&path, other.to_string()).unwrap();
+            endpoint.gate.add_permits(1);
+            let header = sending.await.unwrap().unwrap_or_else(|error| panic!("{}: {}", reply.0, error.message));
+            assert!(header.is_some_and(|(_, value)| value == "Bearer b1"), "{}: the send goes out on the login stored now", reply.0);
+            let stored: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert_eq!((&stored["access_token"], &stored["refresh_token"]), (&Value::from("b1"), &Value::from("r1")), "{}", reply.0);
+            assert_eq!(*endpoint.seen.lock().unwrap(), 1);
+        }
     }
 
     /// The first send reads a token inside its refresh margin; the refresh fails and the file has become unreadable by
@@ -805,7 +909,7 @@ mod tests {
         let credential = Arc::new(GrokCredential::new(endpoint.clone(), file).with_pace(pace));
         let sending = tokio::spawn({
             let credential = credential.clone();
-            async move { credential.header(false).await }
+            async move { credential.header().await }
         });
         endpoint.arrived.acquire().await.unwrap().forget();
         std::fs::write(&path, "{ half").unwrap();
@@ -938,16 +1042,22 @@ pub(super) fn tokens_from_grant(grant: &Value, token_endpoint: &str, now_ms: u64
 async fn post_refresh(http: &dyn HttpSend, pace: &dyn Pace, file: &CredentialFile, tokens: &StoredTokens) -> Result<Refreshed, Unrefreshed> {
     let fresh = refresh(http, pace, tokens).await.map_err(Unrefreshed::Exchange)?;
     file.keep(&[&fresh.access_token, &fresh.refresh_token]);
-    let exchanged = tokens.refresh_token.clone();
+    let (access, exchanged) = (tokens.access_token.clone(), tokens.refresh_token.clone());
     let written = file
-        .replace_refreshed(move |stored| stored.get("refresh_token").and_then(Value::as_str) == Some(exchanged.as_str()), saved_document(&fresh))
+        .replace_refreshed(
+            move |stored| {
+                let held = |key: &str| stored.get(key).and_then(Value::as_str);
+                held("access_token") == Some(access.as_str()) && held("refresh_token") == Some(exchanged.as_str())
+            },
+            saved_document(&fresh),
+        )
         .await
         .map_err(|_| Unrefreshed::Exchange(storage_error("the refreshed tokens could not be stored")))?;
     if written {
         return Ok(Refreshed::Tokens(fresh));
     }
     match stored_in(file).await {
-        Stored::Tokens(stored) => Ok(Refreshed::Tokens(with_claimed_expiry(stored))),
+        Stored::Tokens(stored) => Ok(Refreshed::Replaced(with_claimed_expiry(stored))),
         Stored::SignedOut => Ok(Refreshed::SignedOut),
         Stored::Unreadable => Err(Unrefreshed::Unread(storage_error("the credential file cannot be read"))),
     }
@@ -975,8 +1085,10 @@ async fn refresh_with_retry(http: &dyn HttpSend, pace: &dyn Pace, file: &Credent
 /// `refreshTokens` (`grok-oauth-tokens.mjs:387-433`): xAI rotates refresh tokens single-use, so the whole refresh runs
 /// holding the cross-process lease beside the credential file. Under it the file is read again: a generation another
 /// writer stored meanwhile (either token differs from `tokens`) is adopted without an exchange when it has no expiry or
-/// one at or after `now + skew` (`now` for a forced refresh); otherwise the stored generation (or `tokens`) is exchanged,
-/// and a refused grant adopts or exchanges a generation a writer outside the lease rotated in meanwhile.
+/// one at or after `now + skew`; otherwise the stored generation (or `tokens`) is exchanged, and a refused grant adopts
+/// or exchanges a generation a writer outside the lease rotated in meanwhile. A forced refresh is for the login a
+/// refused attempt was sent on (`tokens`) and for no other: a generation stored meanwhile is its answer as it is,
+/// never exchanged on that attempt's behalf.
 async fn refresh_tokens(
     http: &dyn HttpSend,
     pace: &dyn Pace,
@@ -995,7 +1107,7 @@ async fn refresh_tokens(
     // bound to that account's file take the same lease.
     let file = &file.pinned().await;
     let held = async {
-        let valid_after = pace.now_ms() + if force { 0 } else { REFRESH_SKEW_MS };
+        let valid_after = pace.now_ms() + REFRESH_SKEW_MS;
         let disk = match stored_in(file).await {
             Stored::Tokens(disk) => Some(with_claimed_expiry(disk)),
             // Signed out before anything was exchanged: nothing is, and that is how the refresh ends.
@@ -1003,17 +1115,21 @@ async fn refresh_tokens(
             Stored::Unreadable => None,
         };
         if let Some(disk) = &disk
-            && (disk.access_token != tokens.access_token || disk.refresh_token != tokens.refresh_token)
-            && disk.valid_at(valid_after)
+            && !disk.same_login(&tokens)
+            && (force || disk.valid_at(valid_after))
         {
-            return Ok(Refreshed::Tokens(disk.clone()));
+            return Ok(Refreshed::Replaced(disk.clone()));
         }
         let current = disk.unwrap_or(tokens);
         match refresh_with_retry(http, pace, file, &current).await {
             Err(error) if is_invalid_grant(&error) => match stored_in(file).await {
-                Stored::Tokens(rotated) if rotated.refresh_token != current.refresh_token => {
+                Stored::Tokens(rotated) if !rotated.same_login(&current) => {
                     let rotated = with_claimed_expiry(rotated);
-                    if rotated.valid_at(valid_after) { Ok(Refreshed::Tokens(rotated)) } else { refresh_with_retry(http, pace, file, &rotated).await }
+                    if force || rotated.valid_at(valid_after) {
+                        Ok(Refreshed::Replaced(rotated))
+                    } else {
+                        refresh_with_retry(http, pace, file, &rotated).await
+                    }
                 }
                 // The sign-in the grant was refused for is gone: the refresh ends as that sign-out, not as the refusal.
                 Stored::SignedOut => Ok(Refreshed::SignedOut),
@@ -1123,61 +1239,81 @@ impl GrokCredential {
         shared
     }
 
-    /// `ensureAuth({ forceRefresh })`.
-    async fn ensure(&self, force: bool) -> Result<StoredTokens, ProviderError> {
+    /// `ensureAuth({ forceRefresh })`. `rejected` is the generation a refused request was sent on: the refresh is forced,
+    /// and it is of that generation alone. Another one stored since is returned as it is, whatever its expiry, with
+    /// nothing exchanged on the refused request's behalf.
+    ///
+    /// The second value says whether the tokens come from an exchange made for this call.
+    async fn ensure(&self, rejected: Option<&StoredTokens>) -> Result<(StoredTokens, bool), ProviderError> {
         use std::sync::atomic::Ordering;
         let mut tokens = self.tokens().await?;
-        let now = self.pace.now_ms();
-        if !force && self.fallback_until.load(Ordering::SeqCst) > now && tokens.unexpired_at(now) {
-            return Ok(tokens);
-        }
-        if !force && !tokens.needs_refresh(now) {
-            return Ok(tokens);
-        }
-        let refused = tokens.access_token.clone();
-        let outcome = match self.in_flight(&tokens) {
-            Some(shared) => match shared.await {
-                // A forced caller does not take back the token that was refused: it starts its own forced refresh.
-                Ok(Refreshed::Tokens(shared)) if force && shared.access_token == refused => {
-                    tokens = shared.clone();
-                    self.current.store(Some(Arc::new(shared.clone())));
-                    self.in_flight(&shared).unwrap_or_else(|| self.start(shared, true)).await
-                }
-                outcome => outcome,
-            },
-            None => self.start(tokens.clone(), force).await,
-        };
-        match outcome {
-            Ok(Refreshed::Tokens(fresh)) => {
-                self.fallback_until.store(0, Ordering::SeqCst);
-                Ok(fresh)
+        loop {
+            // The generation at hand, read from the file or handed back by a refresh this call shared, is judged against
+            // this call's own attempt: the refused one is refreshed, any other is what the refused send goes out on.
+            let force = match rejected {
+                Some(rejected) if rejected.same_login(&tokens) => true,
+                Some(_) => return Ok((tokens, false)),
+                None => false,
+            };
+            let now = self.pace.now_ms();
+            if !force && self.fallback_until.load(Ordering::SeqCst) > now && tokens.unexpired_at(now) {
+                return Ok((tokens, false));
             }
-            // The refresh itself found the sign-out: the held token goes with it, whatever the file reads as by now.
-            Ok(Refreshed::SignedOut) => Err(self.signed_out()),
-            Err(error) => {
-                // A sign-out that happened while a refresh failed for another reason is no outage either, forced or not.
-                // A file that cannot be read says nothing: the token read above still stands.
-                if matches!(self.probe().await, Stored::SignedOut) {
-                    return Err(self.signed_out());
-                }
-                let now = self.pace.now_ms();
-                if !force && !refused.is_empty() && tokens.unexpired_at(now) {
-                    self.fallback_until.store(now + REFRESH_SKEW_MS, Ordering::SeqCst);
-                    tracing::warn!(error = %error.message, "[grok-oauth] Refresh failed; using still-valid current token");
-                    return Ok(tokens);
-                }
-                Err(error)
+            if !force && !tokens.needs_refresh(now) {
+                return Ok((tokens, false));
             }
+            let outcome = match self.in_flight(&tokens) {
+                Some(shared) => shared.await,
+                None => self.start(tokens.clone(), force).await,
+            };
+            return match outcome {
+                Ok(Refreshed::Tokens(fresh)) => {
+                    self.fallback_until.store(0, Ordering::SeqCst);
+                    Ok((fresh, true))
+                }
+                Ok(Refreshed::Replaced(stored)) => {
+                    tokens = stored;
+                    continue;
+                }
+                // The refresh itself found the sign-out: the held token goes with it, whatever the file reads as by now.
+                Ok(Refreshed::SignedOut) => Err(self.signed_out()),
+                Err(error) => {
+                    // A sign-out that happened while a refresh failed for another reason is no outage either, forced or
+                    // not. A file that cannot be read says nothing: the token read above still stands.
+                    if matches!(self.probe().await, Stored::SignedOut) {
+                        return Err(self.signed_out());
+                    }
+                    let now = self.pace.now_ms();
+                    if !force && !tokens.access_token.is_empty() && tokens.unexpired_at(now) {
+                        self.fallback_until.store(now + REFRESH_SKEW_MS, Ordering::SeqCst);
+                        tracing::warn!(error = %error.message, "[grok-oauth] Refresh failed; using still-valid current token");
+                        return Ok((tokens, false));
+                    }
+                    Err(error)
+                }
+            };
         }
+    }
+
+    /// The attempt a request is sent on: its bearer, and the generation it is of.
+    async fn served(&self, rejected: Option<&StoredTokens>) -> Result<Recovered, ProviderError> {
+        self.preconnect();
+        let (tokens, exchanged) = self.ensure(rejected).await?;
+        self.current.store(Some(Arc::new(tokens.clone())));
+        let header = ("authorization".to_owned(), format!("Bearer {}", tokens.access_token));
+        Ok(Recovered { attempt: Attempt::served_under(Some(header), tokens), exchanged })
     }
 }
 #[async_trait]
 impl Credential for GrokCredential {
-    async fn header(&self, force_refresh: bool) -> Result<Option<(String, String)>, ProviderError> {
-        self.preconnect();
-        let tokens = self.ensure(force_refresh).await?;
-        self.current.store(Some(Arc::new(tokens.clone())));
-        Ok(Some(("authorization".to_owned(), format!("Bearer {}", tokens.access_token))))
+    async fn attempt(&self) -> Result<Attempt, ProviderError> {
+        Ok(self.served(None).await?.attempt)
+    }
+
+    /// The generation `rejected` carries is refreshed. An attempt this credential did not serve names none of its
+    /// generations, so nothing is refreshed for it either.
+    async fn after_rejection(&self, rejected: &Attempt) -> Result<Recovered, ProviderError> {
+        self.served(rejected.login::<StoredTokens>()).await
     }
 
     /// `send`'s refresh-and-retry (`grok-oauth.mjs:466`): a 401, or a 403 whose error carries an expired-token code.

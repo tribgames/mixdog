@@ -10,6 +10,7 @@ use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::WireRequest;
 
+use super::Access;
 use super::AccessToken;
 use super::CLIENT_VERSION_FLOOR;
 use super::CursorAdapter;
@@ -22,9 +23,88 @@ struct Token;
 
 #[async_trait]
 impl AccessToken for Token {
-    async fn access_token(&self, _force_refresh: bool) -> Result<String, ProviderError> {
-        Ok("fixture-cursor-token".to_owned())
+    async fn access_token(&self) -> Result<Access, ProviderError> {
+        Ok(Access::plain("fixture-cursor-token".to_owned()))
     }
+    async fn after_rejection(&self, _rejected: &Access) -> Result<Access, ProviderError> {
+        self.access_token().await
+    }
+    async fn renewed(&self) -> Result<Access, ProviderError> {
+        self.access_token().await
+    }
+}
+
+/// An in-place retry finds the account signed out while it obtains its credential: that is the retry's one credential
+/// decision. Nothing is sent on the token the first attempt went out on.
+#[tokio::test(start_paused = true)]
+async fn an_in_place_retry_that_finds_the_sign_out_sends_nothing() {
+    /// An account whose sign-in is removed while a renewal of it runs: a plain read still finds the token, a renewal
+    /// finds the account signed out.
+    struct Leaving;
+
+    impl Leaving {
+        fn signed_out() -> ProviderError {
+            let mut error =
+                ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Auth, mixdog_core_api::domain::provider::DeliveryState::NotSent);
+            error.reauth_required = true;
+            error.message = "Cursor OAuth is not connected.".to_owned();
+            error
+        }
+    }
+
+    #[async_trait]
+    impl AccessToken for Leaving {
+        async fn access_token(&self) -> Result<Access, ProviderError> {
+            Ok(Access::plain("token-before-the-sign-out".to_owned()))
+        }
+        async fn after_rejection(&self, _rejected: &Access) -> Result<Access, ProviderError> {
+            Err(Self::signed_out())
+        }
+        async fn renewed(&self) -> Result<Access, ProviderError> {
+            Err(Self::signed_out())
+        }
+    }
+
+    struct NoBody;
+    #[async_trait]
+    impl crate::transport::http::BodyStream for NoBody {
+        async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
+            None
+        }
+    }
+    struct Silent;
+    impl FrameSink for Silent {
+        fn send(&self, _: Vec<u8>) -> Result<(), mixdog_core_api::domain::provider::TransportFault> {
+            Ok(())
+        }
+    }
+    /// Every run is refused with a 500; the bearer of each is kept.
+    struct Down(std::sync::Mutex<Vec<String>>);
+    #[async_trait]
+    impl BidiOpen for Down {
+        async fn open(&self, request: WireRequest, _: Vec<u8>, _: crate::transport::Exchange) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
+            let bearer = request.headers.iter().find(|(name, _)| name == "authorization").map(|(_, value)| value.clone()).unwrap_or_default();
+            self.0.lock().unwrap().push(bearer);
+            Ok((HttpResponse { status: 500, headers: vec![], body: Box::new(NoBody) }, Arc::new(Silent)))
+        }
+    }
+
+    let http = Arc::new(Replay::new(|_| (500, Vec::new())));
+    let runs = Arc::new(Down(Default::default()));
+    let adapter = CursorAdapter::new("cursor-api", None, Some(CLIENT_VERSION_FLOOR.into()), http, runs.clone(), Arc::new(Leaving));
+    let request = Arc::new(mixdog_core_api::domain::provider::ModelRequest {
+        model: "auto".into(),
+        messages: vec![mixdog_core_api::domain::provider::Message::new(
+            mixdog_core_api::domain::provider::Role::User,
+            mixdog_core_api::domain::provider::Content::Text("hi".into()),
+        )],
+        tools: vec![],
+        options: Default::default(),
+    });
+    assert_eq!(adapter.attempt(request.clone()).await.err().expect("the run is refused").status, Some(500));
+    let error = adapter.attempt(request.clone()).await.err().expect("the retry is signed out");
+    assert!(error.reauth_required, "{}", error.message);
+    assert_eq!(*runs.0.lock().unwrap(), ["Bearer token-before-the-sign-out"], "the retry sent the signed-out account's token");
 }
 
 /// Listing opens no run.

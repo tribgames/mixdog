@@ -44,6 +44,48 @@ async fn sent_after(refusals: &[(u16, &str)], env: &[(&str, &str)]) -> Vec<Strin
     requests.iter().map(|r| r.headers.iter().find(|(name, _)| name == "x-grok-client-version").unwrap().1.clone()).collect()
 }
 
+/// A request goes out on one sign-in and is refused; another sign-in was stored meanwhile. The request is sent again on
+/// the stored one as it is, and that is refused too. Nothing was refreshed for the stored sign-in, so its refusal is its
+/// first, not a refresh that did not help: the user is not told to sign in again.
+#[tokio::test]
+#[allow(clippy::disallowed_methods, reason = "test: writes a fixture credential file synchronously")]
+async fn a_refusal_of_a_sign_in_sent_untried_does_not_ask_for_a_new_sign_in() {
+    use crate::oauth::CredentialFile;
+    use crate::oauth::CredentialIo;
+    use crate::providers::grok::auth::GrokCredential;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("grok-oauth.json");
+    let stored = |access: &str, refresh: &str| {
+        serde_json::json!({ "access_token": access, "refresh_token": refresh, "token_endpoint": "https://auth.x.ai/oauth2/token" }).to_string()
+    };
+    std::fs::write(&path, stored("a1", "r1")).unwrap();
+    let rt = mixdog_rt::testing::tokens();
+    let file = CredentialFile::new(path.clone(), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+    let token_endpoint = Arc::new(Replay::new(|_: &WireRequest| (500, Vec::new())));
+    let credential = GrokCredential::new(token_endpoint.clone(), file);
+
+    let versions = versions_in(dir.path(), &Arc::new(Net::default()), HashMap::new(), &Arc::new(AtomicU64::new(1_800_000_000_000)));
+    let other = Mutex::new(Some((path, stored("b1", "rb"))));
+    let http = Replay::new(move |_: &WireRequest| {
+        if let Some((path, other)) = other.lock().unwrap().take() {
+            std::fs::write(path, other).unwrap();
+        }
+        (401, serde_json::json!({ "error": { "message": "unauthorized" } }).to_string().into_bytes())
+    });
+    let rewriter =
+        GrokRewriter { client_version: versions.grok_live(), user_id: Arc::new(|| None), sdk_headers: Vec::new(), effort_rule: Arc::new(SeedEffortRule) };
+    let codec = RewriteCodec::new(super::codec(&versions.grok()), rewriter);
+    let request = ModelRequest { model: "grok-4".into(), messages: Vec::new(), tools: Vec::new(), options: RequestOptions::default() };
+    let error = run_attempt(&codec, &http, &credential, &request, None).await.err().expect("both sign-ins are refused");
+
+    let bearers: Vec<String> =
+        http.requests.lock().unwrap().iter().map(|r| r.headers.iter().find(|(name, _)| name == "authorization").unwrap().1.clone()).collect();
+    assert_eq!(bearers, ["Bearer a1", "Bearer b1"]);
+    assert!(token_endpoint.requests.lock().unwrap().iter().all(|request| request.method != "POST"), "nothing was exchanged for either sign-in");
+    assert!(!error.reauth_required, "a sign-in whose refresh was never tried was reported as expired: {}", error.message);
+}
+
 #[tokio::test]
 async fn a_426_stating_a_higher_minimum_is_sent_once_more_at_that_version() {
     let both = [(426, "426: minimum version 1.0.95 required"), (426, "minimum version 1.0.95")];

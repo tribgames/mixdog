@@ -286,7 +286,7 @@ impl GrokListing {
     /// One credential read for both catalogs: two concurrent refreshes would rotate the same refresh token twice.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn header(&self) -> Result<(String, String), ProviderError> {
-        self.credential.header(false).await?.ok_or_else(|| malformed("no credential"))
+        self.credential.header().await?.ok_or_else(|| malformed("no credential"))
     }
 
     /// The identity of the credential `header` carries: the user its token names.

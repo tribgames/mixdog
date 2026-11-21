@@ -23,6 +23,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
 
+use super::Access;
 use super::AccessToken;
 use crate::oauth::CredentialFile;
 use crate::oauth::Probe;
@@ -91,6 +92,11 @@ impl StoredTokens {
 
     pub fn is_expired(&self, now_ms: u64) -> bool {
         self.expires_at > 0 && self.expires_at <= now_ms
+    }
+
+    /// What a request is sent on with these tokens.
+    fn access(&self) -> Access {
+        Access::served_under(self.access_token.clone(), self.refresh_token.clone())
     }
 }
 
@@ -179,18 +185,31 @@ pub struct FileAccess {
 
 #[async_trait]
 impl AccessToken for FileAccess {
-    async fn access_token(&self, force_refresh: bool) -> Result<String, ProviderError> {
+    async fn access_token(&self) -> Result<Access, ProviderError> {
         let tokens = self.stored().await?;
-        if !force_refresh && !tokens.needs_refresh(now_ms()) {
-            return Ok(tokens.access_token);
+        if !tokens.needs_refresh(now_ms()) {
+            return Ok(tokens.access());
         }
-        if tokens.refresh_token.is_none() {
-            if !tokens.is_expired(now_ms()) {
-                return Ok(tokens.access_token);
-            }
-            return Err(reauth("Cursor access token expired and has no refresh token."));
+        self.exchanged_from(tokens, false).await
+    }
+
+    async fn after_rejection(&self, rejected: &Access) -> Result<Access, ProviderError> {
+        let tokens = self.stored().await?;
+        // A login stored since the refused request was sent is used as it is.
+        if tokens.access() != *rejected {
+            return Ok(tokens.access());
         }
-        Ok(self.refresh(tokens, force_refresh).await?.access_token)
+        self.exchanged_from(tokens, true).await
+    }
+
+    async fn renewed(&self) -> Result<Access, ProviderError> {
+        // The one read of this decision: a sign-out or an unreadable file ends it here.
+        let tokens = self.stored().await?;
+        match self.exchanged_from(tokens, true).await {
+            Ok(access) => Ok(access),
+            // What the file holds after the failed exchange, as an ordinary send reads it: gone is the error.
+            Err(_) => self.access_token().await,
+        }
     }
 }
 
@@ -239,13 +258,13 @@ mod tests {
         let access = std::sync::Arc::new(ApiKeyAccess::new(http.clone(), "key".into(), "env CURSOR_API_KEY (concurrent-callers test)".into()));
         let calls = (0..8).map(|_| {
             let access = access.clone();
-            async move { access.access_token(false).await.unwrap() }
+            async move { access.access_token().await.unwrap().token }
         });
         let tokens = futures::future::join_all(calls).await;
         assert!(tokens.iter().all(|t| *t == tokens[0]));
         assert_eq!(http.calls.load(Ordering::SeqCst), 1);
         // A cached, fresh token needs no exchange.
-        access.access_token(false).await.unwrap();
+        access.access_token().await.unwrap().token;
         assert_eq!(http.calls.load(Ordering::SeqCst), 1);
     }
 
@@ -269,7 +288,7 @@ mod tests {
         let mut seen = Vec::new();
         for n in 0..3 {
             let access = ApiKeyAccess::new(http.clone(), format!("rotating-api-key-{n}"), "env CURSOR_API_KEY".into());
-            seen.push(access.access_token(false).await.unwrap());
+            seen.push(access.access_token().await.unwrap().token);
         }
         for i in 0..=crate::oauth::carried::RETIRED_CAP {
             crate::oauth::carried::keep("file the-unrelated-account-of-the-cursor-test.json", &[&format!("cursor-test-unrelated-{i:05}")]);
@@ -285,7 +304,7 @@ mod tests {
         // The key is a JWT that has not expired: it is still not a fallback.
         let key = jwt(4_300_000_000);
         let access = ApiKeyAccess::new(http, key, "env CURSOR_API_KEY (failed-exchange test)".into());
-        let error = access.access_token(false).await.unwrap_err();
+        let error = access.access_token().await.unwrap_err();
         assert!(error.reauth_required);
     }
 
@@ -328,9 +347,52 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let http = std::sync::Arc::new(Exchange { calls: AtomicUsize::new(0), status: 200 });
         let access = FileAccess::new(http.clone(), file_in(&dir)).with_env_token(Some(jwt(4_000_000_000)));
-        assert_eq!(access.access_token(false).await.unwrap(), jwt(4_000_000_000));
+        assert_eq!(access.access_token().await.unwrap().token, jwt(4_000_000_000));
         assert_eq!(http.calls.load(Ordering::SeqCst), 0);
     }
+    /// A send goes out on one stored pair, another is stored (already past its expiry), and the first send is then
+    /// refused. The refusal is of the pair that send carried: the one stored now is used as it is, with nothing exchanged
+    /// on the old send's behalf. Once the pair stored now was itself sent and refused, it is exchanged.
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "test: writes a fixture credential file synchronously")]
+    async fn a_refusal_does_not_exchange_a_pair_stored_since_its_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = file_in(&dir);
+        let pair = |access: &str, refresh: &str| format!(r#"{{"access_token":"{access}","refresh_token":"{refresh}"}}"#);
+        std::fs::write(file.path(), pair(&jwt(4_000_000_000), "r0")).unwrap();
+        let http = std::sync::Arc::new(Exchange { calls: AtomicUsize::new(0), status: 200 });
+        let access = FileAccess::new(http.clone(), file.clone());
+        let sent = access.access_token().await.unwrap();
+        // The same bearer under another refresh token is another pair, as one whose tokens both changed is.
+        for stored in [pair(&jwt(4_000_000_000), "r9"), pair(&jwt(1), "r9")] {
+            std::fs::write(file.path(), &stored).unwrap();
+            let next = access.after_rejection(&sent).await.unwrap();
+            assert!(stored.contains(&next.token), "the pair stored now, as it is");
+            assert_eq!(http.calls.load(Ordering::SeqCst), 0, "the new pair was exchanged for the old attempt");
+            assert_eq!(std::fs::read_to_string(file.path()).unwrap(), stored);
+        }
+        let stored = access.access_token().await;
+        assert_eq!(http.calls.load(Ordering::SeqCst), 1, "the expired pair takes its own refresh on its own send");
+        let renewed = access.after_rejection(&stored.unwrap()).await.unwrap();
+        assert_eq!(renewed.token, jwt(4_100_000_000));
+        assert_eq!(http.calls.load(Ordering::SeqCst), 2, "a refused attempt on the pair stored now exchanges it");
+    }
+
+    /// Two requests go out on one exchanged token and both are refused. The first refusal exchanges the key again; the
+    /// second is of a token no longer held, so the one exchanged since is used as it is.
+    #[tokio::test]
+    async fn a_refusal_of_a_token_exchanged_away_does_not_exchange_the_key_again() {
+        let http = std::sync::Arc::new(Rotating(AtomicUsize::new(0)));
+        let access = ApiKeyAccess::new(http.clone(), "key".into(), "env CURSOR_API_KEY (stale-refusal test)".into());
+        let sent = access.access_token().await.unwrap();
+        let renewed = access.after_rejection(&sent).await.unwrap();
+        assert_ne!(renewed.token, sent.token);
+        assert_eq!(http.0.load(Ordering::SeqCst), 2);
+        let late = access.after_rejection(&sent).await.unwrap();
+        assert_eq!(late.token, renewed.token);
+        assert_eq!(http.0.load(Ordering::SeqCst), 2, "the stale refusal exchanged the key again");
+    }
+
     /// With another account selected (`boundProviderAuthPath` names its file) the environment token is not used: the
     /// selected account's own file is read, and it is absent here.
     #[tokio::test]
@@ -343,7 +405,7 @@ mod tests {
             Box::pin(async move { other })
         }));
         let access = FileAccess::new(http, file).with_env_token(Some(jwt(4_000_000_000)));
-        let error = access.access_token(false).await.expect_err("the selected account is not signed in");
+        let error = access.access_token().await.expect_err("the selected account is not signed in");
         assert!(error.reauth_required);
     }
     /// A stored document without `expires_at` expires with its token's `exp` claim (`cursorTokenExpiry`).
@@ -355,7 +417,7 @@ mod tests {
         std::fs::write(file.path(), format!(r#"{{"access_token":"{}","refresh_token":"r0"}}"#, jwt(1))).unwrap();
         let http = std::sync::Arc::new(Exchange { calls: AtomicUsize::new(0), status: 200 });
         let access = FileAccess::new(http.clone(), file);
-        assert_eq!(access.access_token(false).await.unwrap(), jwt(4_100_000_000));
+        assert_eq!(access.access_token().await.unwrap().token, jwt(4_100_000_000));
         assert_eq!(http.calls.load(Ordering::SeqCst), 1);
     }
 
@@ -408,18 +470,38 @@ pub async fn exchange_token(http: &dyn HttpSend, token: &str) -> Result<StoredTo
 }
 #[async_trait]
 impl AccessToken for ApiKeyAccess {
-    async fn access_token(&self, force_refresh: bool) -> Result<String, ProviderError> {
-        if !force_refresh && let Some(access) = self.fresh() {
+    async fn access_token(&self) -> Result<Access, ProviderError> {
+        self.exchanged(None).await.map(Access::plain)
+    }
+
+    async fn after_rejection(&self, rejected: &Access) -> Result<Access, ProviderError> {
+        self.exchanged(Some(&rejected.token)).await.map(Access::plain)
+    }
+
+    async fn renewed(&self) -> Result<Access, ProviderError> {
+        let held = self.cached.load_full().map(|t| t.access_token.clone()).unwrap_or_default();
+        match self.exchanged(Some(&held)).await {
+            Ok(token) => Ok(Access::plain(token)),
+            Err(_) => self.access_token().await,
+        }
+    }
+}
+
+impl ApiKeyAccess {
+    /// The cached token while it is fresh, else a new one. `rejected` is the token a refused request was sent on: the
+    /// key is exchanged again while that is still the one cached, and a token exchanged since is used as it is.
+    async fn exchanged(&self, rejected: Option<&str>) -> Result<String, ProviderError> {
+        if rejected.is_none()
+            && let Some(access) = self.fresh()
+        {
             return Ok(access);
         }
-        // What this caller saw rejected: a forced refresh that finds another
-        // token in the cache after waiting adopts it instead of exchanging again.
-        let seen = self.cached.load_full().map(|t| t.access_token.clone());
         let _gate = self.exchanging.acquire().await.map_err(|_| storage("exchange gate closed"))?;
-        let current = self.cached.load_full().map(|t| t.access_token.clone());
-        if let Some(access) = self.fresh()
-            && (!force_refresh || current != seen)
-        {
+        let held = match rejected {
+            None => self.fresh(),
+            Some(refused) => self.cached.load_full().map(|t| t.access_token.clone()).filter(|held| held != refused),
+        };
+        if let Some(access) = held {
             return Ok(access);
         }
         let tokens = exchange_token(self.http.as_ref(), &self.api_key).await?;
@@ -474,13 +556,26 @@ impl FileAccess {
         let _ = self.file.replace_if(move |doc| doc.get("refresh_token").and_then(Value::as_str) == Some(expected.as_str()), update).await;
     }
 
+    /// `tokens` exchanged for new ones; without a refresh token they serve until they expire.
+    async fn exchanged_from(&self, tokens: StoredTokens, force: bool) -> Result<Access, ProviderError> {
+        if tokens.refresh_token.is_none() {
+            if !tokens.is_expired(now_ms()) {
+                return Ok(tokens.access());
+            }
+            return Err(reauth("Cursor access token expired and has no refresh token."));
+        }
+        Ok(self.refresh(tokens, force).await?.access())
+    }
+
+    /// `force` is the refresh behind a refused attempt, which was sent on `old`: a pair stored since is that attempt's
+    /// answer as it is, never exchanged on its behalf.
     async fn refresh(&self, old: StoredTokens, force: bool) -> Result<StoredTokens, ProviderError> {
         let _gate = self.refreshing.acquire().await.map_err(|_| storage("refresh gate closed"))?;
         // A concurrent refresher (or process) may already have rotated.
         let latest = self.stored().await?;
         let rotated = latest.access_token != old.access_token || latest.refresh_token != old.refresh_token;
-        let valid_after = now_ms() + if force { 0 } else { REFRESH_SKEW.as_millis() as u64 };
-        if rotated && (latest.expires_at == 0 || latest.expires_at > valid_after) {
+        let valid_after = now_ms() + REFRESH_SKEW.as_millis() as u64;
+        if rotated && (force || latest.expires_at == 0 || latest.expires_at > valid_after) {
             return Ok(latest);
         }
         let Some(refresh_token) = latest.refresh_token.clone() else {
