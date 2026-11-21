@@ -10,7 +10,7 @@ use mixdog_js::value_to_string;
 use serde_json::Value;
 
 use crate::summary::truthy;
-use crate::title::clean_session_preview;
+use crate::title::clean_session_text;
 
 pub static CONTROL_MARKER_RE: LazyLock<JsRegex> =
     LazyLock::new(|| JsRegex::new_static(r"^\[(?:truncated|request interrupted(?: by user(?: for tool use)?| by process restart)?)\]$", "i"));
@@ -80,11 +80,22 @@ fn is_late_tool_announcement(text: &str) -> bool {
 
 /// `isSessionPreviewNoise`.
 pub fn is_session_preview_noise(text: &str) -> bool {
+    cleaned_unless_noise(js_trim(text)).is_none()
+}
+
+/// [`clean_session_text`] of `text`, or `None` when `text` is preview noise ([`is_session_preview_noise`]): the noise test
+/// cleans the trimmed text, so a text with nothing to trim is cleaned once for both.
+pub fn preview_text(text: &str) -> Option<String> {
     let value = js_trim(text);
-    value.is_empty()
-        || is_routine_quiet_reply(value)
-        || SYNTHETIC.iter().any(|re| re.is_match(value))
-        || CONTROL_MARKER_RE.is_match(value)
-        || clean_session_preview(value, 160).is_empty()
-        || is_late_tool_announcement(value)
+    let cleaned = cleaned_unless_noise(value)?;
+    Some(if value.len() == text.len() { cleaned } else { clean_session_text(text) })
+}
+
+/// `isSessionPreviewNoise` of the trimmed `value`, answered with its cleaned text when it is not noise.
+fn cleaned_unless_noise(value: &str) -> Option<String> {
+    if value.is_empty() || is_routine_quiet_reply(value) || SYNTHETIC.iter().any(|re| re.is_match(value)) || CONTROL_MARKER_RE.is_match(value) {
+        return None;
+    }
+    let cleaned = clean_session_text(value);
+    (!cleaned.is_empty() && !is_late_tool_announcement(value)).then_some(cleaned)
 }

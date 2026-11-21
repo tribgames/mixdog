@@ -92,19 +92,34 @@ fn utf16_prefix(s: &str, units: usize) -> String {
 
 /// `session-text.mjs` `cleanSessionPreview(text, max)`.
 pub fn clean_session_preview(text: &str, max: usize) -> String {
+    session_preview_cut(&clean_session_text(text), max)
+}
+
+/// The whole text `cleanSessionPreview` cuts its preview from. Every preview of one text is a cut of it: the cleaning reads
+/// the whole text, however short the preview.
+pub fn clean_session_text(text: &str) -> String {
     let p = &*P;
-    let limit = max.max(16);
     let text = strip_injected_blocks(&strip_session_envelope(text), true);
     let text = replace(&PREVIEW_CHIP, &text, " ", true);
     let text = replace(&p.reference_files, &text, "", false);
     let text = replace(&p.spaces, &text, " ", true);
-    let cleaned = js_trim(&text);
+    js_trim(&text).to_owned()
+}
+
+/// `cleanSessionPreview`'s cut of `cleaned` ([`clean_session_text`]).
+fn session_preview_cut(cleaned: &str, max: usize) -> String {
+    let limit = max.max(16);
     if utf16_len(cleaned) <= limit { cleaned.to_owned() } else { utf16_prefix(cleaned, limit) }
 }
 
 /// `store-summary-last-message.mjs` `cleanSummaryPreview(text, max)`.
 pub fn clean_summary_preview(text: &str, max: usize) -> String {
-    let value = clean_session_preview(text, max);
+    summary_preview_cut(&clean_session_text(text), max)
+}
+
+/// `cleanSummaryPreview` of the text whose [`clean_session_text`] is `cleaned`.
+pub fn summary_preview_cut(cleaned: &str, max: usize) -> String {
+    let value = session_preview_cut(cleaned, max);
     if utf16_len(&value) <= max {
         return value;
     }
