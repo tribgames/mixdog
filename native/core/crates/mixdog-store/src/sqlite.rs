@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
+use std::time::Instant;
 
 #[cfg(test)]
 mod batch_tests;
@@ -26,6 +27,8 @@ pub mod listing;
 mod model_tests;
 #[cfg(test)]
 mod purge_tests;
+#[cfg(test)]
+mod released_tests;
 #[cfg(test)]
 mod retire_tests;
 mod withheld;
@@ -1498,15 +1501,24 @@ impl Writer {
     }
 
     #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
-    fn boot(lane: &InLane<MaintenanceIo>, data: &Path, path: &Path, progress: Option<&RebuildProgress>) -> Result<Writer, DbError> {
+    fn boot(
+        lane: &InLane<MaintenanceIo>,
+        data: &Path,
+        path: &Path,
+        progress: Option<&RebuildProgress>,
+        steps: &mut Vec<(&'static str, Instant)>,
+    ) -> Result<Writer, DbError> {
         let blobs = crate::blobs::BlobStore::new(data);
         let rewritten = crate::log_rewrite::recover(lane, data, &crate::log::OsIo, &blobs).map_err(|e| DbError::Write(e.to_string()))?;
+        steps.push(("rewrites-recovered", Instant::now()));
         let existing = match path.exists().then(|| Writer::start(path)) {
             Some(Ok(writer)) => Some(writer),
             Some(Err(e)) if !needs_rebuild(&e) => return Err(e),
             _ => None,
         };
+        steps.push(("writer-opened", Instant::now()));
         let (incomplete, complete) = scan_session_dirs(lane, &data.join("sessions"), existing.is_none())?;
+        steps.push(("session-dirs-scanned", Instant::now()));
         let mut writer = match existing {
             Some(writer) => writer,
             None => {
@@ -1517,7 +1529,9 @@ impl Writer {
                 })?
             }
         };
+        steps.push(("rebuilt", Instant::now()));
         writer.boot_purge(lane, data, &incomplete)?;
+        steps.push(("purged", Instant::now()));
         for session in rewritten {
             crate::log_rewrite::finish(lane, data, &session, &mut || {
                 let rewrite = Rewritten { data: data.to_path_buf(), session: session.clone(), dirty: DirtyMark::Clear };
@@ -2207,6 +2221,8 @@ struct Shared {
     writer: Mutex<Option<std::thread::JoinHandle<()>>>,
     /// The thread of the repairs owed at open, when there were any; joined by [`SqliteStore::close`].
     repairs: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// [`SqliteStore::boot_steps`].
+    boot_steps: Vec<(&'static str, Instant)>,
 }
 
 /// Cloneable handle on `index/store.sqlite`. The writer thread finishes the queued
@@ -2339,8 +2355,10 @@ impl SqliteStore {
     ) -> Result<SqliteStore, DbError> {
         let path = data.join(INDEX_FILE);
         let path = path.as_path();
-        let writer = Writer::boot(lane, data, path, progress)?;
+        let mut boot_steps = Vec::new();
+        let writer = Writer::boot(lane, data, path, progress, &mut boot_steps)?;
         let dirty = owed_repairs(&writer.conn)?;
+        boot_steps.push(("repairs-listed", Instant::now()));
         let rows = writer.sink.clone();
         let archive = writer.archive.clone();
         let archive_reads = writer.archive_reads.clone();
@@ -2373,9 +2391,15 @@ impl SqliteStore {
                 archive_ack_hold: Mutex::default(),
                 writer: Mutex::new(Some(handle)),
                 repairs: Mutex::new(repairs),
+                boot_steps,
             }),
         };
         Ok(store)
+    }
+
+    /// The steps of this open, each with when it ended, in order: for the boot's phase log.
+    pub fn boot_steps(&self) -> Vec<(&'static str, Instant)> {
+        self.shared.boot_steps.clone()
     }
 
     /// Resolves once every session owed a repair at open ([`owed_repairs`]) had its repair: `Ok` when none failed, else

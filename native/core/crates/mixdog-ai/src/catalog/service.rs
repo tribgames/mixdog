@@ -77,8 +77,13 @@ impl CatalogService {
     /// The cached models.dev file, however old, is applied at once so
     /// `catalog_wire` and `outputs_text` carry data before the first refresh.
     pub async fn cold_start(initial: CatalogSnapshot, sources: Vec<ModelSource>, metadata: Arc<ModelsDevSource>) -> Self {
-        let catalog = Arc::new(ProviderCatalog::new(initial));
         metadata.warm_from_disk().await;
+        Self::over_warmed(initial, sources, metadata)
+    }
+
+    /// [`Self::cold_start`] over a `metadata` source whose disk copy was already read (warm or found unusable): no read here.
+    fn over_warmed(initial: CatalogSnapshot, sources: Vec<ModelSource>, metadata: Arc<ModelsDevSource>) -> Self {
+        let catalog = Arc::new(ProviderCatalog::new(initial));
         let service = Self {
             catalog,
             sources: ArcSwap::from_pointee(sources),
@@ -172,7 +177,9 @@ impl CatalogService {
     pub async fn composed(initial: CatalogSnapshot, sources: Vec<ModelSource>, http: Arc<dyn HttpSend>, data_dir: PathBuf, io: CredentialIo) -> Self {
         let metadata = ModelsDevSource::new(http.clone(), data_dir.clone(), io);
         let litellm = ModelsDevSource::litellm(http, data_dir.clone(), io);
-        Self::cold_start(initial, sources, metadata).await.with_litellm(litellm).await.with_rosters(data_dir)
+        // Both cached tables are read once and at once, each parsed on its own lane job.
+        tokio::join!(metadata.warm_from_disk(), litellm.warm_from_disk());
+        Self::over_warmed(initial, sources, metadata).attach_litellm(litellm).with_rosters(data_dir)
     }
     /// The one listing lookup: the handle this service publishes its tables into. Every adapter reads it, so the
     /// composition hands this handle to them rather than making its own.
@@ -186,8 +193,13 @@ impl CatalogService {
 
     /// Adds the LiteLLM price table (a [`ModelsDevSource::litellm`] source):
     /// its cached copy is warmed now, and every refresh loads it with models.dev.
-    pub async fn with_litellm(mut self, source: Arc<ModelsDevSource>) -> Self {
+    pub async fn with_litellm(self, source: Arc<ModelsDevSource>) -> Self {
         source.warm_from_disk().await;
+        self.attach_litellm(source)
+    }
+
+    /// [`Self::with_litellm`] for a source whose disk copy was already read.
+    fn attach_litellm(mut self, source: Arc<ModelsDevSource>) -> Self {
         self.litellm = Some(source);
         self.publish_listing();
         self

@@ -11,6 +11,9 @@ pub const INDEX_APPLICATION_ID: i32 = 0x4D58_4958;
 /// it, so an index of that version is rebuilt from the logs.
 /// 19 is the first released version: the next one ships with a delta from it (see `sql/index.sql`).
 pub const INDEX_USER_VERSION: i32 = 19;
+/// The first released index version: an index of it is brought to [`INDEX_USER_VERSION`] in place at open, never rebuilt
+/// from the logs (on a long-used data directory the rebuild held the first start after an update for minutes).
+pub const FIRST_RELEASED_INDEX_VERSION: i32 = 19;
 
 /// `sessions.id_key`: a session id (`^[A-Za-z0-9_-]+$`, FORMAT.md §1) as bytes whose
 /// order is JavaScript `localeCompare` (ICU root collation) on the id: the primary

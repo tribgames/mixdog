@@ -202,9 +202,10 @@ fn adopt_login_shell_environment(started_from_terminal: bool) {
 ///
 /// The core is the real composition (see [`compose`]); the transport and the server attach here.
 async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmation_pipe: bool) -> Result<(), ServeError> {
-    let booted_at = std::time::Instant::now();
+    let booted_at = daemon_log::boot_clock();
     // Every install ships the manifest: a missing or broken one is a startup error.
     let js_runtime = js_runtime::resolve_current_on(tokens.interactive_io).await?;
+    let runtime_resolved = std::time::Instant::now();
     // The install names its ONNX Runtime library in the same manifest; one that names none has no models.
     let ort_library = match js_runtime::resolve_ort_library_current_on(tokens.interactive_io).await? {
         Some(library) => mixdog_services::effort_judge::model::OrtRuntime::Library(library),
@@ -228,10 +229,13 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
         },
     )
     .await?;
+    let boot_begun = std::time::Instant::now();
     let boot::Begun { started, booting, watch, behind } = begun;
     let ownership: std::sync::Arc<dyn mixdog_core_api::domain::ownership::Ownership> = started.ownership().clone();
     let stop = mixdog_rt::CancellationToken::new();
     let log = daemon_log::DaemonLog::new(data_dir.join("daemon.log"), tokens.maintenance_io, stop.clone());
+    log.boot_mark_at("runtime-resolved", runtime_resolved);
+    log.boot_mark_at("data-lock-and-migration-front", boot_begun);
     log.attach_memory_log(daemon_log::DaemonLog::new(data_dir.join("memory-runtime-proxy.log"), tokens.maintenance_io, stop.clone()));
     daemon_log::attach_topic_logs(&log, &data_dir, tokens.maintenance_io, &stop);
     // The memory worker starts during composition and mirrors its stderr into its proxy log from its first line, ready or not.
@@ -273,6 +277,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
         }
     };
     tracing::info!("core composed");
+    ready_log.boot_mark("core-composed");
     // The sessions of the earlier version still to convert are listed before the first client can read the list, by the rows that version kept; an open of one waits for
     // its conversion, which the open asks for ahead of the rest.
     let mut behind = behind;
@@ -291,6 +296,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
         }
     }
     sessions_bound.cancel();
+    ready_log.boot_mark("sessions-bound");
     // From here the core's own stop procedure gives everything back: a failure before the core serves runs it with Node's boot-error reason (`daemon.mjs:1347`).
     let served = async {
         let serving = serving::attach(booting, core.clone(), outgoing).await?;
