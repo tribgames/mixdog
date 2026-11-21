@@ -110,6 +110,16 @@ struct Rig {
 }
 
 async fn rig(reach: bool, mode: Option<Value>) -> Rig {
+    rig_on(reach, mode, None).await
+}
+
+/// The repository's shipped packs (`src/workflows`), the root an install reads them from.
+fn shipped_root() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../src")
+}
+
+/// A rig whose shipped packs are under `root` (an empty package folder when none).
+async fn rig_on(reach: bool, mode: Option<Value>, root: Option<std::path::PathBuf>) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");
     std::fs::create_dir_all(&data).unwrap();
@@ -119,7 +129,7 @@ async fn rig(reach: bool, mode: Option<Value>) -> Rig {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, serde_json::to_vec(&json!({ "agent": {} })).unwrap()).unwrap();
     let config = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap().0.with_origin(crate::tool_modules::Origin::Given);
-    let paths = WorkflowPaths { root: dir.path().join("package"), data: data.clone() };
+    let paths = WorkflowPaths { root: root.unwrap_or_else(|| dir.path().join("package")), data: data.clone() };
     let workflow = WorkflowConfig::new(config.clone(), paths, Arc::new(Host), scopes(dir.path(), "config").await, &tokens);
     let context = Arc::new(Context::default());
     let service = ThreadSettings {
@@ -180,6 +190,24 @@ async fn a_workflow_that_is_not_installed_is_refused_by_name() {
     let rig = rig(true, None).await;
     let error = call(&rig, SET_WORKFLOW, json!({ "threadId": "t1", "workflowId": "ghost" }), 1).await.unwrap_err();
     assert_eq!(error, "workflow \"ghost\" not found");
+}
+
+/// The shipped workflows hold no `solo-review` pack: the catalog does not list it, selecting it is refused by name, and the
+/// refusal leaves the saved selection as it was.
+#[tokio::test]
+async fn solo_review_is_neither_listed_nor_selectable_and_a_refusal_keeps_the_saved_workflow() {
+    let rig = rig_on(true, None, Some(shipped_root())).await;
+    let paths = WorkflowPaths { root: shipped_root(), data: rig.data.clone() };
+    let listed: Vec<String> = super::pack::list_packs(&paths).into_iter().map(|listed| listed.pack.id).collect();
+    assert!(listed.iter().any(|id| id == "default"), "the shipped catalog is read: {listed:?}");
+    assert!(!listed.iter().any(|id| id == "solo-review"), "{listed:?}");
+
+    call(&rig, SET_WORKFLOW, json!({ "threadId": "t1", "workflowId": "default" }), 1).await.unwrap();
+    let saved = rig.config.agent();
+    let error = call(&rig, SET_WORKFLOW, json!({ "threadId": "t1", "workflowId": "solo-review" }), 2).await.unwrap_err();
+    assert_eq!(error, "workflow \"solo-review\" not found");
+    assert_eq!(rig.config.agent(), saved, "a refused selection saves nothing");
+    assert_eq!(rig.config.agent()["workflow"]["active"], json!("default"));
 }
 
 #[tokio::test]
