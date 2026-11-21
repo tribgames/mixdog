@@ -67,7 +67,7 @@ pub(super) async fn close_cancelled(
     let seen = std::mem::take(&mut *lock(observed));
     let mut known: Vec<(ItemId, AgentMessage)> = history.iter().map(|(iid, row)| (iid.clone(), row.message())).collect();
     for (index, message) in lock(&sink.turn).iter().enumerate() {
-        known.push((if index == 0 { input_item.clone() } else { sink.iid_of(message) }, message.clone()));
+        known.push((if index == 0 { input_item.clone() } else { sink.iid_of(message) }, AgentMessage::clone(message)));
     }
     let finalized = finalize_interrupted_turn(Interrupted {
         transcript: known.iter().map(|(_, message)| message.clone()).collect(),

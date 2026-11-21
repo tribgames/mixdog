@@ -1682,6 +1682,8 @@ pub(crate) struct SessionActor {
     /// When a thread nobody watches, quiet since, is unloaded (Node's `idleEvictMs` deadline
     /// on the idle clock); `None` while it is not waiting for that.
     idle_evict_at: Option<tokio::time::Instant>,
+    /// When a watched thread, off the idle clock, is looked at for having gone quiet ([`Self::on_rest`]).
+    rest_at: Option<tokio::time::Instant>,
     /// Loaded by an open (a read, a status pass, a carried mark), and no turn has run since: what a sidebar's read loads.
     only_read: bool,
     /// The releases waiting for the idle decision they asked for ([`Inbox::IdleRelease`]): answered once the thread stays, or has
@@ -1715,6 +1717,10 @@ pub(crate) struct SessionActor {
     draft_stopped: std::collections::HashSet<String>,
     /// Ended runs whose drafts wait for the held records (their end records among them) to land.
     drafts_after_save: Vec<String>,
+    /// The tool-result rows accepted and not yet on disk, by outbox entry: the run and the call each answers. A result leaves
+    /// its run's draft only when its own row's write is acknowledged ([`Self::durability_acked`]), on a retry or after the
+    /// run ended as well: until then the draft is the one place a rewrite or a recovery finds it.
+    draft_results: std::collections::HashMap<u64, (String, String)>,
     /// The drafts of ended runs still on disk, by run id: what each holds and the run's mark subscription, so a value marked
     /// before the file goes is taken out of it ([`JobDone::SensitiveMarked`]).
     ended_drafts: std::collections::HashMap<String, (super::turn_draft::DraftJournal, Box<dyn Send>)>,
@@ -2078,6 +2084,7 @@ impl SessionActor {
             recovering: false,
             opened: None,
             idle_evict_at: None,
+            rest_at: None,
             only_read: false,
             idle_acks: Vec::new(),
             unload_stopped: None,
@@ -2094,6 +2101,7 @@ impl SessionActor {
             ended_run: None,
             draft_stopped: std::collections::HashSet::new(),
             drafts_after_save: Vec::new(),
+            draft_results: std::collections::HashMap::new(),
             ended_drafts: std::collections::HashMap::new(),
             drafts_removing: std::collections::HashSet::new(),
             sweep_due: None,
@@ -2179,6 +2187,7 @@ impl SessionActor {
                 Ok(()) = self.start_hold.changed(), if self.drain_held => self.stepping(),
                 _ = sleep_until(deadline), if deadline.is_some() => { self.stepping(); self.on_deadline() }
                 _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => { self.stepping(); self.on_idle_evict() }
+                _ = sleep_until(self.rest_at), if self.rest_at.is_some() => { self.stepping(); self.on_rest() }
                 _ = sleep_until(self.frames.due()), if self.frames.due().is_some() => {
                     self.stepping();
                     let flushed = self.frames.flush();
@@ -3449,6 +3458,15 @@ impl SessionActor {
         self.save_risk.acked(&ordinals);
         for &(id, ordinal) in &ordinals {
             self.outbox.acked(id, ordinal);
+            if let Some((rid, call)) = self.draft_results.remove(&id) {
+                let journal = match self.run.as_mut().filter(|run| run.turn.as_str() == rid) {
+                    Some(run) => Some(&mut run.journal),
+                    None => self.ended_drafts.get_mut(&rid).map(|(journal, _)| journal),
+                };
+                if let Some(journal) = journal {
+                    journal.result_landed(&call);
+                }
+            }
         }
         if owed {
             tracing::info!(
@@ -3593,6 +3611,7 @@ impl SessionActor {
                 // The view coming restarts the idle clock (`addSubscriber`'s `onViewersChange`, `idleClock.refresh`): an unload the
                 // deadline decided before the client's attach is counted is void ([`Self::idle_checked`]).
                 self.arm_idle_evict();
+                self.arm_rest();
                 let restored = std::mem::take(&mut self.restored_queue);
                 if restored || !self.projected.queued_rows().is_empty() {
                     self.start_next_queued();
@@ -3789,6 +3808,7 @@ impl SessionActor {
         {
             active.unsaved_messages.fetch_add(1, SeqCst);
         }
+        let answers = (item.role.as_deref() == Some("tool")).then(|| item.body.get("toolCallId").and_then(Value::as_str).map(str::to_owned)).flatten();
         match self.item_record(&turn, item, facts, None) {
             Ok(record) => {
                 if let (Record::Item(row), Some(run)) = (&record, self.run.as_mut())
@@ -3796,7 +3816,10 @@ impl SessionActor {
                 {
                     run.last_model = Some(row.clone());
                 }
-                self.accept_record(record, Class::Normal, display, Vec::new(), vec![Effect::ItemAck(ack)]);
+                let entry = self.accept_record_entry(record, Class::Normal, display, Vec::new(), vec![Effect::ItemAck(ack)]);
+                if let Some(call) = answers {
+                    self.draft_results.insert(entry, (turn.as_str().to_owned(), call));
+                }
             }
             Err(_) => {
                 let _ = ack.send(Err(RunError::NotApplied));

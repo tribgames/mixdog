@@ -6,6 +6,7 @@ impl SessionActor {
     pub(super) fn run_ended(&mut self, turn: TurnId, outcome: RunOutcome) {
         // The run's task is over: it runs nothing more a latch would have to abort.
         self.cell.stop_latches.end(&self.id, &turn);
+        self.arm_rest();
         // The loop reads the control lane before the producer lane, so the end can overtake output the
         // run sent before it (a delta has no ack). Node's stream callback arms the warm
         // (`ask-callbacks.mjs:55`) synchronously, before the turn settles (`turn-settle.mjs`), so what the run

@@ -246,6 +246,23 @@ impl SessionActor {
         self.idle_evict_at = (self.cell.attached() == 0).then(|| tokio::time::Instant::now() + delay);
     }
 
+    /// A turn ended or a client resumed the thread: it is looked at once the worker's idle delay has passed ([`Self::on_rest`]).
+    pub(super) fn arm_rest(&mut self) {
+        self.rest_at = Some(tokio::time::Instant::now() + WORKER_IDLE_EVICT);
+    }
+
+    /// A watched thread stays loaded for as long as it is watched, off the idle clock, and its feed kept every frame of its last
+    /// turns for a client to resume from. One found doing nothing lets them go: its subscribers have them, and a client that
+    /// comes back from before them is served the view. One found working is looked at again.
+    pub(super) fn on_rest(&mut self) {
+        self.rest_at = None;
+        if self.finishing() || self.session_busy() || !self.outbox.is_empty() {
+            self.arm_rest();
+        } else {
+            self.feed.rest();
+        }
+    }
+
     /// The idle deadline came: a thread found working waits the whole delay again, one found watched waits for its last
     /// subscriber to leave. Working is also background work the thread started that still runs (`idle-clock.mjs` `working`:
     /// `hasActiveBackgroundTasks({ callerSessionId })`, any surface), read before the unload.

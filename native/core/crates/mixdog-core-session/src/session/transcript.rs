@@ -150,20 +150,23 @@ pub struct StoredRows {
 struct Rows {
     /// Shared with the message's own `stored` row when it was registered from it ([`StoredRows::record_stored`]).
     by_id: HashMap<String, std::sync::Arc<serde_json::Map<String, Value>>>,
-    unkeyed: Vec<(AgentMessage, Held)>,
+    unkeyed: Vec<(std::sync::Arc<AgentMessage>, Held)>,
 }
 
-/// The body of a message without an id: the message's own stored row, shared, or the body it was registered with.
+/// The body of a message without an id: the message's own stored row, shared, the body it was registered with, or
+/// nothing where the body is the row the message itself converts to ([`StoredRows::record_turn`]).
 enum Held {
     Shared(std::sync::Arc<serde_json::Map<String, Value>>),
     Owned(Value),
+    Converted,
 }
 
 impl Held {
-    fn value(&self) -> Value {
+    fn value(&self, message: &AgentMessage) -> Value {
         match self {
             Self::Shared(body) => Value::Object(body.as_ref().clone()),
             Self::Owned(body) => body.clone(),
+            Self::Converted => mixdog_agent::message_row::row_of(message),
         }
     }
 }
@@ -217,8 +220,19 @@ impl StoredRows {
                 };
                 rows.by_id.insert(id.clone(), std::sync::Arc::new(body));
             }
-            None => rows.unkeyed.push((message.clone(), Held::Owned(body))),
+            None => rows.unkeyed.push((std::sync::Arc::new(message.clone()), Held::Owned(body))),
         }
+    }
+
+    /// Registers a message a running turn committed as `body`, the turn's own copy of it shared: a tool result has no id,
+    /// and its bytes were held here twice more (a clone of the message and its body) beside the turn's. The message is the
+    /// caller's allocation, and a body that is the row the message converts to is made from it when asked for, not kept.
+    pub fn record_turn(&self, message: std::sync::Arc<AgentMessage>, body: Value) {
+        if message.message_id.is_some() {
+            return self.record(&message, body);
+        }
+        let held = if mixdog_agent::message_row::row_of(&message) == body { Held::Converted } else { Held::Owned(body) };
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).unkeyed.push((message, held));
     }
 
     /// Registers `message` with its own `stored` row as the body, shared rather than copied: a turn registers its whole
@@ -230,7 +244,7 @@ impl StoredRows {
             Some(id) => {
                 rows.by_id.insert(id.clone(), stored.clone());
             }
-            None => rows.unkeyed.push((message.clone(), Held::Shared(stored.clone()))),
+            None => rows.unkeyed.push((std::sync::Arc::new(message.clone()), Held::Shared(stored.clone()))),
         }
     }
 
@@ -250,7 +264,7 @@ impl MessageRows for StoredRows {
         {
             return Value::Object(body.as_ref().clone());
         }
-        rows.unkeyed.iter().rev().find(|(known, _)| known == message).map_or(Value::Null, |(_, body)| body.value())
+        rows.unkeyed.iter().rev().find(|(known, _)| **known == *message).map_or(Value::Null, |(known, body)| body.value(known))
     }
 }
 
@@ -287,6 +301,25 @@ mod tests {
         assert_eq!(rows.row(&keyed), stored);
         assert_eq!(rows.row(&call), call_body);
         assert_eq!(rows.row(&AgentMessage::user("never stored")), Value::Null);
+    }
+
+    #[test]
+    fn a_turns_message_is_registered_as_the_turns_own_copy_and_answers_its_committed_body() {
+        let rows = StoredRows::new();
+        let result = std::sync::Arc::new(AgentMessage::tool_text("c1", &"x".repeat(4096), mixdog_agent::message::ToolKind::Normal));
+        let body = mixdog_agent::message_row::row_of(&result);
+        rows.record_turn(result.clone(), body.clone());
+        // A body the commit changed (a user row's classification) is the one answered.
+        let prompt = std::sync::Arc::new(AgentMessage::user("do it"));
+        let classified = json!({ "role": "user", "content": "do it", "meta": { "source": "user" } });
+        rows.record_turn(prompt.clone(), classified.clone());
+
+        assert_eq!(rows.row(&result), body);
+        assert_eq!(rows.row(&prompt), classified);
+        assert_eq!(std::sync::Arc::strong_count(&result), 2, "the rows refer to the turn's message, they hold no clone of it");
+        let held = rows.inner.lock().unwrap();
+        assert!(matches!(held.unkeyed[0].1, Held::Converted), "a body the message converts to is not kept beside it");
+        assert!(matches!(held.unkeyed[1].1, Held::Owned(_)));
     }
 
     /// `handoffContent`'s parts are prompt parts as they are, and each stored attachment is a

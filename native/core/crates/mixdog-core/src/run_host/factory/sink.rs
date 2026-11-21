@@ -97,7 +97,8 @@ pub(super) struct PortSink {
     pub(super) port: RunPort,
     pub(super) rows: Arc<StoredRows>,
     pub(super) live: LiveTurnPublisher,
-    pub(super) turn: Mutex<Vec<AgentMessage>>,
+    /// The turn's messages, each the one copy the sink holds: the rows registered for it refer to it (`StoredRows::record_turn`).
+    pub(super) turn: Mutex<Vec<Arc<AgentMessage>>>,
     /// The segments the shown assistant text belongs to, until its message commits.
     pub(super) streaming: Arc<Mutex<Segments>>,
     pub(super) iids: Mutex<HashMap<String, ItemId>>,
@@ -365,7 +366,7 @@ impl PortSink {
     /// The input row and the context before it: known ids, and the turn's first live message.
     pub(super) fn seed(&self, input: &AgentMessage) {
         let mut turn = lock(&self.turn);
-        turn.push(input.clone());
+        turn.push(Arc::new(input.clone()));
         self.live.publish(&turn, &*self.rows);
     }
 
@@ -434,7 +435,8 @@ impl TranscriptSink for PortSink {
         }
         let mut row = row;
         with_shown(&mut row, named);
-        self.rows.record(message, row.clone());
+        let held = Arc::new(message.clone());
+        self.rows.record_turn(held.clone(), row.clone());
         if message.role() == Role::Tool {
             // The authoritative result is in the transcript now: an early notice of it is no longer pending
             // (`recordToolResult` deletes it).
@@ -447,7 +449,7 @@ impl TranscriptSink for PortSink {
         }
         {
             let mut turn = lock(&self.turn);
-            turn.push(message.clone());
+            turn.push(held);
             self.live.publish(&turn, &*self.rows);
         }
         // The shown item is the message's item: a later rewrite of the context names it by this id.

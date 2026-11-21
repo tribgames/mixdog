@@ -6,12 +6,14 @@ import type {
   StoreChange,
 } from '../../../packages/protocol-client/src/index.ts';
 import { armCallWatch } from '../../desktop/src/renderer/remote-shim-call-watch.ts';
-import { remoteConnectionInterruptedError } from '../../desktop/src/renderer/remote-connection-state.ts';
-import { createViewSync } from './phone-view-sync.ts';
+import { remoteConnectionInterruptedError } from '../../desktop/src/renderer/remote-connection-state.ts';import { createViewSync } from './phone-view-sync.ts';
 import { firstFrame, scopeClient } from './phone-send-scope.ts';
 
 /** Threads open per pane: the same window `thread/resume` is asked for everywhere on the phone. */
 export const VIEW_WINDOW = { lastItems: 50 } as const;
+
+/** The desktop lane's `STRAY_FOLLOW_RELEASE_MS` (shared/core-lanes/service-route.ts): how long a thread followed outside the view may stay. */
+export const STRAY_FOLLOW_RELEASE_MS = 60_000;
 
 const APP_FEED = 'app';
 
@@ -135,6 +137,45 @@ export function createViewManager(
       if (pending.size === 0) finish();
     });
   };
+
+  // Threads the client follows that the view never opened and no pane names (a prefetch from the list, a resume made to read a
+  // state or answer an approval): the library resumes each again on every reconnect and the core keeps a followed thread loaded,
+  // so one that stayed unwanted for `STRAY_FOLLOW_RELEASE_MS` is let go, as the desktop's lane does (service-route.ts).
+  const library = client as unknown as {
+    threadSubscription?(threadId: string): { readonly followed: boolean; readonly held: boolean };
+    readonly store: { readonly threads?: { keys(): Iterable<string> } };
+  };
+  const strays = new Map<string, number>();
+  let sweeps = 0;
+  let strayTimer: ReturnType<typeof setTimeout> | undefined;
+  const sweepStrays = (): void => {
+    if (stopped) return;
+    sweeps += 1;
+    const want = target();
+    const followed = new Set<string>();
+    if (live() && library.threadSubscription) {
+      for (const id of library.store.threads?.keys() ?? []) {
+        const subscription = library.threadSubscription(id);
+        if (subscription.followed && !subscription.held && !want.has(id) && !open.has(id)) followed.add(id);
+      }
+    }
+    for (const id of [...strays.keys()]) if (!followed.has(id)) strays.delete(id);
+    for (const id of followed) {
+      const since = strays.get(id);
+      if (since === undefined) strays.set(id, sweeps);
+      else if (sweeps - since >= 2) {
+        strays.delete(id);
+        void client.unsubscribeThread(id).catch(() => undefined);
+      }
+    }
+    armStraySweep();
+  };
+  const armStraySweep = (): void => {
+    strayTimer = setTimeout(sweepStrays, STRAY_FOLLOW_RELEASE_MS / 2);
+    // Node's test runner: the sweep keeps no process alive.
+    (strayTimer as { unref?(): void }).unref?.();
+  };
+  armStraySweep();
 
   // The app feed's attach of the connection that is up, apart from its threads': the list needs nothing else.
   let appGate = newGate();
@@ -349,6 +390,7 @@ export function createViewManager(
       for (const wake of readyWaiters) wake();
       readyWaiters.clear();
       clearTimeout(firstTurn);
+      clearTimeout(strayTimer);
       watchApp?.();
       appGate.shut(remoteConnectionInterruptedError());
       offStatus();

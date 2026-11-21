@@ -309,6 +309,10 @@ pub trait Feed: FeedSource {
     fn publish_deferred(&self, frames: &[FeedFrame]) -> Result<(), PublishError> {
         self.publish(frames, None)
     }
+
+    /// The producer has published nothing for a while and expects to stay so: the feed lets go of the frames its view already
+    /// describes. A client that resumes from before them is served the view instead of a replay.
+    fn rest(&self) {}
 }
 
 /// A scoped feed (`fs:<watchId>`, `search:<sessionId>`, …; DS §2.1), created through

@@ -47,7 +47,7 @@ impl LiveTurnPublisher {
     /// whose real result is now among them gives way to it. The messages of a turn only grow (its sink appends each as
     /// it commits), so the rows of those already published stay and only the new ones are made; a list shorter than the
     /// one published is a new list.
-    pub fn publish(&self, messages: &[AgentMessage], rows: &dyn MessageRows) {
+    pub fn publish<M: std::borrow::Borrow<AgentMessage>>(&self, messages: &[M], rows: &dyn MessageRows) {
         let mut guard = self.state();
         let state = &mut *guard;
         if messages.len() < state.turn {
@@ -55,8 +55,8 @@ impl LiveTurnPublisher {
             state.answered.clear();
         }
         let added = &messages[state.turn..];
-        let new_rows: Vec<Value> = added.iter().map(|m| rows.row(m)).collect();
-        state.answered.extend(added.iter().filter_map(|m| m.tool_call_id().map(str::to_owned)));
+        let new_rows: Vec<Value> = added.iter().map(|m| rows.row(m.borrow())).collect();
+        state.answered.extend(added.iter().filter_map(|m| m.borrow().tool_call_id().map(str::to_owned)));
         let answered = &state.answered;
         state.early.retain(|(id, _)| !answered.contains(id));
         let (held, early) = (state.turn, &state.early);

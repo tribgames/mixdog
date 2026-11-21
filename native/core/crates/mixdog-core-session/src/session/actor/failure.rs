@@ -14,6 +14,8 @@ impl SessionActor {
     }
 
     pub(super) fn fail_entry(&mut self, entry: Entry, error: &CoreError) {
+        // A row that will never be written: its result stays with the draft.
+        self.draft_results.remove(&entry.id);
         if let Change::Record { record, .. } = &entry.change
             && let Record::Compacted(compacted) = &**record
         {

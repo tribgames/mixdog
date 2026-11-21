@@ -63,6 +63,12 @@ impl Ring {
         }
     }
 
+    /// [`Self::drop_through`] for a feed gone quiet: the space the dropped frames' entries took goes too.
+    pub fn rest(&mut self, seq: u64) {
+        self.drop_through(seq);
+        self.entries.shrink_to_fit();
+    }
+
     /// The frames `(after, head]` when every one of them is still held (P §6.3 condition 2):
     /// `after ≤ head` and `after + 1 ≥ firstSeq`. `head` is the feed's last seq; the ring's
     /// newest frame, if any, is `head`.
