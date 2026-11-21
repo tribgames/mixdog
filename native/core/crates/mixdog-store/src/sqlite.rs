@@ -871,6 +871,13 @@ enum Command {
         session: String,
         ack: Ack,
     },
+    /// Test support: `session`'s index row of the op `op_id` removed ([`SqliteStore::forget_thread_op`]); refused when there is none.
+    #[cfg(any(test, feature = "test-support"))]
+    ForgetThreadOp {
+        session: String,
+        op_id: String,
+        ack: Ack,
+    },
     /// Rebuild a session's rows from its rewritten log ([`Writer::reproject`]).
     Reproject {
         rewrite: Rewritten,
@@ -1127,6 +1134,14 @@ fn apply_small(
         Command::Release { session, ack } => {
             edges.extend(Writer::release_on(tx, &session, watch)?);
             acks.push(ack);
+        }
+        #[cfg(any(test, feature = "test-support"))]
+        Command::ForgetThreadOp { session, op_id, ack } => {
+            if tx.prepare_cached("DELETE FROM thread_ops WHERE session = ?1 AND op_id = ?2")?.execute([&session, &op_id])? == 0 {
+                refused.push((ack, format!("{session}: the index holds no row of the op {op_id}")));
+            } else {
+                acks.push(ack);
+            }
         }
         Command::Close => unreachable!("the writer stops before it queues a close"),
         Command::Upsert { .. }
@@ -2977,12 +2992,13 @@ impl SqliteStore {
         .await
     }
 
-    /// Test support: the index row of `session`'s op `op_id` removed by a connection of its own, as a projection the index
-    /// never took leaves it. Answers whether there was one.
+    /// Test support: the index row of `session`'s op `op_id` removed, as a projection the index never took leaves it. Written
+    /// by the index writer, in order with its appends: another connection's write fails an append that meets it (the writer
+    /// does not wait for a lock). Refused when there is no such row.
     #[cfg(any(test, feature = "test-support"))]
-    pub fn forget_thread_op_elsewhere(&self, session: &str, op_id: &str) -> bool {
-        let conn = Connection::open(&self.shared.path).expect("the index opens");
-        conn.execute("DELETE FROM thread_ops WHERE session = ?1 AND op_id = ?2", params![session, op_id]).expect("the other connection's write") > 0
+    pub async fn forget_thread_op(&self, session: &str, op_id: &str) -> Result<(), DbError> {
+        let (id, op_id) = (session.to_owned(), op_id.to_owned());
+        self.ask_of(session, |ack| Command::ForgetThreadOp { session: id, op_id, ack }).await
     }
 
     /// Test support: `session`'s `worker` map replaced (`None`: removed) by a connection of its own, committed as another

@@ -119,7 +119,7 @@ async fn ledger_with_tiered_calls() -> TierLedger {
 
 #[tokio::test]
 async fn model_speed_tiers_reconcile_to_stats_totals() {
-    let TierLedger { reader, now, .. } = ledger_with_tiered_calls().await;
+    let TierLedger { _dir, reader, now, .. } = ledger_with_tiered_calls().await;
     let stats = reader.usage_stats(serde_json::from_value(json!({"days": 7})).unwrap(), now).await.unwrap();
     let providers = stats["providers"].as_array().unwrap();
     assert_eq!(providers.len(), 2);
@@ -139,7 +139,7 @@ async fn model_speed_tiers_reconcile_to_stats_totals() {
 
 #[tokio::test]
 async fn model_speed_tiers_reconcile_to_subscription_totals() {
-    let TierLedger { writer, reader, ts, now, .. } = ledger_with_tiered_calls().await;
+    let TierLedger { _dir, writer, reader, ts, now } = ledger_with_tiered_calls().await;
     writer
         .record_quota_queued(vec![QuotaReading {
             provider: "openai-oauth".into(),

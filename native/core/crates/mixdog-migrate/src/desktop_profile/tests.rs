@@ -177,7 +177,9 @@ fn an_interrupted_save_of_the_old_app_is_found_by_the_core_after_the_move() {
     let run = Run::new(None, &borrowed, &BTreeSet::new());
     let report = run.migrate_all();
     assert!(report.quarantined.is_empty(), "{:?}", report.quarantined);
-    let found = RecoveryStore::new(run.data.path().join(mixdog_workspace::recovery::JOURNALS_DIR)).list(&root).unwrap();
+    // The store refuses a folder reached through a link or a short name, as the system temp folder may be.
+    let data = mixdog_workspace::pathguard::canonical(run.data.path()).unwrap();
+    let found = RecoveryStore::new(data.join(mixdog_workspace::recovery::JOURNALS_DIR)).list(&root).unwrap();
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].id, journal.id);
     assert_eq!(serde_json::to_value(&found[0]).unwrap()["phase"], "interrupted");

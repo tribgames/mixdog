@@ -427,15 +427,17 @@ mod tests {
 
     #[test]
     fn eviction_past_the_count_takes_the_least_recently_used() {
-        let root = folder("prune");
+        // The key directories sit in the cache's documents folder: eviction takes its locks beside the cache root, which the
+        // system temp folder's parent is not (on Linux, `/`).
+        let documents = folder("prune").join(DOCUMENT_CACHE_DIRECTORY);
         for index in 0..MAX_CACHED_DOCUMENTS + 2 {
-            mixdog_testkit::create_dir_all(root.join(format!("d{index}")));
+            mixdog_testkit::create_dir_all(documents.join(format!("d{index}")));
         }
-        age(&root.join("d0"), 7200);
-        age(&root.join("d1"), 3600);
-        prune_cache(&Unlaned, &root);
-        assert_eq!(names(&root), MAX_CACHED_DOCUMENTS);
-        assert!(!mixdog_testkit::exists(root.join("d0")) && !mixdog_testkit::exists(root.join("d1")));
+        age(&documents.join("d0"), 7200);
+        age(&documents.join("d1"), 3600);
+        prune_cache(&Unlaned, &documents);
+        assert_eq!(names(&documents), MAX_CACHED_DOCUMENTS);
+        assert!(!mixdog_testkit::exists(documents.join("d0")) && !mixdog_testkit::exists(documents.join("d1")));
     }
 }
 

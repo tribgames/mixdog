@@ -244,7 +244,8 @@ fn a_window_that_stays_visible_fails_the_action_with_the_script_text() {
 #[test]
 fn a_new_excel_workbook_is_created_saved_and_its_folder_made() {
     let mut world = World::new("excel-create");
-    let path = world.path("new\\deeper\\b.xlsx");
+    // Joined with the host's separator: a backslash separates only on Windows.
+    let path = world.dir.join("new").join("deeper").join("b.xlsx").to_string_lossy().into_owned();
     let mut log = Log::default();
     log.get(1, "Hwnd", i4(8001));
     log.initialize(1, "xlsx", false);

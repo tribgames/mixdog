@@ -215,6 +215,14 @@ async fn call(socket: &mut tokio_tungstenite::WebSocketStream<TcpStream>, id: u6
 /// local one and short enough to observe its end. The 1.4.5 default is 30 minutes.
 const REMOTE_GRACE_MS: u64 = 16_000;
 
+/// The recorded end is the no-clients shutdown. A Unix process session cannot rule out a descendant that left it, so the drain of a
+/// managed process there ends unverified and the reason says so.
+fn assert_no_clients_end(last: &serde_json::Value) {
+    let reason = last["reason"].as_str().unwrap_or_else(|| panic!("{last}"));
+    let unverified = cfg!(unix) && reason == "noClients (managed process drain coverage unverified)";
+    assert!(reason == "noClients" || unverified, "the end was the no-clients shutdown, not a stop request: {reason}");
+}
+
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network; about 45 s of real time"]
 #[allow(clippy::disallowed_methods, reason = "test: the grace is the core's launch setting, which the host passes through the environment")]
@@ -267,7 +275,7 @@ fn an_ssh_attached_session_survives_the_disconnect_and_the_core_ends_itself_only
             assert!(exit.try_recv().is_err(), "no early exit inside the remote grace");
             tokio::time::timeout(Duration::from_secs(20), &mut exit).await.expect("the core ends itself once the remote grace is over").unwrap();
             let last: serde_json::Value = serde_json::from_slice(&mixdog_fsio::read(&mixdog_fsio::Unlaned, root.join("last-exit.json")).unwrap()).unwrap();
-            assert_eq!(last["reason"], "noClients", "the end was the no-clients shutdown, not a stop request");
+            assert_no_clients_end(&last);
         },
     );
 }
@@ -289,7 +297,7 @@ fn an_ordinary_loopback_desktop_leaving_ends_the_core_on_the_local_grace() {
             drop(socket);
             mixdog_rt::time::timeout(Duration::from_secs(20), exit).await.expect("the local grace is 10 s").unwrap();
             let last: serde_json::Value = serde_json::from_slice(&mixdog_fsio::read(&mixdog_fsio::Unlaned, root.join("last-exit.json")).unwrap()).unwrap();
-            assert_eq!(last["reason"], "noClients");
+            assert_no_clients_end(&last);
         },
     );
 }

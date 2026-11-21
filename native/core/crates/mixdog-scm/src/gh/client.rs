@@ -380,7 +380,9 @@ mod tests {
     fn clone_destinations_must_be_new_absolute_folders() {
         assert!(clone_destination("relative/dir").is_err());
         assert!(clone_destination("/tmp/$HOME/x").is_err());
-        let dir = std::env::temp_dir().join(format!("mixdog-clone-{}", std::process::id()));
+        // The real path: a Windows temp folder may be spelled with short (8.3) names, whose `~` the check refuses.
+        let temp = mixdog_workspace::pathguard::canonical(&std::env::temp_dir()).unwrap();
+        let dir = temp.join(format!("mixdog-clone-{}", std::process::id()));
         assert!(clone_destination(&dir.to_string_lossy()).is_ok());
     }
 }

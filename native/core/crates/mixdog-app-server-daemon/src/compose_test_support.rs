@@ -476,6 +476,17 @@ pub(crate) fn run(test: &str, setup: &Setup) -> Report {
         }
     }
 
+    // An orphan that already ended is a zombie child of this process (its subreaper), and a zombie answers a signal 0: `pg_ctl` would take the
+    // single-user server of a killed `initdb` for one still running. So, the child itself reaped, the ended ones are reaped before the clusters
+    // are examined.
+    #[cfg(target_os = "linux")]
+    if tree_ended
+        && subreaper
+        && let Err(error) = reap_exited()
+    {
+        report.failures.push(format!("the clusters step: the ended orphans could not be reaped before it: {error}"));
+    }
+
     // Step 4, clusters, only once the tree is proven ended: then nothing of the test can still be starting a cluster (on Linux step 5 also waits for
     // an orphaned postmaster). On macOS a "not running" status after an abnormal end is not taken as proof (module doc).
     let proven = if tree_ended {
@@ -1292,6 +1303,28 @@ fn descendants_step(deadline: Instant, share: u64, report: &mut Report) -> bool 
                 .push(format!("the descendants step: {error} when the step's time ran out (share {share} s, or the run's end); every data directory is kept"));
             report.left.push("a process descended from the test (a postmaster still starting is one)".to_owned());
             false
+        }
+    }
+}
+
+/// Linux: reaps the children of this process that have already ended, waiting for none.
+#[cfg(target_os = "linux")]
+fn reap_exited() -> Result<(), String> {
+    loop {
+        // SAFETY: `info` is a local the call fills; zeroed, its pid stays 0 when no child has ended.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        if unsafe { libc::waitid(libc::P_ALL, 0, &mut info, libc::WEXITED | libc::WNOHANG) } == 0 {
+            // SAFETY: filled by `waitid` for an ended child, zero otherwise.
+            if unsafe { info.si_pid() } == 0 {
+                return Ok(());
+            }
+            continue;
+        }
+        let error = std::io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::ECHILD) => return Ok(()),
+            Some(libc::EINTR) => {}
+            _ => return Err(format!("waitid: {error}")),
         }
     }
 }

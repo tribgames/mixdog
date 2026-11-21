@@ -869,7 +869,8 @@ mod tests {
         let published = Arc::new(Published::default());
         let on = Arc::new(AtomicBool::new(false));
         let setting = on.clone();
-        let settings = ComputerSettings::new(data_dir(), Arc::new(move || setting.load(Ordering::SeqCst)), mixdog_rt::testing::tokens().interactive_io);
+        let settings =
+            on_linux_desktop(ComputerSettings::new(data_dir(), Arc::new(move || setting.load(Ordering::SeqCst)), mixdog_rt::testing::tokens().interactive_io));
         let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), published.clone(), settings).await;
         let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
 
@@ -1609,7 +1610,7 @@ mod tests {
 
         let _held = HeldClock::hold();
         let stuck = Arc::new(Stuck(tokio::sync::Notify::new()));
-        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(stuck.clone(), plain(), quiet(), settings()).await;
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(stuck.clone(), plain(), quiet(), on_linux_desktop(settings())).await;
         let backend = pool.backend("stuck");
         let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
         let mut call = tokio::spawn(async move { backend.run(read, CancellationToken::new()).await });

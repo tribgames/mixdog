@@ -153,8 +153,20 @@ pub fn process_memory() -> MemoryUsage {
     }
 }
 
+/// macOS has no procfs: the task's resident size, as `proc_pidinfo` reports it; the heap is not known there.
+#[cfg(target_os = "macos")]
+pub fn process_memory() -> MemoryUsage {
+    let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
+    // SAFETY: `proc_taskinfo` is plain data; the call writes at most `size` bytes into it.
+    let (written, info) = unsafe {
+        let mut info: libc::proc_taskinfo = std::mem::zeroed();
+        (libc::proc_pidinfo(libc::getpid(), libc::PROC_PIDTASKINFO, 0, (&raw mut info).cast(), size), info)
+    };
+    MemoryUsage { rss_bytes: (written == size).then_some(info.pti_resident_size), heap_bytes: None }
+}
+
 /// `/proc/self/statm`: resident and data pages; elsewhere neither is known.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 #[allow(clippy::disallowed_methods, reason = "a 40-byte procfs read, the same one the crash record makes")]
 pub fn process_memory() -> MemoryUsage {
     let Ok(statm) = std::fs::read_to_string("/proc/self/statm") else { return MemoryUsage::default() };
