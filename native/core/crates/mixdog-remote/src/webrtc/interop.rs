@@ -93,7 +93,8 @@ async fn carrier(commands: &mut mpsc::UnboundedReceiver<Value>) {
                 CarrierEvent::Offer { sdp } => emit(json!({"t": "offer", "sdp": sdp})),
                 CarrierEvent::Candidate { candidate, .. } => emit(json!({"t": "candidate", "c": candidate_json(candidate)})),
                 CarrierEvent::Connected { remote_certificate } => emit(json!({"t": "connected", "cert": remote_certificate.is_some()})),
-                CarrierEvent::Open { path, .. } => {
+                CarrierEvent::Open { pair, .. } => {
+                    let path = pair.map(|pair| pair.path());
                     emit(json!({"t": "open", "path": format!("{path:?}")}));
                     carrier.send(vec![
                         CarrierItem { channel: CarrierChannel::App, data: Bytes::from_static(b"d1") },

@@ -526,7 +526,8 @@ impl World {
                 // or not, so no other signal tells that it stays).
                 let (ack, decided) = tokio::sync::oneshot::channel();
                 old.inbox.send(super::actor::Inbox::IdleRelease(ack)).await.expect("the actor takes the inbox");
-                let _ = super::testing::awaiting(|| format!("the idle decision (log writes failed meanwhile: {})", LOG_FAILED.load(SeqCst) - failed), decided).await;
+                let _ = super::testing::awaiting(|| format!("the idle decision (log writes failed meanwhile: {})", LOG_FAILED.load(SeqCst) - failed), decided)
+                    .await;
                 !directory.handle(&id).is_some_and(|handle| Arc::ptr_eq(&handle.cell, &old.cell))
             } else {
                 close_of(&directory).detach(id.as_str(), "manual", false).await

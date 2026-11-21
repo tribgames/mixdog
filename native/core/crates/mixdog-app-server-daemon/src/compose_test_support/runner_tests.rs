@@ -233,7 +233,11 @@ fn a_step_gets_no_more_than_what_remains_of_the_run() {
     let remains = Duration::from_secs(20);
     let lost = Duration::from_secs(budget.total()) - remains;
     let started = Instant::now();
-    let report = run_within(&this(NAME), Setup { budget, pg_ctl: fake_pg_ctl(fake.path(), Status::Hang), fault: None, lost, stuck_threads: false }, Duration::from_secs(60));
+    let report = run_within(
+        &this(NAME),
+        Setup { budget, pg_ctl: fake_pg_ctl(fake.path(), Status::Hang), fault: None, lost, stuck_threads: false },
+        Duration::from_secs(60),
+    );
     let took = started.elapsed();
     let shown = report.to_string();
     clean(&report);

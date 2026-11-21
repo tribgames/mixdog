@@ -221,7 +221,7 @@ pub fn create_client_handshake(pairing: &PairingMaterial, challenge: &Challenge,
     if pairing.version != VERSION {
         return Err(E2eeError::Invalid("Unsupported relay encryption handshake."));
     }
-    let pair = options.client_key.unwrap_or_else(|| SecretKey::generate());
+    let pair = options.client_key.unwrap_or_else(SecretKey::generate);
     let client_public = public_key_b64(&pair.public_key());
     let select = options.transport && challenge.flag("transportWebrtc") && challenge.flag("binaryFrames");
     let deflate = challenge.flag("deflate");
