@@ -110,10 +110,10 @@ The list at the top of `native/core/.config/nextest.toml` is the one place that 
 | Profile                                                                   | Tests                                                                                | Where                    |
 | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------ |
 | `default`                                                                 | every test that is not `#[ignore]`d                                                  | locally; the merge check |
-| `ci`                                                                      | `default` with no retries and a log that names slow and failing tests                | CI `core-tests`          |
+| `ci`                                                                      | `default` with no retries and a log that names slow and failing tests                | CI `core-tests-*`        |
 | `agent`                                                                   | `default` without the heavy real-git and migration matrices                          | locally                  |
-| `pg`                                                                      | `#[ignore]`d composed-core tests of `mixdog-app-server-daemon` (needs Postgres)      | CI `core-pg`, locally    |
-| `services-pg`                                                             | `#[ignore]`d memory tests of `mixdog-services` (needs Postgres)                      | CI `core-pg`, locally    |
+| `pg`                                                                      | `#[ignore]`d composed-core tests of `mixdog-app-server-daemon` (needs Postgres)      | CI `core-pg*`, locally   |
+| `services-pg`                                                             | `#[ignore]`d memory tests of `mixdog-services` (needs Postgres)                      | CI `core-pg*`, locally   |
 | `services-models`, `migration-corpus`, `office-throughput`, `pwsh-50-mib` | `#[ignore]`d tests that need models, a user's data, LibreOffice or a 414 MiB command | by hand only             |
 
 ### The Postgres profiles
@@ -234,7 +234,8 @@ path. The handoff downloads the worker's manifest by artifact ID and stages the 
   calls the gate each job is a sink in `plan.json` `sinks` (it must need the gate, and the join where the caller joins, and carry
   exactly the one reviewed `if`, or none) or a reviewed non-sink in `nonSinks` with a reason, and a job in neither is an error.
   A caller's `gate` and `joins` inputs must be literals (`release`, `true`), never expressions. No job tolerates its own failure,
-  every job with legs uploads evidence after its last test step and unconditionally. The verdict jobs (`inventory`, `complete`,
+  every job with legs uploads evidence after its last test step and unconditionally, or (a leg of several test steps, such as
+  `core-pg-macos`) after any of them ran, whatever its tests ended. The verdict jobs (`inventory`, `complete`,
   `prepared-runtime-join`) are pinned whole: their `if`, the exact commands of their deciding steps, no condition,
   `continue-on-error` or other shell on those steps, and a digest of the job in `plan.json` `wiring.verdictJobs`, so an
   inserted, removed, reordered or edited step is a reviewed change. Every sink checks out the SHA its gate verified, and is verified
@@ -257,19 +258,23 @@ repeated in `complete` and compared by `scripts/ci/release-gate-wiring.test.mjs`
 test. A change to `rust-toolchain.toml`, to `release-gate.yml` or to the core's `Cargo.toml`/`Cargo.lock` selects every job that
 consumes it (the test runs the selection over a table of paths).
 
-- **Rust core.** `core-build` compiles the tests once per system (Linux x64, macOS arm64, Windows x64) with
-  `cargo nextest archive` and uploads the archive; it first checks the checkout is clean (no Cargo test target git does not
-  track), so no untracked test file is in the archive. The development `mixdogd` (dev controls, with the `mixdog` terminal
+- **Rust core.** `core-build-linux`, `core-build-macos` and `core-build-windows` compile the tests once per system (Linux x64,
+  macOS arm64, Windows x64) with `cargo nextest archive --timings`, upload the archive and the build's timeline
+  (`core-timings-*`), and use every core of the runner; each first checks the checkout is clean (no Cargo test target git does
+  not track), so no untracked test file is in the archive. The archive is one build of the whole selection, never a build per
+  leg: a build of part of the workspace unifies the features of fewer crates, so its binaries differ from the ones the whole
+  build tests. The development `mixdogd` (dev controls, with the `mixdog` terminal
   program and the ssh helper) is the `mixdogd` job's, on Linux when a slow Node lane or the entry scenarios need it, and on
-  Windows for the app boot in `desktop-computer`: a runner of its own beside `core-build`, checking its checkout the same way, so
-  `desktop-slow`, `runtime-slow` and `desktop-computer` start when it is done, not when the slowest system's archive is.
-  `core-tests` legs depend on the archives alone: they download theirs and run
-  `--profile ci --partition count:k/N` (N from `scripts/ci/core-select.mjs`: one leg per 4,000 tests, at most four). The
+  Windows for the app boot in `desktop-computer`: a runner of its own beside the archive builds, checking its checkout the same
+  way, so `desktop-slow`, `runtime-slow` and `desktop-computer` start when it is done, not when the slowest system's archive is.
+  The legs of `core-tests-linux`, `core-tests-macos` and `core-tests-windows` each need their own system's archive alone: they
+  download it and run `--profile ci --partition count:k/N` (N from `scripts/ci/core-select.mjs`: one leg per 4,000 tests, at
+  most four, three on macOS, whose five concurrent jobs per account the legs share with `core-pg-macos` and `core-real`). The
   ignored interactive scenarios of `mixdog-entry` (`tests/node_free.rs`) drive the dev daemon, so `core-entry` (leg
   `linux/core-entry/1of1`, the Linux variant's `entry` profile) runs them from the Linux archive against the Linux daemon. A pull
   request archives the changed crates and their reverse dependencies; main archives the whole workspace. `core-pg` runs
-  `services-pg` and `pg` from the same archive with the provisioned runtime (Linux always, macOS on main and manual runs, when the
-  archive holds the crate). `core-lint` is clippy of the daemon on each system, and on Linux
+  `services-pg` and `pg` from the Linux archive with the provisioned runtime, a leg per profile, when the archive holds the
+  crate; `core-pg-macos` runs both, one after the other as the slots of leg `macos/core-pg/1of1`, on main and manual runs. `core-lint` is clippy of the daemon on each system, and on Linux
   the format check of the whole workspace (`cargo fmt --all -- --check` for `native/core` and for each standalone tool under `native/` that has a
   `Cargo.lock`, configured by `native/rustfmt.toml`; `native/core/vendor` and the generated tables marked `#[rustfmt::skip]` are
   left alone). `core-real` builds the process-tree helper and
@@ -281,8 +286,8 @@ consumes it (the test runs the selection over a table of paths).
   for the root tree; `desktop`, `desktop-tests` (three shards plus Windows) and `desktop-slow`; `relay`, `relay-rust`,
   `packages`, and the standalone native crates (`patch`, `graph`, `spawn`, `window`, `browser-import`,
   `secure-desktop`, `computer-backend`).
-- **Guards.** See "What each layer guarantees" below. `--build` in `core-build` and `core-lint` fails a Rust build that has
-  a Cargo test target (`tests/<name>.rs`, `tests/<name>/main.rs`) git does not track. `core-tests` installs only `pptxgenjs` and `jszip` (`scripts/ci/lock-subset.mjs`) because
+- **Guards.** See "What each layer guarantees" below. `--build` in the `core-build-*` jobs, `mixdogd` and `core-lint` fails a Rust build that has
+  a Cargo test target (`tests/<name>.rs`, `tests/<name>/main.rs`) git does not track. `core-tests-*` installs only `pptxgenjs` and `jszip` (`scripts/ci/lock-subset.mjs`) because
   that is all the tracked Rust tests read from `node_modules`.
 
 ### What each layer guarantees
@@ -332,7 +337,7 @@ third only points.
    dropping the code beside them. It reads source text: a path joined from pieces, taken from a variable or the environment is
    invisible to it, a read it flags may be harmless, and a read guarded by `existsSync` that returns quietly passes it and passes
    layer 2. It is advice because layer 1 is the guarantee: the same tests run on a clean checkout and fail there, or skip and are
-   reviewed. `check-clean-checkout.mjs --build` (`core-build`, `core-lint`) is a different check: it fails a Rust build that has
+   reviewed. `check-clean-checkout.mjs --build` (`core-build-*`, `mixdogd`, `core-lint`) is a different check: it fails a Rust build that has
    an untracked Cargo test target, by looking at the files themselves.
 
 - `rust-core-unix.yml` is a manual Linux and macOS run of the daemon's unit tests, the `pg` profile and clippy; `release.yml`

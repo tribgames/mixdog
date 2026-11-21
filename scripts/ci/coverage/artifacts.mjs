@@ -12,6 +12,7 @@ export const KINDS = [
   'evidence',
   'rust-lists',
   'core-tests',
+  'core-timings',
   'mixdogd-dev',
   'desktop-out',
 ];

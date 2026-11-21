@@ -48,7 +48,9 @@ env:
 # longest part, so it is built once per system and its tests run from that build in
 # parallel legs:
 #
-#   changes ---> core-build (linux, macos, windows) ---> core-tests (N legs per system), core-pg, core-entry
+#   changes ---> core-build-linux ---> core-tests-linux (N legs), core-pg (a leg per profile), core-entry
+#      +-------> core-build-macos ---> core-tests-macos (at most 3 legs), core-pg-macos (both profiles)
+#      +-------> core-build-windows -> core-tests-windows (N legs)
 #      +-------> mixdogd (dev controls; linux, windows) ---> core-entry, desktop-slow, runtime-slow, desktop-computer
 #      +--> core-lint (clippy per system, rustfmt once)   core-real (release mixdogd, node real-core tests)
 #      +--> runtime, runtime-macos, desktop*, relay*, spawn, packages, patch, graph, ... (independent)
@@ -59,8 +61,8 @@ env:
 # dependencies from a cache that a push to main refreshes. The dev mixdogd is built on a
 # runner of its own beside the archive, not after it: its feature set recompiles most of the
 # workspace's crates anyway (12 of the 47 minutes of the Windows build when it ran after the
-# archive), and every job that needs `needs` the whole core-build matrix, so the slowest system
-# held all of them.
+# archive). Each system's tests need only its own archive: a `needs` waits for every entry of a
+# matrix, so one build matrix held every leg until the slowest system's archive was done.
 
 jobs:
   changes:
@@ -96,13 +98,16 @@ jobs:
       core_pg: ${{ steps.core.outputs.core_pg || 'false' }}
       core_entry: ${{ steps.core.outputs.core_entry || 'false' }}
       core_pg_matrix: ${{ steps.core.outputs.core_pg_matrix || '{"include":[]}' }}
+      core_pg_macos: ${{ steps.core.outputs.core_pg_macos || 'false' }}
+      core_pg_macos_profiles: ${{ steps.core.outputs.core_pg_macos_profiles || '[]' }}
       # Empty only when the step did not run (a generated release commit, where no lane is selected): a discovery that fails fails `changes`.
       runtime_matrix: ${{ steps.shards.outputs.runtime_matrix || '{"include":[]}' }}
       runtime_excluded_path: ${{ steps.shards.outputs.runtime_excluded_path }}
-      build_matrix: ${{ steps.core.outputs.build_matrix || '{"include":[]}' }}
       mixdogd: ${{ steps.core.outputs.mixdogd || 'false' }}
       mixdogd_matrix: ${{ steps.core.outputs.mixdogd_matrix || '{"include":[]}' }}
-      test_matrix: ${{ steps.core.outputs.test_matrix || '{"include":[]}' }}
+      test_matrix_linux: ${{ steps.core.outputs.test_matrix_linux || '{"include":[]}' }}
+      test_matrix_macos: ${{ steps.core.outputs.test_matrix_macos || '{"include":[]}' }}
+      test_matrix_windows: ${{ steps.core.outputs.test_matrix_windows || '{"include":[]}' }}
     steps:
       # Shallow: the selection below diffs two commits' trees, which needs the
       # base commit itself and no ancestry; it is fetched by SHA in the step.
@@ -1232,7 +1237,6 @@ jobs:
     env:
       MIXDOG_LEG: linux/mobile/1of1
       MIXDOG_LEG_OS: linux
-      CARGO_BUILD_JOBS: "3"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -1775,22 +1779,31 @@ jobs:
   # push to main saves it, and only after the workspace's own crates, the test binaries and the
   # build state are removed from it (scripts/ci/prune-core-target.mjs): an entry is the size of the
   # dependencies, one per system, and a pull request reads the main entry without writing one.
+  #
+  # One build job per system, and test jobs per system that need only that build: the legs of a system start when its own
+  # archive is uploaded, not when the slowest system's is (run 44943772315: Linux's archive was ready at 19.5 minutes,
+  # Windows' at 27.1, and every leg waited for macOS's at 28.4). The jobs of a kind share their steps (YAML anchors). The
+  # archive is one build of the whole selection, never one build per leg: a build of part of the workspace unifies the
+  # features of fewer crates (forty test features such as mixdog-rt/virtual-clock come only from dev-dependencies), so its
+  # binaries would not be the ones the whole build tests. cargo runs as many jobs as the runner has cores (four on the hosted
+  # Linux and Windows runners, three on macOS); the `CARGO_BUILD_JOBS: 3` the Rust jobs carried came with the first Unix job
+  # (rust-core-unix.yml, for macos-latest's three cores) and left a core of the four-core runners idle.
   # ---------------------------------------------------------------------------------------------
-  core-build:
-    name: core-build (${{ matrix.os }})
+  core-build-linux:
+    name: core-build (linux)
     needs: changes
     if: needs.changes.outputs.core_build == 'true'
     timeout-minutes: 90
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
+      matrix:
+        include:
+          - { os: linux, runner: ubuntu-22.04 }
     defaults:
       run:
         shell: bash
-    env:
-      CARGO_BUILD_JOBS: "3"
-    steps:
+    steps: &core-build-steps
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.ref || github.sha }}
@@ -1828,7 +1841,20 @@ jobs:
           if [[ -n "$FEATURES" ]]; then features=(--features "$FEATURES"); fi
           # shellcheck disable=SC2086
           cd native/core
-          cargo nextest archive --manifest-path Cargo.toml --locked $ARCHIVE_ARGS "${features[@]}" --archive-file ../../core-tests.tar.zst
+          cargo nextest archive --manifest-path Cargo.toml --locked --timings $ARCHIVE_ARGS "${features[@]}" --archive-file ../../core-tests.tar.zst
+      # When each unit compiled and how many ran at once (cargo --timings): the split of this build between the libraries, the
+      # test binaries and their links, which the log does not give.
+      - name: Upload the build timings
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: core-timings-${{ env.GATE_KEY }}-${{ matrix.os }}
+          overwrite: true
+          path: native/core/target/cargo-timings/cargo-timing.html
+          retention-days: 14
+          if-no-files-found: error
+      # The build writes a report per run beside the latest; none belongs in the dependency cache saved below.
+      - name: Remove the timing reports from the build folder
+        run: rm -rf native/core/target/cargo-timings
       - name: Upload the test archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -1852,6 +1878,38 @@ jobs:
             native/core/target
           key: ${{ steps.deps.outputs.cache-primary-key }}
 
+  core-build-macos:
+    name: core-build (macos)
+    needs: changes
+    if: needs.changes.outputs.core_build == 'true'
+    timeout-minutes: 90
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos, runner: macos-15 }
+    defaults:
+      run:
+        shell: bash
+    steps: *core-build-steps
+
+  core-build-windows:
+    name: core-build (windows)
+    needs: changes
+    if: needs.changes.outputs.core_build == 'true'
+    timeout-minutes: 90
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows, runner: windows-2022 }
+    defaults:
+      run:
+        shell: bash
+    steps: *core-build-steps
+
   # The development mixdogd with every replay control (mixdog-cli/dev-controls): desktop replays, the Windows app boot and the
   # ignored core entry tests (core-entry) drive it. The terminal program and the ssh helper are built in the same invocation, with the
   # feature on mixdog-cli only: scripts/check-npm-packages.slow.test.mjs packs the three programs into the npm packages and
@@ -1871,8 +1929,6 @@ jobs:
     defaults:
       run:
         shell: bash
-    env:
-      CARGO_BUILD_JOBS: "3"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -1918,20 +1974,20 @@ jobs:
   # is the test count over 4,000 (at most 4): the last whole run summed 4,370 s over 15,902 tests, so a
   # leg of 4,000 tests is about 1,100 s of work for the four cores of a hosted runner, about 4.5 minutes
   # beside the groups that run one at a time (nextest.toml: the Postgres cluster tests, the migration
-  # crash matrices) and the setup.
-  core-tests:
+  # crash matrices) and the setup. macOS has at most three legs (core-select.mjs SYSTEMS).
+  core-tests-linux:
     name: core-tests (${{ matrix.os }} ${{ matrix.part }}/${{ matrix.of }})
-    needs: [changes, core-build]
+    needs: [changes, core-build-linux]
     if: needs.changes.outputs.core == 'true'
     timeout-minutes: 40
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.test_matrix) }}
+      matrix: ${{ fromJSON(needs.changes.outputs.test_matrix_linux) }}
     defaults:
       run:
         shell: bash
-    env:
+    env: &core-tests-env
       MIXDOG_LEG: ${{ matrix.os }}/core-tests/${{ matrix.part }}of${{ matrix.of }}
       MIXDOG_LEG_OS: ${{ matrix.os }}
       # Tests that commit to a real git repository need an identity (the local merge check sets the same).
@@ -1941,7 +1997,7 @@ jobs:
       GIT_COMMITTER_EMAIL: mixdog-test@example.invalid
       # The tests run against a throwaway data directory; no user backup is taken (what k1-lanes.mjs set for its children).
       MIXDOG_SKIP_USER_DATA_BACKUP: "1"
-    steps:
+    steps: &core-tests-steps
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.ref || github.sha }}
@@ -2078,12 +2134,42 @@ jobs:
         with:
           name: ${{ matrix.os }}-core-tests-${{ matrix.part }}of${{ matrix.of }}
 
+  core-tests-macos:
+    name: core-tests (${{ matrix.os }} ${{ matrix.part }}/${{ matrix.of }})
+    needs: [changes, core-build-macos]
+    if: needs.changes.outputs.core == 'true'
+    timeout-minutes: 40
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.test_matrix_macos) }}
+    defaults:
+      run:
+        shell: bash
+    env: *core-tests-env
+    steps: *core-tests-steps
+
+  core-tests-windows:
+    name: core-tests (${{ matrix.os }} ${{ matrix.part }}/${{ matrix.of }})
+    needs: [changes, core-build-windows]
+    if: needs.changes.outputs.core == 'true'
+    timeout-minutes: 40
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.test_matrix_windows) }}
+    defaults:
+      run:
+        shell: bash
+    env: *core-tests-env
+    steps: *core-tests-steps
+
   # The interactive scenarios of mixdog-entry (tests/node_free.rs, the terminal interface and --plain, without Node): ignored in the
   # partitions because they drive the development mixdogd, so they run here, from the Linux archive against the Linux daemon of
   # this run, and the partitions depend on the archives alone. Selected when the archive holds mixdog-entry (core-select.mjs);
   # the reconciliation credits the `entry` profile of the Linux variant to this leg.
   core-entry:
-    needs: [changes, core-build, mixdogd]
+    needs: [changes, core-build-linux, mixdogd]
     if: needs.changes.outputs.core_entry == 'true'
     timeout-minutes: 30
     runs-on: ubuntu-22.04
@@ -2142,12 +2228,13 @@ jobs:
   # (the filters and their time budgets are in native/core/.config/nextest.toml). The runtime is the one the shipped manifest
   # names for the runner, hash-checked (scripts/ci/provision-pg-runtime.mjs), and the tests read it through MIXDOG_PG_RUNTIME.
   # Each profile's tests share the `pg-cluster` group (one cluster of their own at a time), so a leg is serial by design: the
-  # legs are per profile and per system instead. A profile runs only when its crate is in the archive (core-select.mjs); the
-  # daemon's composed tests take up to 690 s each. Linux on every run, macOS on a push to main and a manual run. Windows has
-  # no leg: the postmaster refuses to start under an elevated user and a hosted Windows runner is one.
+  # Linux legs are per profile instead. A profile runs only when its crate is in the archive (core-select.mjs); the daemon's
+  # composed tests take up to 690 s each. Linux on every run; macOS on a push to main and a manual run, both profiles one after
+  # the other in one job (core-pg-macos), so the macOS legs, that job and core-real fit the five macOS jobs an account runs at
+  # once. Windows has no leg: the postmaster refuses to start under an elevated user and a hosted Windows runner is one.
   core-pg:
     name: core-pg (${{ matrix.os }} ${{ matrix.profile }})
-    needs: [changes, core-build]
+    needs: [changes, core-build-linux]
     if: needs.changes.outputs.core_pg == 'true'
     timeout-minutes: 60
     runs-on: ${{ matrix.runner }}
@@ -2204,6 +2291,77 @@ jobs:
         with:
           name: ${{ matrix.os }}-core-pg-${{ matrix.profile }}
 
+  core-pg-macos:
+    name: core-pg (macos)
+    needs: [changes, core-build-macos]
+    if: needs.changes.outputs.core_pg_macos == 'true'
+    timeout-minutes: 90
+    runs-on: macos-15
+    defaults:
+      run:
+        shell: bash
+    env:
+      MIXDOG_LEG: macos/core-pg/1of1
+      MIXDOG_LEG_OS: macos
+      GIT_AUTHOR_NAME: mixdog-test
+      GIT_AUTHOR_EMAIL: mixdog-test@example.invalid
+      GIT_COMMITTER_NAME: mixdog-test
+      GIT_COMMITTER_EMAIL: mixdog-test@example.invalid
+      MIXDOG_SKIP_USER_DATA_BACKUP: "1"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - name: Read the repository Rust toolchain
+        id: rust-pin
+        run: echo "version=$(sed -n 's/^channel = "\([^" ]*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
+      - uses: ./.github/actions/install-nextest
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: core-tests-${{ env.GATE_KEY }}-macos
+      - name: Unpack the PostgreSQL runtime
+        id: pg_runtime
+        run: |
+          test "$(id -u)" != 0
+          node scripts/ci/provision-pg-runtime.mjs "$RUNNER_TEMP/pg-runtime" | tee -a "$GITHUB_ENV"
+      # Each profile is its own slot of this leg. The second runs whatever the first's tests ended, as two jobs would, but never
+      # after a failed setup; the evidence upload follows either profile that ran, so a passing one keeps its receipt.
+      - name: Run the services-pg profile
+        id: services_pg
+        if: contains(fromJSON(needs.changes.outputs.core_pg_macos_profiles), 'services-pg')
+        env:
+          MIXDOG_SLOT: services-pg
+          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/services-pg.json
+        run: |
+          node scripts/ci/run-nextest.mjs --junit native/core/target/nextest/services-pg/junit.xml -- \
+            --archive-file core-tests.tar.zst --workspace-remap native/core \
+            --config-file native/core/.config/nextest.toml --profile services-pg \
+            -- --run-ignored only \
+            --no-tests=fail --status-level slow --final-status-level slow --failure-output immediate-final --success-output never
+      - name: Run the pg profile
+        id: pg
+        if: ${{ !cancelled() && steps.pg_runtime.outcome == 'success' && contains(fromJSON(needs.changes.outputs.core_pg_macos_profiles), 'pg') }}
+        env:
+          MIXDOG_SLOT: pg
+          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/pg.json
+        run: |
+          node scripts/ci/run-nextest.mjs --junit native/core/target/nextest/pg/junit.xml -- \
+            --archive-file core-tests.tar.zst --workspace-remap native/core \
+            --config-file native/core/.config/nextest.toml --profile pg \
+            -- --run-ignored only \
+            --no-tests=fail --status-level slow --final-status-level slow --failure-output immediate-final --success-output never
+      - name: Upload the evidence of this leg
+        if: ${{ !cancelled() && (steps.services_pg.outcome == 'success' || steps.services_pg.outcome == 'failure' || steps.pg.outcome == 'success' || steps.pg.outcome == 'failure') }}
+        uses: ./.github/actions/upload-evidence
+        with:
+          name: macos-core-pg-1of1
+
   # Clippy of the daemon, which composes the core (the command the merge check runs), on each system
   # because each compiles code the others do not (cfg(windows), cfg(target_os = "macos")). It is
   # a check build: it shares nothing with the test build but the build scripts, so it runs beside it
@@ -2226,8 +2384,6 @@ jobs:
     defaults:
       run:
         shell: bash
-    env:
-      CARGO_BUILD_JOBS: "3"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -2318,7 +2474,6 @@ jobs:
     env:
       MIXDOG_LEG: ${{ matrix.os }}/core-real/1of1
       MIXDOG_LEG_OS: ${{ matrix.os }}
-      CARGO_BUILD_JOBS: "3"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -2432,7 +2587,7 @@ jobs:
   # added to the graph without its line fails the gate's own test.
   complete:
     if: always()
-    needs: [changes, inventory, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, desktop-computer, desktop-slow, relay, relay-rust, spawn, packages, patch, graph, browser-import, secure-desktop, window, mobile-scripts, core-build, mixdogd, core-tests, core-entry, core-pg, core-lint, core-real]
+    needs: [changes, inventory, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, desktop-computer, desktop-slow, relay, relay-rust, spawn, packages, patch, graph, browser-import, secure-desktop, window, mobile-scripts, core-build-linux, core-build-macos, core-build-windows, mixdogd, core-tests-linux, core-tests-macos, core-tests-windows, core-entry, core-pg, core-pg-macos, core-lint, core-real]
     timeout-minutes: 5
     runs-on: ubuntu-22.04
     steps:
@@ -2460,11 +2615,16 @@ jobs:
           SECURE_DESKTOP: ${{ needs.secure-desktop.result }}
           WINDOW: ${{ needs.window.result }}
           MOBILE_SCRIPTS: ${{ needs.mobile-scripts.result }}
-          CORE_BUILD: ${{ needs.core-build.result }}
+          CORE_BUILD_LINUX: ${{ needs.core-build-linux.result }}
+          CORE_BUILD_MACOS: ${{ needs.core-build-macos.result }}
+          CORE_BUILD_WINDOWS: ${{ needs.core-build-windows.result }}
           MIXDOGD: ${{ needs.mixdogd.result }}
-          CORE_TESTS: ${{ needs.core-tests.result }}
+          CORE_TESTS_LINUX: ${{ needs.core-tests-linux.result }}
+          CORE_TESTS_MACOS: ${{ needs.core-tests-macos.result }}
+          CORE_TESTS_WINDOWS: ${{ needs.core-tests-windows.result }}
           CORE_ENTRY: ${{ needs.core-entry.result }}
           CORE_PG: ${{ needs.core-pg.result }}
+          CORE_PG_MACOS: ${{ needs.core-pg-macos.result }}
           CORE_LINT: ${{ needs.core-lint.result }}
           CORE_REAL: ${{ needs.core-real.result }}
           SEL_RUNTIME: ${{ needs.changes.outputs.runtime == 'true' }}
@@ -2485,11 +2645,16 @@ jobs:
           SEL_SECURE_DESKTOP: ${{ needs.changes.outputs.secure_desktop == 'true' }}
           SEL_WINDOW: ${{ needs.changes.outputs.window == 'true' }}
           SEL_MOBILE_SCRIPTS: ${{ needs.changes.outputs.mobile == 'true' }}
-          SEL_CORE_BUILD: ${{ needs.changes.outputs.core_build == 'true' }}
+          SEL_CORE_BUILD_LINUX: ${{ needs.changes.outputs.core_build == 'true' }}
+          SEL_CORE_BUILD_MACOS: ${{ needs.changes.outputs.core_build == 'true' }}
+          SEL_CORE_BUILD_WINDOWS: ${{ needs.changes.outputs.core_build == 'true' }}
           SEL_MIXDOGD: ${{ needs.changes.outputs.mixdogd == 'true' }}
-          SEL_CORE_TESTS: ${{ needs.changes.outputs.core == 'true' }}
+          SEL_CORE_TESTS_LINUX: ${{ needs.changes.outputs.core == 'true' }}
+          SEL_CORE_TESTS_MACOS: ${{ needs.changes.outputs.core == 'true' }}
+          SEL_CORE_TESTS_WINDOWS: ${{ needs.changes.outputs.core == 'true' }}
           SEL_CORE_ENTRY: ${{ needs.changes.outputs.core_entry == 'true' }}
           SEL_CORE_PG: ${{ needs.changes.outputs.core_pg == 'true' }}
+          SEL_CORE_PG_MACOS: ${{ needs.changes.outputs.core_pg_macos == 'true' }}
           SEL_CORE_LINT: ${{ needs.changes.outputs.core == 'true' }}
           SEL_CORE_REAL: ${{ (github.event_name != 'pull_request' && (needs.changes.outputs.core == 'true' || needs.changes.outputs.core_scripts == 'true')) || (github.event_name == 'pull_request' && needs.changes.outputs.core_scripts == 'true') }}
         run: |
@@ -2523,11 +2688,16 @@ jobs:
           gate secure-desktop "$SEL_SECURE_DESKTOP" "$SECURE_DESKTOP"
           gate window "$SEL_WINDOW" "$WINDOW"
           gate mobile-scripts "$SEL_MOBILE_SCRIPTS" "$MOBILE_SCRIPTS"
-          gate core-build "$SEL_CORE_BUILD" "$CORE_BUILD"
+          gate core-build-linux "$SEL_CORE_BUILD_LINUX" "$CORE_BUILD_LINUX"
+          gate core-build-macos "$SEL_CORE_BUILD_MACOS" "$CORE_BUILD_MACOS"
+          gate core-build-windows "$SEL_CORE_BUILD_WINDOWS" "$CORE_BUILD_WINDOWS"
           gate mixdogd "$SEL_MIXDOGD" "$MIXDOGD"
-          gate core-tests "$SEL_CORE_TESTS" "$CORE_TESTS"
+          gate core-tests-linux "$SEL_CORE_TESTS_LINUX" "$CORE_TESTS_LINUX"
+          gate core-tests-macos "$SEL_CORE_TESTS_MACOS" "$CORE_TESTS_MACOS"
+          gate core-tests-windows "$SEL_CORE_TESTS_WINDOWS" "$CORE_TESTS_WINDOWS"
           gate core-entry "$SEL_CORE_ENTRY" "$CORE_ENTRY"
           gate core-pg "$SEL_CORE_PG" "$CORE_PG"
+          gate core-pg-macos "$SEL_CORE_PG_MACOS" "$CORE_PG_MACOS"
           gate core-lint "$SEL_CORE_LINT" "$CORE_LINT"
           gate core-real "$SEL_CORE_REAL" "$CORE_REAL"
       # The proof. A full run has no way to be green without it: the manifest of the commit (what the source defines) is compared with the

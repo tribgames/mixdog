@@ -1045,6 +1045,14 @@ test('the verdict cannot be switched off: any condition, tolerated failure, edit
       /job relay: its evidence upload has the condition/,
     ],
     [
+      'a leg of two profiles uploads its evidence after one of them only',
+      (w) => {
+        gateOf(w)['core-pg-macos'].steps.find((step) => step.uses === './.github/actions/upload-evidence').if =
+          "${{ !cancelled() && (steps.services_pg.outcome == 'success' || steps.services_pg.outcome == 'failure') }}";
+      },
+      /job core-pg-macos: its evidence upload has the condition/,
+    ],
+    [
       'the join of the prepared runtime is tolerated',
       (w) => {
         w['release.yml'].jobs['prepared-runtime-join']['continue-on-error'] = true;
@@ -2072,7 +2080,7 @@ test('the listings of a gate call are read from the layout the download leaves, 
 test("the workflows spell the gate's artifact names: the rust-lists upload and the evidence action", () => {
   const root = fileURLToPath(new URL('../../../', import.meta.url));
   const gate = loadWorkflows(root)['release-gate.yml'];
-  const upload = gate.jobs['core-tests'].steps.find(
+  const upload = gate.jobs['core-tests-linux'].steps.find(
     (step) => /upload-artifact/.test(step.uses ?? '') && /rust-lists/.test(step.with.name)
   );
   assert.equal(upload.with.name, artifactTemplate('rust-lists', '${{ matrix.os }}'));
