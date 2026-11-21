@@ -467,8 +467,6 @@ async fn a_turn_that_edits_a_file_records_its_change_once_its_seal_returns() {
     let root = ws.path().canonicalize().unwrap().to_string_lossy().trim_start_matches(r"\\?\").to_owned();
     assert!(std::process::Command::new("git").args(["init", "-q"]).current_dir(&root).status().unwrap().success());
     std::fs::write(ws.path().join("a.txt"), "one\n").unwrap();
-    let checkpoints: Arc<Mutex<Vec<String>>> = Arc::default();
-    let seen = checkpoints.clone();
     let cwd = root.clone();
     let mut deps = rig.deps_parts(rig.store.clone());
     let review = Arc::new(SealWatch { inner: deps.turn_review.clone(), sealed: tokio::sync::Notify::new() });
@@ -476,12 +474,10 @@ async fn a_turn_that_edits_a_file_records_its_change_once_its_seal_returns() {
     let deps = Arc::new(deps);
     let tool = review.clone();
     rig.set_script(Arc::new(move |run| {
-        let (seen, cwd, tool) = (seen.clone(), cwd.clone(), tool.clone());
+        let (cwd, tool) = (cwd.clone(), tool.clone());
         Box::pin(async move {
             use mixdog_core_api::turn_review::{CallChange, ReviewContent};
             run.port.input_durable().await.expect("input durable");
-            // The turn's checkpoint is its input row.
-            seen.lock().unwrap().push(run.input_item.as_str().to_owned());
             run.review.start(&cwd);
             // The edit tool waits for the baseline, writes, and records its call.
             assert!(run.review.ready().await.is_some(), "a baseline");
@@ -499,14 +495,14 @@ async fn a_turn_that_edits_a_file_records_its_change_once_its_seal_returns() {
     }));
     let directory = SessionDirectory::new(deps);
     let handle = start_thread(&directory).await;
-    turn(&handle, "edit a.txt", "op-1").await;
+    let input = json!({ "prompt": "edit a.txt", "options": { "clientSubmissionId": "desktop-submit-1" } });
+    handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-1", "input": input }), "op-1")).await.expect("turn/start");
     // The baseline and the seal run real Git (a shadow repository), and a settled turn does not
     // mean a sealed one (the seal outlives a turn's two-second wait): the record is readable once
     // the seal itself has returned, which is the event waited for.
     review.sealed.notified().await;
-    let checkpoint = checkpoints.lock().unwrap()[0].clone();
-    assert!(!checkpoint.is_empty());
-    let read = ChangesRead { checkpoint_id: checkpoint, patch: true, file: None };
+    // A client names the turn by the prompt row it shows, the submission id.
+    let read = ChangesRead { checkpoint_id: "desktop-submit-1".into(), patch: true, file: None };
     let changes = review.turn_changes(handle.id.as_str(), read).await.expect("the turn's change record");
     let text = Value::Object(changes).to_string();
     assert!(text.contains("a.txt") && text.contains("+two"), "{text}");
@@ -3245,7 +3241,7 @@ async fn a_steered_prompt_shows_under_its_client_submission_beside_the_starters(
     let submissions: Vec<&str> = items.iter().filter_map(|item| item["clientSubmissionId"].as_str()).collect();
     assert_eq!(submissions, ["sub-A", "sub-B"], "{page}");
     let checkpoints: std::collections::BTreeSet<&str> = items.iter().filter_map(|item| item["checkpointId"].as_str()).collect();
-    assert_eq!(checkpoints, [starter.as_str()].into(), "{page}");
+    assert_eq!(checkpoints, ["sub-A"].into(), "{page}");
 }
 
 /// `notification-bus.test.mjs` "one wake per session is in flight, and a suppressed wake
