@@ -427,7 +427,7 @@ function routeRequest(relay, request, response) {
     );
     return;
   }
-  if (url.startsWith('/client/register')) {
+  if (url === '/client/register' || url.startsWith('/client/register?')) {
     handleClientRegistration(store, unauthorizedLimiter, request, response, claims).catch(
       failRequest(request, response, 'client registration')
     );
@@ -435,7 +435,7 @@ function routeRequest(relay, request, response) {
   }
   // Approval handoff: the only surface a credential-less container may use,
   // and it grants nothing without the desktop's answer.
-  if (url.startsWith('/claim')) {
+  if (url === '/claim' || url.startsWith('/claim/') || url.startsWith('/claim?')) {
     handleClaimRequest({ store, liveDesktops, claims, unauthorizedLimiter, pairCodes }, request, response).catch(
       failRequest(request, response, 'claim request')
     );
