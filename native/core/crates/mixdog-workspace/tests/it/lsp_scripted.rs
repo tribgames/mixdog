@@ -240,6 +240,7 @@ struct Started {
     project_path: String,
     program: std::path::PathBuf,
     state: Value,
+    /// A test that calls the manager again binds this: left to `..`, the folders and the project's `lsp.json` are deleted at once.
     _dirs: (tempfile::TempDir, tempfile::TempDir),
 }
 
@@ -310,7 +311,7 @@ async fn the_servers_diagnostics_reach_the_sink_under_the_relative_path() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_second_event_of_an_open_document_is_a_change_and_does_not_start_the_server_again() {
-    let Started { pm, lsp, root, project_path, .. } = started_server().await;
+    let Started { pm, lsp, root, project_path, _dirs, .. } = started_server().await;
     lsp.document(&project_path, &root, DocumentInput { kind: "change".into(), ..open("src/a.script", "let ab", 2) }).await.unwrap();
     let change = pm.sent("textDocument/didChange").await;
     assert_eq!((change["params"]["textDocument"]["version"].clone(), change["params"]["contentChanges"][0]["text"].clone()), (json!(2), json!("let ab")));
@@ -319,7 +320,7 @@ async fn a_second_event_of_an_open_document_is_a_change_and_does_not_start_the_s
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_supported_request_is_the_servers_answer_and_an_unoffered_method_is_not_asked() {
-    let Started { pm, lsp, root, project_path, .. } = started_server().await;
+    let Started { pm, lsp, root, project_path, _dirs, .. } = started_server().await;
     let hover = lsp
         .request(&project_path, &root, "src/a.script", "scriptlang", "textDocument/hover", &json!({ "position": { "line": 0, "character": 1 } }))
         .await
@@ -334,13 +335,13 @@ async fn a_supported_request_is_the_servers_answer_and_an_unoffered_method_is_no
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_document_path_out_of_the_project_is_refused() {
-    let Started { lsp, root, project_path, .. } = started_server().await;
+    let Started { lsp, root, project_path, _dirs, .. } = started_server().await;
     assert!(lsp.document(&project_path, &root, open("../outside.script", "x", 1)).await.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn closing_a_document_clears_its_diagnostics_and_stopping_the_project_ends_the_server() {
-    let Started { pm, sink, lsp, root, project_path, .. } = started_server().await;
+    let Started { pm, sink, lsp, root, project_path, _dirs, .. } = started_server().await;
     first_diagnostics(&sink).await;
     lsp.document(&project_path, &root, DocumentInput { kind: "close".into(), ..open("src/a.script", "", 3) }).await.unwrap();
     pm.sent("textDocument/didClose").await;
