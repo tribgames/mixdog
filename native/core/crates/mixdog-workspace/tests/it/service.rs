@@ -49,6 +49,10 @@ fn env() -> Env {
 }
 
 fn env_with(turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>>) -> Env {
+    env_on(turn_review, mixdog_workspace::editorcfg::now_ms)
+}
+
+fn env_on(turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>>, backup_clock: fn() -> i64) -> Env {
     let tokens = mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let base = canonical(dir.path()).unwrap();
@@ -59,7 +63,7 @@ fn env_with(turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReview
     std::fs::write(root.join("readme.md"), "# hi\n").unwrap();
     let limits = MockLimits::default();
     let (state, _) = CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &base.join("core.sqlite")).unwrap();
-    let service = WorkspaceService::new(Deps {
+    let service = WorkspaceService::with_backup_clock(Deps {
         lanes: Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk },
         feeds: Arc::new(MockScopedFeeds::new(limits)),
         processes: Arc::new(MockProcessManager::default()),
@@ -72,7 +76,7 @@ fn env_with(turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReview
         turn_review,
         releases: mixdog_workspace::release::FolderReleases::new(),
         upload_chunk_bytes: mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
-    })
+    }, backup_clock)
     .unwrap();
     // Registered as a row: `project/create` also leaves `.mixdog/project.id` in the folder, which
     // the recorded folder listings of this project do not have.
@@ -319,7 +323,9 @@ async fn a_preview_range_over_a_grant_names_the_granted_file_alone() {
 }
 
 /// `FIXED_NOW_MS` of `lib/phone-files-script.mjs`: the clock the Node recording ran on, given to the backups' clock.
-const PHONE_FILES_NOW_MS: &str = "1780819750000";
+fn phone_files_now_ms() -> i64 {
+    1_780_819_750_000
+}
 
 /// A folder whose name only trims to a registered project's is not that project (Node trims the phone's `projectPath` and then
 /// acts on the registry's own root). A relay backup named in such a folder is kept under the project's file, which is what the
@@ -1532,9 +1538,7 @@ fn no_backup() -> Value {
 }
 
 async fn relay_rig() -> RelayRig {
-    // SAFETY: nextest runs each test in its own process, and nothing else in this one reads the environment concurrently yet.
-    unsafe { std::env::set_var("MIXDOG_FIXED_NOW_MS", PHONE_FILES_NOW_MS) };
-    let env = env();
+    let env = env_on(None, phone_files_now_ms);
     env.service.set_phone_grants(
         Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(NoneGone))),
         Arc::new(|connection: ConnectionId| (connection.0 == 1).then(|| "phone-1".to_owned())),

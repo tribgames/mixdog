@@ -694,10 +694,15 @@ mod serverdownload_calls {
 
 impl WorkspaceService {
     pub fn new(deps: Deps) -> WsResult<Arc<Self>> {
-        Self::build(deps, Arc::new(Transfers::default()))
+        Self::build(deps, Arc::new(Transfers::default()), crate::editorcfg::now_ms)
     }
 
-    fn build(deps: Deps, transfers: Arc<Transfers>) -> WsResult<Arc<Self>> {
+    /// [`WorkspaceService::new`] with the editor backups on `backup_clock` (epoch milliseconds).
+    pub fn with_backup_clock(deps: Deps, backup_clock: fn() -> i64) -> WsResult<Arc<Self>> {
+        Self::build(deps, Arc::new(Transfers::default()), backup_clock)
+    }
+
+    fn build(deps: Deps, transfers: Arc<Transfers>, backup_clock: fn() -> i64) -> WsResult<Arc<Self>> {
         let router = Arc::new(Router { fs: Mutex::default() });
         let watcher = Arc::new(FolderWatcher::new(router.clone())?);
         let search = SearchSessions::new(deps.lanes, deps.feeds.clone(), watcher.clone());
@@ -724,7 +729,7 @@ impl WorkspaceService {
             code_graph: deps.code_graph,
             turn_review: deps.turn_review,
             tracked: deps.tracked,
-            backups: Arc::new(crate::editorcfg::Backups::new(&deps.user_data_dir)),
+            backups: Arc::new(crate::editorcfg::Backups::with_clock(&deps.user_data_dir, backup_clock)),
             user_data: deps.user_data_dir,
             state: deps.state,
             host: OnceLock::new(),
