@@ -566,7 +566,123 @@ async fn plan_with_fork(
         conversation_input: &messages,
         timeout_ms: None,
     };
-    mixdog_agent::compact::summary_run::summarize_on_plan(&cx, &[mixdog_agent::compact::summary_run::RouteStep::Session]).await
+    let plan = mixdog_agent::compact::summary_run::plan(mixdog_agent::compact::summary_run::SummaryMode::Session, true);
+    mixdog_agent::compact::summary_run::summarize_on_plan(&cx, &plan).await
+}
+
+/// The conversation's own route and a lighter Maintainer, each with its own sender.
+struct TwoRoutes {
+    own: Arc<Scripted>,
+    maintainer: Arc<Scripted>,
+}
+
+#[async_trait]
+impl mixdog_agent::compact::summary_run::RouteResolver for TwoRoutes {
+    async fn resolve(
+        &self,
+        step: mixdog_agent::compact::summary_run::RouteStep,
+    ) -> Result<Option<mixdog_agent::compact::summary_run::SummaryRoute>, SummaryFailure> {
+        use mixdog_agent::compact::summary_run::RouteStep;
+        let (model, sender) = match step {
+            RouteStep::Session => ("m", self.own.clone()),
+            RouteStep::Maintainer => ("light", self.maintainer.clone()),
+            RouteStep::Lighter => return Ok(None),
+        };
+        Ok(Some(mixdog_agent::compact::summary_run::SummaryRoute {
+            step,
+            provider_name: "p".into(),
+            model: model.into(),
+            context_window: 200_000,
+            calibration: 1.0,
+            fast: false,
+            effort: None,
+            sender,
+        }))
+    }
+}
+
+#[tokio::test]
+async fn a_smart_summary_whose_warm_fork_wrote_nothing_is_written_by_the_maintainer_not_the_conversations_model() {
+    use mixdog_agent::compact::summary_run::RouteStep;
+    use mixdog_agent::compact::summary_run::SummaryMode;
+    fresh!(_meter, ctx, &NoAttachments);
+    let messages = dialogue();
+    let routes = TwoRoutes { own: Arc::new(Scripted::answering(vec![valid_summary("own")])), maintainer: Arc::new(Scripted::answering(vec![valid_summary("light")])) };
+    let fork = WarmFork { text: String::new(), stop: StopReason::EndTurn };
+    let cx = mixdog_agent::compact::summary_run::SummarizeContext {
+        fresh: &ctx,
+        fork: &fork,
+        resolver: &routes,
+        reserve_tokens: 0,
+        compact_budget_tokens: 100_000,
+        hard_budget_tokens: 100_000,
+        context_window: 200_000,
+        conversation_input: &messages,
+        timeout_ms: None,
+    };
+    let (step, got) =
+        mixdog_agent::compact::summary_run::summarize_on_plan(&cx, &mixdog_agent::compact::summary_run::plan(SummaryMode::Smart, true)).await.expect("written");
+    assert_eq!((step, got.model.as_str(), got.summary), (RouteStep::Maintainer, "light", valid_summary("light")));
+    assert_eq!((got.mode, got.shared_prefix_fallback), ("isolated", Some("empty")));
+    assert_eq!((routes.maintainer.prompts().len(), routes.own.prompts().len()), (1, 0), "the uncached request never goes to the conversation's model");
+    let usage = got.usage.expect("usage");
+    assert_eq!((usage.input_tokens, usage.output_tokens), (110, 12), "the fork's usage is kept with the isolated call's");
+
+    // A fork that writes the summary is the conversation's own, with no other request.
+    let routes = TwoRoutes { own: Arc::new(Scripted::answering(vec![valid_summary("own")])), maintainer: Arc::new(Scripted::answering(vec![valid_summary("light")])) };
+    let fork = WarmFork { text: valid_summary("fork"), stop: StopReason::EndTurn };
+    let cx = mixdog_agent::compact::summary_run::SummarizeContext { fork: &fork, resolver: &routes, ..cx };
+    let (step, got) =
+        mixdog_agent::compact::summary_run::summarize_on_plan(&cx, &mixdog_agent::compact::summary_run::plan(SummaryMode::Smart, true)).await.expect("written");
+    assert_eq!((step, got.mode, got.model.as_str()), (RouteStep::Session, "shared-prefix", "m"));
+    assert_eq!((routes.maintainer.prompts().len(), routes.own.prompts().len()), (0, 0));
+}
+
+/// A warm fork on an adapter whose input leaves the cache out; it reads 900 cached tokens and writes no summary.
+struct CacheExcludingFork;
+
+#[async_trait]
+impl mixdog_agent::compact::summary_run::ForkSource for CacheExcludingFork {
+    fn warm(&self) -> bool {
+        true
+    }
+    fn request(&self) -> Option<mixdog_agent::compact::summary_run::ForkRequest> {
+        Some(mixdog_agent::compact::summary_run::ForkRequest { provider_name: "p".into(), model: "m".into(), prompt_tokens: 10, shared_prefix_messages: 1 })
+    }
+    async fn send(&self, _: &mixdog_agent::compact::summary_run::SummaryRoute) -> Result<SummaryResponse, SummaryFailure> {
+        Ok(SummaryResponse {
+            text: String::new(),
+            tool_call: false,
+            stop: Some(StopReason::EndTurn),
+            usage: Some(Usage { input_tokens: 100, output_tokens: 7, cache_read_tokens: 900, ..Usage::default() }),
+            input_excludes_cache: true,
+        })
+    }
+}
+
+#[tokio::test]
+async fn a_forks_usage_joins_the_writing_routes_in_that_routes_cache_convention() {
+    use mixdog_agent::compact::summary_run::SummaryMode;
+    fresh!(_meter, ctx, &NoAttachments);
+    let messages = dialogue();
+    // The Maintainer's adapter (`Scripted`) counts the cache inside its input.
+    let routes = TwoRoutes { own: Arc::new(Scripted::answering(vec![valid_summary("own")])), maintainer: Arc::new(Scripted::answering(vec![valid_summary("light")])) };
+    let cx = mixdog_agent::compact::summary_run::SummarizeContext {
+        fresh: &ctx,
+        fork: &CacheExcludingFork,
+        resolver: &routes,
+        reserve_tokens: 0,
+        compact_budget_tokens: 100_000,
+        hard_budget_tokens: 100_000,
+        context_window: 200_000,
+        conversation_input: &messages,
+        timeout_ms: None,
+    };
+    let (_, got) =
+        mixdog_agent::compact::summary_run::summarize_on_plan(&cx, &mixdog_agent::compact::summary_run::plan(SummaryMode::Smart, true)).await.expect("written");
+    let usage = got.usage.expect("usage");
+    assert!(!got.input_excludes_cache);
+    assert_eq!((usage.input_tokens, usage.cache_read_tokens, usage.output_tokens), (10 + 100 + 900, 1 + 900, 5 + 7), "the fork's cached read counts once");
 }
 
 #[tokio::test]

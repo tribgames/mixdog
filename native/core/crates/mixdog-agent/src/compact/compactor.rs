@@ -30,7 +30,7 @@ use super::summary_run::RouteStep;
 use super::summary_run::SummarizeContext;
 use super::summary_run::SummaryMode;
 use super::summary_run::elapsed_ms;
-use super::summary_run::plan_steps;
+use super::summary_run::plan;
 use super::summary_run::summarize_on_plan;
 use super::triggers::ToolMediaMeter;
 use super::triggers::should_compact_for_request_media;
@@ -461,6 +461,6 @@ impl PlannedHandoff {
             conversation_input: &input,
             timeout_ms: self.config.timeout_ms,
         };
-        summarize_on_plan(&cx, &plan_steps(mode, warm)).await
+        summarize_on_plan(&cx, &plan(mode, warm)).await
     }
 }

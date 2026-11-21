@@ -169,13 +169,20 @@ impl SummaryMode {
     }
 }
 
-/// The routes in the order they are tried; the conversation's own model is
-/// always the last step.
-pub fn plan_steps(mode: SummaryMode, warm: bool) -> Vec<RouteStep> {
+/// The routes of a summary in the order they are tried; the conversation's own model is always the last step.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Plan {
+    /// The conversation's cached request is forked before any route's own request. A fork that writes no summary
+    /// leaves the isolated request, which reads no cache, to the routes in their order.
+    pub fork_first: bool,
+    pub steps: Vec<RouteStep>,
+}
+
+pub fn plan(mode: SummaryMode, warm: bool) -> Plan {
     match mode {
-        SummaryMode::Maintainer => vec![RouteStep::Maintainer, RouteStep::Session],
-        SummaryMode::Smart if !warm => vec![RouteStep::Maintainer, RouteStep::Lighter, RouteStep::Session],
-        _ => vec![RouteStep::Session],
+        SummaryMode::Maintainer => Plan { fork_first: false, steps: vec![RouteStep::Maintainer, RouteStep::Session] },
+        SummaryMode::Smart => Plan { fork_first: warm, steps: vec![RouteStep::Maintainer, RouteStep::Lighter, RouteStep::Session] },
+        SummaryMode::Session => Plan { fork_first: false, steps: vec![RouteStep::Session] },
     }
 }
 
@@ -380,36 +387,62 @@ pub trait ForkSource: Send + Sync {
 
 pub enum Forked {
     Generated(Generated),
-    /// Why the isolated request runs instead, and the usage the fork spent.
+    /// Why the isolated request runs instead, and what the fork spent when it ran.
     Fallback {
         reason: &'static str,
-        usage: Option<Usage>,
+        spent: Option<ForkSpend>,
     },
+}
+
+/// The usage of a fork that ran and wrote no summary, in the convention of the adapter that sent it.
+#[derive(Clone, Debug)]
+pub struct ForkSpend {
+    pub usage: Usage,
+    pub input_excludes_cache: bool,
+}
+
+impl ForkSpend {
+    fn of(response: &SummaryResponse) -> Option<Self> {
+        response.usage.clone().map(|usage| Self { usage, input_excludes_cache: response.input_excludes_cache })
+    }
+
+    /// The usage as an adapter of the other convention would report it: an input that leaves the cache out gains its
+    /// cache reads and writes, one that counts them loses them.
+    fn restated(self, input_excludes_cache: bool) -> Usage {
+        let mut usage = self.usage;
+        let cache = usage.cache_read_tokens + usage.cache_write_tokens;
+        match (self.input_excludes_cache, input_excludes_cache) {
+            (true, false) => usage.input_tokens += cache,
+            (false, true) => usage.input_tokens = usage.input_tokens.saturating_sub(cache),
+            _ => {}
+        }
+        usage
+    }
 }
 
 /// Summarizes through a fork of the session's cached request. A fork that
 /// cannot run, errors, answers with a tool call or yields no summary text falls back. A terminal refusal does not.
 pub async fn summarize_on_shared_prefix(fork: &dyn ForkSource, route: &SummaryRoute, conversation_input: &[AgentMessage]) -> Result<Forked, SummaryFailure> {
     let Some(request) = fork.request() else {
-        return Ok(Forked::Fallback { reason: "no_settled_request", usage: None });
+        return Ok(Forked::Fallback { reason: "no_settled_request", spent: None });
     };
     if request.provider_name != route.provider_name || request.model != route.model {
-        return Ok(Forked::Fallback { reason: "different_route", usage: None });
+        return Ok(Forked::Fallback { reason: "different_route", spent: None });
     }
     let started = tokio::time::Instant::now();
     let window = (route.context_window as f64 / route.calibration).floor() as u64;
     if request.prompt_tokens + SUMMARY_OUTPUT_TOKENS > window {
-        return Ok(Forked::Fallback { reason: "window", usage: None });
+        return Ok(Forked::Fallback { reason: "window", spent: None });
     }
     let response = match fork.send(route).await {
         Ok(response) => response,
-        Err(_) => return Ok(Forked::Fallback { reason: "error", usage: None }),
+        Err(_) => return Ok(Forked::Fallback { reason: "error", spent: None }),
     };
     if response.tool_call {
-        return Ok(Forked::Fallback { reason: "tool_call", usage: response.usage });
+        return Ok(Forked::Fallback { reason: "tool_call", spent: ForkSpend::of(&response) });
     }
     if usable_summary_stop(response.stop.as_ref()) && extract_response_text(&response.text).is_empty() {
-        return Ok(Forked::Fallback { reason: "empty", usage: response.usage });
+        return Ok(Forked::Fallback { reason: "empty", spent: ForkSpend::of(&response) });
     }
     let accepted = accept_summary(&response, conversation_input)?;
     Ok(Forked::Generated(Generated {
@@ -448,16 +481,37 @@ async fn before_deadline<T>(limit: std::time::Duration, future: impl std::future
     mixdog_rt::time::timeout(limit, future).await.map_err(|_| SummaryFailure::Failed(SUMMARY_TIMED_OUT.to_owned()))
 }
 
+/// Why no fork wrote the summary, and what a fork that ran spent.
+#[derive(Clone)]
+struct Unforked {
+    reason: &'static str,
+    spent: Option<ForkSpend>,
+}
+
+fn deadline(cx: &SummarizeContext<'_>) -> std::time::Duration {
+    std::time::Duration::from_millis(cx.timeout_ms.filter(|ms| *ms > 0).unwrap_or(HANDOFF_TIMEOUT_MAX_MS))
+}
+
+async fn fork_on_route(cx: &SummarizeContext<'_>, route: &SummaryRoute) -> Result<Result<Generated, Unforked>, SummaryFailure> {
+    Ok(match before_deadline(deadline(cx), summarize_on_shared_prefix(cx.fork, route, cx.conversation_input)).await?? {
+        Forked::Generated(done) => Ok(done),
+        Forked::Fallback { reason, spent } => Err(Unforked { reason, spent }),
+    })
+}
+
 async fn summarize_on_route(cx: &SummarizeContext<'_>, route: &SummaryRoute, warm: bool) -> Result<Generated, SummaryFailure> {
-    let limit = std::time::Duration::from_millis(cx.timeout_ms.filter(|ms| *ms > 0).unwrap_or(HANDOFF_TIMEOUT_MAX_MS));
-    let (fallback, fork_usage) = if warm {
-        match before_deadline(limit, summarize_on_shared_prefix(cx.fork, route, cx.conversation_input)).await?? {
-            Forked::Generated(done) => return Ok(done),
-            Forked::Fallback { reason, usage } => (reason, usage),
+    let unforked = if warm {
+        match fork_on_route(cx, route).await? {
+            Ok(done) => return Ok(done),
+            Err(unforked) => unforked,
         }
     } else {
-        ("cold_cache", None)
+        Unforked { reason: "cold_cache", spent: None }
     };
+    isolated_on_route(cx, route, unforked).await
+}
+
+async fn isolated_on_route(cx: &SummarizeContext<'_>, route: &SummaryRoute, unforked: Unforked) -> Result<Generated, SummaryFailure> {
     let window = if route.context_window > 0 { route.context_window } else { cx.context_window };
     let output_reserve = SUMMARY_OUTPUT_TOKENS.min(256.max((window as f64 * 0.15).floor() as u64));
     // What Node sent on the wire: its `maxOutputTokens` reached every provider that reads that key (OpenAI,
@@ -468,7 +522,7 @@ async fn summarize_on_route(cx: &SummarizeContext<'_>, route: &SummaryRoute, war
     let output_cap = (!anthropic).then_some(output_reserve);
     let input_budget = 1.max(((window.saturating_sub(output_reserve)) as f64 / route.calibration).floor() as u64);
     let generated = before_deadline(
-        limit,
+        deadline(cx),
         generate_fresh_handoff_summary(
             cx.fresh,
             cx.conversation_input,
@@ -485,13 +539,19 @@ async fn summarize_on_route(cx: &SummarizeContext<'_>, route: &SummaryRoute, war
         ),
     )
     .await??;
-    Ok(Generated { usage: sum_usage(generated.usage, fork_usage), mode: "isolated", shared_prefix_fallback: Some(fallback), ..generated })
+    // The fork may have gone out on another provider than the route that wrote the summary: one convention for the sum.
+    let (usage, input_excludes_cache) = match (generated.usage.clone(), unforked.spent) {
+        (Some(own), Some(spent)) => (sum_usage(Some(own), Some(spent.restated(generated.input_excludes_cache))), generated.input_excludes_cache),
+        (None, Some(spent)) => (Some(spent.usage), spent.input_excludes_cache),
+        (own, None) => (own, generated.input_excludes_cache),
+    };
+    Ok(Generated { usage, input_excludes_cache, mode: "isolated", shared_prefix_fallback: Some(unforked.reason), ..generated })
 }
 
-/// Tries the plan's routes in order. A route out of quota or unavailable
-/// moves to the next; every other failure, and a failure of the
+/// Tries the plan's fork, then its routes in order. A route out of quota or
+/// unavailable moves to the next; every other failure, and a failure of the
 /// conversation's own model (the last step), ends the compaction.
-pub async fn summarize_on_plan(cx: &SummarizeContext<'_>, steps: &[RouteStep]) -> Result<(RouteStep, Generated), CompactError> {
+pub async fn summarize_on_plan(cx: &SummarizeContext<'_>, plan: &Plan) -> Result<(RouteStep, Generated), CompactError> {
     let warm = cx.fork.warm();
     let mut tried: HashSet<(String, String)> = HashSet::new();
     let mut failure: Option<CompactError> = None;
@@ -502,7 +562,17 @@ pub async fn summarize_on_plan(cx: &SummarizeContext<'_>, steps: &[RouteStep]) -
         }
         other => other.into(),
     };
-    for step in steps {
+    let mut unforked = None;
+    if plan.fork_first
+        && let Some(route) = cx.resolver.resolve(RouteStep::Session).await?
+    {
+        match fork_on_route(cx, &route).await {
+            Ok(Ok(done)) => return Ok((route.step, Generated { provider_name: route.provider_name, model: route.model, ..done })),
+            Ok(Err(spent)) => unforked = Some(spent),
+            Err(error) => return Err(on_route(error, &route)),
+        }
+    }
+    for step in &plan.steps {
         let route = match cx.resolver.resolve(*step).await {
             Ok(route) => route,
             Err(error) if *step != RouteStep::Session && matches!(error, SummaryFailure::NextRoute(_)) => {
@@ -515,7 +585,11 @@ pub async fn summarize_on_plan(cx: &SummarizeContext<'_>, steps: &[RouteStep]) -
         if !tried.insert((route.provider_name.clone(), route.model.clone())) {
             continue;
         }
-        match summarize_on_route(cx, &route, warm).await {
+        let attempt = match unforked.clone() {
+            Some(spent) => isolated_on_route(cx, &route, spent).await,
+            None => summarize_on_route(cx, &route, warm).await,
+        };
+        match attempt {
             Ok(done) => return Ok((route.step, Generated { provider_name: route.provider_name, model: route.model, ..done })),
             Err(error) if route.step != RouteStep::Session && matches!(error, SummaryFailure::NextRoute(_)) => {
                 failure = Some(on_route(error, &route));
