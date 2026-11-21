@@ -129,8 +129,68 @@ fn unreadable_file_counts_a_scan_error_instead_of_silent_no_match() {
     let files_scanned = AtomicUsize::new(0);
     let ctx =
         ScanCtx { parsed: &parsed, matcher: &matcher, cancelled: &cancelled, deadline_at: None, scan_errors: &scan_errors, files_scanned: &files_scanned };
-    assert!(scan_file(&missing, "", None, &TrustSnapshot { usn_volumes: Arc::new(HashSet::new()), watch_roots: Arc::new(Vec::new()) }, &ctx,).is_none());
+    assert_eq!(scan_file(&missing, "", None, &TrustSnapshot { usn_volumes: Arc::new(HashSet::new()), watch_roots: Arc::new(Vec::new()) }, &ctx,), Ok(None));
     assert_eq!(scan_errors.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn a_reader_timeout_is_its_own_scan_outcome_not_a_no_match() {
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let dir = std::env::temp_dir().join(format!("mg-reader-timeout-{nonce}"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("sample.txt");
+    std::fs::write(&file, "needle\n").unwrap();
+    let trust = TrustSnapshot { usn_volumes: Arc::new(HashSet::new()), watch_roots: Arc::new(Vec::new()) };
+    let cancelled = AtomicBool::new(false);
+    let files_scanned = AtomicUsize::new(0);
+    for args in [&["-e", "needle", "."][..], &["-l", "-e", "needle", "."][..]] {
+        let parsed = parse_args(&request(args, 10).args).unwrap();
+        let matcher = build_matcher(&parsed).unwrap();
+        let scan_errors = AtomicUsize::new(0);
+        let expired = Some(Instant::now() - Duration::from_millis(1));
+        let ctx = ScanCtx {
+            parsed: &parsed,
+            matcher: &matcher,
+            cancelled: &cancelled,
+            deadline_at: expired,
+            scan_errors: &scan_errors,
+            files_scanned: &files_scanned,
+        };
+        // `-l` always scans with a path prefix (handle_content_search sets
+        // use_prefix for it); the summary printer rejects a pathless sink.
+        assert_eq!(scan_file(&file, "sample.txt", None, &trust, &ctx), Err(ScanTimedOut), "{args:?}");
+        assert_eq!(scan_errors.load(Ordering::Relaxed), 0, "{args:?}");
+        let ctx = ScanCtx { deadline_at: None, ..ctx };
+        assert!(matches!(scan_file(&file, "sample.txt", None, &trust, &ctx), Ok(Some(_))), "{args:?}");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_reader_timeout_followed_by_cancellation_is_still_a_timeout() {
+    use std::io::Read;
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let dir = std::env::temp_dir().join(format!("mg-timeout-then-cancel-{nonce}"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("sample.txt");
+    std::fs::write(&file, "needle\n").unwrap();
+    let parsed = parse_args(&request(&["-e", "needle", "."], 10).args).unwrap();
+    let matcher = build_matcher(&parsed).unwrap();
+    let cancelled = AtomicBool::new(false);
+    let scan_errors = AtomicUsize::new(0);
+    let files_scanned = AtomicUsize::new(0);
+    let expired = Some(Instant::now() - Duration::from_millis(1));
+    let ctx =
+        ScanCtx { parsed: &parsed, matcher: &matcher, cancelled: &cancelled, deadline_at: expired, scan_errors: &scan_errors, files_scanned: &files_scanned };
+    let outcome = scan_with_printer(&file, false, &ctx, |reader| {
+        let result = reader.read(&mut [0u8; 16]).map(drop);
+        cancelled.store(true, Ordering::Relaxed);
+        (result, Vec::new())
+    });
+    std::fs::remove_dir_all(&dir).ok();
+    // `Ok(None)` is what the live batch records as a searched, empty file.
+    assert_eq!(outcome, Err(ScanTimedOut));
+    assert_eq!(scan_errors.load(Ordering::Relaxed), 0);
 }
 
 #[test]
@@ -143,9 +203,6 @@ fn expired_deadline_never_reports_a_silent_complete_empty_result() {
     let cancelled = AtomicBool::new(false);
     let mut req = request(&["--no-heading", "--line-number", "-e", "raise", "--", &file.to_string_lossy()], 50);
     req.cwd = dir.to_string_lossy().into_owned();
-    // scan_standard swallows a mid-scan TimedOut read error into `None`
-    // ("no matches in this file"); the response-level deadline re-check
-    // must still surface partial/timeout instead of complete-empty.
     let expired = Some(Instant::now() - Duration::from_millis(1));
     let response = handle(&req, &cancelled, &store, expired).unwrap();
     assert_eq!(response["timeout"], true);

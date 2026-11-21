@@ -140,8 +140,10 @@ pub(super) fn scan_operand(
     }
     let key = walk_key(operand_path, parsed);
     if let Some(files) = store.take_ready(&key) {
-        let reached_limit = append_scanned_matches_ordered(&files, &HashMap::new(), scope, use_prefix, &trust, ctx, out);
-        let timed_out = deadline_expired(deadline_at);
+        let (reached_limit, timed_out) = match append_scanned_matches_ordered(&files, &HashMap::new(), scope, use_prefix, &trust, ctx, out) {
+            Ok(reached_limit) => (reached_limit, false),
+            Err(ScanTimedOut) => (false, true),
+        };
         return Ok((reached_limit, timed_out, watched, Vec::new()));
     }
     let (live, _waiter) = store.join_live_walk(key, operand_path, parsed, keep_warm, 0, watched);
@@ -162,9 +164,18 @@ pub(super) fn scan_operand(
                 if found_lines >= wanted {
                     continue;
                 }
+                let mut batch_timed_out = false;
                 for (file, block) in scan_matches_keyed(&batch, scope, use_prefix, match_limit, &trust, ctx) {
-                    found_lines += block.as_ref().map_or(0, Vec::len);
-                    scanned.insert(file, block);
+                    match block {
+                        Ok(block) => {
+                            found_lines += block.as_ref().map_or(0, Vec::len);
+                            scanned.insert(file, block);
+                        }
+                        Err(ScanTimedOut) => batch_timed_out = true,
+                    }
+                }
+                if batch_timed_out {
+                    break None;
                 }
             }
             LiveBatch::Done => match &*lock_recover(&live.state) {
@@ -178,15 +189,18 @@ pub(super) fn scan_operand(
     if count > 0 {
         ctx.scan_errors.fetch_add(count, Ordering::Relaxed);
     }
-    let reached_limit = match &inventory {
-        Some(files) => append_scanned_matches_ordered(files, &scanned, scope, use_prefix, &trust, ctx, out),
+    let (reached_limit, timed_out) = match &inventory {
+        Some(files) => match append_scanned_matches_ordered(files, &scanned, scope, use_prefix, &trust, ctx, out) {
+            Ok(reached_limit) => (reached_limit, false),
+            Err(ScanTimedOut) => (false, true),
+        },
         None => {
             let mut found: Vec<(PathBuf, Vec<String>)> = scanned.into_iter().filter_map(|(file, block)| block.map(|block| (file, block))).collect();
             found.par_sort_unstable_by(|a, b| a.0.cmp(&b.0));
-            append_blocks(found.into_iter().map(|(_, block)| block), parsed, out)
+            (append_blocks(found.into_iter().map(|(_, block)| block), parsed, out), true)
         }
     };
-    Ok((reached_limit, inventory.is_none() || deadline_expired(deadline_at), live.cacheable.load(Ordering::Acquire), live_walk_error_details(&live)))
+    Ok((reached_limit, timed_out, live.cacheable.load(Ordering::Acquire), live_walk_error_details(&live)))
 }
 
 pub(super) fn handle(
@@ -417,7 +431,6 @@ fn handle_content_search(
             break;
         }
     }
-    let timed_out = timed_out || deadline_expired(deadline_at);
     // Files that failed to open/read mid-walk were skipped, not searched:
     // surface the count so the caller can distinguish "no matches" from
     // "not fully searched" (rg's stderr + exit-2 contract, JSONL-shaped).
