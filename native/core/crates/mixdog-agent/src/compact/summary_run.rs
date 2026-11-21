@@ -213,8 +213,11 @@ pub(crate) fn elapsed_ms(started: tokio::time::Instant) -> f64 {
 }
 
 /// A length-limited answer can still supply a handoff; repair its missing sections just like a naturally ended one.
+/// The chat-shaped wires (openai-chat, cursor, devin) carry their natural end verbatim as `stop`.
 fn usable_summary_stop(stop: Option<&StopReason>) -> bool {
-    matches!(stop, None | Some(StopReason::EndTurn | StopReason::StopSequence)) || is_output_limit(stop)
+    matches!(stop, None | Some(StopReason::EndTurn | StopReason::StopSequence))
+        || matches!(stop, Some(StopReason::Other(value)) if value == "stop")
+        || is_output_limit(stop)
 }
 
 fn accept_summary(response: &SummaryResponse, source: &[AgentMessage]) -> Result<EnforcedSummary, SummaryFailure> {
