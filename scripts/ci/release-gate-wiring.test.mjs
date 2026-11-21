@@ -147,6 +147,14 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
   const tests = gate.jobs['core-tests'];
   assert.deepEqual(needsOf(tests), ['changes', 'core-build']);
   assert.match(runOf(build), /cargo nextest archive /);
+  // the dev daemon builds beside the archive, so no consumer of either waits for both builds of the slowest system; the
+  // partitions take no daemon, only the entry scenarios do
+  assert.deepEqual(needsOf(gate.jobs.mixdogd), ['changes']);
+  assert.deepEqual(needsOf(gate.jobs['core-entry']), ['changes', 'core-build', 'mixdogd']);
+  assert.doesNotMatch(JSON.stringify(tests), /mixdogd-dev|MIXDOGD_BIN/);
+  assert.doesNotMatch(runOf(build), /dev-controls/);
+  for (const name of ['runtime-slow', 'desktop-slow', 'desktop-computer'])
+    assert.ok(!needsOf(gate.jobs[name]).includes('core-build'), `${name} waits for the archive builds it does not read`);
   assert.doesNotMatch(runOf(tests), /cargo (build|test|nextest archive)/, 'a test leg compiles nothing');
   assert.match(runOf(tests), /--archive-file core-tests\.tar\.zst/);
   assert.match(runOf(tests), /--partition "count:\$\{PART\}\/\$\{OF\}"/);
@@ -191,7 +199,7 @@ test('release-gate.yml: desktop-computer builds the Computer Use helper once, be
 test("release-gate.yml: desktop-computer takes this run's Windows daemon and the desktop bundle before its suites", () => {
   const { desktop, suite } = computerSteps();
   assert.equal(suite.env.MIXDOGD_BIN, '${{ github.workspace }}/mixdogd-dev/mixdogd.exe');
-  assert.deepEqual(desktop.needs, ['changes', 'desktop', 'core-build']);
+  assert.deepEqual(desktop.needs, ['changes', 'desktop', 'mixdogd']);
   const fetched = desktop.steps.filter((step) => step.uses?.startsWith('actions/download-artifact@'));
   assert.deepEqual(
     fetched.map((step) => [step.with.name, step.with.path]),
@@ -207,7 +215,9 @@ test('release-gate.yml: desktop-computer installs and stages the root packages b
   const { desktop, suite } = computerSteps();
   const install = desktop.steps.find((step) => step.name === 'Install dependencies');
   const stage = desktop.steps.find((step) => step.name?.startsWith('Stage the root packages'));
-  assert.match(install.run, /lock-subset\.mjs ci-boot-subset onnxruntime-node pptxgenjs jszip strip-ansi unpdf/);
+  assert.match(install.run, /lock-subset\.mjs ci-boot-subset onnxruntime-node pptxgenjs jszip strip-ansi unpdf tsx/);
+  // scripts/test.mjs always loads tsx (scripts/test-tsx.mjs): the root-tree invocation fails without it
+  assert.match(stage.run, /test -f node_modules\/tsx\/package\.json/);
   assert.match(stage.run, /copyPptxgenjsData/);
   assert.ok(
     desktop.steps.indexOf(install) < desktop.steps.indexOf(stage) &&
@@ -221,7 +231,7 @@ test('release-gate.yml: the desktop job runs for desktop or computer changes and
     "needs.changes.outputs.desktop == 'true' || needs.changes.outputs.desktop_computer == 'true'"
   );
   assert.ok(stepsOf(gate.jobs.desktop).some((step) => step.with?.name === 'desktop-out-${{ env.GATE_KEY }}'));
-  assert.match(gate.jobs['core-build'].steps.find((step) => step.name === 'Upload mixdogd').with.name, /-windows/);
+  assert.match(gate.jobs.mixdogd.steps.find((step) => step.name === 'Upload mixdogd').with.name, /-windows/);
 });
 
 test('release-gate.yml: the Node lanes install and build nothing a root test does not read', () => {
@@ -565,7 +575,7 @@ test('release-gate.yml: a failed shard discovery fails changes, and no one-shard
 test('release-gate.yml: the build is a clean checkout and no tracked script reads a file a clean checkout lacks', () => {
   const runs = (name) => stepsOf(gate.jobs[name]).map((step) => step.run ?? '');
   assert.ok(runs('changes').includes('node scripts/ci/check-clean-checkout.mjs --readers'));
-  for (const name of ['core-build', 'core-lint']) {
+  for (const name of ['core-build', 'mixdogd', 'core-lint']) {
     const index = runs(name).indexOf('node scripts/ci/check-clean-checkout.mjs --build');
     assert.ok(index >= 0, `${name} checks its checkout`);
     assert.ok(stepsOf(gate.jobs[name]).findIndex((step) => step.uses?.startsWith('actions/checkout@')) < index);
@@ -742,7 +752,7 @@ for (const label of ['release-gate.yml', 'desktop-package.yml']) {
       // core-tests and core-pg leave one receipt per partition or profile whose skips are the reconciliation's (the ignore dispositions
       // of the unfiltered listing include tests a profile leg runs, which need no exception): `complete` reconciles them, there is no
       // per-job skip check to name them in
-      if (['core-tests', 'core-pg'].includes(name)) continue;
+      if (['core-tests', 'core-entry', 'core-pg'].includes(name)) continue;
       const checks = stepsOf(job).filter((step) => /check-skips\.mjs receipts/.test(step.run ?? ''));
       assert.ok(checks.length > 0, `${name}: no check-skips.mjs receipts step`);
       const checked = new Set(
@@ -796,13 +806,22 @@ test('release-gate.yml: every system lists its archive unfiltered for the reconc
     (step) => step.uses?.startsWith('actions/upload-artifact@') && /rust-lists/.test(step.with.name)
   );
   assert.equal(upload.with.name, 'rust-lists-${{ env.GATE_KEY }}-${{ matrix.os }}');
-  // the entry scenarios the audit lists as run are run, after the audit, against the artifact the same run built
-  const names = stepsOf(gate.jobs['core-tests']).map((step) => step.name);
-  assert.ok(
-    names.indexOf('Run the interactive entry scenarios (the terminal interface and --plain, without Node)') >
-      names.indexOf(rust.name)
+  // the entry scenarios the audit lists are run by core-entry, from the Linux archive, against the daemon the same run built,
+  // with the audit's filter
+  const entry = stepsOf(gate.jobs['core-entry']);
+  const run = entry.find(
+    (step) => step.name === 'Run the interactive entry scenarios (the terminal interface and --plain, without Node)'
   );
-  assert.match(rust.run, /package\(mixdog-entry\) & binary\(node_free\)/);
+  const fetched = entry.filter((step) => step.uses?.startsWith('actions/download-artifact@'));
+  assert.deepEqual(
+    fetched.map((step) => step.with.name),
+    ['core-tests-${{ env.GATE_KEY }}-linux', 'mixdogd-dev-${{ env.GATE_KEY }}']
+  );
+  assert.ok(fetched.every((step) => entry.indexOf(step) < entry.indexOf(run)));
+  assert.equal(gate.jobs['core-entry'].env.MIXDOG_LEG, 'linux/core-entry/1of1');
+  assert.equal(run.env.MIXDOG_SLOT, 'entry');
+  assert.equal(gate.jobs['core-entry'].if, "needs.changes.outputs.core_entry == 'true'");
+  for (const text of [rust.run, run.run]) assert.match(text, /package\(mixdog-entry\) & binary\(node_free\)/);
   const readers = stepsOf(gate.jobs.changes).find((step) => /check-clean-checkout\.mjs --readers/.test(step.run ?? ''));
   assert.equal(readers['continue-on-error'], true, 'the reader scan is advice, like the silent-return scan');
   const silent = stepsOf(gate.jobs.changes).find((step) => /scan-silent-returns/.test(step.run ?? ''));

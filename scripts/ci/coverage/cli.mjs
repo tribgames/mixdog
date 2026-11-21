@@ -157,4 +157,5 @@ async function main(argv) {
   return 2;
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(pathToFileURL(process.argv[1])))
-  process.exit(await main(process.argv.slice(2)));
+  // exitCode, not exit(): on macOS stderr is an asynchronous pipe and exit() drops what is still buffered.
+  process.exitCode = await main(process.argv.slice(2));

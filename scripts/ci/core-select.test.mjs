@@ -177,7 +177,6 @@ test('every system the product ships on gets a build and as many legs as the tes
     build.map((entry) => entry.os),
     SYSTEMS.map((system) => system.os)
   );
-  assert.ok(build.every((entry) => entry.tests && !entry.mixdogd));
   const legs = JSON.parse(small.test_matrix).include;
   assert.equal(legs.length, SYSTEMS.length);
   assert.ok(legs.every((leg) => leg.part === 1 && leg.of === 1));
@@ -196,50 +195,36 @@ test('every system the product ships on gets a build and as many legs as the tes
   rmSync(join(root, 'native/core/crates/delta/src/more.rs'));
 });
 
-test('an empty diff still builds the Linux daemon needed by desktop replay', () => {
+const daemons = (result) => JSON.parse(result.mixdogd_matrix).include.map((entry) => entry.os);
+const builds = (result) => JSON.parse(result.build_matrix).include.map((entry) => entry.os);
+
+test('an empty diff still builds the Linux daemon needed by desktop replay, and no archive', () => {
   const result = select([], { mixdogdDev: true });
   assert.equal(result.core, false);
-  assert.deepEqual(
-    JSON.parse(result.build_matrix).include.map((entry) => [entry.os, entry.tests, entry.mixdogd]),
-    [['linux', false, true]]
-  );
+  assert.equal(result.core_build, false);
+  assert.deepEqual(builds(result), []);
+  assert.deepEqual([result.mixdogd, daemons(result)], [true, ['linux']]);
   assert.equal(JSON.parse(result.test_matrix).include.length, 0);
-  const both = select(['native/core/crates/delta/src/lib.rs'], { mixdogdDev: true });
-  assert.deepEqual(
-    JSON.parse(both.build_matrix).include.map((entry) => [entry.os, entry.tests, entry.mixdogd]),
-    [
-      ['linux', true, true],
-      ['macos', true, false],
-      ['windows', true, false],
-    ]
-  );
+  assert.deepEqual([select([]).mixdogd, daemons(select([]))], [false, []]);
 });
 
 test('the Windows boot asks for the Windows dev daemon alone, beside the archive when there is one', () => {
-  const shape = (result) =>
-    JSON.parse(result.build_matrix).include.map((entry) => [entry.os, entry.tests, entry.mixdogd]);
-  assert.deepEqual(shape(select([], { mixdogdWindows: true })), [['windows', false, true]]);
-  assert.deepEqual(shape(select(['native/core/crates/delta/src/lib.rs'], { mixdogdWindows: true })), [
-    ['linux', true, false],
-    ['macos', true, false],
-    ['windows', true, true],
-  ]);
+  assert.deepEqual(daemons(select([], { mixdogdWindows: true })), ['windows']);
+  const both = select(['native/core/crates/delta/src/lib.rs'], { mixdogdWindows: true });
+  assert.deepEqual(builds(both), ['linux', 'macos', 'windows']);
+  assert.deepEqual(daemons(both), ['windows']);
 });
 
-test('an archive with the entry tests requests the Linux dev daemon without either slow Node lane', () => {
+test('an archive with the entry tests selects core-entry and the Linux dev daemon without either slow Node lane', () => {
   file('native/core/crates/mixdog-entry/tests/node_free.rs', '#[test]\n#[ignore]\nfn entry() {}\n');
   const withEntry = { packages: [...metadata.packages, crate('mixdog-entry')] };
-  const legs = (changed) => JSON.parse(select(changed, { metadata: withEntry }).build_matrix).include;
-  const nextest = legs(['.github/actions/install-nextest/action.yml', 'native/.config/nextest-standalone.toml']);
-  assert.deepEqual(
-    nextest.map(({ os, tests, mixdogd }) => [os, tests, mixdogd]),
-    [
-      ['linux', true, true],
-      ['macos', true, false],
-      ['windows', true, false],
-    ]
-  );
-  assert.ok(legs(['native/core/crates/delta/src/lib.rs']).every((leg) => !leg.mixdogd));
+  const nextest = select(['.github/actions/install-nextest/action.yml', 'native/.config/nextest-standalone.toml'], {
+    metadata: withEntry,
+  });
+  assert.deepEqual([nextest.core_entry, daemons(nextest)], [true, ['linux']]);
+  // test legs alone need no daemon: the partitions depend on the archives only
+  const other = select(['native/core/crates/delta/src/lib.rs'], { metadata: withEntry });
+  assert.deepEqual([other.core, other.core_entry, daemons(other)], [true, false, []]);
 });
 
 test('the matrices are what the workflow reads: runner, nextest download name and executable suffix per system', () => {

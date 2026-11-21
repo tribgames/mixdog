@@ -405,10 +405,6 @@
           "producer": "nextest"
         },
         {
-          "id": "entry",
-          "producer": "nextest"
-        },
-        {
           "id": "doc",
           "producer": "doctest"
         },
@@ -546,6 +542,18 @@
       "slots": [
         {
           "id": "ci",
+          "producer": "nextest"
+        }
+      ]
+    },
+    {
+      "id": "linux/core-entry/1of1",
+      "os": "linux",
+      "workflow": "release-gate.yml",
+      "job": "core-entry",
+      "slots": [
+        {
+          "id": "entry",
           "producer": "nextest"
         }
       ]
@@ -1015,7 +1023,11 @@
       "name": "windows-only-slow",
       "family": "node",
       "owner": "release-engineering",
-      "include": ["apps/desktop/src/main/crash-handler-watch.slow.test.mjs"],
+      "include": [
+        "apps/desktop/src/main/crash-handler-watch.slow.test.mjs",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "apps/desktop/scripts/dev-fast-snapshot.slow.test.mjs"
+      ],
       "requires": [
         {
           "anyOf": ["windows/desktop-computer/1of1#windows-only-slow"]
@@ -1245,7 +1257,7 @@
         "profileLegs": {
           "pg": ["linux/core-pg/pg"],
           "services-pg": ["linux/core-pg/services-pg"],
-          "entry": ["linux/core-tests/1of4#entry"]
+          "entry": ["linux/core-entry/1of1#entry"]
         }
       },
       {
@@ -1390,7 +1402,7 @@
     "linux-native-tools.yml",
     "release.yml"
   ],
-  "dynamicMatrixJobs": ["runtime", "core-build", "core-tests", "core-pg"],
+  "dynamicMatrixJobs": ["runtime", "core-build", "mixdogd", "core-tests", "core-pg"],
   "gateCallIfAllowed": ["deploy.yml#coverage-gate"],
   "sinks": [
     {
@@ -1553,7 +1565,7 @@
         "commands": [
           "node scripts/ci/coverage/cli.mjs reconcile --root . --manifest coverage/manifest.json --evidence evidence --rust-lists rust-lists --sha \"$EXPECTED_SHA\" --run-id \"$GITHUB_RUN_ID\" --attempt \"$GITHUB_RUN_ATTEMPT\" --repository \"$GITHUB_REPOSITORY\" --workflow \"$GITHUB_WORKFLOW_REF\""
         ],
-        "digest": "35381d5d296e40624d78594c8645e62a1ec4a32742c842b1556c29e3ae5ff163"
+        "digest": "5af9fdb922e283b0e261b8b4b89398f0dd1412654f8b3d82729a26bb81088bb7"
       },
       "release.yml#prepared-runtime-join": {
         "if": "",
