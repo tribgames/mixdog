@@ -58,7 +58,12 @@ use super::split::split_payload;
 use crate::e2ee::ControlLane;
 use crate::e2ee::ControlOpen;
 use crate::webrtc::config::Candidate;
+use crate::webrtc::config::CandidatePair;
+use crate::webrtc::config::CandidatePath;
+use crate::webrtc::config::CandidateType;
 use crate::webrtc::config::IceServer;
+use crate::webrtc::config::RelayProtocol;
+use crate::webrtc::config::TransportProtocol;
 use crate::webrtc::signal::Fingerprint;
 use crate::webrtc::signal::candidate_json;
 use crate::webrtc::signal::ice_servers_json;
@@ -389,12 +394,118 @@ struct Direct {
     relayed: bool,
     /// The set this peer was created with, signaled in its offer.
     ice_servers: Vec<IceServer>,
+    local: Tally,
+    remote: Tally,
+    /// This side's relay candidates by the transport their TURN allocation uses.
+    local_relay: RelayTally,
+    /// The pair selected when the path opened; `None` until it opens.
+    selected_at_open: Option<String>,
 }
 
 impl Direct {
     fn id(&self) -> String {
         format!("direct:{}", self.connection_id)
     }
+}
+
+/// One side's candidates of an attempt by type (`typ`, RFC 8839 §5.1), for its close line.
+#[derive(Default)]
+struct Tally {
+    host: u32,
+    srflx: u32,
+    prflx: u32,
+    relay: u32,
+}
+
+impl Tally {
+    fn add(&mut self, candidate: &Option<Candidate>) {
+        let Some(candidate) = candidate else { return };
+        let count = match candidate.candidate.split_ascii_whitespace().skip_while(|word| *word != "typ").nth(1) {
+            Some("host") => &mut self.host,
+            Some("srflx") => &mut self.srflx,
+            Some("prflx") => &mut self.prflx,
+            Some("relay") => &mut self.relay,
+            _ => return,
+        };
+        *count += 1;
+    }
+}
+
+impl std::fmt::Display for Tally {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "host:{},srflx:{},prflx:{},relay:{}", self.host, self.srflx, self.prflx, self.relay)
+    }
+}
+
+/// This side's relay candidates of an attempt by how their TURN server is reached, for its close line.
+#[derive(Default)]
+struct RelayTally {
+    udp: u32,
+    tcp: u32,
+    tls: u32,
+}
+
+impl RelayTally {
+    fn add(&mut self, relay_protocol: Option<RelayProtocol>) {
+        match relay_protocol {
+            Some(RelayProtocol::Udp) => self.udp += 1,
+            Some(RelayProtocol::Tcp) => self.tcp += 1,
+            Some(RelayProtocol::Tls) => self.tls += 1,
+            None => {}
+        }
+    }
+}
+
+impl std::fmt::Display for RelayTally {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "udp:{},tcp:{},tls:{}", self.udp, self.tcp, self.tls)
+    }
+}
+
+const fn relay_protocol_name(relay_protocol: RelayProtocol) -> &'static str {
+    match relay_protocol {
+        RelayProtocol::Udp => "udp",
+        RelayProtocol::Tcp => "tcp",
+        RelayProtocol::Tls => "tls",
+    }
+}
+
+/// The pair selected at open as the close line names it: this side's candidate type and transport and, for a relay
+/// candidate, the transport of its TURN allocation. `unknown` is a report that named no pair, or no relay transport.
+/// The remote candidate is left out: it does not say how the peer reaches its own TURN server.
+fn selected_at_open(pair: Option<&CandidatePair>) -> String {
+    let Some(pair) = pair else { return "unknown".to_owned() };
+    let kind = match pair.local_type {
+        CandidateType::Host => "host",
+        CandidateType::Srflx => "srflx",
+        CandidateType::Prflx => "prflx",
+        CandidateType::Relay => "relay",
+    };
+    let protocol = match pair.protocol {
+        TransportProtocol::Udp => "udp",
+        TransportProtocol::Tcp => "tcp",
+    };
+    if pair.local_type == CandidateType::Relay {
+        format!("{kind}/{protocol}/{}", pair.relay_protocol.map_or("unknown", relay_protocol_name))
+    } else {
+        format!("{kind}/{protocol}")
+    }
+}
+
+/// An ended attempt's close line up to its retry fields, and when it ended.
+struct EndedAttempt {
+    summary: String,
+    at: u64,
+}
+
+/// Longest wait between the starts of direct attempts that keep failing: each failed attempt
+/// doubles the negotiation window up to this.
+const DIRECT_RETRY_MAX_MS: u64 = 16 * NEGOTIATION_TIMEOUT_MS;
+
+/// The wait from an attempt's start to the next one's after `failures` attempts in a row never
+/// opened.
+fn retry_window(failures: u32) -> u64 {
+    (NEGOTIATION_TIMEOUT_MS << failures.saturating_sub(1).min(4)).min(DIRECT_RETRY_MAX_MS)
 }
 
 struct OfferRef {
@@ -484,6 +595,10 @@ pub struct Coordinator<C: StreamChannel, H: Host> {
     direct: Option<Direct>,
     generation: u64,
     next_attempt_at: u64,
+    /// Direct attempts in a row that closed without opening.
+    direct_failures: u32,
+    /// When the latest direct attempt started.
+    attempt_started_at: u64,
     direct_unfit: bool,
     suspended: bool,
     reason: Option<PathReason>,
@@ -573,6 +688,8 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
             direct: None,
             generation: 0,
             next_attempt_at: now,
+            direct_failures: 0,
+            attempt_started_at: now,
             direct_unfit: false,
             suspended: false,
             reason: None,
@@ -971,8 +1088,21 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
 
     /// Drops the direct carrier: demotes it first when it carried traffic.
     fn close_direct(&mut self, connection_id: &str, close_reason: CloseReason, signal: bool, why: Option<PathReason>, detail: Option<&str>) {
+        if let Some(ended) = self.end_direct(connection_id, close_reason, signal, why, detail) {
+            self.log_ended(ended);
+        }
+    }
+
+    /// The attempt's `direct-closed` line, once its next attempt's deadline is final.
+    fn log_ended(&mut self, ended: EndedAttempt) {
+        let line = format!("{} failures={} next-attempt-ms={}", ended.summary, self.direct_failures, self.next_attempt_at.saturating_sub(ended.at));
+        self.host.log(&line);
+    }
+
+    /// [`Self::close_direct`] without its line, which the caller writes with [`Self::log_ended`].
+    fn end_direct(&mut self, connection_id: &str, close_reason: CloseReason, signal: bool, why: Option<PathReason>, detail: Option<&str>) -> Option<EndedAttempt> {
         if !self.live(connection_id) {
-            return;
+            return None;
         }
         let at = self.host.now();
         let why = why.unwrap_or_else(|| path_reason_of(close_reason));
@@ -980,11 +1110,26 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
             self.demote(connection_id, at, why, detail);
         } else {
             self.reason = Some(why);
-            let tail = detail.filter(|detail| !detail.is_empty()).map(|detail| format!(" detail={detail}")).unwrap_or_default();
-            let line = format!("{} direct-closed reason={}{tail}", self.label, close_reason.wire_name());
-            self.host.log(&line);
         }
-        let Some(state) = self.direct.take() else { return };
+        let state = self.direct.take()?;
+        // A path that opened has worked: the next attempt waits one window again.
+        self.direct_failures = if state.open { 0 } else { self.direct_failures.saturating_add(1) };
+        // A new attempt runs in parallel to the relay, at most one per negotiation window, and a
+        // path that keeps failing is tried less and less often. Only a restart the client asks
+        // for shortens this deadline, and never below one window.
+        self.next_attempt_at = at.max(state.started_at + retry_window(self.direct_failures));
+        let tail = detail.filter(|detail| !detail.is_empty()).map(|detail| format!(" detail={detail}")).unwrap_or_default();
+        let summary = format!(
+            "{} direct-closed reason={}{tail} generation={} opened={} local={} remote={} local-relay={} selected-at-open={}",
+            self.label,
+            close_reason.wire_name(),
+            state.generation,
+            state.open,
+            state.local,
+            state.remote,
+            state.local_relay,
+            state.selected_at_open.as_deref().unwrap_or("none")
+        );
         if let Some(offer) = self.last_offer.as_mut().filter(|offer| offer.connection_id == state.connection_id) {
             offer.closed_at = Some(at);
         }
@@ -998,33 +1143,39 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
             let message = self.signal_value(&state, json!({ "t": "close", "reason": close_reason.wire_name() }));
             self.send_control(&message, &Carrier::Relay);
         }
-        // A new attempt runs in parallel to the relay, at most one per negotiation window, so a
-        // path that fails at once cannot spin. Nothing shortens this deadline, a restart included.
-        self.next_attempt_at = at.max(state.started_at + NEGOTIATION_TIMEOUT_MS);
+        Some(EndedAttempt { summary, at })
     }
 
     // ---- peer events ----------------------------------------------------------------------------
 
-    /// A local ICE candidate (`None`: gathering complete), signaled as is.
-    pub fn peer_candidate_event(&mut self, connection_id: &str, candidate: Option<Candidate>) {
-        if self.live(connection_id)
-            && let Some(direct) = self.direct.as_ref()
-        {
+    /// A local ICE candidate (`None`: gathering complete), signaled as is. `relay_protocol` is how a relay candidate's
+    /// TURN server is reached; it is counted for the close line and never signaled.
+    pub fn peer_candidate_event(&mut self, connection_id: &str, candidate: Option<Candidate>, relay_protocol: Option<RelayProtocol>) {
+        if !self.live(connection_id) {
+            return;
+        }
+        if let Some(direct) = self.direct.as_mut() {
+            direct.local.add(&candidate);
+            direct.local_relay.add(relay_protocol);
+        }
+        if let Some(direct) = self.direct.as_ref() {
             let message = self.signal_value(direct, json!({ "t": "candidate", "candidate": candidate_json(&candidate) }));
             self.send_control(&message, &Carrier::Relay);
         }
     }
 
     /// Both channels are open and the certificate matched the answer's fingerprints.
-    /// `max_message_size` is the negotiated SCTP maximum (infinite when unlimited).
-    pub fn peer_open(&mut self, connection_id: &str, max_message_size: Option<f64>, relayed: bool) {
-        self.peer_open_inner(connection_id, max_message_size, relayed);
+    /// `max_message_size` is the negotiated SCTP maximum (infinite when unlimited); `pair` the selected candidate pair
+    /// (`None`: the stats named none, and the path counts as not relayed).
+    pub fn peer_open(&mut self, connection_id: &str, max_message_size: Option<f64>, pair: Option<CandidatePair>) {
+        self.peer_open_inner(connection_id, max_message_size, pair);
     }
 
-    fn peer_open_inner(&mut self, connection_id: &str, max_message_size: Option<f64>, relayed: bool) {
+    fn peer_open_inner(&mut self, connection_id: &str, max_message_size: Option<f64>, pair: Option<CandidatePair>) {
         if !self.live(connection_id) || self.direct.as_ref().is_some_and(|direct| direct.open) {
             return;
         }
+        let relayed = pair.is_some_and(|pair| pair.path() == CandidatePath::Relay);
         if !carrier_fits(max_message_size) {
             self.direct_unfit = true;
             let detail = js_number(max_message_size);
@@ -1035,6 +1186,7 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
         if let Some(direct) = self.direct.as_mut() {
             direct.open = true;
             direct.relayed = relayed;
+            direct.selected_at_open = Some(selected_at_open(pair.as_ref()));
         }
         if relayed {
             self.turn_allocations += 1;
@@ -1067,8 +1219,13 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
     /// The peer is gone: the channel closed or failed, ICE failed, DTLS or the fingerprint check
     /// failed, or the host is unavailable. Never fired after the coordinator closed it.
     pub fn peer_closed(&mut self, connection_id: &str, reason: CloseReason) {
+        self.peer_failed(connection_id, reason, None);
+    }
+
+    /// [`Self::peer_closed`] with what the peer said of its failure, for the close line.
+    pub fn peer_failed(&mut self, connection_id: &str, reason: CloseReason, detail: Option<&str>) {
         if self.live(connection_id) {
-            self.close_direct(connection_id, reason, true, None, None);
+            self.close_direct(connection_id, reason, true, None, detail);
         }
     }
 
@@ -1094,7 +1251,12 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
             open: false,
             relayed: false,
             ice_servers: Vec::new(),
+            local: Tally::default(),
+            remote: Tally::default(),
+            local_relay: RelayTally::default(),
+            selected_at_open: None,
         });
+        self.attempt_started_at = at;
         if let Settle::Now(result) = self.host.resolve_ice(&connection_id) {
             self.jobs.push_back(Job::IceResolved { connection_id, result });
         }
@@ -1207,6 +1369,9 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
                 }
             }
             Signal::Candidate { candidate, .. } => {
+                if matches && let Some(direct) = self.direct.as_mut() {
+                    direct.remote.add(&candidate);
+                }
                 if matches && self.direct.as_ref().is_some_and(|direct| direct.peer) {
                     let _ = self.host.peer_candidate(&at_ref.connection_id, &candidate);
                 }
@@ -1222,8 +1387,17 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
                         return;
                     }
                     self.suspended = false;
-                    if matches {
-                        self.close_direct(&at_ref.connection_id, CloseReason::Superseded, false, Some(PathReason::ChannelFailed), Some("restart"));
+                    let ended = if matches {
+                        self.end_direct(&at_ref.connection_id, CloseReason::Superseded, false, Some(PathReason::ChannelFailed), Some("restart"))
+                    } else {
+                        None
+                    };
+                    // The client's network may have changed: failures before it say nothing of
+                    // the path now.
+                    self.direct_failures = 0;
+                    self.next_attempt_at = self.next_attempt_at.min(self.attempt_started_at + NEGOTIATION_TIMEOUT_MS);
+                    if let Some(ended) = ended {
+                        self.log_ended(ended);
                     }
                     self.maybe_start_peer(at);
                     return;

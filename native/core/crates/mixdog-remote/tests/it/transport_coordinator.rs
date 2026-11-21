@@ -422,6 +422,75 @@ fn an_unpair_that_lands_while_a_later_fragment_is_sealed_waits_for_the_whole_wri
     assert_eq!(coordinator.next_sequence(), 4, "the next message takes the next sequence: the stream has no hole");
 }
 
+/// A direct path that never opens (the phone answers nothing) is tried again one negotiation window after its start, then at doubling
+/// waits up to sixteen windows, not every window for the life of the link; each failed attempt is one log line with its reason.
+#[test]
+fn a_direct_path_that_keeps_failing_is_tried_less_and_less_often_and_each_failure_is_one_line() {
+    let log = gated_log();
+    log.borrow_mut().options = json!({ "peerHost": true });
+    let now = Rc::new(Cell::new(1_000));
+    let channel = ChannelFake { log: log.clone(), encrypt_sequence: 0, control_sequence: 0, lanes: HashMap::new(), on_seal: None };
+    // A signal names its session by the E2EE challenge (32 bytes, base64url): any other id refuses the offer.
+    let session_id = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([7u8; 32]);
+    let mut coordinator = Coordinator::new(&session_id, channel, HostFake { log: log.clone(), now: now.clone() }, AssemblyPool::default());
+    let mut starts = Vec::new();
+    for at in (1_000..=40 * 60_000).step_by(500) {
+        now.set(at);
+        coordinator.tick();
+        coordinator.settle();
+        if log.borrow().creates as usize > starts.len() {
+            starts.push(at);
+        }
+    }
+    let gaps: Vec<u64> = starts.windows(2).map(|pair| pair[1] - pair[0]).collect();
+    assert_eq!(gaps, [39_500, 79_000, 158_000, 316_000, 632_000, 632_000]);
+    let closes: Vec<String> = log
+        .borrow()
+        .effects
+        .iter()
+        .filter_map(|effect| effect["line"].as_str().filter(|line| line.contains("direct-closed")).map(str::to_owned))
+        .collect();
+    assert_eq!(closes.len(), starts.len(), "one line per attempt: {closes:#?}");
+    for (index, line) in closes.iter().enumerate() {
+        assert!(line.contains("reason=negotiation-timeout") && line.contains("opened=false"), "{line}");
+        assert!(line.contains(&format!("failures={}", index + 1)), "{line}");
+    }
+}
+
+/// A restart the client asks for during an attempt ends it with one line that names the retry the restart left: no failures, the next
+/// attempt one window after the ended one's start, not the backoff the failures before it had earned.
+#[test]
+fn an_attempt_ended_by_a_client_restart_logs_the_retry_the_restart_left() {
+    let log = gated_log();
+    log.borrow_mut().options = json!({ "peerHost": true });
+    let now = Rc::new(Cell::new(1_000));
+    let channel = ChannelFake { log: log.clone(), encrypt_sequence: 0, control_sequence: 0, lanes: HashMap::new(), on_seal: None };
+    let session_id = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([7u8; 32]);
+    let mut coordinator = Coordinator::new(&session_id, channel, HostFake { log: log.clone(), now: now.clone() }, AssemblyPool::default());
+    // Attempts start at 1 000, 40 500 and 119 500 (two failures before the third).
+    for at in (1_000..=130_000).step_by(500) {
+        now.set(at);
+        coordinator.tick();
+        coordinator.settle();
+    }
+    assert_eq!(log.borrow().creates, 3);
+    let restart = json!({
+        "v": 1,
+        "sessionId": session_id,
+        "connectionId": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([3u8; 16]),
+        "generation": 3,
+        "t": "close",
+        "reason": "restart",
+    });
+    let boxed = make_box(CONTROL_MAGIC, 1, &canon(&restart));
+    coordinator.receive("relay", &mixdog_remote::transport::frame::encode_control(&boxed).expect("a control message"));
+    coordinator.settle();
+    let lines: Vec<String> = log.borrow().effects.iter().filter_map(|effect| effect["line"].as_str().map(str::to_owned)).collect();
+    let last = lines.iter().rev().find(|line| line.contains("direct-closed")).expect("the restarted attempt's line");
+    assert!(last.contains("reason=superseded detail=restart generation=3 opened=false"), "{last}");
+    assert!(last.ends_with("failures=0 next-attempt-ms=29000"), "{last}");
+}
+
 fn gated_log() -> Log {
     std::sync::Arc::new(Guarded(std::sync::Mutex::new(Shared {
         effects: Vec::new(),
