@@ -131,14 +131,20 @@ async function fetchSessionWithRetries(
   sessionId: string,
   readSession: SessionReader,
   traceId: string,
-  expired: () => boolean
+  expired: () => boolean,
+  retry: boolean
 ): Promise<boolean> {
   for (let attempt = 1; attempt <= MAX_SESSION_READ_ATTEMPTS; attempt += 1) {
     if (expired()) return false;
     let accepted = false;
     const startedAt = performance.now();
     try {
-      accepted = (await Promise.resolve(readSession(sessionId, undefined, traceId))) === true;
+      // The user's Retry is one request: a repeat of this read is an ordinary one.
+      const request =
+        retry && attempt === 1
+          ? readSession(sessionId, undefined, traceId, { retry: true })
+          : readSession(sessionId, undefined, traceId);
+      accepted = (await Promise.resolve(request)) === true;
       if (expired()) return false;
       reportSessionRead(
         sessionId,
@@ -184,19 +190,22 @@ async function fetchSessionWithRetries(
  *  boot). A pane that joins it never inherits its failure: the pane starts its
  *  own read when the speculative one ends without a lane.
  *  `signal`: the asker went away (a pane unmounted); a read nobody else wants is
- *  dropped while it still waits for the link. */
+ *  dropped while it still waits for the link.
+ *  `retry`: the user's Retry. It is a request of its own, told to the host as
+ *  such: it joins no read in flight and the lane it finds is not enough. */
 export function requestSessionRead(
   sessionId: string,
   {
     refresh = false,
     speculative = false,
+    retry = false,
     signal,
-  }: { refresh?: boolean; speculative?: boolean; signal?: AbortSignal } = {}
+  }: { refresh?: boolean; speculative?: boolean; retry?: boolean; signal?: AbortSignal } = {}
 ): Promise<boolean> {
   if (!sessionId) return Promise.resolve(false);
   if (speculative && usesVisibleSessionActivation()) return previewSessionTranscript(sessionId);
-  if (!refresh && laneHasTranscript(sessionId)) return Promise.resolve(true);
-  const inFlight = sessionReadsInFlight.get(sessionId);
+  if (!refresh && !retry && laneHasTranscript(sessionId)) return Promise.resolve(true);
+  const inFlight = retry ? undefined : sessionReadsInFlight.get(sessionId);
   if (inFlight) {
     reportSessionRead(sessionId, 'request-joined');
     const joined = readStates.get(sessionId);
@@ -217,7 +226,7 @@ export function requestSessionRead(
   defaultSessionLaneStore.start();
   const traceId = beginSessionReadTrace(sessionId);
   const state: ReadState = {
-    needsFetch: refresh,
+    needsFetch: refresh || retry,
     permanent: false,
     holders: 0,
     waiting: null,
@@ -252,7 +261,7 @@ export function requestSessionRead(
       if (expired || state.abandoned) return false;
       if (!state.needsFetch && laneHasTranscript(sessionId)) return true;
     }
-    return fetchSessionWithRetries(sessionId, readSession, traceId, () => expired);
+    return fetchSessionWithRetries(sessionId, readSession, traceId, () => expired, retry);
   })();
   const request = Promise.race([operation, deadline]).finally(() => {
     window.clearTimeout(timer);

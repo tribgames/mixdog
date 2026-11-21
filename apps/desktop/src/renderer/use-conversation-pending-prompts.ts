@@ -1,5 +1,5 @@
 import { useMemo, useRef, type Dispatch, type SetStateAction } from 'react';
-import { settledUserRowCount, type PendingPromptItem } from './conversation-prompt-items';
+import type { PendingPromptItem } from './conversation-prompt-items';
 import type { TranscriptItem } from './desktop-types';
 import { useConversationOptimisticPromptRelease } from './use-conversation-optimistic-prompts';
 import { useConversationSteering } from './use-conversation-steering';
@@ -22,10 +22,6 @@ export function useConversationPendingPrompts({
   transcriptSessionKey: string;
   promotedOwnDraft: { current: boolean };
 }) {
-  // Submit-time baseline for the id-agnostic release path below.
-  const settledUsers = useMemo(() => settledUserRowCount(settledItems), [settledItems]);
-  const settledUsersRef = useRef(settledUsers);
-  settledUsersRef.current = settledUsers;
   const steering = useConversationSteering(optimisticPrompts, settledItems, queued);
   const { transcriptPendingPromptItems } = steering;
   // An idle submit starts the next review scope on its optimistic user row,
@@ -45,8 +41,7 @@ export function useConversationPendingPrompts({
     promotedOwnDraft,
     settledItems,
     optimisticPrompts,
-    queued,
     setOptimisticPrompts,
   });
-  return { ...steering, settledUsersRef, reviewItems, goalSubmitScopeRef, goalSubmission, goalSubmissionId };
+  return { ...steering, reviewItems, goalSubmitScopeRef, goalSubmission, goalSubmissionId };
 }

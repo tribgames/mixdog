@@ -166,6 +166,389 @@ test('a restore the core refuses because the thread is gone still drops the subs
   await client.close();
 });
 
+test('a restore a busy core answers late keeps its live connection and restores the subscription', async (t) => {
+  const r = rig();
+  const first = await r.handshake();
+  const client = await r.connecting;
+  await follow(client, first, 't1');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  first.serverClose(1006);
+  const second = await r.handshake();
+  const settled = r.line('link-restore-settled');
+  const resume = JSON.parse(await second.nextSent());
+  assert.equal(resume.method, 'thread/resume');
+  t.mock.timers.tick(11_000);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(second.clientClose, undefined, 'the connection is not dropped while its restore is answered late');
+  const restored = new Promise<unknown>((resolve) =>
+    client.store.subscribe((change) => {
+      if (change.type === 'subscription' && change.feedId === 't1') resolve(change.state);
+    })
+  );
+  second.serverSend({ id: resume.id, result: attached });
+  await settled;
+  assert.equal(await restored, 'restored', 'the late answer restores the subscription');
+  assert.equal(client.threadSubscription('t1').followed, true);
+  await client.close();
+});
+
+test("a resume that joins an unanswered restore ends at the joiner's own bound", async () => {
+  const r = rig();
+  const first = await r.handshake();
+  const client = await r.connecting;
+  await follow(client, first, 't1');
+  first.serverClose(1006);
+  const second = await r.handshake();
+  assert.equal(JSON.parse(await second.nextSent()).method, 'thread/resume');
+  const joined = client.resumeThread('t1', { lastItems: 5 }, { join: true, timeoutMs: 30 });
+  await assert.rejects(
+    joined,
+    (error: { detail?: { kind?: string; sent?: boolean } }) =>
+      error.detail?.kind === 'requestTimeout' && error.detail.sent === true
+  );
+  assert.equal(second.clientClose, undefined, 'the connection stays open');
+  await client.close();
+});
+
+test('a legacy replay whose fallback snapshot is never answered ends as a lost thread when its watch ends the wait', async () => {
+  const r = rig();
+  const conn = await r.handshake();
+  const client = await r.connecting;
+  const watch = new AbortController();
+  const lost: unknown[] = [];
+  client.on((event) => event.type === 'subscriptionLost' && lost.push(event.threadId));
+  const opening = client.resumeThread('t1', { lastItems: 5 }, { signal: watch.signal });
+  const resume = JSON.parse(await conn.nextSent());
+  // An older core: a replay with no live boundary.
+  conn.serverSend({ id: resume.id, result: { subscription: { epoch: 'e1', startSeq: 1, mode: 'replay' } } });
+  const heads = JSON.parse(await conn.nextSent());
+  assert.equal(heads.method, 'feed/heads');
+  conn.serverSend({ id: heads.id, result: { feedIds: ['t1'], positions: [{ epoch: 'e2', seq: 4 }] } });
+  const fallback = JSON.parse(await conn.nextSent());
+  assert.equal(fallback.method, 'thread/resume');
+  assert.equal(client.threadSubscription('t1').replayPending, true);
+  watch.abort();
+  await assert.rejects(opening, (error: { detail?: { kind?: string } }) => error.detail?.kind === 'requestTimeout');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(lost, ['t1'],'the user is told the thread was lost and can retry');
+  assert.equal(client.threadSubscription('t1').replayPending, false);
+  await client.close();
+});
+
+/** Opens `t1` against an older core up to the fallback snapshot resume its unbounded replay needs; returns that request. */
+const openToFallback = async (
+  client: Awaited<ReturnType<typeof connect>>,
+  conn: MockConn,
+  signal?: AbortSignal
+) => {
+  const opening = client.resumeThread('t1', { lastItems: 5 }, { join: true, follow: true, signal });
+  const resume = JSON.parse(await conn.nextSent());
+  conn.serverSend({ id: resume.id, result: { subscription: { epoch: 'e1', startSeq: 1, mode: 'replay' } } });
+  const heads = JSON.parse(await conn.nextSent());
+  conn.serverSend({ id: heads.id, result: { feedIds: ['t1'], positions: [{ epoch: 'e2', seq: 4 }] } });
+  const fallback = JSON.parse(await conn.nextSent());
+  assert.equal(fallback.method, 'thread/resume');
+  return { opening, fallback };
+};
+const snapshotAt = { subscription: { epoch: 'e2', startSeq: 5, liveSeq: 5, mode: 'snapshot' } };
+
+test('a retry after an abandoned legacy fallback sends its own request, and the late answer to the abandoned one changes nothing', async () => {
+  const r = rig();
+  const conn = await r.handshake();
+  const client = await r.connecting;
+  const watch = new AbortController();
+  const lost = new Promise<void>((resolve) => client.on((event) => event.type === 'subscriptionLost' && resolve()));
+  const { opening, fallback } = await openToFallback(client, conn, watch.signal);
+  watch.abort();
+  await assert.rejects(opening, (error: { detail?: { kind?: string } }) => error.detail?.kind === 'requestTimeout');
+  await lost;
+  assert.equal(client.threadSubscription('t1').snapshotPending, false, 'nothing of the abandoned open is left to join');
+
+  let retried: 'followed' | 'failed' | undefined;
+  const retry = client.resumeThread('t1', { lastItems: 5 }, { join: true, follow: true });
+  retry.then(
+    () => (retried = 'followed'),
+    () => (retried = 'failed')
+  );
+  const again = JSON.parse(await conn.nextSent());
+  assert.equal(again.method, 'thread/resume', 'the retry is a request of its own');
+  assert.notEqual(again.id, fallback.id);
+  assert.equal(again.params.resumeFrom, undefined, 'and offers no cursor of the lost thread');
+
+  conn.serverSend({ id: fallback.id, result: snapshotAt });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(retried, undefined, 'the abandoned request does not answer the retry');
+  assert.equal(client.threadSubscription('t1').followed, false);
+  assert.equal(conn.clientClose, undefined);
+
+  conn.serverSend({ id: again.id, result: snapshotAt });
+  await retry;
+  assert.equal(client.threadSubscription('t1').followed, true, 'the retry is followed by its own answer');
+  await client.close();
+});
+
+test('a legacy fallback the core refuses fails the open with that refusal: the thread is lost, not followed', async () => {
+  const r = rig();
+  const conn = await r.handshake();
+  const client = await r.connecting;
+  const lost: unknown[] = [];
+  client.on((event) => event.type === 'subscriptionLost' && lost.push(event.error));
+  const { opening, fallback } = await openToFallback(client, conn);
+  conn.serverSend({
+    id: fallback.id,
+    error: { code: -32000, message: 'thread missing', data: { reason: 'threadNotFound' } },
+  });
+  const gone = (detail?: { kind?: string; reason?: string }) =>
+    detail?.kind === 'rpc' && detail.reason === 'threadNotFound';
+  await assert.rejects(opening, (error: { detail?: { kind?: string; reason?: string } }) => gone(error.detail));
+  assert.equal(lost.length, 1);
+  assert.ok(gone(lost[0] as { kind?: string; reason?: string }), 'the loss names the same refusal');
+  const subscription = client.threadSubscription('t1');
+  assert.deepEqual(
+    [subscription.followed, subscription.snapshotPending, subscription.replayPending],
+    [false, false, false]
+  );
+  await client.close();
+});
+
+const turn = () => new Promise((resolve) => setImmediate(resolve));
+const frame = (seq: number) => ({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'e', seq } });
+const snapshot = (seq: number) => ({ method: 'thread/snapshot', params: {}, feed: { id: 't1', epoch: 'e', seq } });
+/** An attach answer naming the core subscription `sub`: the same name as the one held is a carried resume. */
+const answer = (id: number, sub: string, mode: 'snapshot' | 'replay', startSeq: number, liveSeq = startSeq) => ({
+  id,
+  result: { subscription: { id: sub, mode, epoch: 'e', startSeq, liveSeq } },
+});
+
+/** `t1` followed on the core subscription `lane` and folded through seq 2; `folds` lists the positions folded from here. */
+const atTwo = async () => {
+  const r = rig();
+  const conn = await r.handshake();
+  const client = await r.connecting;
+  const opened = client.resumeThread('t1', { lastItems: 32 });
+  conn.serverSend(answer(JSON.parse(await conn.nextSent()).id, 'lane', 'snapshot', 1));
+  await opened;
+  conn.serverSend(snapshot(0));
+  conn.serverSend(frame(1));
+  conn.serverSend(frame(2));
+  await turn();
+  const folds: Array<number | undefined> = [];
+  client.store.subscribe((change) => {
+    if (change.type === 'thread') folds.push(client.store.thread('t1')?.feed.seq);
+  });
+  return { conn, client, folds };
+};
+
+test('a resume the core carries on the same subscription neither rewinds the feed nor promises repeats: 3 before the answer, 4 after it', async () => {
+  const { conn, client, folds } = await atTwo();
+  const again = client.resumeThread('t1', { lastItems: 32 });
+  const request = JSON.parse(await conn.nextSent());
+  assert.equal(request.params.resumeFrom.seq, 2);
+  conn.serverSend(frame(3));
+  conn.serverSend(answer(request.id, 'lane', 'replay', 3, 4));
+  await again;
+  conn.serverSend(frame(4));
+  await turn();
+  assert.deepEqual(folds, [3, 4], 'each event folds once');
+  assert.equal(client.feedPosition('t1')?.seq, 4);
+  assert.equal(client.store.thread('t1')?.feed.seq, 4);
+  const subscription = client.threadSubscription('t1');
+  assert.deepEqual([subscription.replayPending, subscription.snapshotPending], [false, false]);
+  assert.equal(conn.clientClose, undefined, 'the link stays open');
+  await client.close();
+});
+
+test('a reopen ends the attach that is out as the loss of the thread: its waiter is rejected, its answer changes nothing, and the new snapshot accounts for what came between', async () => {
+  const { conn, client, folds } = await atTwo();
+  let old: string | undefined;
+  client.resumeThread('t1', { lastItems: 32 }).then(
+    () => (old = 'followed'),
+    (error: { detail?: { kind?: string } }) => (old = error.detail?.kind)
+  );
+  const stalled = JSON.parse(await conn.nextSent());
+  const lost: string[] = [];
+  client.on((event) => event.type === 'subscriptionLost' && lost.push(event.threadId));
+
+  const retry = client.reopenThread('t1', { lastItems: 32 });
+  const fresh = JSON.parse(await conn.nextSent());
+  assert.equal(fresh.method, 'thread/resume');
+  assert.notEqual(fresh.id, stalled.id);
+  assert.equal(fresh.params.resumeFrom, undefined, 'an ordinary open with no cursor');
+  await turn();
+  assert.equal(old, 'requestTimeout', 'the old waiter has the loss, never the new success');
+  assert.deepEqual(lost, ['t1'], 'reported once');
+
+  conn.serverSend(answer(stalled.id, 'lane', 'replay', 3, 4));
+  conn.serverSend(frame(3));
+  await turn();
+  assert.equal(client.threadSubscription('t1').followed, false, 'the late answer does not revive the thread');
+  assert.equal(conn.clientClose, undefined);
+
+  conn.serverSend(answer(fresh.id, 'fresh', 'snapshot', 4));
+  await retry;
+  conn.serverSend(snapshot(3));
+  conn.serverSend(frame(4));
+  await turn();
+  assert.deepEqual(folds, [3, 4], 'the snapshot stands for 3, and 4 folds exactly once');
+  assert.equal(client.feedPosition('t1')?.seq, 4);
+  assert.equal(old, 'requestTimeout');
+  assert.equal(conn.clientClose, undefined);
+  await client.close();
+});
+
+test('a reopen is not queued behind the fold it abandoned: the old snapshot waits on a read that is never answered, and the new one folds', async () => {
+  const r = rig();
+  const conn = await r.handshake();
+  const client = await r.connecting;
+  const opened = client.resumeThread('t1', { lastItems: 32 });
+  conn.serverSend(answer(JSON.parse(await conn.nextSent()).id, 'lane', 'snapshot', 1));
+  await opened;
+  conn.serverSend({
+    method: 'thread/snapshot',
+    params: { text: { blob: { digest: 'd1', bytes: 4, mediaType: 'text/plain' } } },
+    feed: { id: 't1', epoch: 'e', seq: 0 },
+  });
+  assert.equal(JSON.parse(await conn.nextSent()).method, 'blob/read', 'the fold waits on this read');
+
+  const retry = client.reopenThread('t1', { lastItems: 32 });
+  const fresh = JSON.parse(await conn.nextSent());
+  assert.equal(fresh.method, 'thread/resume');
+  conn.serverSend(answer(fresh.id, 'fresh', 'snapshot', 6));
+  await retry;
+  conn.serverSend({ method: 'thread/snapshot', params: {}, feed: { id: 't1', epoch: 'e', seq: 5 } });
+  await turn();
+  assert.equal(client.store.thread('t1')?.feed.seq, 5, 'the new snapshot folded');
+  assert.equal(client.threadSubscription('t1').snapshotPending, false);
+  await client.close();
+});
+
+test('an unsubscribe ends the wait for a snapshot that was acknowledged and will not be folded', async () => {
+  const r = rig();
+  const conn = await r.handshake();
+  const client = await r.connecting;
+  const opened = client.resumeThread('t1', { lastItems: 32 });
+  conn.serverSend(answer(JSON.parse(await conn.nextSent()).id, 'lane', 'snapshot', 1));
+  await opened;
+  let settled: boolean | undefined;
+  const waiting = client.whenThreadSettled('t1').then((arrived) => (settled = arrived));
+  await turn();
+  assert.equal(settled, undefined, 'the snapshot is owed');
+  void client.unsubscribeThread('t1').catch(() => undefined);
+  await waiting;
+  assert.equal(settled, false, 'the wait ended without the transcript');
+  assert.equal(client.threadSubscription('t1').snapshotPending, false);
+  await client.close();
+});
+
+for (const [name, deadline] of [
+  ['its signal', false],
+  ['its deadline', true],
+] as const) {
+  test(`a caller whose wait ends by ${name} after the request left gives up nothing on the wire: the attach stays pending, and its snapshot and the next event fold`, async () => {
+    const r = rig();
+    const conn = await r.handshake();
+    const client = await r.connecting;
+    const leaving = new AbortController();
+    const opening = client.resumeThread(
+      't1',
+      { lastItems: 5 },
+      deadline ? { timeoutMs: 30 } : { signal: leaving.signal }
+    );
+    const request = JSON.parse(await conn.nextSent());
+    leaving.abort();
+    await assert.rejects(
+      opening,
+      (error: { detail?: { kind?: string; sent?: boolean } }) =>
+        error.detail?.kind === 'requestTimeout' && error.detail.sent === true
+    );
+    await turn();
+    assert.equal(client.threadSubscription('t1').snapshotPending, true, 'the request is still visibly out');
+    client.resumeThread('t1', { lastItems: 5 }, { join: true }).catch(() => undefined);
+    await turn();
+    assert.deepEqual(conn.sent, [], 'and still the one attach of the thread');
+
+    conn.serverSend(answer(request.id, 's1', 'snapshot', 1));
+    await turn();
+    const answered = client.threadSubscription('t1');
+    assert.deepEqual([answered.followed, answered.snapshotPending], [true, true], 'followed, its snapshot owed');
+    conn.serverSend(snapshot(0));
+    conn.serverSend(frame(1));
+    await turn();
+    assert.equal(client.store.thread('t1')?.feed.seq, 1);
+    assert.equal(client.threadSubscription('t1').snapshotPending, false);
+    await client.close();
+  });
+}
+
+test('an attach the core refused for backpressure and that ended meanwhile is not sent again when the retry trigger fires', async () => {
+  const r = rig();
+  const conn = await r.handshake();
+  const client = await r.connecting;
+  client.resumeThread('t1', { lastItems: 5 }).catch(() => undefined);
+  const refused = JSON.parse(await conn.nextSent());
+  conn.serverSend({ id: refused.id, error: { code: -32001, message: 'full', data: { reason: 'queueFull' } } });
+  await turn();
+  assert.deepEqual(conn.sent, [], 'it waits for a response to one of its own requests');
+
+  const retry = client.reopenThread('t1', { lastItems: 5 });
+  const fresh = JSON.parse(await conn.nextSent());
+  assert.equal(fresh.method, 'thread/resume');
+  // The response that would have let the refused request go again.
+  conn.serverSend(answer(fresh.id, 's1', 'snapshot', 1));
+  await retry;
+  await turn();
+  assert.deepEqual(conn.sent, [], 'the ended request does not leave again');
+  await client.close();
+});
+
+test('an attach nobody waits for any more before it was written never departs', async () => {
+  const r = rig();
+  const first = await r.handshake();
+  const client = await r.connecting;
+  first.serverClose(1006);
+  const leaving = new AbortController();
+  const opening = client.resumeThread('t1', { lastItems: 5 }, { signal: leaving.signal });
+  await turn();
+  leaving.abort();
+  await assert.rejects(
+    opening,
+    (error: { detail?: { kind?: string; sent?: boolean } }) =>
+      error.detail?.kind === 'requestTimeout' && error.detail.sent === false
+  );
+  await turn();
+  assert.equal(client.threadSubscription('t1').snapshotPending, false);
+  const second = await r.handshake();
+  await turn();
+  assert.deepEqual(second.sent, [], 'nothing of it is written once the connection is back');
+  await client.close();
+});
+
+test('a restore that was out when its thread was lost reports nothing of the open that followed', async () => {
+  const r = rig();
+  const first = await r.handshake();
+  const client = await r.connecting;
+  await follow(client, first, 't1');
+  first.serverClose(1006);
+  const second = await r.handshake();
+  const restore = JSON.parse(await second.nextSent());
+  assert.equal(restore.method, 'thread/resume');
+  const states: string[] = [];
+  client.store.subscribe((change) => {
+    if (change.type === 'subscription' && change.feedId === 't1') states.push(change.state);
+  });
+  const retry = client.reopenThread('t1', { lastItems: 5 });
+  const fresh = JSON.parse(await second.nextSent());
+  assert.equal(client.threadSubscription('t1').restoring, false, 'the restore no longer owns the thread');
+  second.serverSend(answer(fresh.id, 's2', 'snapshot', 1));
+  await retry;
+  second.serverSend({ id: restore.id, result: attached });
+  await turn();
+  assert.deepEqual(states, ['lost'], 'no `restored` of the old restore for the new open');
+  assert.equal(client.threadSubscription('t1').followed, true);
+  assert.equal(second.clientClose, undefined);
+  await client.close();
+});
+
 test('a pending approval is held again once the core presents it on the new connection', async () => {
   const r = rig();
   const first = await r.handshake();

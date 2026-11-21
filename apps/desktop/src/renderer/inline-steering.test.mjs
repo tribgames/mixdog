@@ -66,7 +66,6 @@ test('a message sent while the reply streams is a bubble right away, below the r
     accepted: false,
     submittedAt: 10,
     queuedBehindTurn: true,
-    settledUserBaseline: 1,
   };
   const local = steerPromptItems([], pendingPromptTranscriptItems([optimistic], [prompt]));
   assert.equal(local.length, 1);
@@ -139,7 +138,6 @@ async function mountSendPane(t, { queuedAtSubmit = false } = {}) {
     });
     view.actions = useConversationComposerActions({
       ...refs,
-      settledUsersRef: pending.settledUsersRef,
       goalSubmission: pending.goalSubmission,
       goalSubmitScopeRef: pending.goalSubmitScopeRef,
       setOptimisticPrompts,
@@ -271,7 +269,7 @@ test('a queued send stays one bubble through its drain and gets the band with it
   assert.ok(pane.banded(), 'the running turn brings the band');
 });
 
-test('a message the running turn took in stops waiting, though its row carries no submission id', async (t) => {
+test('a message the running turn took in stops waiting with the row that carries its submission id', async (t) => {
   const running = [prompt, { kind: 'assistant', id: 'a0', text: 'Working on it' }];
   const pane = await mountSendPane(t, { queuedAtSubmit: true });
   await pane.show({ settledItems: running, busy: true });
@@ -288,14 +286,14 @@ test('a message the running turn took in stops waiting, though its row carries n
     busy: true,
     queued: [{ id: 'sub-1', displayText: 'next step', submittedAt: 5 }],
   });
-  // The turn reads it at a step boundary: the entry leaves the queue and the
-  // core stores the row under its own item id. The bounded live window has
-  // dropped the first prompt meanwhile, so no user-row count names the row.
-  const steered = { kind: 'user', id: 'itm-9', text: 'next step', steered: true };
+  // The turn reads it at a step boundary: the entry leaves the queue and its
+  // row lands under the submission id. The bounded live window has dropped the
+  // first prompt meanwhile: where the row lies among the user rows says nothing.
+  const steered = { kind: 'user', id: 'sub-1', text: 'next step', steered: true };
   await pane.show({ settledItems: [running[1], steered], busy: true });
   const waiting = () => pane.view.rows.filter((row) => row._tag === 'UserMessage' && row.item.steer);
   assert.deepEqual(waiting(), [], 'no bubble offers "Send now" for a message the model read');
-  assert.equal(pane.bubble('itm-9').item.steered, true, 'its durable row stands in the transcript');
+  assert.equal(pane.bubble('sub-1').item.steered, true, 'its durable row stands in the transcript');
   // The reply and the turn's end change nothing about it.
   await pane.show({
     settledItems: [running[1], steered, { kind: 'assistant', id: 'a1', text: 'Next.' }, { kind: 'turndone', id: 'd1' }],
@@ -303,7 +301,43 @@ test('a message the running turn took in stops waiting, though its row carries n
   assert.deepEqual(waiting(), []);
 });
 
-test('a delivered message does not come back as a queued bubble when the settled user rows later shrink', async (t) => {
+test("a queued message keeps its bubble when it leaves the queue and another device's row lands, until its own row", async (t) => {
+  const running = [prompt, { kind: 'assistant', id: 'a0', text: 'Working on it' }];
+  const pane = await mountSendPane(t, { queuedAtSubmit: true });
+  await pane.show({ settledItems: running, busy: true });
+  let sending;
+  await act(async () => {
+    sending = pane.view.actions.composerSubmit('next step', { id: 'sub-1' });
+  });
+  await act(async () => {
+    pane.host.reply(true);
+    await sending;
+  });
+  await pane.show({
+    settledItems: running,
+    busy: true,
+    queued: [{ id: 'sub-1', displayText: 'next step', submittedAt: 5 }],
+  });
+  const key = pane.bubble('sub-1')?.key;
+  assert.ok(key, 'the queued bubble shows');
+  // The queue empties and a user row lands: the other device's, sent into the same thread.
+  const other = { kind: 'user', id: 'pc-1', text: 'sent on the PC', steered: true };
+  await pane.show({ settledItems: [...running, other], busy: true });
+  assert.ok(pane.bubble('sub-1')?.item.pending, "the other device's row does not take the bubble away");
+  // Its turn ends, and another begins, without this pane's row.
+  const ended = [...running, other, { kind: 'assistant', id: 'a1', text: 'Ok.' }, { kind: 'turndone', id: 'd1' }];
+  await pane.show({ settledItems: ended });
+  assert.ok(pane.bubble('sub-1')?.item.pending, 'nor does the end of the turn');
+  await pane.show({ settledItems: [...ended, sentRow], busy: true });
+  assert.equal(pane.bubble('sub-1').item.pending, undefined, 'its own row stands in the bubble');
+  assert.equal(
+    pane.view.rows.filter((row) => row._tag === 'UserMessage' && String(row.item.id) === 'sub-1').length,
+    1,
+    'once'
+  );
+});
+
+test('a delivered message does not come back as a queued bubble when the settled rows later shrink', async (t) => {
   const running = [prompt, { kind: 'assistant', id: 'a0', text: 'Working on it' }];
   const pane = await mountSendPane(t, { queuedAtSubmit: true });
   await pane.show({ settledItems: running, busy: true });
@@ -321,15 +355,14 @@ test('a delivered message does not come back as a queued bubble when the settled
     queued: [{ id: 'sub-1', displayText: 'next step', submittedAt: 5 }],
   });
   const waiting = () => pane.view.rows.filter((row) => row._tag === 'UserMessage' && row.item.steer);
-  // Read: the entry left the queue; its row has another id, and the settled
-  // user count (2) has reached the send-time baseline (1) + 1.
-  const steered = { kind: 'user', id: 'itm-9', text: 'next step', steered: true };
+  // Read: the entry left the queue and its row landed under the submission id.
+  const steered = { kind: 'user', id: 'sub-1', text: 'next step', steered: true };
   const read = [...running, steered];
   await pane.show({ settledItems: read, busy: true });
   assert.deepEqual(waiting(), []);
-  assert.equal(pane.bubble('sub-1'), undefined, 'no optimistic twin beside the durable row');
+  assert.equal(pane.bubble('sub-1').item.pending, undefined, 'the durable row, no optimistic twin beside it');
   // A compaction folds rows, or a bounded/reloaded window drops the oldest:
-  // the user count falls below the baseline. The twin must be gone for good.
+  // the row is no longer held. The twin must be gone for good.
   const shrunk = [
     { kind: 'assistant', id: 'a1', text: 'Next.' },
     { kind: 'turndone', id: 'd1' },
@@ -363,7 +396,7 @@ test('of two messages sent behind a turn, the one still waiting keeps its bubble
   await pane.show({ settledItems: running, busy: true, queued: [first] });
   // The second is sent and the first is read before the queue publishes it.
   await send('second', 'sub-2');
-  const firstRow = { kind: 'user', id: 'itm-1', text: 'first', steered: true };
+  const firstRow = { kind: 'user', id: 'sub-1', text: 'first', steered: true };
   await pane.show({ settledItems: [...running, firstRow], busy: true });
   assert.deepEqual(waiting(), ['second'], "the first's row is not taken for the second's");
   // Both queued, one drain takes both: the rows land one by one.
@@ -372,10 +405,10 @@ test('of two messages sent behind a turn, the one still waiting keeps its bubble
   await send('third', 'sub-3');
   const third = { id: 'sub-3', displayText: 'third', submittedAt: 7 };
   await pane.show({ settledItems: [...running, firstRow], busy: true, queued: [second, third] });
-  const secondRow = { kind: 'user', id: 'itm-2', text: 'second', steered: true };
+  const secondRow = { kind: 'user', id: 'sub-2', text: 'second', steered: true };
   await pane.show({ settledItems: [...running, firstRow, secondRow], busy: true });
   assert.deepEqual(waiting(), ['third'], 'the third stands until its own row');
-  const thirdRow = { kind: 'user', id: 'itm-3', text: 'third', steered: true };
+  const thirdRow = { kind: 'user', id: 'sub-3', text: 'third', steered: true };
   const read = [...running, firstRow, secondRow, thirdRow];
   await pane.show({ settledItems: read, busy: true });
   assert.deepEqual(waiting(), []);
@@ -386,11 +419,11 @@ test('of two messages sent behind a turn, the one still waiting keeps its bubble
   await send('fourth', 'sub-4');
   const fourth = { id: 'sub-4', displayText: 'fourth', submittedAt: 9 };
   await pane.show({ settledItems: read, busy: true, queued: [remote, fourth] });
-  const remoteRow = { kind: 'user', id: 'itm-4', text: 'from the phone', steered: true };
+  const remoteRow = { kind: 'user', id: 'phone-1', text: 'from the phone', steered: true };
   await pane.show({ settledItems: [...read, remoteRow], busy: true });
   assert.deepEqual(waiting(), ['fourth'], "the other device's row is not taken for this pane's");
   await pane.show({
-    settledItems: [...read, remoteRow, { kind: 'user', id: 'itm-5', text: 'fourth', steered: true }],
+    settledItems: [...read, remoteRow, { kind: 'user', id: 'sub-4', text: 'fourth', steered: true }],
     busy: true,
   });
   assert.deepEqual(waiting(), []);
@@ -442,11 +475,10 @@ test('a failed message stays a bubble until it is sent again or cancelled', () =
     accepted: false,
     submittedAt: 5,
     queuedBehindTurn: true,
-    settledUserBaseline: 0,
     steer: 'failed',
     retry: { content: 'retry me', options: { id: 'f1' } },
   };
-  // Later user rows would release a pending twin by ordinal; a failed one stays.
+  // Later user rows release nothing; a failed message stays.
   const settled = [prompt, { kind: 'user', id: 'other', text: 'other' }];
   const items = steerPromptItems([], pendingPromptTranscriptItems([failed], settled));
   assert.deepEqual(
@@ -1165,7 +1197,6 @@ test('a send behind the running turn that fails stays in the transcript as a fai
         queuedBehindTurnAtSubmit: { current: true },
         routeSessionIdRef: { current: 's1' },
         setOptimisticPrompts: setPrompts,
-        settledUsersRef: { current: 1 },
         suppressDraftSubmitPaintHandoff: { current: false },
       });
       return null;

@@ -261,8 +261,13 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     deleteSession: (sessionId) => call('deleteSession', [sessionId]),
     // Cold session lanes fill through a host-side read; the replay frame
     // arrives on the broadcast sessionState event like any live push.
-    prefetchSession: (sessionId, transcriptItemLimit, readTraceId) =>
-      call<boolean>('prefetchSession', [sessionId, transcriptItemLimit, ...(readTraceId ? [readTraceId] : [])]),
+    prefetchSession: (sessionId, transcriptItemLimit, readTraceId, options) =>
+      call<boolean>('prefetchSession', [
+        sessionId,
+        transcriptItemLimit,
+        // The user's Retry keeps its place as the fourth argument, trace or not.
+        ...(options?.retry === true ? [readTraceId, { retry: true }] : readTraceId ? [readTraceId] : []),
+      ]),
     // A refused approval answer: the phone publishes its own client's current projection (not a resume from its cursor).
     resyncSessionState: (sessionId, options) =>
       options?.fresh ? call<boolean>('refreshSessionState', [sessionId]) : undefined,

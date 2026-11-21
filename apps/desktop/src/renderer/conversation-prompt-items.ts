@@ -15,33 +15,15 @@ export type PendingPromptItem = TranscriptItem & {
   accepted: boolean;
   submittedAt: number;
   queuedBehindTurn?: boolean;
-  /** User rows already settled in this session when the prompt was sent. The
-   *  durable row is the (baseline + 1)-th user row, which releases this
-   *  optimistic twin even if the runtime normalized its id. */
-  settledUserBaseline?: number;
   /** A message sent behind a running turn that could not be sent: what
    *  "Send again" submits (same id, so a late arrival is not posted twice). */
   retry?: { content: DesktopPromptContent; options?: DesktopSubmitOptions };
   /** The session runtime's queue entry this message waits as. */
   queueEntry?: unknown;
-  /** Submitted from this pane, not yet in the session runtime's queue. */
+  /** Submitted from this pane, not (or no longer) in the session runtime's
+   *  queue, its row not landed yet. */
   steerLocal?: boolean;
-  /** The running turn took it from the queue and its row has landed, under
-   *  the core's own item id: it shows no bubble and keeps its row's ordinal. */
-  delivered?: boolean;
-  /** The session queue has held it: its release follows its queue entry
-   *  (use-conversation-optimistic-prompts.ts), not the user-row count, which
-   *  another surface's row would satisfy first. */
-  queueHeld?: boolean;
 };
-
-export function settledUserRowCount(items: readonly TranscriptItem[]): number {
-  let count = 0;
-  // A group room's user row arrives live as a notice carrying `room.kind:
-  // 'user'` (agent-room-delivery.mjs); it is that prompt's durable row too.
-  for (const item of items) if (item?.kind === 'user' || item?.room?.kind === 'user') count += 1;
-  return count;
-}
 
 /** The bubble text of a prompt sent from this pane. Attachments are never
  *  spelled out as placeholder words: an image draws from the row's `images`
@@ -79,6 +61,11 @@ export function pendingPromptImages(options?: DesktopSubmitOptions): NonNullable
   }));
 }
 
+/** The prompts sent from this pane still waiting for their rows. A prompt's
+ *  own row carries its submission id (the core's `clientSubmissionId`, which
+ *  protocol-client `userRow` makes the row's id, for a turn it started and
+ *  for one that took it from the queue; a room posts the row under it): only
+ *  that row releases the bubble, never another surface's row. */
 export function pendingPromptTranscriptItems(
   optimistic: PendingPromptItem[],
   settled: TranscriptItem[]
@@ -89,7 +76,6 @@ export function pendingPromptTranscriptItems(
       .filter((id) => id !== undefined && id !== null)
       .map(String)
   );
-  const settledUsers = settledUserRowCount(settled);
   const byId = new Map<string, PendingPromptItem>();
   for (const item of optimistic) {
     if (item?.id === undefined || item.id === null) continue;
@@ -99,27 +85,14 @@ export function pendingPromptTranscriptItems(
   }
   const rows: PendingPromptItem[] = [];
   const ordered = [...byId.values()].sort((left, right) => left.submittedAt - right.submittedAt);
-  let claimedThrough = 0;
   for (const item of ordered) {
     // A message that could not be sent has no durable row to wait for: it
-    // stays until it is sent again or cancelled, and claims no ordinal.
+    // stays until it is sent again or cancelled.
     if (item.steer === 'failed') {
       rows.push(item);
       continue;
     }
-    const baseline = Number(item.settledUserBaseline);
-    const ordinal = Math.max(Number.isFinite(baseline) ? baseline : 0, claimedThrough) + 1;
-    if (item.delivered || settledIds.has(String(item.id))) {
-      claimedThrough = ordinal;
-      continue;
-    }
-    // Id-agnostic safety net: a runtime that renames the submission id still
-    // releases the twin once its ordinal user row exists, so a lost id can
-    // never strand a permanent ghost bubble.
-    if (!item.queueHeld && Number.isFinite(baseline) && settledUsers >= ordinal) {
-      claimedThrough = ordinal;
-      continue;
-    }
+    if (settledIds.has(String(item.id))) continue;
     rows.push({ ...item, pending: true });
   }
   return rows;

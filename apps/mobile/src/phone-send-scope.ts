@@ -19,6 +19,7 @@ export const firstFrame = (claim: FrameClaim): FrameClaim => {
 const OPTIONS_AT: Readonly<Record<string, number>> = {
   call: 2,
   resumeThread: 2,
+  reopenThread: 2,
   unsubscribeThread: 1,
   subscribeApp: 0,
   readBlob: 1,

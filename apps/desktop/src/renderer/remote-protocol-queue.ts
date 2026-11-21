@@ -399,12 +399,20 @@ function searchLatestKey(method: string, params: unknown[]): string | undefined 
     : undefined;
 }
 
+/** The user's Retry of a transcript that did not arrive (`prefetchSession` with `retry`): it ends the attach that is out and
+ *  opens the thread again, so it is the one call that waits for nothing that may itself be waiting for that attach. */
+export const replacesAttach = (method: string, params: readonly unknown[]): boolean =>
+  method === 'prefetchSession' && (params[3] as { retry?: unknown } | null | undefined)?.retry === true;
+
 /**
  * The one entry of a phone connection's calls into its queue, as Node's dispatch was (`remote-relay-client-calls.ts`, `callQueue.run`):
  * the router (remote-shim-protocol.ts) sends EVERY call of EVERY adapter through here, so a later chat mutation cannot overtake an
  * unfinished file mutation. The call's lane, its newest-wins search scope and its side-question session are read off the call itself,
  * as Node read them; `task` is the whole handler, its argument checks included, which run in the call's slot as Node's did.
  * A search or side question a newer one replaced before it started rejects with Node's text.
+ * The one exception is the Retry of a transcript (`replacesAttach`), which runs beside the queue: any call ahead of it, a read
+ * or a mutation, may hold its slot until the attach the Retry replaces is answered. It changes nothing on the core but the
+ * thread's subscription.
  */
 export function runQueued<T>(
   connection: object,
@@ -412,6 +420,7 @@ export function runQueued<T>(
   params: unknown[],
   task: () => T | Promise<T>
 ): Promise<T> {
+  if (replacesAttach(method, params)) return Promise.resolve().then(task);
   return new Promise<T>((resolve, reject) => {
     const run = async (): Promise<void> => {
       try {

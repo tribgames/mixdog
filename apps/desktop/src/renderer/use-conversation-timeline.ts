@@ -38,6 +38,7 @@ export function useConversationTimeline({
     | 'showTranscriptTimeline'
     | 'requestEarlierTranscript'
     | 'resetTranscriptToLive'
+    | 'transcriptHistoryRevision'
   >;
   sessionKey: string;
   draftMode: boolean;
@@ -100,7 +101,7 @@ export function useConversationTimeline({
   }, [onTranscriptHiddenChange, transcriptRevealed]);
   // A short first window (down to 8 huge rows) may not fill the pane, and
   // with nothing to scroll the top threshold is never crossed.
-  useTranscriptHistoryFill(viewport, requestEarlierTranscript, settledItems.length, transcriptRevealed);
+  useTranscriptHistoryFill(viewport, requestEarlierTranscript, source.transcriptHistoryRevision, transcriptRevealed);
   // The latest reply lives on the live tail: a history window gives way.
   const jumpToLatest = useCallback(() => {
     resetTranscriptToLive();

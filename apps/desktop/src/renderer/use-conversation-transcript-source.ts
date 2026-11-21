@@ -1,7 +1,7 @@
 import { EMPTY_TRANSCRIPT_ITEMS, type Snapshot, type TranscriptItem } from './desktop-types';
 import { useStreamingTail } from './use-conversation-rows';
 import { useConversationTranscriptIdentity } from './use-conversation-transcript-identity';
-import { useTranscriptWindow } from './use-transcript-history';
+import { transcriptHistoryOf, useTranscriptWindow } from './use-transcript-history';
 
 export type ConversationTranscriptSource = ReturnType<typeof useConversationTranscriptSource>;
 
@@ -27,11 +27,15 @@ export function useConversationTranscriptSource({
   suppressDraftSubmitPaintHandoff: { current: boolean };
 }) {
   const liveItems = Array.isArray(snapshot.items) ? snapshot.items : EMPTY_TRANSCRIPT_ITEMS;
+  // What the host states of the window: an absent `transcriptHasOlder` is "says nothing" only when no history is stated.
+  const stated = transcriptHistoryOf(snapshot);
   const history = useTranscriptWindow(
     historySessionId,
     liveItems,
-    typeof snapshot.transcriptHasOlder === 'boolean' ? snapshot.transcriptHasOlder : undefined,
-    following
+    stated === 'unknown' ? undefined : stated === 'older',
+    following,
+    typeof snapshot.transcriptWindowStart === 'string' ? snapshot.transcriptWindowStart : undefined,
+    typeof snapshot.transcriptGeneration === 'number' ? snapshot.transcriptGeneration : undefined
   );
   // A history window shows past rows only: the live streaming line stays
   // with the live tail.
@@ -62,6 +66,7 @@ export function useConversationTranscriptSource({
     requestLaterTranscript,
     resetTranscriptToLive,
     transcriptHistoryActive,
+    transcriptHistoryRevision: history.revision,
     ...identity,
   };
 }

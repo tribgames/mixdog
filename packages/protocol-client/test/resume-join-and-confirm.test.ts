@@ -24,9 +24,18 @@ async function setup() {
   await conn.nextSent();
   return { net, conn, client: await connecting };
 }
-const reply = (id: number, mode: 'snapshot' | 'replay', epoch = 'te', startSeq = 1, liveSeq = startSeq) => ({
+let attaches = 0;
+/** An attach answer. Each names a subscription of its own unless `held` names the one the core keeps (a carried resume). */
+const reply = (
+  id: number,
+  mode: 'snapshot' | 'replay',
+  epoch = 'te',
+  startSeq = 1,
+  liveSeq = startSeq,
+  held = `s${++attaches}`
+) => ({
   id,
-  result: { subscription: { id: 's', mode, epoch, startSeq, liveSeq } },
+  result: { subscription: { id: held, mode, epoch, startSeq, liveSeq } },
 });
 
 test('a joining resume of a thread whose snapshot is on the way sends nothing and is answered by the resume in flight', async () => {
@@ -45,16 +54,16 @@ test('a joining resume of a thread whose snapshot is on the way sends nothing an
   await client.close();
 });
 
-test('a join never yields less than it asked: a larger window than the one in flight is sent, and a bigger one in flight answers a smaller ask', async () => {
+test('a join never yields less than it asked: a larger window is sent once the attach in flight has ended, never beside it, and a bigger one in flight answers a smaller ask', async () => {
   const { conn, client } = await setup();
   client.resumeThread('t1', { lastItems: 32 }).catch(() => undefined);
-  await conn.nextSent();
+  const first = JSON.parse(await conn.nextSent());
   client.resumeThread('t1', { lastItems: 50 }, { join: true }).catch(() => undefined);
   await tick();
-  const sent = conn.sent.map((text) => JSON.parse(text));
-  assert.equal(sent.length, 1, 'the 50-item view is not answered by a 32-item prefetch');
-  assert.deepEqual(sent[0].params.window, { lastItems: 50 });
-  conn.sent.length = 0;
+  assert.equal(conn.sent.length, 0, 'one attach of the thread is out at a time');
+  conn.serverSend(reply(first.id, 'snapshot'));
+  const grown = JSON.parse(await conn.nextSent());
+  assert.deepEqual(grown.params.window, { lastItems: 50 }, 'the 50-item view is not answered by a 32-item prefetch');
   client.resumeThread('t1', { lastItems: 40 }, { join: true }).catch(() => undefined);
   await tick();
   assert.equal(conn.sent.length, 0, 'a 50-item resume in flight holds a 40-item ask');
@@ -418,7 +427,7 @@ test('a resume the core answers with the subscription it holds repeats nothing, 
   });
   const frame = (seq: number) => ({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq } });
   const opened = client.resumeThread('t1', { lastItems: 50 });
-  conn.serverSend(reply(JSON.parse(await conn.nextSent()).id, 'snapshot', 'te', 1));
+  conn.serverSend(reply(JSON.parse(await conn.nextSent()).id, 'snapshot', 'te', 1, 1, 'held'));
   await opened;
   conn.serverSend({ method: 'thread/snapshot', params: {}, feed: { id: 't1', epoch: 'te', seq: 0 } });
   conn.serverSend(frame(1));
@@ -433,7 +442,7 @@ test('a resume the core answers with the subscription it holds repeats nothing, 
   const request = JSON.parse(await conn.nextSent());
   assert.equal(request.params.resumeFrom.seq, 1);
   conn.serverSend(frame(2));
-  conn.serverSend(reply(request.id, 'replay', 'te', 2, 3));
+  conn.serverSend(reply(request.id, 'replay', 'te', 2, 3, 'held'));
   conn.serverSend(frame(3));
   await again;
   await tick();
@@ -443,7 +452,7 @@ test('a resume the core answers with the subscription it holds repeats nothing, 
   const third = client.resumeThread('t1', { lastItems: 50 });
   const later = JSON.parse(await conn.nextSent());
   assert.equal(later.params.resumeFrom.seq, 3);
-  conn.serverSend(reply(later.id, 'replay', 'te', 4, 6));
+  conn.serverSend(reply(later.id, 'replay', 'te', 4, 6, 'held'));
   conn.serverSend(frame(4));
   conn.serverSend(frame(5));
   await third;

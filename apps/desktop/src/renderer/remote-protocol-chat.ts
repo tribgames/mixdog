@@ -44,6 +44,8 @@ export interface ChatClient {
     window: unknown,
     options?: { readonly join?: boolean; readonly force?: boolean }
   ): Promise<unknown>;
+  /** The user's retry: the thread is let go and opened anew, joining nothing that is out. */
+  reopenThread(threadId: string, window: unknown): Promise<unknown>;
   unsubscribeThread(threadId: string): Promise<void>;
   readonly server: { readonly connection?: { readonly device?: string } };
 }
@@ -95,7 +97,8 @@ export interface ChatShared {
   /** The phone's transcript window (main/remote-phone-transcript.ts `createPhoneTranscript`, kept out of this bundle's imports as
    *  main code): the states the phone is shown pass through its `view`. */
   transcript: {
-    page(threadId: string, state: unknown, limit: number): Promise<void>;
+    /** False when nothing older could join the window. */
+    page(threadId: string, state: unknown, limit: number): Promise<boolean>;
     output(
       threadId: string,
       state: unknown,
@@ -220,16 +223,22 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
     prefetchSession: async (
       sessionId: string,
       transcriptItemLimit?: number,
-      _readTraceId?: string
+      _readTraceId?: string,
+      options?: { readonly retry?: boolean }
     ): Promise<boolean> => {
+      const retry = options?.retry === true;
       // A thread the phone follows pages its own window (Node: requestPhoneTranscriptPage); one it does not is resumed.
       const state = shared.sessionStateOf(sessionId);
-      if (state && typeof transcriptItemLimit === 'number') {
-        await shared.transcript.page(sessionId, state, transcriptItemLimit);
-        return true;
+      if (state && !retry) {
+        // A read that names no rows is of the state, which is held: nothing is asked of the core. Older history is the
+        // pane's own page request (use-transcript-history.ts), which names its rows.
+        if (typeof transcriptItemLimit !== 'number') return true;
+        return shared.transcript.page(sessionId, state, transcriptItemLimit);
       }
       const [resume] = shared.routeService('prefetchSession', [sessionId, transcriptItemLimit]).requests;
-      await client.resumeThread(sessionId, resume?.params.window, { join: true });
+      // The user's Retry is an open of its own: an attach that never arrived is not joined again.
+      if (retry) await client.reopenThread(sessionId, resume?.params.window);
+      else await client.resumeThread(sessionId, resume?.params.window, { join: true });
       return true;
     },
     // Rust gap (position paging): Node's own answer for a host that cannot, which the page meets by growing its window.
@@ -903,12 +912,93 @@ export const sharedFor = (scoped: ChatClient): ChatHostShared => {
   };
 };
 
+type FoldClient = Pick<ProtocolClient<SessionFold>, 'resumeThread' | 'store'>;
+
+/** The page still on its way from a fold, by the fold's `origin` (one per snapshot): it goes with the fold. */
+const pagesOut = new WeakMap<object, Promise<boolean>>();
+
+/** The folds a page's own snapshot brought with fewer core items than the page asked for, by `origin` (it goes with the fold):
+ *  the core's view of the thread ends where such a fold begins. Only `pageLanded` adds one, for a caller that names what was
+ *  asked. */
+const cameShort = new WeakSet<object>();
+
+/** The window, in core items, a page of `limit` rows asks of a fold that shows `shown` rows: the rows asked beyond those shown, past
+ *  the items the fold holds (`SessionFold.coreItems`: a reasoning item folds to no row, a run of tool calls to one card). 0: the
+ *  fold answers as it is, holding the thread's start or showing that many rows already; there is nothing to ask the core. null:
+ *  nothing older can join it (`cameShort`); older rows are read by position. */
+export function pageWindow(fold: SessionFold, shown: number, limit: number): number | null {
+  if (limit <= shown || fold.history !== 'older') return 0;
+  if (fold.origin && cameShort.has(fold.origin)) return null;
+  return (fold.coreItems?.length ?? 0) + limit - shown;
+}
+
+/** Whether `after` holds history older than `before` did: the item `before`'s window began at lies inside `after`'s, past its
+ *  first, or `after` holds the thread's start. Read from the two folds alone: a window that moved toward newer history, was cut
+ *  back, or belongs to the thread opened again is no page.
+ *
+ *  `asked` is the window the page asked for, and is given only by a caller for which `after` is the fold that page's own snapshot
+ *  brought, as it was folded: such a fold holding fewer items is where the core's view ends (`cameShort`). A caller that cannot
+ *  tell its snapshot from another fold of the thread gives none. */
+export function pageLanded(before: SessionFold, after: SessionFold | undefined, asked?: number): boolean {
+  if (!after) return false;
+  if (asked !== undefined && after.origin && after.origin !== before.origin && (after.coreItems?.length ?? 0) < asked)
+    cameShort.add(after.origin);
+  if (after.history !== 'older') return true;
+  const start = before.coreItems?.[0];
+  // A window that held nothing (a rewind above it took all it had) gains history with any item.
+  if (start === undefined) return (after.coreItems?.length ?? 0) > 0;
+  return (after.coreItems?.indexOf(start) ?? -1) > 0;
+}
+
+/** The fold's window grown to `items` core items; false when nothing older joined it.
+ *
+ *  The page belongs to `fold`: it ends at the first change of the store that finds another fold of the thread there (the page's
+ *  snapshot, or one of the thread opened again) or none (the thread let go, or lost), and what it answers is read from the fold
+ *  found then. The client names no subscription, so that fold is not known to be the page's own snapshot: nothing is recorded
+ *  about it (`pageLanded` without `asked`), and a view that ended is found by the page that brings no older item. */
+async function growFold(client: FoldClient, threadId: string, fold: SessionFold, items: number) {
+  const [resume] = routeService('prefetchSession', [threadId, items]).requests;
+  let off = (): void => undefined;
+  const replaced = new Promise<SessionFold | undefined>((resolve) => {
+    off = client.store.subscribe(() => {
+      const next = client.store.thread(threadId)?.state;
+      if (next?.origin !== fold.origin) resolve(next);
+    });
+  });
+  try {
+    const reply = await client.resumeThread(threadId, resume?.params.window as never);
+    // A replay of the window already folded brings nothing.
+    if (reply?.subscription?.mode !== 'snapshot') return false;
+    return pageLanded(fold, await replaced);
+  } finally {
+    off();
+  }
+}
+
 /** The transcript this page shows: its own fold of the thread (`sessionStateOf`), whole within the thread's `thread/resume` window. A
- *  page grows that window (Node's `prefetchSession` limit); a tool row's whole output is read from the fold (`remoteToolOutput`). */
-export const foldTranscript = (client: Pick<ChatClient, 'resumeThread'>): ChatShared['transcript'] => ({
-  page: async (threadId, _state, limit) => {
-    const [resume] = routeService('prefetchSession', [threadId, limit]).requests;
-    await client.resumeThread(threadId, resume?.params.window);
+ *  page grows that window; a tool row's whole output is read from the fold (`remoteToolOutput`).
+ *
+ *  The page asks for `limit` transcript rows and the window counts core items (`pageWindow`). A page that asks the core for
+ *  nothing is answered here, about its own `limit`, and is not a page on its way; one that does ask joins the page already on its
+ *  way from the same fold, whose answer (older history joined this fold's window, or not) is the same whatever each asked. */
+export const foldTranscript = (client: FoldClient): ChatShared['transcript'] => ({
+  page: (threadId, state, limit) => {
+    const fold = client.store.thread(threadId)?.state;
+    const origin = fold?.origin;
+    if (!fold || !origin) return Promise.resolve(false);
+    const shown = (state as { items?: readonly unknown[] } | null)?.items?.length ?? 0;
+    const items = pageWindow(fold, shown, limit);
+    // The thread's start is held, or the rows asked for are shown already; or nothing older can join the window.
+    if (!items) return Promise.resolve(items === 0);
+    const out = pagesOut.get(origin);
+    if (out) return out;
+    const grown = growFold(client, threadId, fold, items);
+    pagesOut.set(origin, grown);
+    void grown.then(
+      () => pagesOut.delete(origin),
+      () => pagesOut.delete(origin)
+    );
+    return grown;
   },
   output: (_threadId, state, itemId) => remoteToolOutput(state, itemId),
 });

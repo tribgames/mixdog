@@ -298,8 +298,13 @@ export class DesktopServiceClient implements DesktopService {
   deleteSession(sessionId: string): Promise<unknown> {
     return this.options.capabilityLane.deleteSession(sessionId);
   }
-  prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean> {
-    return this.options.sessionLane.prefetchSession(sessionId, transcriptItemLimit, readTraceId);
+  prefetchSession(
+    sessionId: string,
+    transcriptItemLimit?: number,
+    readTraceId?: string,
+    options?: { retry?: boolean }
+  ): Promise<boolean> {
+    return this.options.sessionLane.prefetchSession(sessionId, transcriptItemLimit, readTraceId, options);
   }
   async readTranscriptHistory(
     sessionId: string,

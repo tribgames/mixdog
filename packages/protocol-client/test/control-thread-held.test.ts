@@ -12,7 +12,7 @@ const SUB = { subscription: { epoch: 'e1', startSeq: 1 } };
 const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 const parse = async (conn: MockConn) => JSON.parse(await conn.nextSent());
 
-async function opened() {
+async function opened(extra: { requestTimeoutMs?: number } = {}) {
   const net = new MockNetwork();
   const open = () =>
     connect({
@@ -23,6 +23,7 @@ async function opened() {
       clock: { sleep: () => Promise.resolve() },
       random: () => options.jitterUnit,
       ladder: options.ladder,
+      ...extra,
     });
   const handshake = async (): Promise<MockConn> => {
     const conn = await net.accept();
@@ -223,4 +224,40 @@ test('what waits for an unanswered resume ends when the hold is dropped or the c
   await dropped;
   await rig.client.close();
   await assert.rejects(closed);
+});
+
+test("a call waiting for a held thread's unanswered resume ends at the caller's bound", async () => {
+  const rig = await opened();
+  await started(rig, 'ctl-1');
+  rig.conn().serverClose(1006);
+  const second = await rig.redial();
+  const waited = (
+    rig.client as unknown as { whenHeldSettled(id: string, options?: { timeoutMs?: number }): Promise<void> }
+  ).whenHeldSettled('ctl-1', { timeoutMs: 30 });
+  assert.equal((await parse(second)).method, 'thread/resume');
+  await assert.rejects(
+    waited,
+    (error: { detail?: { kind?: string } }) => error.detail?.kind === 'requestTimeout'
+  );
+  await rig.client.close();
+});
+
+test("a wait for a held thread's resume that names no bound has none: the default request limit does not end it", async () => {
+  const rig = await opened({ requestTimeoutMs: 20 });
+  await started(rig, 'ctl-1');
+  rig.conn().serverClose(1006);
+  const second = await rig.redial();
+  let outcome: string | undefined;
+  const waited = (rig.client as unknown as { whenHeldSettled(id: string): Promise<void> }).whenHeldSettled('ctl-1').then(
+    () => (outcome = 'settled'),
+    () => (outcome = 'failed')
+  );
+  const resume = await parse(second);
+  assert.equal(resume.method, 'thread/resume');
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(outcome, undefined, 'still waiting past the default limit');
+  second.serverSend({ id: resume.id, result: SUB });
+  await waited;
+  assert.equal(outcome, 'settled');
+  await rig.client.close();
 });

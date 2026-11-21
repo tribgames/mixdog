@@ -166,6 +166,60 @@ test('a refused re-attachment three times in a row recycles the connection and r
   assert.equal(await rejected, 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED');
 });
 
+test('a re-attachment the core never answers is still owed by every retry, so the third failed sync recycles', async () => {
+  const { status, events, manager } = rig();
+  await manager.synced();
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    status(RECONNECTING);
+    status(READY);
+    const gate = manager.synced();
+    void gate.catch(() => undefined);
+    // No restore event ever arrives: each sync's watch fails it (20 s, then the probe's 5 s), and the backoff retries.
+    for (const [failures, backoff] of [
+      [1, 250],
+      [2, 500],
+      [3, 0],
+    ] as const) {
+      mock.timers.tick(20_000);
+      await tick();
+      mock.timers.tick(5_000);
+      await tick();
+      assert.equal(events.errors, failures);
+      assert.equal(events.synced, 1, 'no connected report while the restores are unanswered');
+      mock.timers.tick(backoff);
+      await tick();
+    }
+    assert.equal(events.recycled, 1);
+  } finally {
+    mock.timers.reset();
+    manager.stop();
+  }
+});
+
+test('a wake check the core never answers fails as its watch does', async () => {
+  const { client, manager } = rig();
+  await manager.synced();
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    (client as unknown as { confirmFeeds: () => Promise<boolean> }).confirmFeeds = () =>
+      new Promise<boolean>(() => undefined);
+    const woke = manager.wake();
+    const outcome = woke.then(
+      () => 'answered',
+      (error: Error) => error.message
+    );
+    await tick();
+    mock.timers.tick(20_000);
+    await tick();
+    mock.timers.tick(5_000);
+    assert.equal(await outcome, 'mixdog remote call timed out.');
+  } finally {
+    mock.timers.reset();
+    manager.stop();
+  }
+});
+
 test('subscription events never open the gate: only the machine finishing a sync does', async () => {
   const { store, events, manager, held, resuming } = rig(true);
   const gate = manager.synced();

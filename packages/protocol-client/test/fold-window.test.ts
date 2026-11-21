@@ -34,8 +34,10 @@ test('a fold past its window drops its oldest rows and says older rows exist', (
   assert.equal(fold.items.at(-1)!.id, 'n4');
   assert.equal(fold.structureRevision, revision + 5);
   assert.equal(desktopSessionState(fold, []).transcriptHasOlder, true);
-  // A history reset still owns the flag afterwards.
+  // A rewind inside the window leaves the dropped rows above it, whatever the core's own window holds; a clear leaves none.
   fold = apply(fold, 'thread/historyReset', { fromItemId: 'n4', hasOlder: false });
+  assert.equal(desktopSessionState(fold, []).transcriptHasOlder, true);
+  fold = apply(fold, 'thread/historyReset', { hasOlder: false });
   assert.equal(desktopSessionState(fold, []).transcriptHasOlder, undefined);
 });
 

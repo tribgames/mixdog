@@ -74,14 +74,14 @@ const HARNESS = `
     });
     const refs = useRef({
       draftMode: { current: false }, goal: { current: null }, scope: { current: SESSION },
-      queued: { current: false }, route: { current: SESSION }, users: { current: history.length / 2 },
+      queued: { current: false }, route: { current: SESSION },
       suppress: { current: false },
     }).current;
     const { composerSubmit } = useConversationComposerActions({
       armFollowOnSubmitRef,
       composerActions: hostRef, draftModeRef: refs.draftMode, goalSubmission: refs.goal, goalSubmitScopeRef: refs.scope,
       queuedBehindTurnAtSubmit: refs.queued, routeSessionIdRef: refs.route, setOptimisticPrompts,
-      settledUsersRef: refs.users, suppressDraftSubmitPaintHandoff: refs.suppress,
+      suppressDraftSubmitPaintHandoff: refs.suppress,
     });
     useConversationOptimisticPromptRelease({
       transcriptSessionKey: SESSION, promotedOwnDraft: promoted, settledItems, optimisticPrompts, queued: [],

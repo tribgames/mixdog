@@ -40,7 +40,6 @@ async function mountActions(document, submit) {
     goalSubmitScopeRef: { current: 'session:s1' },
     queuedBehindTurnAtSubmit: { current: false },
     routeSessionIdRef: { current: 's1' },
-    settledUsersRef: { current: 0 },
     suppressDraftSubmitPaintHandoff: { current: false },
   };
   function Harness() {
@@ -118,7 +117,6 @@ test('phone send: a refused or failed submit removes the row and keeps the text 
           queuedBehindTurnAtSubmit: { current: false },
           routeSessionIdRef: { current: 's1' },
           setOptimisticPrompts: setPrompts,
-          settledUsersRef: { current: 0 },
           suppressDraftSubmitPaintHandoff: { current: false },
         });
         const { send } = useComposerSubmission({

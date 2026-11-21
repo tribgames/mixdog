@@ -87,14 +87,13 @@ const HARNESS = `
     const refs = useRef({
       draftMode: { current: false }, goal: { current: null }, scope: { current: SESSION },
       queued: { current: queuedScenario }, route: { current: SESSION },
-      users: { current: initial.filter((item) => item.kind === 'user').length },
       suppress: { current: false },
     }).current;
     const { composerSubmit } = useConversationComposerActions({
       armFollowOnSubmitRef,
       composerActions: hostRef, draftModeRef: refs.draftMode, goalSubmission: refs.goal, goalSubmitScopeRef: refs.scope,
       queuedBehindTurnAtSubmit: refs.queued, routeSessionIdRef: refs.route, setOptimisticPrompts,
-      settledUsersRef: refs.users, suppressDraftSubmitPaintHandoff: refs.suppress,
+      suppressDraftSubmitPaintHandoff: refs.suppress,
     });
     useConversationOptimisticPromptRelease({
       transcriptSessionKey: SESSION, promotedOwnDraft: promoted, settledItems, optimisticPrompts, queued,

@@ -88,7 +88,7 @@ export function JumpToLatestButton({ visible, onJump }: { visible: boolean; onJu
 function optimisticPromptFor(
   content: DesktopPromptContent,
   options: DesktopSubmitOptions | undefined,
-  { id, queuedBehindTurn, settledUserBaseline }: { id: string; queuedBehindTurn: boolean; settledUserBaseline: number }
+  { id, queuedBehindTurn }: { id: string; queuedBehindTurn: boolean }
 ): PendingPromptItem {
   const submittedAt = Number(options?.submittedAt);
   const trackedSubmittedAt = Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : Date.now();
@@ -102,7 +102,6 @@ function optimisticPromptFor(
     submittedAt: trackedSubmittedAt,
     at: trackedSubmittedAt,
     queuedBehindTurn,
-    settledUserBaseline,
     ...(images.length ? { images } : {}),
   };
 }
@@ -116,7 +115,6 @@ export function useConversationComposerActions({
   queuedBehindTurnAtSubmit,
   routeSessionIdRef,
   setOptimisticPrompts,
-  settledUsersRef,
   suppressDraftSubmitPaintHandoff,
 }: {
   armFollowOnSubmitRef: { current: () => void };
@@ -127,7 +125,6 @@ export function useConversationComposerActions({
   queuedBehindTurnAtSubmit: { current: boolean };
   routeSessionIdRef: { current: string };
   setOptimisticPrompts: Dispatch<SetStateAction<PendingPromptItem[]>>;
-  settledUsersRef: { current: number };
   suppressDraftSubmitPaintHandoff: { current: boolean };
 }) {
   // Every handler below is wired once and reads the latest props through the
@@ -138,7 +135,6 @@ export function useConversationComposerActions({
     const optimistic = optimisticPromptFor(content, options, {
       id: submissionId,
       queuedBehindTurn: queuedBehindTurnAtSubmit.current,
-      settledUserBaseline: settledUsersRef.current,
     });
     const trackedSubmittedAt = optimistic.submittedAt;
     const materializingDraft = draftModeRef.current;

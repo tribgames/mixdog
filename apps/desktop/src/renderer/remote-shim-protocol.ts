@@ -2,7 +2,7 @@ import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-
 import { armCallWatch } from './remote-shim-call-watch';
 import { firstFrame, scopeClient } from '../../../mobile/src/phone-send-scope';
 import { remoteConnectionInterruptedError } from './remote-connection-state';
-import { runQueued } from './remote-protocol-queue';
+import { replacesAttach, runQueued } from './remote-protocol-queue';
 import type { RemoteShimContext } from './remote-shim-state';
 
 /** What an adapter reaches the core through. */
@@ -171,7 +171,8 @@ export function createProtocolRouter(
       // The gate is the phone's (Node's send() waits before the frame leaves), the queue is the desktop's (remote-relay-client-calls.ts:481
       // enqueues a frame on receipt): a call waiting for its gate holds no lane slot, so the ungated boot reads leave beside the sync.
       (async () => {
-        if (!gated || UNGATED_CALLS.has(method)) await link.started();
+        // The view sync waits for the visible threads' attaches: a Retry of one of them cannot wait for the sync it unblocks.
+        if (!gated || UNGATED_CALLS.has(method) || replacesAttach(method, args)) await link.started();
         else if (APP_GATED_CALLS.has(method)) await link.appSynced();
         else await link.synced();
         onGate?.();

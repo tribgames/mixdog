@@ -140,7 +140,6 @@ function rowsOf(c) {
     pending: true,
     accepted: false,
     submittedAt: 1,
-    settledUserBaseline: 0,
     ...(images.length ? { images } : {}),
   };
   return {

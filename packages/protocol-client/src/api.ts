@@ -302,6 +302,11 @@ export type ResumeOptions = Pick<CallOptions, 'sent' | 'timeoutMs'> & {
   readonly force?: boolean;
   /** The window is the view's default, not a request to replace an existing window of another kind. */
   readonly follow?: boolean;
+  /** Ends this caller's wait as `requestTimeout` when it aborts, as an explicit `timeoutMs` does: the watch of the operation the user
+   *  waits on. It is not a refusal on the wire: a request that is out stays out, and its answer still attaches the thread. Two
+   *  things end with the wait: a request nobody waits for any more that has not been written is not written, and a legacy
+   *  replay still being resolved for the caller that started the attach ends as the thread's loss (`subscriptionLost`). */
+  readonly signal?: AbortSignal;
 };
 
 /** Mutation params carry `opId`; the library assigns it, the caller may pin it through `CallOptions` or the params. */
@@ -314,7 +319,8 @@ export interface ThreadSubscription {
   readonly held: boolean;
   /** A reconnect restore of this thread is still in flight. */
   readonly restoring: boolean;
-  /** A resume is outstanding or its replacement snapshot has not finished folding. */
+  /** A resume is outstanding or its replacement snapshot has not finished folding. It stays so until that settles, whether or
+   *  not a caller still waits. */
   readonly snapshotPending: boolean;
   /** The missed events promised by the attach have not all folded yet. */
   readonly replayPending: boolean;
@@ -350,8 +356,21 @@ export interface ProtocolClient<S = Json> {
    * `protocolViolation` when the transport has no binary lane or the frame exceeds `limits.maxMediaFrameBytes` + 16. */
   sendBinary(data: Uint8Array): void;
 
-  /** Equal windows share an outstanding resume. `join` also accepts a larger window; `force` sends a new resume for recovery. */
+  /** Follows a thread. One attach of a thread is out at a time: while it is, every caller it answers (its window holds the
+   *  asked one) waits for it and sends nothing, and a caller asking for more sends its resume once that one has ended. After
+   *  the answer, while the snapshot is still owed, equal windows share it and `join` also accepts a larger one; `force` sends
+   *  a new resume then, for recovery. Resolves once the thread is followed; a replay the core could not bound (an older core)
+   *  is resolved first, as part of the same attach, and rejects with the thread's loss when it cannot be. */
   resumeThread(threadId: string, window: ResumeWindow, options?: ResumeOptions): Promise<ThreadResumeResponse>;
+  /** The user's retry of a thread that did not arrive. Whatever attach or restore of the thread is out ends as the thread's
+   *  loss (`subscriptionLost`, `requestTimeout`): its waiters are rejected with it and its answer, when it comes, changes
+   *  nothing. Then one ordinary resume goes out, with the window that was wanted and no cursor. */
+  reopenThread(threadId: string, window: ResumeWindow, options?: ResumeOptions): Promise<ThreadResumeResponse>;
+  /** Resolves true once nothing of the thread's transcript is owed: no attach is out, no snapshot or replay is still to
+   *  fold. Resolves false when the thread was unsubscribed while it waited: the wait ended, the transcript did not arrive.
+   *  Sends nothing and offers no window. Rejects as the attach that is out does, with the thread's loss, or
+   *  `connectionLost` when the connection ends first. */
+  whenThreadSettled(threadId: string): Promise<boolean>;
   /** Reads local subscription bookkeeping without sending a request or opening the thread. */
   threadSubscription(threadId: string): ThreadSubscription;
   /** Checks every live subscription owned by this connection, including that it still has the expected view feeds. */

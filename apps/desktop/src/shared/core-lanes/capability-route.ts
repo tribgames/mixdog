@@ -275,10 +275,13 @@ const createControlThread = (request: CoreRequest, protocol: CapabilityProtocol)
       }
       const mine = control;
       const id = await mine;
-      // A client closed or replaced while waiting is answered by the check below, against the client current then.
+      // A client closed or replaced while waiting is answered by the check below, against the client current then; a wait past
+      // the call's bound is the call's failure.
       await heldClient()
         ?.whenHeldSettled?.(id)
-        .catch(() => undefined);
+        .catch((error: unknown) => {
+          if ((error as { detail?: { kind?: string } } | null)?.detail?.kind === 'requestTimeout') throw error;
+        });
       if (heldClient()?.threadSubscription?.(id).held ?? true) return id;
       if (control === mine) control = null;
     }

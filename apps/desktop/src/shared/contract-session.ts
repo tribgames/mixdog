@@ -249,6 +249,14 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   /** `items` is a tail window and older history can be paged in; absent on a
    *  whole-transcript (legacy) body. */
   transcriptHasOlder?: boolean;
+  /** What the core holds above the tail window: 'held', the thread's start is inside it; 'older', older items exist. A host
+   *  that states it never leaves the question to the absence of `transcriptHasOlder`. */
+  transcriptHistory?: 'held' | 'older';
+  /** The id of the oldest core item the tail window holds: a page of older history has made progress only when that start
+   *  moved (rows are no measure: a run of tool calls folds to one card). */
+  transcriptWindowStart?: string;
+  /** The history resets (a rewind, a clear) the window has taken: after one it is another window, wherever it begins. */
+  transcriptGeneration?: number;
   streamingTail?: DesktopTranscriptItem | null;
   /** The live row's unfinished line, which the line-gated `streamingTail`
    *  holds back (see shared/streaming-partial.ts). Terminal clients drop it;
@@ -359,6 +367,9 @@ export interface DesktopTranscriptHistoryRequest {
   byteBudget?: number;
   /** The boundary row's position as an earlier answer named it (`positions` or `positionEdges`). */
   position?: string;
+  /** Where the page before this one said the history goes on in this direction (`olderCursor`, `newerCursor`): the read
+   *  starts there, whatever row `before`/`after` names. */
+  cursor?: string;
 }
 
 /** The answer: `reset` when the boundary row is gone (compaction, rewind),
@@ -371,6 +382,10 @@ export interface DesktopTranscriptHistoryPage {
   positions?: (string | null)[];
   /** Both ends of a grouped row, independent of the direction that fetched it. */
   positionEdges?: ({ before?: string; after?: string } | null)[];
+  /** The core's own continuation past the page's oldest and newest item, when more lies there: a page whose items fold to
+   *  no row (reasoning) still says where the next one begins. */
+  olderCursor?: string;
+  newerCursor?: string;
   reset?: boolean;
   unsupported?: boolean;
 }
@@ -379,6 +394,9 @@ export interface DesktopTranscriptHistoryPage {
 export const DESKTOP_TRANSCRIPT_HISTORY_PAGE_ITEMS = 512;
 
 export const CORE_TRANSCRIPT_HISTORY_POSITION = /^h1:\d{1,10}:[^\r\n]{1,512}$/;
+/** A history continuation (`DesktopTranscriptHistoryRequest.cursor`): a core position or an item id. */
+export const validTranscriptHistoryCursor = (value: unknown): value is string =>
+  typeof value === 'string' && /^[^\r\n]{1,600}$/.test(value);
 export const validTranscriptHistoryPosition = (value: unknown): value is string =>
   typeof value === 'string' &&
   (/^(?:s:\d{1,15}:\d{1,15}|a:\d{1,15}:\d{1,15}:\d{1,15})$/.test(value) ||

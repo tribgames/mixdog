@@ -101,7 +101,12 @@ export interface DesktopService {
   setSessionFavorite(sessionId: string, favorite: boolean): unknown;
   setSessionProject(sessionId: string, projectPath: string): unknown;
   deleteSession(sessionId: string): unknown;
-  prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean>;
+  prefetchSession(
+    sessionId: string,
+    transcriptItemLimit?: number,
+    readTraceId?: string,
+    options?: { retry?: boolean }
+  ): Promise<boolean>;
   /** A historical-position read outside the session's shared window. */
   readTranscriptHistory?(
     sessionId: string,

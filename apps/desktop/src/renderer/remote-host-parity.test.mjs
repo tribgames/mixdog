@@ -21,6 +21,23 @@ const GATED = [
 // Node's version of these tests (b6f10295a) drove the table over a fake relay socket with the challenge's `remoteParity` flag. Here the table
 // is the same (remote-shim-api.ts), the flag is the context's `peerRemoteParity` (the phone sets it per connection from the core's
 // capabilities, apps/mobile/src/phone-capabilities.ts), and what Node read off the socket is what reached the adapter that owns the name.
+test("the phone's Retry reaches the adapter as a retry, in the fourth place with or without a trace", async () => {
+  await withPhoneApi({ prefetchSession: () => true }, async ({ api, calls }) => {
+    await api.prefetchSession('s1', 64, 'trace-1');
+    await api.prefetchSession('s1', undefined, 'trace-2', { retry: true });
+    await api.prefetchSession('s1', undefined, undefined, { retry: true });
+    assert.deepEqual(
+      calls.map((call) => call.params),
+      [
+        ['s1', 64, 'trace-1'],
+        // The arguments cross to the adapter as JSON: an absent one arrives as null.
+        ['s1', null, 'trace-2', { retry: true }],
+        ['s1', null, null, { retry: true }],
+      ]
+    );
+  });
+});
+
 const handlers = {
   getUpdaterState: () => ({ status: 'ready' }),
   trashProjectEntry: () => undefined,
