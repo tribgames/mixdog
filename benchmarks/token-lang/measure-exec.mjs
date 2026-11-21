@@ -43,7 +43,8 @@ export const MODELS = [
 ];
 
 /** The model list as results.json records it: every model with the route and model id it is measured through. */
-export const recordedModels = () => MODELS.map(([name, provider, model, effort]) => ({ name, provider, model, ...(effort ? { effort } : {}) }));
+export const recordedModels = () =>
+  MODELS.map(([name, provider, model, effort]) => ({ name, provider, model, ...(effort ? { effort } : {}) }));
 
 /** The prompt-side token total of the first model request in `mixdogd exec --json` output. */
 export function inputTokensOfFirstRequest(stdout, provider) {
@@ -57,7 +58,8 @@ export function inputTokensOfFirstRequest(stdout, provider) {
     }
     if (event?.type !== 'model.request.completed') continue;
     const usage = event.usage ?? {};
-    const cache = provider === 'anthropic-oauth' ? (usage.cached_input_tokens || 0) + (usage.cache_write_input_tokens || 0) : 0;
+    const cache =
+      provider === 'anthropic-oauth' ? (usage.cached_input_tokens || 0) + (usage.cache_write_input_tokens || 0) : 0;
     return (usage.input_tokens || 0) + cache;
   }
   throw new Error('the exec reported no completed model request');
@@ -77,13 +79,36 @@ const EXEC_DEADLINE_MS = 300_000;
 /** One run: `<bin> exec --json ... <text>`, answering the input tokens of its first request. At the deadline, and when
  *  the child cannot start, the whole process tree is ended (a failed kill is reported beside the cause); the scratch
  *  directory goes with it on every path. */
-export function execInputTokens({ bin, provider, model, effort, text, cwd, spawnImpl = spawnTree, endImpl = endTree, deadlineMs = EXEC_DEADLINE_MS }) {
+export function execInputTokens({
+  bin,
+  provider,
+  model,
+  effort,
+  text,
+  cwd,
+  spawnImpl = spawnTree,
+  endImpl = endTree,
+  deadlineMs = EXEC_DEADLINE_MS,
+}) {
   if (process.platform === 'win32' && text.length > WINDOWS_ARGUMENT_LIMIT) {
     throw new Error(`a text of ${text.length} characters does not fit a Windows command line; use a smaller --n`);
   }
   const scratch = mkdtempSync(join(tmpdir(), 'token-lang-'));
   const usageLog = join(scratch, 'usage.json');
-  const args = ['exec', '--json', '--provider', provider, '--model', model, ...(effort ? ['--effort', effort] : []), '--cwd', cwd, '--usage-log', usageLog, text];
+  const args = [
+    'exec',
+    '--json',
+    '--provider',
+    provider,
+    '--model',
+    model,
+    ...(effort ? ['--effort', effort] : []),
+    '--cwd',
+    cwd,
+    '--usage-log',
+    usageLog,
+    text,
+  ];
   return new Promise((resolveCount, reject) => {
     const child = spawnImpl(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     let stdout = '';
@@ -103,8 +128,11 @@ export function execInputTokens({ bin, provider, model, effort, text, cwd, spawn
       reject(new Error(message));
     };
     const deadline = setTimeout(
-      () => fail(`mixdogd exec (${provider} ${model}) did not finish within ${deadlineMs}ms and was ended; stderr: ${stderr.trim().slice(0, 300)}`),
-      deadlineMs,
+      () =>
+        fail(
+          `mixdogd exec (${provider} ${model}) did not finish within ${deadlineMs}ms and was ended; stderr: ${stderr.trim().slice(0, 300)}`
+        ),
+      deadlineMs
     );
     child.once('error', (error) => {
       clearTimeout(deadline);
@@ -137,7 +165,9 @@ export function renderTable(results) {
   const colAvg = (r) => avg(langs.map((lang) => ratioOf(r, lang)));
   const header = `| | ${results.map((r) => r.name).join(' | ')} | Avg |`;
   const sep = `|---|${results.map(() => '---').join('|')}|---|`;
-  const rows = rowLangs.map((lang) => `| ${lang} | ${results.map((r) => fmt(ratioOf(r, lang))).join(' | ')} | ${fmt(rowAvg(lang))} |`);
+  const rows = rowLangs.map(
+    (lang) => `| ${lang} | ${results.map((r) => fmt(ratioOf(r, lang))).join(' | ')} | ${fmt(rowAvg(lang))} |`
+  );
   const avgRow = `| **Avg** | ${results.map((r) => `**${fmt(colAvg(r))}**`).join(' | ')} | **${fmt(avg(results.map(colAvg)))}** |`;
   return [header, sep, ...rows, avgRow].join('\n');
 }
@@ -159,25 +189,47 @@ function argOf(args, name) {
 async function main(args) {
   const N = Number(argOf(args, '--n') || 200);
   const renderOnly = args.includes('--render');
-  const only = argOf(args, '--models')?.split(',').map((s) => s.trim().toLowerCase());
+  const only = argOf(args, '--models')
+    ?.split(',')
+    .map((s) => s.trim().toLowerCase());
   const bin = argOf(args, '--mixdogd') || process.env.MIXDOGD_BIN;
   if (!renderOnly && !bin) throw new Error('pass --mixdogd <path to the mixdogd binary> or set MIXDOGD_BIN');
-  const selected = renderOnly ? [] : only ? MODELS.filter(([name]) => only.some((o) => name.toLowerCase().includes(o))) : MODELS;
+  const selected = renderOnly
+    ? []
+    : only
+      ? MODELS.filter(([name]) => only.some((o) => name.toLowerCase().includes(o)))
+      : MODELS;
   const corpus = renderOnly
     ? {}
-    : Object.fromEntries(LANGS.map(([lang, code]) => [lang, readFileSync(join(DATA, `${code}.devtest`), 'utf8').split(/\r?\n/).filter(Boolean).slice(0, N).join('\n')]));
+    : Object.fromEntries(
+        LANGS.map(([lang, code]) => [
+          lang,
+          readFileSync(join(DATA, `${code}.devtest`), 'utf8')
+            .split(/\r?\n/)
+            .filter(Boolean)
+            .slice(0, N)
+            .join('\n'),
+        ])
+      );
   const RESULTS_JSON = join(OUT, 'results.json');
   // A --models rerun merges into the previous results.json instead of replacing it.
-  const byName = new Map((only || renderOnly) && existsSync(RESULTS_JSON) ? JSON.parse(readFileSync(RESULTS_JSON, 'utf8')).results.map(({ ratio, ...r }) => [r.name, r]) : []);
+  const byName = new Map(
+    (only || renderOnly) && existsSync(RESULTS_JSON)
+      ? JSON.parse(readFileSync(RESULTS_JSON, 'utf8')).results.map(({ ratio, ...r }) => [r.name, r])
+      : []
+  );
   const cwd = mkdtempSync(join(tmpdir(), 'token-lang-cwd-'));
   const failed = [];
   try {
     const settled = await Promise.allSettled(
       selected.map(async ([name, provider, model, effort]) => {
-        const measured = await measureModel((text) => execInputTokens({ bin: resolve(bin), provider, model, effort, text, cwd }), corpus);
+        const measured = await measureModel(
+          (text) => execInputTokens({ bin: resolve(bin), provider, model, effort, text, cwd }),
+          corpus
+        );
         console.error(`done: ${name} (baseline ${measured.baseline}, English ${measured.net.English})`);
         return { name, ...measured };
-      }),
+      })
     );
     settled.forEach((s, i) => {
       if (s.status === 'fulfilled') byName.set(s.value.name, s.value);
@@ -197,7 +249,10 @@ async function main(args) {
   const table = renderTable(results);
   // Figures (cards + heatmap) are rendered from results.json by chart.mjs.
   mkdirSync(OUT, { recursive: true });
-  const unmeasured = MODELS.filter(([name]) => !byName.has(name)).map(([name]) => ({ name, reason: 'the run produced no row for this model (see the FAILED line of that run)' }));
+  const unmeasured = MODELS.filter(([name]) => !byName.has(name)).map(([name]) => ({
+    name,
+    reason: 'the run produced no row for this model (see the FAILED line of that run)',
+  }));
   writeFileSync(RESULTS_JSON, JSON.stringify({ sentences: N, results, models: recordedModels(), unmeasured }, null, 2));
   writeFileSync(join(OUT, 'table.md'), `${table}\n`);
   console.log(table);

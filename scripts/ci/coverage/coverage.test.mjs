@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -426,7 +426,9 @@ test('routing credits the slot a clause names: the same case passing in another 
     ),
     problems.join('\n')
   );
-  // a leg with several slots cannot be named without one
+});
+
+test('a leg with several slots cannot be named by a route without one', () => {
   assert.match(
     planProblems(
       makePlan({
@@ -493,7 +495,9 @@ test("provenance: repository, workflow and producer are required, must be the tr
     }).join('\n'),
     /written by a node runner but its envelope names the producer nextest/
   );
-  // a runner records the commit of the repository it runs in; a variable that claims another commit is not read
+});
+
+test('a runner records the commit of the repository it runs in; a variable that claims another commit is not read', () => {
   const dir = mkdtempSync(join(tmpdir(), 'sha-'));
   try {
     const { head } = gitRepo(dir);
@@ -1053,10 +1057,19 @@ test('the verdict cannot be switched off: any condition, tolerated failure, edit
     mutate(workflows);
     assert.match(wiringProblems(workflows, plan).join('\n'), pattern, label);
   }
-  // two dispositions for one job, and a workflow spelled .yaml, are not silently accepted
-  const twice = structuredClone(plan);
+});
+
+test('two dispositions for one job are not silently accepted', () => {
+  const root = fileURLToPath(new URL('../../../', import.meta.url));
+  const twice = structuredClone(loadPlan());
   twice.nonSinks.push({ workflow: 'release.yml', job: 'publish', reason: 'x', owner: OWNER });
-  assert.match(wiringProblems(clean(), twice).join('\n'), /release\.yml publish has two dispositions/);
+  assert.match(
+    wiringProblems(structuredClone(loadWorkflows(root)), twice).join('\n'),
+    /release\.yml publish has two dispositions/
+  );
+});
+
+test('a workflow spelled .yaml is loaded', () => {
   const dir = mkdtempSync(join(tmpdir(), 'wf-'));
   try {
     mkdirSync(join(dir, '.github', 'workflows'), { recursive: true });
@@ -1447,7 +1460,9 @@ test('10. the old whole-file schema and an optional field are rejected: an excep
     }).join('\n'),
     /unknown field optional/
   );
-  // a case added to a file after its tuples were written is not covered by them
+});
+
+test('a case added to a file after its tuples were written is not covered by them', () => {
   const { manifest, plan } = baseline();
   const tuple = (name) =>
     ['linux', 'windows'].map((platform) => ({
@@ -1482,13 +1497,22 @@ test('10. the old whole-file schema and an optional field are rejected: an excep
   );
 });
 
-test('an artifact is trusted only for this commit, run and attempt, from an intact file, on the leg it names', () => {
+function swappedLinuxNode() {
   const { manifest, plan, receipts } = baseline();
-  const swap = (leg, replacement) =>
-    receipts.map((entry) =>
-      entry.receipt.envelope.leg === leg && entry.receipt.envelope.slot === 'root' ? replacement : entry
-    );
   const records = NODE_PASSES();
+  const problemsWith = (replacement) =>
+    run({
+      manifest,
+      plan,
+      receipts: receipts.map((entry) =>
+        entry.receipt.envelope.leg === 'linux/node/1of1' && entry.receipt.envelope.slot === 'root' ? replacement : entry
+      ),
+    }).join('\n');
+  return { manifest, plan, receipts, records, problemsWith };
+}
+
+test('an artifact is trusted only for this commit, run and attempt, from an intact file, on the leg it names', () => {
+  const { plan, records, problemsWith } = swappedLinuxNode();
   const cases = [
     [
       'wrong sha',
@@ -1509,27 +1533,40 @@ test('an artifact is trusted only for this commit, run and attempt, from an inta
     ['incomplete', receiptOf(plan, 'linux/node/1of1', 'root', records, { complete: false }), /not complete/],
     ['nonzero exit', receiptOf(plan, 'linux/node/1of1', 'root', records, { exit: 1 }), /exit status 1/],
   ];
-  for (const [label, replacement, pattern] of cases)
-    assert.match(run({ manifest, plan, receipts: swap('linux/node/1of1', replacement) }).join('\n'), pattern, label);
+  for (const [label, replacement, pattern] of cases) assert.match(problemsWith(replacement), pattern, label);
+});
+
+test('a receipt whose trailer counts more records than the file holds is not intact', () => {
+  const { plan, records, problemsWith } = swappedLinuxNode();
   const truncated = receiptOf(plan, 'linux/node/1of1', 'root', records);
   truncated.receipt.records.pop();
-  assert.match(
-    run({ manifest, plan, receipts: swap('linux/node/1of1', truncated) }).join('\n'),
-    /trailer counts 3 records, the file holds 2/
-  );
+  assert.match(problemsWith(truncated), /trailer counts 3 records, the file holds 2/);
+});
+
+test('a receipt whose record was edited after the trailer was written fails its content hash', () => {
+  const { plan, records, problemsWith } = swappedLinuxNode();
   const tampered = receiptOf(plan, 'linux/node/1of1', 'root', records);
   tampered.receipt.records[0].status = 'skip';
-  assert.match(run({ manifest, plan, receipts: swap('linux/node/1of1', tampered) }).join('\n'), /content hash/);
+  assert.match(problemsWith(tampered), /content hash/);
+});
+
+test('a receipt that names a slot its leg does not declare is refused', () => {
+  const { plan, records, problemsWith } = swappedLinuxNode();
   const unknownSlot = receiptOf(plan, 'linux/node/1of1', 'root', records);
   unknownSlot.receipt.envelope.slot = 'surprise';
-  assert.match(
-    run({ manifest, plan, receipts: swap('linux/node/1of1', unknownSlot) }).join('\n'),
-    /not a slot of linux\/node\/1of1/
-  );
+  assert.match(problemsWith(unknownSlot), /not a slot of linux\/node\/1of1/);
+});
+
+test('a manifest of another commit is refused', () => {
+  const { manifest, plan, receipts } = baseline();
   assert.match(
     run({ manifest: { ...manifest, sha: 'd'.repeat(40) }, plan, receipts }).join('\n'),
     /the manifest is for/
   );
+});
+
+test('a manifest routed by another plan than the checkout is refused', () => {
+  const { manifest, plan, receipts } = baseline();
   assert.match(
     run({ manifest, plan: { ...plan, owners: { ...plan.owners, routing: 'someone-else' } }, receipts }).join('\n'),
     /another plan/
@@ -1666,34 +1703,48 @@ test('inventory: test-looking files nothing accounts for are errors; reviewed na
   );
 });
 
-test('inventory: Rust packages, the files a target reaches, and doctests are assigned or classified', () => {
-  const lib = (extra) => ({ ...RUST_FILES, 'crates/p/src/lib.rs': extra });
-  const codes = (files, classes = [LIVE_CLASS]) =>
-    world(files, makePlan({ classes })).errors.map((error) => `${error.code} ${error.path}`);
-  assert.deepEqual(codes(RUST_FILES), []);
-  // a computed test name, a macro and a generated test are not the inventory's business
-  assert.deepEqual(codes(lib('macro_rules! t { ($n:ident) => { #[test] fn $n() {} } }\nt!(one);\n')), []);
-  // `mod` through a #[path] below an inline module
+const rustLib = (extra) => ({ ...RUST_FILES, 'crates/p/src/lib.rs': extra });
+const rustCodes = (files, classes = [LIVE_CLASS]) =>
+  world(files, makePlan({ classes })).errors.map((error) => `${error.code} ${error.path}`);
+const STRAY_RUST = { ...RUST_FILES, 'crates/p/src/stray.rs': '#[test] fn x() {}\n' };
+const DOC_BLOCK = '/// ```\n/// assert!(true);\n/// ```\npub fn f() {}\n';
+const RUST_TOOL = {
+  ...RUST_FILES,
+  'tool/Cargo.toml': '[package]\nname = "tool"\nversion = "0.1.0"\n',
+  'tool/src/lib.rs': '',
+};
+
+test('inventory: a plain Rust workspace has no errors, and a macro-generated test is not the inventory business', () => {
+  assert.deepEqual(rustCodes(RUST_FILES), []);
+  assert.deepEqual(rustCodes(rustLib('macro_rules! t { ($n:ident) => { #[test] fn $n() {} } }\nt!(one);\n')), []);
+});
+
+test('inventory: a `mod` through a #[path] below an inline module resolves, and a missing module is an error', () => {
   assert.deepEqual(
-    codes({
-      ...lib('mod outer {\n  #[path = "../shared.rs"]\n  mod shared;\n}\n'),
+    rustCodes({
+      ...rustLib('mod outer {\n  #[path = "../shared.rs"]\n  mod shared;\n}\n'),
       'crates/p/src/shared.rs': '',
     }),
     []
   );
-  assert.deepEqual(codes(lib('mod missing;\n')), ['unresolved-mod crates/p/src/lib.rs']);
-  const stray = { ...RUST_FILES, 'crates/p/src/stray.rs': '#[test] fn x() {}\n' };
-  assert.deepEqual(codes(stray), ['orphan-rust-source crates/p/src/stray.rs']);
+  assert.deepEqual(rustCodes(rustLib('mod missing;\n')), ['unresolved-mod crates/p/src/lib.rs']);
+});
+
+test('inventory: a Rust file no target reaches is an orphan unless a reviewed class names it', () => {
+  assert.deepEqual(rustCodes(STRAY_RUST), ['orphan-rust-source crates/p/src/stray.rs']);
   assert.deepEqual(
-    codes(stray, [LIVE_CLASS, { glob: 'crates/p/src/stray.rs', class: 'fixture', reason: 'replay', owner: OWNER }]),
+    rustCodes(STRAY_RUST, [
+      LIVE_CLASS,
+      { glob: 'crates/p/src/stray.rs', class: 'fixture', reason: 'replay', owner: OWNER },
+    ]),
     []
   );
-  assert.deepEqual(codes(lib('/// ```\n/// assert!(true);\n/// ```\npub fn f() {}\n')), [
-    'unassigned-test-file crates/p/src/lib.rs',
-  ]);
-  // a plan that names a doctest leg for the package makes its rustdoc blocks a target of that leg
+});
+
+test('inventory: rustdoc blocks are unassigned until the plan names a doctest leg for the package', () => {
+  assert.deepEqual(rustCodes(rustLib(DOC_BLOCK)), ['unassigned-test-file crates/p/src/lib.rs']);
   const documented = world(
-    lib('/// ```\n/// assert!(true);\n/// ```\npub fn f() {}\n'),
+    rustLib(DOC_BLOCK),
     makePlan({
       classes: [LIVE_CLASS],
       rust: { ...makePlan().rust, doctests: [{ manifestDir: 'crates/p', requires: [clause('linux/node/1of1')] }] },
@@ -1710,23 +1761,42 @@ test('inventory: Rust packages, the files a target reaches, and doctests are ass
       },
     ]
   );
-  // classes never shadow each other
+});
+
+test('inventory: a fenced block is a doctest by rustdoc rule: attributes and `rust` count, any other tag or `custom` does not', () => {
+  const block = (info) => rustLib(`/// \`\`\`${info}\n/// assert!(true);\n/// \`\`\`\npub fn f() {}\n`);
+  const doctest = ['unassigned-test-file crates/p/src/lib.rs'];
+  for (const info of [
+    '',
+    'rust',
+    'ignore',
+    'ignore (needs a dependency)',
+    'should_panic,no_run',
+    'compile_fail,E0277',
+    'edition2021',
+    'rust,text',
+    '{.rust}',
+  ])
+    assert.deepEqual(rustCodes(block(info)), doctest, info);
+  for (const info of ['text', 'sh', 'custom', 'custom,{.language-c}', 'foo', 'ignore,text', '"not rust"'])
+    assert.deepEqual(rustCodes(block(info)), [], info);
+});
+
+test('inventory: two reviewed classes matching one path are ambiguous, never shadowing each other', () => {
   assert.deepEqual(
-    codes(stray, [
+    rustCodes(STRAY_RUST, [
       LIVE_CLASS,
       { glob: 'crates/p/src/*.rs', class: 'fixture', reason: 'a', owner: OWNER },
       { glob: 'crates/p/src/stray.rs', class: 'helper', reason: 'b', owner: OWNER },
     ]),
     ['ambiguous-class crates/p/src/stray.rs']
   );
-  const tool = {
-    ...RUST_FILES,
-    'tool/Cargo.toml': '[package]\nname = "tool"\nversion = "0.1.0"\n',
-    'tool/src/lib.rs': '',
-  };
-  assert.deepEqual(codes(tool), ['package-unplanned tool/Cargo.toml']);
+});
+
+test('inventory: a package outside the workspace is unplanned until the plan lists it as a standalone unit', () => {
+  assert.deepEqual(rustCodes(RUST_TOOL), ['package-unplanned tool/Cargo.toml']);
   const standalone = world(
-    tool,
+    RUST_TOOL,
     makePlan({
       classes: [LIVE_CLASS],
       rust: { ...makePlan().rust, standalone: [{ manifestDir: 'tool', requires: [clause('linux/node/1of1')] }] },
@@ -1745,7 +1815,6 @@ test('inventory: Rust packages, the files a target reaches, and doctests are ass
     ]
   );
 });
-
 test('inventory requires image-egress compile-fail doctests to produce their own evidence', () => {
   const pkg = 'native/core/crates/mixdog-image-egress';
   const files = {
@@ -1772,39 +1841,32 @@ test('inventory requires image-egress compile-fail doctests to produce their own
   );
 });
 
-test("a standalone crate's targets are expected by name: each needs its own pass, and one that vanished or never ran is an error", () => {
-  const tool = {
-    ...RUST_FILES,
-    'tool/Cargo.toml': '[package]\nname = "tool"\nversion = "0.1.0"\n',
-    'tool/src/lib.rs': '',
-    'tool/tests/t.rs': '',
-  };
+const TOOL_FILES = { ...RUST_TOOL, 'tool/tests/t.rs': '' };
+const TOOL_PACKAGE = [
+  'tool',
+  {
+    manifest: 'tool/Cargo.toml',
+    targets: [
+      { kind: 'lib', name: 'tool', root: 'tool/src/lib.rs' },
+      { kind: 'test', name: 't', root: 'tool/tests/t.rs' },
+    ],
+  },
+];
+const TOOL_LISTS = () => ({
+  linux: { all: listOf(ALL_TESTS), profiles: { pg: listOf({ p: [['tests::pg_only', true]] }) } },
+  windows: { all: listOf(ALL_TESTS), profiles: {} },
+});
+const withoutWorkspaceCrates = (problems) => problems.filter((text) => !/crates\/p|crates\/live|rust\/live/.test(text));
+
+function standaloneToolOnLinux() {
   const toolPlan = makePlan({
     classes: [LIVE_CLASS],
     rust: { ...makePlan().rust, standalone: [{ manifestDir: 'tool', requires: [clause('linux/node/1of1')] }] },
   });
   toolPlan.legs.find((leg) => leg.id === 'linux/node/1of1').slots[0].producer = 'nextest';
-  const w = world(tool, toolPlan);
+  const w = world(TOOL_FILES, toolPlan);
   assert.deepEqual(w.errors, []);
-  const lib = ['rust', 'tool/Cargo.toml', 'lib', 'tool', 'unit'];
-  const t = ['rust', 'tool/Cargo.toml', 'test', 't', 'works'];
-  const byName = new Map([
-    ...PACKAGES,
-    [
-      'tool',
-      {
-        manifest: 'tool/Cargo.toml',
-        targets: [
-          { kind: 'lib', name: 'tool', root: 'tool/src/lib.rs' },
-          { kind: 'test', name: 't', root: 'tool/tests/t.rs' },
-        ],
-      },
-    ],
-  ]);
-  const lists = {
-    linux: { all: listOf(ALL_TESTS), profiles: { pg: listOf({ p: [['tests::pg_only', true]] }) } },
-    windows: { all: listOf(ALL_TESTS), profiles: {} },
-  };
+  const byName = new Map([...PACKAGES, TOOL_PACKAGE]);
   const received = (records, listing) => {
     const linux = receiptOf(w.plan, 'linux/node/1of1', 'root', records, { producer: 'nextest' });
     if (listing) linux.receipt.listing = listing;
@@ -1821,71 +1883,75 @@ test("a standalone crate's targets are expected by name: each needs its own pass
       ...rustWorld().receipts.filter((entry) => /core/.test(entry.receipt.envelope.leg)),
     ];
   };
-  const check = (records, listing) =>
-    run({ manifest: w.manifest, plan: w.plan, receipts: received(records, listing), rustLists: lists, byName }).filter(
-      (text) => !/crates\/p|crates\/live|rust\/live/.test(text)
+  return (records, listing) =>
+    withoutWorkspaceCrates(
+      run({
+        manifest: w.manifest,
+        plan: w.plan,
+        receipts: received(records, listing),
+        rustLists: TOOL_LISTS(),
+        byName,
+      })
     );
-  const both = listOf({ tool: [['unit']], 'tool::t': [['works']] });
-  assert.deepEqual(check([pass(lib), pass(t)], both), []);
-  // one target's pass does not satisfy the other target of the same crate
-  assert.ok(check([pass(lib)], both).some((text) => text.startsWith('no-cases') && text.includes('"test","t"')));
-  // a target the manifest declares that the run's listing does not show has vanished
+}
+
+const TOOL_LIB = ['rust', 'tool/Cargo.toml', 'lib', 'tool', 'unit'];
+const TOOL_T = ['rust', 'tool/Cargo.toml', 'test', 't', 'works'];
+const TOOL_BOTH_LISTED = () => listOf({ tool: [['unit']], 'tool::t': [['works']] });
+
+test("a standalone crate's targets are each listed and passed: nothing is reported", () => {
+  const check = standaloneToolOnLinux();
+  assert.deepEqual(check([pass(TOOL_LIB), pass(TOOL_T)], TOOL_BOTH_LISTED()), []);
+});
+
+test("one target's pass does not satisfy the other target of the same standalone crate", () => {
+  const check = standaloneToolOnLinux();
   assert.ok(
-    check([pass(lib)], listOf({ tool: [['unit']] })).some(
-      (text) => text.startsWith('vanished') && text.includes('"test","t"')
+    check([pass(TOOL_LIB)], TOOL_BOTH_LISTED()).some(
+      (text) => text.startsWith('no-cases') && text.includes('"test","t"')
     )
-  );
-  // a target that holds no test is not asked to run one, and a listing that shows nothing is an error
-  assert.deepEqual(check([pass(t)], listOf({ tool: [], 'tool::t': [['works']] })), []);
-  assert.ok(
-    check([pass(t)], listOf({})).some((text) => text.includes('listing in linux/node/1of1#root is unreadable'))
   );
 });
 
-test('a standalone crate assigned to two platforms is checked on each: a target lost on one is not satisfied by the other, nor by another binary of its crate', () => {
-  const tool = {
-    ...RUST_FILES,
-    'tool/Cargo.toml': '[package]\nname = "tool"\nversion = "0.1.0"\n',
-    'tool/src/lib.rs': '',
-    'tool/tests/t.rs': '',
-  };
-  const both = {
-    ...makePlan().rust,
-    standalone: [{ manifestDir: 'tool', requires: [clause('linux/node/1of1'), clause('windows/node/1of1')] }],
-  };
-  const planWith = (rust) => {
-    const plan = makePlan({ classes: [LIVE_CLASS], rust });
-    for (const leg of plan.legs.filter((entry) => entry.job === 'node')) leg.slots[0].producer = 'nextest';
-    return plan;
-  };
-  const w = world(tool, planWith(both));
-  assert.deepEqual(w.errors, []);
-  const byName = new Map([
-    ...PACKAGES,
-    [
-      'tool',
-      {
-        manifest: 'tool/Cargo.toml',
-        targets: [
-          { kind: 'lib', name: 'tool', root: 'tool/src/lib.rs' },
-          { kind: 'test', name: 't', root: 'tool/tests/t.rs' },
-        ],
-      },
-    ],
-  ]);
-  const lib = pass(['rust', 'tool/Cargo.toml', 'lib', 'tool', 'unit']);
-  const t = pass(['rust', 'tool/Cargo.toml', 'test', 't', 'works']);
-  const lists = {
-    linux: { all: listOf(ALL_TESTS), profiles: { pg: listOf({ p: [['tests::pg_only', true]] }) } },
-    windows: { all: listOf(ALL_TESTS), profiles: {} },
-  };
-  const check = (w, windowsListing, windowsRecords) => {
-    const linux = receiptOf(w.plan, 'linux/node/1of1', 'root', [lib, t], { producer: 'nextest' });
-    linux.receipt.listing = listOf({ tool: [['unit']], 'tool::t': [['works']] });
-    const windows = receiptOf(w.plan, 'windows/node/1of1', 'root', windowsRecords, { producer: 'nextest' });
-    windows.receipt.listing = windowsListing;
-    const rest = REST(w.plan).filter((entry) => !/core/.test(entry.receipt.envelope.leg));
-    return run({
+test("a standalone target the manifest declares that the run's listing does not show has vanished", () => {
+  const check = standaloneToolOnLinux();
+  assert.ok(
+    check([pass(TOOL_LIB)], listOf({ tool: [['unit']] })).some(
+      (text) => text.startsWith('vanished') && text.includes('"test","t"')
+    )
+  );
+});
+
+test('a standalone target that holds no test is not asked to run one, and a listing that shows nothing is an error', () => {
+  const check = standaloneToolOnLinux();
+  assert.deepEqual(check([pass(TOOL_T)], listOf({ tool: [], 'tool::t': [['works']] })), []);
+  assert.ok(
+    check([pass(TOOL_T)], listOf({})).some((text) => text.includes('listing in linux/node/1of1#root is unreadable'))
+  );
+});
+
+const TOOL_ON_BOTH = {
+  ...makePlan().rust,
+  standalone: [{ manifestDir: 'tool', requires: [clause('linux/node/1of1'), clause('windows/node/1of1')] }],
+};
+const TOOL_ABSENT_FROM_WINDOWS = { glob: 'tool/tests/t.rs', variants: ['windows'], reason: 'cfg(unix)', owner: OWNER };
+
+function twoPlatformToolPlan(rust) {
+  const plan = makePlan({ classes: [LIVE_CLASS], rust });
+  for (const leg of plan.legs.filter((entry) => entry.job === 'node')) leg.slots[0].producer = 'nextest';
+  return plan;
+}
+
+function checkToolOnBothPlatforms(w, windowsListing, windowsRecords) {
+  const lib = pass(TOOL_LIB);
+  const t = pass(TOOL_T);
+  const linux = receiptOf(w.plan, 'linux/node/1of1', 'root', [lib, t], { producer: 'nextest' });
+  linux.receipt.listing = TOOL_BOTH_LISTED();
+  const windows = receiptOf(w.plan, 'windows/node/1of1', 'root', windowsRecords, { producer: 'nextest' });
+  windows.receipt.listing = windowsListing;
+  const rest = REST(w.plan).filter((entry) => !/core/.test(entry.receipt.envelope.leg));
+  return withoutWorkspaceCrates(
+    run({
       manifest: w.manifest,
       plan: w.plan,
       receipts: [
@@ -1894,29 +1960,46 @@ test('a standalone crate assigned to two platforms is checked on each: a target 
         ...rest,
         ...rustWorld().receipts.filter((entry) => /core/.test(entry.receipt.envelope.leg)),
       ],
-      rustLists: lists,
-      byName,
-    }).filter((text) => !/crates\/p|crates\/live|rust\/live/.test(text));
-  };
-  assert.deepEqual(check(w, listOf({ tool: [['unit']], 'tool::t': [['works']] }), [lib, t]), []);
-  const lost = check(w, listOf({ tool: [['unit']] }), [lib]);
+      rustLists: TOOL_LISTS(),
+      byName: new Map([...PACKAGES, TOOL_PACKAGE]),
+    })
+  );
+}
+
+test('a standalone crate assigned to two platforms passes when both list and run every target', () => {
+  const w = world(TOOL_FILES, twoPlatformToolPlan(TOOL_ON_BOTH));
+  assert.deepEqual(w.errors, []);
+  assert.deepEqual(checkToolOnBothPlatforms(w, TOOL_BOTH_LISTED(), [pass(TOOL_LIB), pass(TOOL_T)]), []);
+});
+
+test('a standalone target lost on one platform is not satisfied by the other platform or another binary of its crate', () => {
+  const w = world(TOOL_FILES, twoPlatformToolPlan(TOOL_ON_BOTH));
+  const lost = checkToolOnBothPlatforms(w, listOf({ tool: [['unit']] }), [pass(TOOL_LIB)]);
   assert.ok(
     lost.some(
       (text) => text.startsWith('vanished') && text.includes('"test","t"') && text.includes('windows/node/1of1')
     ),
     lost.join('\n')
   );
-  // declared absent from Windows by a rule of the plan (a platform cfg), the same listing is correct
-  const rule = { glob: 'tool/tests/t.rs', variants: ['windows'], reason: 'cfg(unix)', owner: OWNER };
-  assert.match(
-    planProblems(planWith({ ...both, absent: [{ ...rule, variants: ['nope'] }] })).join('\n'),
-    /names the variant nope, which the plan does not declare/
-  );
-  const absent = world(tool, planWith({ ...both, absent: [rule] }));
-  assert.deepEqual(absent.errors, []);
-  assert.deepEqual(check(absent, listOf({ tool: [['unit']] }), [lib]), []);
 });
 
+test('a rust absent rule must name a declared variant', () => {
+  assert.match(
+    planProblems(
+      twoPlatformToolPlan({
+        ...TOOL_ON_BOTH,
+        absent: [{ ...TOOL_ABSENT_FROM_WINDOWS, variants: ['nope'] }],
+      })
+    ).join('\n'),
+    /names the variant nope, which the plan does not declare/
+  );
+});
+
+test('a target declared absent from Windows by a rule of the plan is correct without it in the Windows listing', () => {
+  const absent = world(TOOL_FILES, twoPlatformToolPlan({ ...TOOL_ON_BOTH, absent: [TOOL_ABSENT_FROM_WINDOWS] }));
+  assert.deepEqual(absent.errors, []);
+  assert.deepEqual(checkToolOnBothPlatforms(absent, listOf({ tool: [['unit']] }), [pass(TOOL_LIB)]), []);
+});
 test('discovery diagnostic: comments are ignored and `import os, unittest` is seen; the naming convention is what assigns', () => {
   const w = world({
     'py/helper.py': '# import unittest\nimport os\n',
@@ -1945,7 +2028,7 @@ test('matrix sizes: axes alone or an include list alone are counted, every other
   assert.throws(() => matrixSize(job({ include: '${{ x }}' })), /does not count/);
 });
 
-test('one naming for the artifacts of a gate call: the listings are read from the layout the download leaves, and every upload and download of the gate is named by it', () => {
+test('the listings of a gate call are read from the layout the download leaves, by one artifact naming', () => {
   const plan = loadPlan();
   const call = { gate: 'release', sha: 'a'.repeat(40) };
   const dir = mkdtempSync(join(tmpdir(), 'lists-'));
@@ -1984,7 +2067,9 @@ test('one naming for the artifacts of a gate call: the listings are read from th
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-  // the workflows spell the same names: the gate's rust-lists upload, and the evidence action
+});
+
+test("the workflows spell the gate's artifact names: the rust-lists upload and the evidence action", () => {
   const root = fileURLToPath(new URL('../../../', import.meta.url));
   const gate = loadWorkflows(root)['release-gate.yml'];
   const upload = gate.jobs['core-tests'].steps.find(
@@ -2056,7 +2141,9 @@ test("receipt identities are validated by producer, family and kind: a case must
     integrityProblems(make('unittest', [pass(['python', 'p/test_a.py', 'C'])])).join('\n'),
     /does not carry/
   );
-  // a file-only record cannot discharge a file's `no-cases` in a reconcile either
+});
+
+test("a file-only record cannot discharge a file's `no-cases` in a reconcile", () => {
   const { manifest, plan } = baseline();
   const problems = run({
     manifest,
@@ -2068,7 +2155,6 @@ test("receipt identities are validated by producer, family and kind: a case must
 
 test('a join checks the file that runs after packaging in its own slot: no pass there is an error, a pass satisfies it', () => {
   const file = 'apps/p/artifact.live.test.mjs';
-  const base = makePlan();
   const plan = makePlan({
     joinLegs: [
       {
@@ -2109,7 +2195,6 @@ test('a join checks the file that runs after packaging in its own slot: no pass 
     });
   assert.ok(joined([]).some((text) => text.startsWith('no replacement') && text.includes(file)));
   assert.deepEqual(joined([pass(node(file, 'layout'))]), []);
-  assert.ok(base);
 });
 
 test('the plan: a clause with no leg, an empty clause and an unowned class are rejected', () => {
@@ -2153,7 +2238,7 @@ test('the real plan and the real exception list are valid: every replacement nam
     assert.ok(existsSync(join(root, entry.id[1])), `${idKey(entry.id)} names a file that is not there`);
 });
 
-test('replacements are enforced: a runs-in obligation needs a pass of the case there, a parent test needs a pass, a join leg is checked at the join', () => {
+function replacementWorld() {
   const { manifest, plan } = baseline();
   const skipLinux = (records) =>
     records.map((record) => ({ ...record, status: 'skip', reasonCode: 'windows-only', reasonText: 'x' }));
@@ -2171,6 +2256,15 @@ test('replacements are enforced: a runs-in obligation needs a pass of the case t
     receiptOf(plan, 'windows/node/1of1', 'root', windows),
     ...REST(plan),
   ];
+  const toJoin = {
+    v: 1,
+    exceptions: NODE_PASSES().map((record) => tuple(record, { kind: 'runs', in: ['windows/package/1of1#prepared'] })),
+  };
+  return { manifest, plan, skipLinux, tuple, linuxSkips, toJoin };
+}
+
+test('a runs-in replacement needs a pass of the case on that obligation', () => {
+  const { manifest, plan, tuple, linuxSkips } = replacementWorld();
   const runsOnWindows = {
     v: 1,
     exceptions: NODE_PASSES().map((record) => tuple(record, { kind: 'runs', in: ['windows/node/1of1'] })),
@@ -2200,16 +2294,22 @@ test('replacements are enforced: a runs-in obligation needs a pass of the case t
       `no replacement: ${idKey(top.id)} is excepted on linux because it runs in windows/node/1of1#root, which reported no pass of it`,
     ]
   );
-  // a replacement that names a slot the plan does not declare is refused by the schema
+});
+
+test('a replacement that names a slot the plan does not declare is refused by the schema', () => {
+  const { plan, tuple } = replacementWorld();
   assert.match(
     exceptionProblems(
-      { v: 1, exceptions: [tuple(top, { kind: 'runs', in: ['windows/node/1of1#nowhere'] })] },
+      { v: 1, exceptions: [tuple(NODE_PASSES()[2], { kind: 'runs', in: ['windows/node/1of1#nowhere'] })] },
       plan
     ).join('\n'),
     /does not declare/
   );
-  // a child-process case: the test that starts it must have passed in the invocation that reported the child
-  const [a, b] = NODE_PASSES();
+});
+
+test('a child-process case needs the test that starts it to have passed in the invocation that reported the child', () => {
+  const { manifest, plan, tuple } = replacementWorld();
+  const [a, b, top] = NODE_PASSES();
   const child = { ...top, status: 'skip', reasonCode: 'windows-only', reasonText: 'x' };
   const asChild = { v: 1, exceptions: [tuple(top, { kind: 'parent', parents: [a.id] })] };
   const received = (linux) => [
@@ -2227,14 +2327,13 @@ test('replacements are enforced: a runs-in obligation needs a pass of the case t
     ),
     parentElsewhere.join('\n')
   );
-  // a case scoped to the release gate is not asked of another gate; the gate it is scoped to still needs its join, and a scope is never a way out everywhere
+});
+
+test('a case scoped to the release gate is not asked of another gate; the gate it is scoped to still needs its join', () => {
+  const { manifest, plan, linuxSkips, toJoin } = replacementWorld();
   const scoped = {
     ...plan,
     gateScopes: [{ id: NODE_PASSES()[0].id, gates: ['release'], reason: 'tests the release package', owner: OWNER }],
-  };
-  const toJoin = {
-    v: 1,
-    exceptions: NODE_PASSES().map((record) => tuple(record, { kind: 'runs', in: ['windows/package/1of1#prepared'] })),
   };
   const gateRun = (gate, joins) =>
     run({
@@ -2247,39 +2346,54 @@ test('replacements are enforced: a runs-in obligation needs a pass of the case t
   assert.deepEqual(gateRun('mirror', false), []);
   assert.equal(gateRun('release', false).length, 1);
   assert.deepEqual(gateRun('release', true), []);
+});
+
+test('a gate scope that no exception sends to a join leg is stale', () => {
+  const { manifest, plan, linuxSkips, toJoin } = replacementWorld();
+  const scoped = {
+    ...plan,
+    gateScopes: [{ id: node('src/a.test.mjs', 'nothing'), gates: ['release'], reason: 'r', owner: OWNER }],
+  };
   assert.ok(
     run({
       manifest,
-      plan: { ...scoped, gateScopes: [{ ...scoped.gateScopes[0], id: node('src/a.test.mjs', 'nothing') }] },
+      plan: scoped,
       receipts: linuxSkips(NODE_PASSES()),
       exceptions: toJoin,
       context: { ...RUN, gate: 'release', joins: true },
     }).some((text) => text.startsWith('stale scope'))
   );
+});
+
+test('a gate scope names the gates that must run it', () => {
+  const { plan } = replacementWorld();
   assert.match(
-    planProblems({ ...scoped, gateScopes: [{ id: ['node', 'x'], gates: [], reason: '', owner: OWNER }] }).join('\n'),
+    planProblems({ ...plan, gateScopes: [{ id: ['node', 'x'], gates: [], reason: '', owner: OWNER }] }).join('\n'),
     /needs the gates that must run it/
   );
-  // a join obligation is not decided by the gate, and the join requires the pass in its own leg's receipt
-  const join1 = {
-    v: 1,
-    exceptions: NODE_PASSES().map((record) => tuple(record, { kind: 'runs', in: ['windows/package/1of1#prepared'] })),
-  };
+});
+
+test('a join obligation is not decided by the gate: a gate call with no join cannot accept the promise', () => {
+  const { manifest, plan, linuxSkips, toJoin } = replacementWorld();
   assert.deepEqual(
-    run({ manifest, plan, receipts: linuxSkips(NODE_PASSES()), exceptions: join1, context: { ...RUN, joins: true } }),
+    run({ manifest, plan, receipts: linuxSkips(NODE_PASSES()), exceptions: toJoin, context: { ...RUN, joins: true } }),
     []
   );
-  // a gate call with no join cannot accept the promise: nothing would check it before an outward effect
   assert.ok(
-    run({ manifest, plan, receipts: linuxSkips(NODE_PASSES()), exceptions: join1 }).some(
+    run({ manifest, plan, receipts: linuxSkips(NODE_PASSES()), exceptions: toJoin }).some(
       (text) => text.startsWith('no replacement') && text.includes('has no join for')
     )
   );
+});
+
+test('the join requires the pass of a join-excepted case in its own leg receipt, and nothing else there', () => {
+  const { manifest, plan, toJoin } = replacementWorld();
+  const top = NODE_PASSES()[2];
   const joined = (records) =>
     reconcileJoin({
       manifest,
       plan,
-      exceptions: join1,
+      exceptions: toJoin,
       receipts: [receiptOf(plan, 'windows/package/1of1', 'prepared', records)],
       context: RUN,
     });
@@ -2292,12 +2406,18 @@ test('replacements are enforced: a runs-in obligation needs a pass of the case t
       (text) => text.startsWith('skip:') && text.includes('prepared environment')
     )
   );
+});
+
+test('a join with no receipt for its declared slot is missing', () => {
+  const { manifest, plan, toJoin } = replacementWorld();
   assert.ok(
-    reconcileJoin({ manifest, plan, exceptions: join1, receipts: [], context: RUN }).some((text) =>
+    reconcileJoin({ manifest, plan, exceptions: toJoin, receipts: [], context: RUN }).some((text) =>
       text.startsWith('missing: no receipt for leg windows/package/1of1 slot prepared')
     )
   );
-  // a join leg is never where a test is routed
+});
+
+test('a join leg is never where a test is routed', () => {
   assert.match(
     planProblems(
       makePlan({
@@ -2309,7 +2429,6 @@ test('replacements are enforced: a runs-in obligation needs a pass of the case t
     /routes to the join leg/
   );
 });
-
 test('every declared leg has a producer: the plan has no pending form and a leg without evidence is missing', () => {
   const pending = makePlan();
   pending.legs[0].pending = 'not wired yet';
@@ -2366,6 +2485,45 @@ test('the inventory is of a commit: a checkout that differs is refused by name, 
     const clean = inventory();
     assert.equal(clean.status, 0, clean.stderr);
     assert.match(clean.stdout, /^inventory: \d+ test files and targets, digest [0-9a-f]{64}/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the cli reconciles and joins a manifest against the receipts found: none is a refusal naming the sha, an unknown command is usage', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cli-commands-'));
+  try {
+    const { git } = gitRepo(dir);
+    mkdirSync(join(dir, 'src'));
+    writeFileSync(join(dir, 'src', 'a.test.mjs'), NODE_FILE);
+    git('add', '-A');
+    git('commit', '-q', '-m', 'tests');
+    const head = git('rev-parse', 'HEAD').stdout.trim();
+    const cli = fileURLToPath(new URL('./cli.mjs', import.meta.url));
+    const run = (...args) => spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8', env: CLEAN_ENV() });
+    const manifest = join(dir, '..', `${dir.split(/[\\/]/).at(-1)}-cli-manifest.json`);
+    const evidence = join(dir, '..', `${dir.split(/[\\/]/).at(-1)}-cli-evidence`);
+    mkdirSync(evidence);
+    try {
+      const made = run('inventory', '--root', dir, '--out', manifest);
+      assert.equal(made.status, 0, made.stderr);
+      const common = ['--manifest', manifest, '--evidence', evidence, '--sha', head, '--run-id', '1', '--attempt', '1'];
+      const reconciled = run('reconcile', '--root', dir, ...common, '--repository', 'o/r', '--workflow', 'w');
+      assert.equal(reconciled.status, 1);
+      assert.match(reconciled.stderr, new RegExp(`coverage problem\\(s\\): the release is not covered at ${head}`));
+      const joined = run('join', ...common, '--repository', 'o/r', '--workflow', 'w');
+      assert.equal(joined.status, 1);
+      assert.match(joined.stderr, new RegExp(`join problem\\(s\\): the prepared-environment replacements of ${head}`));
+      const wired = run('wiring', '--root', fileURLToPath(new URL('../../..', import.meta.url)));
+      assert.equal(wired.status, 0, wired.stderr);
+      assert.match(wired.stdout, /^wiring: every release sink is reached only through the full gate/);
+      const unknown = run('nonsense');
+      assert.equal(unknown.status, 2);
+      assert.match(unknown.stderr, /usage: cli\.mjs/);
+    } finally {
+      rmSync(manifest, { force: true });
+      rmSync(evidence, { recursive: true, force: true });
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -2530,9 +2688,4 @@ test('the node reporter records suites and cases with full ancestry, drops the s
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
-
-// keep the unused helper import honest
-test('helpers are exercised', () => {
-  assert.equal(typeof dirname, 'function');
 });

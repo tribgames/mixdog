@@ -119,6 +119,7 @@ coordinates, which need the `snapshotId` of a `mode=both` snapshot, last.
   check" into one call; add `includeScreenshot` only when pixels matter.
 - Never batch calls whose input depends on an earlier result, or same-page
   mutations whose refs the earlier call would invalidate.
+
 ## Waiting
 
 Bad waits fail more often than bad refs. Use `wait` with a concrete condition
@@ -293,13 +294,13 @@ same URL never clears. Stop, tell the user what was tried and where it broke,
 and ask how to proceed; do not keep varying the same gesture or wander to
 unrelated pages looking for another way in.
 
-| Symptom | Do |
-|---|---|
-| "ref not found" / stale ref | The page changed: act by `target` when the element's name is known, else take a fresh `snapshot`. |
-| Element exists but has no ref | `target:{selector}` if the DOM is known; else `locate` or `mode=both`, then coordinates with that `snapshotId`. |
-| "target matched N elements" | Act on one of the listed refs, or add `nth` / `exact:true` / `role`. |
-| Action succeeded but nothing changed | Check `expect` result and `console`; the click may have hit an overlay. |
-| Bridge unavailable | Browser Use is off or the desktop app is closed; tell the user, do not fall back to shell. |
+| Symptom                              | Do                                                                                                              |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| "ref not found" / stale ref          | The page changed: act by `target` when the element's name is known, else take a fresh `snapshot`.               |
+| Element exists but has no ref        | `target:{selector}` if the DOM is known; else `locate` or `mode=both`, then coordinates with that `snapshotId`. |
+| "target matched N elements"          | Act on one of the listed refs, or add `nth` / `exact:true` / `role`.                                            |
+| Action succeeded but nothing changed | Check `expect` result and `console`; the click may have hit an overlay.                                         |
+| Bridge unavailable                   | Browser Use is off or the desktop app is closed; tell the user, do not fall back to shell.                      |
 
 ## References
 

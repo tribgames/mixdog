@@ -12,11 +12,11 @@ paths. The root package also discovers `packages/**` (the workspace packages,
 `*.test.ts` included, run through tsx) and `apps/mixdogd-npm`, so those tests
 run in the root fast and slow lanes. The lane comes from the file name:
 
-| Name | Lane | Runs |
-| --- | --- | --- |
-| `*.test.mjs` | fast | `npm test`; every push in `release-gate.yml` |
-| `*.slow.test.mjs` | slow | `npm run test:slow`; its own gate job beside the fast one |
-| `*.live.test.mjs` | live | `npm run test:live --prefix apps/desktop` (the root has no live test); needs a built artifact or live system |
+| Name                  | Lane     | Runs                                                                                                             |
+| --------------------- | -------- | ---------------------------------------------------------------------------------------------------------------- |
+| `*.test.mjs`          | fast     | `npm test`; every push in `release-gate.yml`                                                                     |
+| `*.slow.test.mjs`     | slow     | `npm run test:slow`; its own gate job beside the fast one                                                        |
+| `*.live.test.mjs`     | live     | `npm run test:live --prefix apps/desktop` (the root has no live test); needs a built artifact or live system     |
 | `*.electron.test.mjs` | electron | `npm run test:electron` (apps/desktop); needs a real Electron and window-capture surface, never two runs at once |
 
 A file over ~10s alone is renamed `*.slow.test.mjs`; nothing else changes. The
@@ -107,14 +107,14 @@ without them, so run `npm ci` at the root before a run you want to count.
 
 The list at the top of `native/core/.config/nextest.toml` is the one place that says where every test runs. In short:
 
-| Profile | Tests | Where |
-| --- | --- | --- |
-| `default` | every test that is not `#[ignore]`d | locally; the merge check |
-| `ci` | `default` with no retries and a log that names slow and failing tests | CI `core-tests` |
-| `agent` | `default` without the heavy real-git and migration matrices | locally |
-| `pg` | `#[ignore]`d composed-core tests of `mixdog-app-server-daemon` (needs Postgres) | CI `core-pg`, locally |
-| `services-pg` | `#[ignore]`d memory tests of `mixdog-services` (needs Postgres) | CI `core-pg`, locally |
-| `services-models`, `migration-corpus`, `office-throughput`, `pwsh-50-mib` | `#[ignore]`d tests that need models, a user's data, LibreOffice or a 414 MiB command | by hand only |
+| Profile                                                                   | Tests                                                                                | Where                    |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------ |
+| `default`                                                                 | every test that is not `#[ignore]`d                                                  | locally; the merge check |
+| `ci`                                                                      | `default` with no retries and a log that names slow and failing tests                | CI `core-tests`          |
+| `agent`                                                                   | `default` without the heavy real-git and migration matrices                          | locally                  |
+| `pg`                                                                      | `#[ignore]`d composed-core tests of `mixdog-app-server-daemon` (needs Postgres)      | CI `core-pg`, locally    |
+| `services-pg`                                                             | `#[ignore]`d memory tests of `mixdog-services` (needs Postgres)                      | CI `core-pg`, locally    |
+| `services-models`, `migration-corpus`, `office-throughput`, `pwsh-50-mib` | `#[ignore]`d tests that need models, a user's data, LibreOffice or a 414 MiB command | by hand only             |
 
 ### The Postgres profiles
 
@@ -166,7 +166,7 @@ path. The handoff downloads the worker's manifest by artifact ID and stages the 
   release of the tag is refused, one draft is resumed only if it targets this commit and is then used by its id, only a complete listing
   that lacks the tag creates one, and a failed lookup stops the run. The macOS notarization submission in `desktop-package.yml` runs
   before the verdict because the package under test must be notarized to be tested; it publishes nothing.
-- **Inventory.** `cli.mjs inventory` lists test *files and targets*, never cases, from `git ls-files` of the exact commit (HEAD
+- **Inventory.** `cli.mjs inventory` lists test _files and targets_, never cases, from `git ls-files` of the exact commit (HEAD
   must equal the SHA, tree clean). One convention decides what a test file is: a file named the way its runner discovers tests
   (Node `*.test.*`, `*.spec.*`, `*-test.mjs`, `*_test.*`; Python `test_*.py`, `*_test.py`; `*.test.sh`). The naming convention is the whole contract:
   a file named otherwise is not a test file. As a diagnostic only, a tracked JS or Python file not named so that directly imports a
@@ -290,7 +290,7 @@ third only points.
    that skips instead of failing passes without testing, and a command that never ran, ran nothing or is a leftover passes
    without testing anything. So every test invocation of the gate leaves a **receipt** (`scripts/ci/receipt.mjs`) and the job
    ends by naming its receipts to `scripts/ci/check-skips.mjs receipts <file>...`:
-   - the runner creates the file *before* it runs, with a fresh id and `complete: false`, and refuses to start when the file
+   - the runner creates the file _before_ it runs, with a fresh id and `complete: false`, and refuses to start when the file
      exists (one receipt per invocation, never reused); the reporter appends what each test was (ran, skipped, todo, with its
      message) and the runner closes it with the totals and the exit status. The check fails a receipt that is missing,
      unreadable, incomplete, from a run that failed, with **zero tests**, from another system, or whose id another receipt
@@ -328,6 +328,7 @@ third only points.
    layer 2. It is advice because layer 1 is the guarantee: the same tests run on a clean checkout and fail there, or skip and are
    reviewed. `check-clean-checkout.mjs --build` (`core-build`, `core-lint`) is a different check: it fails a Rust build that has
    an untracked Cargo test target, by looking at the files themselves.
+
 - `rust-core-unix.yml` is a manual Linux and macOS run of the daemon's unit tests, the `pg` profile and clippy; `release.yml`
   re-runs the `k1-lanes` filters when a critical path changed.
 - Built-artifact checks run after their build: `verify:packaging-artifact`

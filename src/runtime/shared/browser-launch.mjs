@@ -5,56 +5,53 @@ import fs from 'node:fs';
 
 import { isWSL } from './wsl.mjs';
 
-export const COMMON_BROWSER_PATHS = (() => {
-  const platform = process.platform;
-  if (platform === 'win32') {
-    // Derive install roots from the environment so non-C: installs and the
-    // per-user %LOCALAPPDATA% Chrome install are covered. Fall back to the
-    // canonical C: paths (well-known locations, not guessed defaults) when an
-    // env var is unset.
-    const localAppData = process.env.LOCALAPPDATA;
-    const programFiles = process.env.PROGRAMFILES || 'C:/Program Files';
-    const programFilesX86 = process.env['PROGRAMFILES(X86)'] || 'C:/Program Files (x86)';
-    return [
-      `${programFiles}/Google/Chrome/Application/chrome.exe`,
-      `${programFilesX86}/Google/Chrome/Application/chrome.exe`,
-      localAppData && `${localAppData}/Google/Chrome/Application/chrome.exe`,
-      `${programFiles}/Microsoft/Edge/Application/msedge.exe`,
-      `${programFilesX86}/Microsoft/Edge/Application/msedge.exe`,
-      localAppData && `${localAppData}/Microsoft/Edge/Application/msedge.exe`,
-    ].filter(Boolean);
-  }
-  if (platform === 'linux') {
-    // Native-Linux Chromium/Chrome binaries first. The /mnt/c Windows .exe
-    // entries are reachable from WSL's filesystem but puppeteer-core CANNOT
-    // drive a Windows GUI browser as a Linux child process (CDP over a pipe to
-    // a Win32 binary launched from the Linux ABI does not work), so advertising
-    // puppeteer-available off a Windows .exe yields launch failures at runtime.
-    // Only offer the Windows .exe fallbacks on plain Linux (Wine/dual-mount
-    // edge cases), never under WSL.
-    const linuxNative = [
-      '/usr/bin/google-chrome',
-      '/usr/bin/google-chrome-stable',
-      '/usr/bin/chromium',
-      '/usr/bin/chromium-browser',
-      '/snap/bin/chromium',
-      '/usr/bin/microsoft-edge',
-    ];
-    if (isWSL()) return linuxNative;
-    return [
-      ...linuxNative,
-      '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe',
-      '/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-      '/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe',
-      '/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-    ];
-  }
+function windowsBrowserPaths() {
+  const localAppData = process.env.LOCALAPPDATA;
+  const programFiles = process.env.PROGRAMFILES || 'C:/Program Files';
+  const programFilesX86 = process.env['PROGRAMFILES(X86)'] || 'C:/Program Files (x86)';
   return [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
-    '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    `${programFiles}/Google/Chrome/Application/chrome.exe`,
+    `${programFilesX86}/Google/Chrome/Application/chrome.exe`,
+    localAppData && `${localAppData}/Google/Chrome/Application/chrome.exe`,
+    `${programFiles}/Microsoft/Edge/Application/msedge.exe`,
+    `${programFilesX86}/Microsoft/Edge/Application/msedge.exe`,
+    localAppData && `${localAppData}/Microsoft/Edge/Application/msedge.exe`,
+  ].filter(Boolean);
+}
+
+const LINUX_NATIVE_BROWSER_PATHS = [
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+  '/snap/bin/chromium',
+  '/usr/bin/microsoft-edge',
+];
+
+// puppeteer-core cannot drive a Windows .exe as a Linux child process, so the
+// /mnt/c entries are offered on plain Linux only, never under WSL.
+function linuxBrowserPaths() {
+  if (isWSL()) return LINUX_NATIVE_BROWSER_PATHS;
+  return [
+    ...LINUX_NATIVE_BROWSER_PATHS,
+    '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe',
+    '/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+    '/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe',
+    '/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
   ];
+}
+
+const MAC_BROWSER_PATHS = [
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+  '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+];
+
+export const COMMON_BROWSER_PATHS = (() => {
+  if (process.platform === 'win32') return windowsBrowserPaths();
+  if (process.platform === 'linux') return linuxBrowserPaths();
+  return MAC_BROWSER_PATHS;
 })();
 
 export function localBrowserAvailable() {
@@ -89,12 +86,8 @@ export function buildPuppeteerLaunchArgs(extra = []) {
   return args;
 }
 
-// A healthy headless launch answers in a few seconds; the observed CI failures
-// are launches that never print the DevTools endpoint and hit puppeteer's 30 s
-// TimeoutError (Windows runner, Linux runner). Puppeteer closes that child
-// itself, so one fresh attempt is the remedy; a longer wait would only delay
-// the same hang. Any other launch error (missing executable, bad args), or a
-// timeout after `signal` aborted, is not retried.
+// Observed CI failures: launches that never print the DevTools endpoint hit puppeteer's 30 s
+// TimeoutError (it closes the child itself): retried once, never after `signal` aborted.
 export async function launchPuppeteerBrowser(puppeteer, options, { signal = null } = {}) {
   try {
     return await puppeteer.launch(options);

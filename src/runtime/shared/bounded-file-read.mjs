@@ -1,9 +1,3 @@
-// Bounded whole-file reads for snapshot, rollback, patch and rescue paths.
-// Size is decided from the OPENED descriptor (fstat) and enforced again while
-// reading: no more than `maxBytes + 1` bytes are ever pulled into memory, so a
-// file that grows after any earlier check is still caught. Binary-ness is
-// decided from the WHOLE bounded content with the patch-target codec rule
-// (detectTextCodec), never from a prefix.
 import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
 
 /** Per-file limit for content the patch/rescue paths may hold in memory. */
@@ -24,17 +18,11 @@ export function createSnapshotBudget(totalBytes = PATCH_SNAPSHOT_BUDGET_BYTES) {
   return { total: totalBytes, remaining: totalBytes };
 }
 
-// Codec of a text file. A BOM is authoritative; a BOM-LESS file is classified
-// by NUL-byte parity, which is what separates UTF-16 text from UTF-8 text.
-// `certain:false` means the bytes cannot be attributed to one codec.
-// Minimum evidence for a BOM-less UTF-16 verdict: 16 code units. Below that a
-// NUL is just as likely to be a stray byte inside UTF-8 text (`61 00`), so
-// short input is undecidable by definition. `buf` must be the WHOLE file: a
-// prefix cannot rule out a parity flip further in, so a prefix-only caller
-// passes `partial:true` and gets "undecidable" instead of a guess.
 const UTF16_MIN_EVIDENCE_BYTES = 32;
 const UTF16_MIN_NUL_RATIO = 0.5;
 
+/** `certain:false` when the bytes cannot be attributed to one codec. `partial:true`
+ *  (a prefix of the file) is never decidable without a BOM. */
 export function detectTextCodec(bytes, { partial = false } = {}) {
   const undecidable = { encoding: null, bomLen: 0, certain: false };
   if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
@@ -89,6 +77,20 @@ function readAt(fd, buffer, position) {
   return total;
 }
 
+function readCapped(fd, maxBytes) {
+  const chunks = [];
+  let total = 0;
+  while (total <= maxBytes) {
+    const chunk = Buffer.allocUnsafe(Math.min(CHUNK_BYTES, maxBytes + 1 - total));
+    const read = readAt(fd, chunk, total);
+    if (read === 0) break;
+    chunks.push(chunk.subarray(0, read));
+    total += read;
+    if (read < chunk.length) break;
+  }
+  return Buffer.concat(chunks, total);
+}
+
 /**
  * One bounded read. Resolves to:
  *   { state: 'absent' }
@@ -134,18 +136,9 @@ export function readBoundedFile(
     });
     if (fstat.size > maxBytes) return omitted('oversized');
     if (!classifyOnly && budget && fstat.size > budget.remaining) return omitted('budget');
-    const chunks = [];
-    let total = 0;
-    while (total <= maxBytes) {
-      const chunk = Buffer.allocUnsafe(Math.min(CHUNK_BYTES, maxBytes + 1 - total));
-      const read = readAt(fd, chunk, total);
-      if (read === 0) break;
-      chunks.push(chunk.subarray(0, read));
-      total += read;
-      if (read < chunk.length) break;
-    }
+    const content = readCapped(fd, maxBytes);
+    const total = content.length;
     if (total > maxBytes) return omitted('oversized', total);
-    const content = Buffer.concat(chunks, total);
     if (detectBinary && looksBinary(content)) return omitted('binary', total);
     if (classifyOnly) return { state: 'classified', ...meta, size: total };
     if (budget && total > budget.remaining) return omitted('budget', total);

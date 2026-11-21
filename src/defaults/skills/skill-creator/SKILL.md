@@ -20,13 +20,13 @@ schema already knows.
 
 ## Pick the deliverable
 
-| Need | Home |
-|---|---|
-| Reusable judgement or a repeatable procedure with existing tools | Skill |
-| A new runtime capability, authentication, streaming, binary handling | Tool or product code |
-| Facts and conventions of one repository | That repository's docs |
-| A standing personal preference or constraint | Memory, with approval |
-| A one-off task | Do the task; no skill |
+| Need                                                                 | Home                   |
+| -------------------------------------------------------------------- | ---------------------- |
+| Reusable judgement or a repeatable procedure with existing tools     | Skill                  |
+| A new runtime capability, authentication, streaming, binary handling | Tool or product code   |
+| Facts and conventions of one repository                              | That repository's docs |
+| A standing personal preference or constraint                         | Memory, with approval  |
+| A one-off task                                                       | Do the task; no skill  |
 
 Never create a skill whose job is to list other skills. When an existing skill
 already owns the outcome, extend it instead.

@@ -1,7 +1,3 @@
-// What a pptxgenjs authoring script may rely on when the runner executes it.
-// The human-facing guide (workflow, composition grammar, device kit, footguns) is
-// the built-in `pptx` skill under src/defaults/skills/pptx; keep the two in
-// step when a global or a module is added here.
 export const PPTX_SCRIPT_CONTRACT = {
   runtime: 'CommonJS body executed in-process; top-level await is allowed.',
   kit: "The code blocks of the pptx skill's kit.md, charts.md, and pictures.md run before the script (pres, T, TYPE, the helpers): the script holds the brief, one deck({ hue, accentHue?, mode, script, pairing, fonts }) call, and the slides. A script that declares its own `pres` runs without the prelude. Any helper may be redefined in the script.",

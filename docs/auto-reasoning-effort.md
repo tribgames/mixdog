@@ -12,11 +12,11 @@ with running every request at a fixed `xhigh`, at a near-equal score. All 89
 tasks, one pass each (`k=1`), web search on, 2026-10-15, with effort judge v6
 (the previous judge; v7 has not been run on the benchmark):
 
-| Run | Score | Cost (API list rates) | vs fixed `xhigh` | vs Codex CLI | Output tokens | First-request input (median) | Final context (median) |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Mixdog, Auto (judge on) | 77/89 | **$9.01** | **−35%** | **−55%** | **266K** | **5.0K** | **10.8K** |
-| Mixdog, fixed `xhigh` (no judge) | 78/89 | $13.78 | — | −31% | — | — | — |
-| Codex CLI 0.162.1, `xhigh` | 78/89 | $19.83 | — | — | 772K | 14.3K | 33.6K |
+| Run                              | Score | Cost (API list rates) | vs fixed `xhigh` | vs Codex CLI | Output tokens | First-request input (median) | Final context (median) |
+| -------------------------------- | ----: | --------------------: | ---------------: | -----------: | ------------: | ---------------------------: | ---------------------: |
+| Mixdog, Auto (judge on)          | 77/89 |             **$9.01** |         **−35%** |     **−55%** |      **266K** |                     **5.0K** |              **10.8K** |
+| Mixdog, fixed `xhigh` (no judge) | 78/89 |                $13.78 |                — |         −31% |             — |                            — |                      — |
+| Codex CLI 0.162.1, `xhigh`       | 78/89 |                $19.83 |                — |            — |          772K |                        14.3K |                  33.6K |
 
 Token and context figures for the fixed-`xhigh` run were not recorded in the
 published bench log.
@@ -68,13 +68,13 @@ waits up to about 3 s for the load.
 
 ## The judge model
 
-| | |
-|---|---|
-| Base | EmbeddingGemma 2 text encoder, 18 of 24 layers, with a four-level classification head |
-| Format | ONNX, 4-bit weights, about 150 MB |
-| Runtime | ONNX Runtime on the CPU (4 threads); no GPU, no network after download |
-| Input | The cleaned request (up to 1,500 characters) and the end of the previous reply (and, in some formats, the previous request), or the step text, all packed into one shared token budget (256 by default, set by the model's calibration; the layout is format-dependent, and the pack format caps the request tokens separately). Anything beyond the budget is cut from the end |
-| Speed | About 115 ms per judgment (median), under 200 ms at the slowest, on a desktop CPU; the first load takes about 2.5 s |
+|         |                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Base    | EmbeddingGemma 2 text encoder, 18 of 24 layers, with a four-level classification head                                                                                                                                                                                                                                                                                           |
+| Format  | ONNX, 4-bit weights, about 150 MB                                                                                                                                                                                                                                                                                                                                               |
+| Runtime | ONNX Runtime on the CPU (4 threads); no GPU, no network after download                                                                                                                                                                                                                                                                                                          |
+| Input   | The cleaned request (up to 1,500 characters) and the end of the previous reply (and, in some formats, the previous request), or the step text, all packed into one shared token budget (256 by default, set by the model's calibration; the layout is format-dependent, and the pack format caps the request tokens separately). Anything beyond the budget is cut from the end |
+| Speed   | About 115 ms per judgment (median), under 200 ms at the slowest, on a desktop CPU; the first load takes about 2.5 s                                                                                                                                                                                                                                                             |
 
 The model is downloaded once from the Mixdog GitHub release named in
 [`model-manifest.json`](../src/runtime/effort-judge/model-manifest.json) and
@@ -98,24 +98,24 @@ Differences are paired on the same items; intervals are 95% bootstrap
 intervals (2,000 resamples), and McNemar's test compares items only one of
 the two judged exactly right.
 
-| All items (n = 11,649) | Judge v7 | Judge v6 | Jev 1.13 | v7 − Jev [95% CI] |
-|---|---:|---:|---:|---:|
-| Exact level agreement | **78.1%** | 71.1% | 69.6% | **+8.6 pts** [7.6, 9.4] |
-| Quadratic weighted kappa | **0.693** | 0.586 | 0.574 | **+0.119** [0.101, 0.138] |
-| Mean absolute error (levels) | **0.249** | 0.317 | 0.345 | **−0.096** [−0.106, −0.085] |
-| Two or more levels off | **2.5%** | 2.5% | 3.4% | **−0.9 pts** [−1.2, −0.5] |
-| Hard-work detection (ROC AUC) | **0.960** | 0.935 | 0.946 | **+0.014** [0.008, 0.020] |
-| Exactly right where the other is not (v7 vs Jev) | **2,138** | | 1,141 | McNemar p = 8 × 10⁻⁶⁹ |
-| Median latency | **~115 ms** (local CPU) | | ~380 ms (API) | |
+| All items (n = 11,649)                           |                Judge v7 | Judge v6 |      Jev 1.13 |           v7 − Jev [95% CI] |
+| ------------------------------------------------ | ----------------------: | -------: | ------------: | --------------------------: |
+| Exact level agreement                            |               **78.1%** |    71.1% |         69.6% |     **+8.6 pts** [7.6, 9.4] |
+| Quadratic weighted kappa                         |               **0.693** |    0.586 |         0.574 |   **+0.119** [0.101, 0.138] |
+| Mean absolute error (levels)                     |               **0.249** |    0.317 |         0.345 | **−0.096** [−0.106, −0.085] |
+| Two or more levels off                           |                **2.5%** |     2.5% |          3.4% |   **−0.9 pts** [−1.2, −0.5] |
+| Hard-work detection (ROC AUC)                    |               **0.960** |    0.935 |         0.946 |   **+0.014** [0.008, 0.020] |
+| Exactly right where the other is not (v7 vs Jev) |               **2,138** |          |         1,141 |       McNemar p = 8 × 10⁻⁶⁹ |
+| Median latency                                   | **~115 ms** (local CPU) |          | ~380 ms (API) |                             |
 
-| By kind | Judge v7 | Judge v6 | Jev 1.13 | v7 − Jev [95% CI] |
-|---|---:|---:|---:|---:|
-| Requests (n = 10,278): exact | **79.7%** | 72.9% | 71.2% | **+8.5 pts** [7.5, 9.5] |
-| Requests: weighted kappa | **0.720** | 0.619 | 0.599 | **+0.121** [0.102, 0.139] |
-| Requests: two or more levels off | **2.0%** | 1.9% | 3.0% | **−1.0 pts** [−1.3, −0.7] |
-| Agent steps (n = 1,371): exact | **66.5%** | 58.1% | 57.4% | **+9.1 pts** [5.8, 12.1] |
-| Agent steps: weighted kappa | **0.543** | 0.398 | 0.404 | **+0.139** [0.071, 0.211] |
-| Agent steps: two or more levels off | 6.4% | 7.0% | 6.4% | 0.0 pts [−1.5, 1.5] |
+| By kind                             |  Judge v7 | Judge v6 | Jev 1.13 |         v7 − Jev [95% CI] |
+| ----------------------------------- | --------: | -------: | -------: | ------------------------: |
+| Requests (n = 10,278): exact        | **79.7%** |    72.9% |    71.2% |   **+8.5 pts** [7.5, 9.5] |
+| Requests: weighted kappa            | **0.720** |    0.619 |    0.599 | **+0.121** [0.102, 0.139] |
+| Requests: two or more levels off    |  **2.0%** |     1.9% |     3.0% | **−1.0 pts** [−1.3, −0.7] |
+| Agent steps (n = 1,371): exact      | **66.5%** |    58.1% |    57.4% |  **+9.1 pts** [5.8, 12.1] |
+| Agent steps: weighted kappa         | **0.543** |    0.398 |    0.404 | **+0.139** [0.071, 0.211] |
+| Agent steps: two or more levels off |      6.4% |     7.0% |     6.4% |       0.0 pts [−1.5, 1.5] |
 
 Judge v7 is also ahead of the previous judge, v6: +7.0 pts exact agreement
 [6.2, 7.8] on the same items.

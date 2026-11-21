@@ -49,10 +49,10 @@ The trigger is cut at 100 characters on a word boundary, and shrinks evenly
 toward 60 when many skills share the listing; text past the cut never selects
 the skill. The tool suffix comes from `dependencies`, never from the trigger.
 
-| Field | Job | Write | Avoid |
-|---|---|---|---|
+| Field         | Job                                                     | Write                                                                                                                        | Avoid                                                                          |
+| ------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `when_to_use` | When to load the skill; core in the first 60 characters | The user intents and situations, strongest first, in English for every language, then `not …` naming the nearest other owner | How to do it: steps, rules, commands, tool arguments; translated keyword lists |
-| Body | Everything after selection | Capability, prerequisites, procedure, recovery, verification | Relying on the trigger or the UI description for an instruction |
+| Body          | Everything after selection                              | Capability, prerequisites, procedure, recovery, verification                                                                 | Relying on the trigger or the UI description for an instruction                |
 
 Never summarise the procedure in the trigger: a model that reads a workflow
 there may follow it instead of loading the body. Add the `not …` boundary only
@@ -96,16 +96,16 @@ length.
 
 ## Audit checklist
 
-| Check | Failure looks like | Fix |
-|---|---|---|
-| Fields | `description` or `when_to_use` over 100 characters; an instruction found only in metadata | Short UI summary, selection in the trigger, execution in the body |
-| Trigger | Empty while a neighbour competes; says how instead of when | The phrases users write plus the `not …` boundary; move the how to the body |
-| Body | Out of order, a "when to use" section, steps without a result | Reorder, delete body triggers, add the observable result |
-| Resources | A missing file, a chain of references, a script without input checks | Fix the path, flatten, validate inputs |
-| Side effects | External programs, network, secrets or irreversible steps (commit, deploy, publish, restart) not visible or not waiting for the user | Name them in prerequisites; checkpoint before the step |
-| Duplication | One rule in the body, a reference and a script's help | Keep it in its owner, delete the copies |
-| Staleness | Paths, tools or flags that no longer exist | Replace or remove |
-| Value | A rule or section that no scenario needed | Delete it |
+| Check        | Failure looks like                                                                                                                   | Fix                                                                         |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| Fields       | `description` or `when_to_use` over 100 characters; an instruction found only in metadata                                            | Short UI summary, selection in the trigger, execution in the body           |
+| Trigger      | Empty while a neighbour competes; says how instead of when                                                                           | The phrases users write plus the `not …` boundary; move the how to the body |
+| Body         | Out of order, a "when to use" section, steps without a result                                                                        | Reorder, delete body triggers, add the observable result                    |
+| Resources    | A missing file, a chain of references, a script without input checks                                                                 | Fix the path, flatten, validate inputs                                      |
+| Side effects | External programs, network, secrets or irreversible steps (commit, deploy, publish, restart) not visible or not waiting for the user | Name them in prerequisites; checkpoint before the step                      |
+| Duplication  | One rule in the body, a reference and a script's help                                                                                | Keep it in its owner, delete the copies                                     |
+| Staleness    | Paths, tools or flags that no longer exist                                                                                           | Replace or remove                                                           |
+| Value        | A rule or section that no scenario needed                                                                                            | Delete it                                                                   |
 
 The validator checks fields, fences and resource paths; the rest is a read
 against this table.

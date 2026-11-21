@@ -33,10 +33,6 @@ function ancestors(jobs, name, seen = new Set()) {
   return seen;
 }
 
-/**
- * Static matrix size of a job: 1 without a matrix, null when the matrix is computed at run time, else the count of one of the two forms
- * the gate uses (axes only, or an `include` list alone). Any other form (`exclude`, `include` beside axes) is refused, not miscounted.
- */
 export function matrixSize(job) {
   const matrix = job.strategy?.matrix;
   if (matrix === undefined) return 1;
@@ -52,11 +48,6 @@ export function matrixSize(job) {
   return Array.isArray(include) ? include.length : lists.reduce((total, values) => total * values.length, 1);
 }
 
-/**
- * @param {{[file: string]: object}} workflows parsed workflows by file name
- * @param {object} plan the reviewed plan
- * @returns {string[]} problems
- */
 export function wiringProblems(workflows, plan) {
   const problems = [];
   const fail = (text) => problems.push(text);
@@ -226,10 +217,6 @@ function releaseProblems(workflows, fail) {
 /** The one name a release's join evidence has: uploaded by the Windows package job, downloaded by name by the join. */
 export const JOIN_EVIDENCE = 'join-evidence-release-${{ inputs.ref }}-windows-desktop-package-1of1';
 
-/**
- * Gate artifacts are run-scoped, keyed by kind, gate and SHA. A rerun may
- * replace only the names owned by its producers; downloads never merge them.
- */
 function artifactProblems(workflows, fail) {
   for (const [file, workflow] of Object.entries(workflows)) {
     for (const [name, job] of Object.entries(workflow.jobs ?? {})) {
@@ -262,12 +249,6 @@ const normalizeCommand = (text) =>
 /** The reviewed content digest of a job: every key of its parsed YAML (comments are not part of it). */
 export const jobDigest = (job) => digestOf(job);
 
-/**
- * The gate's own decision cannot be switched off. The verdict jobs (the inventory and `complete`) are pinned by content digest in the
- * plan, so any condition, `continue-on-error`, inserted or reordered step or edited command changes them and needs the plan's owners;
- * the semantic checks below name the common forms. The full-run switch every verdict step depends on is pinned to an expression that is
- * `true` for every call of the gate, and every leg uploads its evidence after the steps that write it.
- */
 function verdictProblems(workflows, plan, fail) {
   const gate = workflows['release-gate.yml'];
   const wiring = plan.wiring ?? {};
@@ -279,42 +260,46 @@ function verdictProblems(workflows, plan, fail) {
   for (const [ref, reviewed] of Object.entries(wiring.verdictJobs ?? {})) {
     const [file, name] = ref.split('#');
     const job = workflows[file]?.jobs?.[name];
-    if (!job) {
-      fail(`${file} ${name}: the verdict job does not exist`);
-      continue;
-    }
-    if (job['continue-on-error'] !== undefined) fail(`${file} ${name}: a verdict job has continue-on-error`);
-    if (String(job.if ?? '') !== reviewed.if)
+    if (job) verdictJobProblems(file, name, job, reviewed, wiring, fail);
+    else fail(`${file} ${name}: the verdict job does not exist`);
+  }
+  legUploadProblems(gate, plan, fail);
+}
+
+function verdictJobProblems(file, name, job, reviewed, wiring, fail) {
+  if (job['continue-on-error'] !== undefined) fail(`${file} ${name}: a verdict job has continue-on-error`);
+  if (String(job.if ?? '') !== reviewed.if)
+    fail(
+      `${file} ${name}: its \`if\` is ${JSON.stringify(job.if)}, the reviewed condition is ${JSON.stringify(reviewed.if)}`
+    );
+  const steps = job.steps ?? [];
+  for (const [index, step] of steps.entries()) {
+    const label = `${file} ${name} step ${index + 1} ${JSON.stringify(step.name ?? step.uses ?? '')}`;
+    if (step['continue-on-error'] !== undefined)
+      fail(`${label} has continue-on-error: the verdict cannot tolerate a failed step`);
+    const diagnostic = (reviewed.diagnostics ?? []).includes(step.name);
+    const condition = step.if === undefined ? undefined : String(step.if);
+    if (diagnostic ? condition !== 'always()' : condition !== undefined && condition !== wiring.fullCondition)
       fail(
-        `${file} ${name}: its \`if\` is ${JSON.stringify(job.if)}, the reviewed condition is ${JSON.stringify(reviewed.if)}`
-      );
-    const steps = job.steps ?? [];
-    for (const [index, step] of steps.entries()) {
-      const label = `${file} ${name} step ${index + 1} ${JSON.stringify(step.name ?? step.uses ?? '')}`;
-      if (step['continue-on-error'] !== undefined)
-        fail(`${label} has continue-on-error: the verdict cannot tolerate a failed step`);
-      const diagnostic = (reviewed.diagnostics ?? []).includes(step.name);
-      const condition = step.if === undefined ? undefined : String(step.if);
-      if (diagnostic ? condition !== 'always()' : condition !== undefined && condition !== wiring.fullCondition)
-        fail(
-          `${label} has the condition ${JSON.stringify(step.if)}; a verdict step runs unconditionally or on ${JSON.stringify(wiring.fullCondition)} only`
-        );
-    }
-    for (const command of reviewed.commands ?? []) {
-      const at = steps.findIndex((step) => normalizeCommand(RUN_OF(step)) === normalizeCommand(command));
-      if (at < 0) fail(`${file} ${name} does not run the reviewed command exactly: ${command}`);
-      else if (steps[at].shell !== undefined)
-        fail(
-          `${file} ${name}: the reviewed command runs with the shell ${steps[at].shell}, not the default one that fails the step on its exit status`
-        );
-    }
-    const digest = jobDigest(job);
-    if (digest !== reviewed.digest)
-      fail(
-        `${file} ${name} differs from the reviewed verdict job (digest ${digest}, reviewed ${reviewed.digest}): a change to the verdict is reviewed and pinned in plan.json wiring.verdictJobs`
+        `${label} has the condition ${JSON.stringify(step.if)}; a verdict step runs unconditionally or on ${JSON.stringify(wiring.fullCondition)} only`
       );
   }
-  // every leg job writes its receipts before it uploads them, and uploads them unconditionally
+  for (const command of reviewed.commands ?? []) {
+    const at = steps.findIndex((step) => normalizeCommand(RUN_OF(step)) === normalizeCommand(command));
+    if (at < 0) fail(`${file} ${name} does not run the reviewed command exactly: ${command}`);
+    else if (steps[at].shell !== undefined)
+      fail(
+        `${file} ${name}: the reviewed command runs with the shell ${steps[at].shell}, not the default one that fails the step on its exit status`
+      );
+  }
+  const digest = jobDigest(job);
+  if (digest !== reviewed.digest)
+    fail(
+      `${file} ${name} differs from the reviewed verdict job (digest ${digest}, reviewed ${reviewed.digest}): a change to the verdict is reviewed and pinned in plan.json wiring.verdictJobs`
+    );
+}
+
+function legUploadProblems(gate, plan, fail) {
   for (const name of new Set(plan.legs.filter((leg) => leg.workflow === 'release-gate.yml').map((leg) => leg.job))) {
     const steps = gate.jobs[name]?.steps ?? [];
     const upload = steps.findIndex((step) => step.uses === './.github/actions/upload-evidence');
@@ -331,13 +316,16 @@ function verdictProblems(workflows, plan, fail) {
   }
 }
 
-/**
- * Release-visible effects (default branch, tags, releases, packages, stores, deploys) wait for the gate's evidence; private candidate
- * transport refs (refs/mixdog-candidates/) are written and cleaned outside it, because the gate checks out a remote ref. The jobs that
- * write any ref are not recognised by their commands: they are the plan's `pinnedJobs`, each pinned whole by content digest, so a change
- * to what they push is a reviewed change. Every sink workflow checks out, tags and releases exactly the commit its caller gated.
- */
 function refProblems(workflows, plan, fail) {
+  pinnedJobProblems(workflows, plan, fail);
+  joinProblems(workflows, plan, fail);
+  gateScopeProblems(workflows, plan, fail);
+  sinkRefInputProblems(workflows, plan, fail);
+  entryResolverProblems(workflows, plan, fail);
+  sinkCallProblems(workflows, plan, fail);
+}
+
+function pinnedJobProblems(workflows, plan, fail) {
   const wiring = plan.wiring ?? {};
   for (const [ref, digest] of Object.entries(wiring.pinnedJobs ?? {})) {
     const [file, name] = ref.split('#');
@@ -348,9 +336,10 @@ function refProblems(workflows, plan, fail) {
         `${ref} differs from the reviewed job (digest ${jobDigest(job)}, reviewed ${digest}): release authorization and ref writes are pinned in plan.json wiring.pinnedJobs`
       );
   }
-  // No outward effect (ref write, asset publish, mirror, release, store upload) runs before every replacement promise its gate accepted
-  // has its evidence. A gate call that joins (`joins: true`) must be in a workflow with a join verdict job (`cli.mjs join`), and every
-  // gated sink of that workflow needs that job; a gate call that does not join accepts no promise (reconcile.mjs refuses one).
+}
+
+function joinProblems(workflows, plan, fail) {
+  const wiring = plan.wiring ?? {};
   const joinJobs = Object.entries(wiring.verdictJobs ?? {})
     .filter(([, reviewed]) => (reviewed.commands ?? []).some((command) => /cli\.mjs join\b/.test(command)))
     .map(([ref]) => ref.split('#'));
@@ -369,7 +358,9 @@ function refProblems(workflows, plan, fail) {
           );
     }
   }
-  // a case scoped to some gates is checked in each of them: every such gate name is a caller that joins
+}
+
+function gateScopeProblems(workflows, plan, fail) {
   for (const scope of plan.gateScopes ?? []) {
     for (const name of scope.gates ?? []) {
       const joins = Object.values(workflows).some((workflow) =>
@@ -383,7 +374,10 @@ function refProblems(workflows, plan, fail) {
         );
     }
   }
-  // the commit a sink workflow publishes is the one its input names, in every checkout and every release it makes
+}
+
+function sinkRefInputProblems(workflows, plan, fail) {
+  const wiring = plan.wiring ?? {};
   for (const [file, input] of Object.entries(wiring.sinkRefInputs ?? {})) {
     const workflow = workflows[file];
     if (!workflow) {
@@ -406,7 +400,10 @@ function refProblems(workflows, plan, fail) {
       }
     }
   }
-  // an entry point resolves its base commit in one job; every other checkout and every sink call names a commit an earlier job made
+}
+
+function entryResolverProblems(workflows, plan, fail) {
+  const wiring = plan.wiring ?? {};
   for (const [file, resolvers] of Object.entries(wiring.entryResolvers ?? {})) {
     for (const [name, job] of Object.entries(workflows[file]?.jobs ?? {})) {
       for (const step of job.steps ?? []) {
@@ -418,7 +415,9 @@ function refProblems(workflows, plan, fail) {
       }
     }
   }
-  // a deploy sink call publishes the commit the gate it needs verified
+}
+
+function sinkCallProblems(workflows, plan, fail) {
   for (const sink of plan.sinks ?? []) {
     if (!sink.refInput) continue;
     const jobs = workflows[sink.workflow]?.jobs ?? {};

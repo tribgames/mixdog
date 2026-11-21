@@ -29,9 +29,9 @@ requested whole project that fits one round.
    - engine `check` with `structural:false`
    - engine `fix` with `structural:false`
    - structural rules (`tidy action:'fix' structural:true`)
-   Engine steps must pass `structural:false` because `structural` defaults
-   to true on check/fix. Rules without a `fix` are diagnostics for the agent
-   layer.
+     Engine steps must pass `structural:false` because `structural` defaults
+     to true on check/fix. Rules without a `fix` are diagnostics for the agent
+     layer.
 4. Agent-level cleanup last, behavior-locked: tests/typecheck green before
    the first edit, then the deletion ladder (delete → reuse → platform →
    simplify in place), four evidence-backed lenses (reuse, quality,
@@ -59,16 +59,16 @@ v1 structural rules live at
 (ast-grep YAML: `id`, `language`, `severity`, `message`, `note`, `rule`,
 optional `fix`).
 
-| Rule | Severity | Fix | Languages |
-|---|---|---|---|
-| `no-history-comment` | warning | delete the comment | javascript, typescript, tsx, python, rust, go, c, cpp, java, csharp, ruby, php, swift, kotlin, lua, bash |
-| `no-debugger` | error | delete the statement | javascript, typescript, tsx |
-| `no-empty-catch` | warning | none | javascript, typescript, tsx, java, csharp, php |
-| `todo-marker` | info | none | same as `no-history-comment` |
-| `no-nested-ternary` | warning | none | javascript, typescript, tsx, python, java, c, cpp, csharp |
-| `no-boolean-literal-compare` | info | none | javascript, typescript, tsx, python |
-| `no-any-cast` | warning | none | typescript, tsx |
-| `no-debug-statement` | info (js/ts/tsx), warning (python, rust) | none | javascript, typescript, tsx, python, rust |
+| Rule                         | Severity                                 | Fix                  | Languages                                                                                                |
+| ---------------------------- | ---------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------- |
+| `no-history-comment`         | warning                                  | delete the comment   | javascript, typescript, tsx, python, rust, go, c, cpp, java, csharp, ruby, php, swift, kotlin, lua, bash |
+| `no-debugger`                | error                                    | delete the statement | javascript, typescript, tsx                                                                              |
+| `no-empty-catch`             | warning                                  | none                 | javascript, typescript, tsx, java, csharp, php                                                           |
+| `todo-marker`                | info                                     | none                 | same as `no-history-comment`                                                                             |
+| `no-nested-ternary`          | warning                                  | none                 | javascript, typescript, tsx, python, java, c, cpp, csharp                                                |
+| `no-boolean-literal-compare` | info                                     | none                 | javascript, typescript, tsx, python                                                                      |
+| `no-any-cast`                | warning                                  | none                 | typescript, tsx                                                                                          |
+| `no-debug-statement`         | info (js/ts/tsx), warning (python, rust) | none                 | javascript, typescript, tsx, python, rust                                                                |
 
 The slop rules (`no-nested-ternary` onwards) are diagnostics only: each one
 names a rewrite that needs judgement (a lookup table versus if/else, whether
@@ -128,13 +128,13 @@ so an upgraded profile installs it once. The `code-tidy` skill declares
 
 ### Actions
 
-| Action | Does | Writes |
-|---|---|---|
-| `scan` | detect languages, resolve engines, report policy | no |
-| `check` | engines in check mode + structural rules | no |
-| `fix` | same as check, plus the change plan; `apply:true` writes | only with `apply:true` |
-| `install` | download the named managed engines (sha256-verified) | managed dir only |
-| `rules` | list structural rule packs and their languages | no |
+| Action    | Does                                                     | Writes                 |
+| --------- | -------------------------------------------------------- | ---------------------- |
+| `scan`    | detect languages, resolve engines, report policy         | no                     |
+| `check`   | engines in check mode + structural rules                 | no                     |
+| `fix`     | same as check, plus the change plan; `apply:true` writes | only with `apply:true` |
+| `install` | download the named managed engines (sha256-verified)     | managed dir only       |
+| `rules`   | list structural rule packs and their languages           | no                     |
 
 `scan` does not run structural rules. A mixdog-graph binary that does not
 answer `--langs` is a note on `scan` (formatters still resolve) and an
@@ -170,8 +170,9 @@ A project whose `node_modules/.bin` provides Prettier or ESLint keeps them, for
 the languages they handle: Biome stands down for those and keeps the rest
 (with ESLint alone it still formats JSON, CSS and YAML), and is reported
 `skipped: "project uses prettier"` only when no language is left to it. A
-project with a dprint configuration keeps dprint for TOML the same way, and
-taplo stands down. An engine that will not run (skipped, or not installed)
+project with a dprint configuration keeps dprint for the languages of the
+plugins that configuration lists (following `extends`), TOML only when the toml
+plugin is among them, and taplo stands down for TOML only then. An engine that will not run (skipped, or not installed)
 takes over from nothing; one that this run is about to download only keeps the
 engine it replaces from being downloaded beside it. An engine's configuration
 is looked for from the directory it runs in (`cwd` in `.mixdog/tidy.json`) up
@@ -224,31 +225,31 @@ project's `inputs` leave out). Markdown and HTML are formatted only by a
 project's own Prettier or dprint: the formatters tidy could ship for them
 change how real documents render or parse.
 
-| Engine | Languages | Managed | Runner |
-|---|---|---|---|
-| biome | javascript, typescript, json, css, yaml | yes | `check --reporter=json` / `check --write` |
-| ruff | python | yes | `check --output-format json` + `format --check` / `--fix`, `format` |
-| clang-format | c, cpp, objc | yes | `--dry-run -Werror` / `-i` |
-| shfmt | bash | yes | `-l` / `-w` |
-| shellcheck | bash | yes | `-f json` (lint only, never writes) |
-| stylua | lua | yes | `--check` / write |
-| gofumpt | go | yes | `-l` / `-w` |
-| dprint | json, markdown, toml, javascript, typescript | yes | `check` / `fmt` (needs `dprint.json`) |
-| air | r | yes | `format --check` ("Would reformat: …") / `format` |
-| mago | php | yes | stdin: `format --stdin-input --stdin-filepath <file>` + `lint --reporting-format json` / `lint --fix` |
-| google-java-format | java | yes (no darwin-x64) | stdin: `--aosp -` |
-| ktfmt | kotlin | yes (no darwin-x64, linux-arm64) | stdin: `--kotlinlang-style --enable-editorconfig --stdin-name=<file> -` |
-| taplo | toml | yes | `fmt --check` / `fmt` (`-o crlf=<file's>`; honours `.taplo.toml` excludes) |
-| rustfmt | rust | toolchain | stdin: `--edition <package edition> [--config-path <nested config dir>] --emit stdout` |
-| gofmt | go | toolchain | `-l` / `-w` |
-| psscriptanalyzer | powershell | yes (module) | `Invoke-ScriptAnalyzer` + `Invoke-Formatter` (host: pwsh/powershell) |
-| dotnet-format | csharp | toolchain | `format whitespace <folder> --folder --include` + `--report` json / write |
-| prettier | js/ts, json, css, markdown, yaml, html | project-local only | `--list-different` / `--write` |
-| eslint | javascript, typescript | project-local only | `-f json` / `--fix` |
-| zig | zig | toolchain | stdin: `zig fmt --stdin` |
-| dart | dart | toolchain | `dart format --output=none` ("Changed …") / `dart format` |
-| mix | elixir | toolchain | detection + `installHint` only |
-| swift-format | swift | toolchain | detection + `installHint` only |
+| Engine             | Languages                                    | Managed                          | Runner                                                                                                |
+| ------------------ | -------------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| biome              | javascript, typescript, json, css, yaml      | yes                              | `check --reporter=json` / `check --write`                                                             |
+| ruff               | python                                       | yes                              | `check --output-format json` + `format --check` / `--fix`, `format`                                   |
+| clang-format       | c, cpp, objc                                 | yes                              | `--dry-run -Werror` / `-i`                                                                            |
+| shfmt              | bash                                         | yes                              | `-l` / `-w`                                                                                           |
+| shellcheck         | bash                                         | yes                              | `-f json` (lint only, never writes)                                                                   |
+| stylua             | lua                                          | yes                              | `--check` / write                                                                                     |
+| gofumpt            | go                                           | yes                              | `-l` / `-w`                                                                                           |
+| dprint             | json, markdown, toml, javascript, typescript | yes                              | `check` / `fmt` (needs `dprint.json`)                                                                 |
+| air                | r                                            | yes                              | `format --check` ("Would reformat: …") / `format`                                                     |
+| mago               | php                                          | yes                              | stdin: `format --stdin-input --stdin-filepath <file>` + `lint --reporting-format json` / `lint --fix` |
+| google-java-format | java                                         | yes (no darwin-x64)              | stdin: `--aosp -`                                                                                     |
+| ktfmt              | kotlin                                       | yes (no darwin-x64, linux-arm64) | stdin: `--kotlinlang-style --enable-editorconfig --stdin-name=<file> -`                               |
+| taplo              | toml                                         | yes                              | `fmt --check` / `fmt` (`-o crlf=<file's>`; honours `.taplo.toml` excludes)                            |
+| rustfmt            | rust                                         | toolchain                        | stdin: `--edition <package edition> [--config-path <nested config dir>] --emit stdout`                |
+| gofmt              | go                                           | toolchain                        | `-l` / `-w`                                                                                           |
+| psscriptanalyzer   | powershell                                   | yes (module)                     | `Invoke-ScriptAnalyzer` + `Invoke-Formatter` (host: pwsh/powershell)                                  |
+| dotnet-format      | csharp                                       | toolchain                        | `format whitespace <folder> --folder --include` + `--report` json / write                             |
+| prettier           | js/ts, json, css, markdown, yaml, html       | project-local only               | `--list-different` / `--write`                                                                        |
+| eslint             | javascript, typescript                       | project-local only               | `-f json` / `--fix`                                                                                   |
+| zig                | zig                                          | toolchain                        | stdin: `zig fmt --stdin`                                                                              |
+| dart               | dart                                         | toolchain                        | `dart format --output=none` ("Changed …") / `dart format`                                             |
+| mix                | elixir                                       | toolchain                        | detection + `installHint` only                                                                        |
+| swift-format       | swift                                        | toolchain                        | detection + `installHint` only                                                                        |
 
 Engines see only the files of their own languages inside the requested scope,
 spawn with argument arrays (never a shell) and `windowsHide`, run under a

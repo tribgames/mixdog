@@ -1,7 +1,3 @@
-// Secondary node:test reporter: per-file wall time, slowest files first.
-// Runs beside the spec reporter (scripts/test.mjs) so a slow default lane
-// always names its cause instead of hiding it inside one total. A file over
-// SLOW_HINT_MS belongs in the slow lane (rename to *.slow.test.mjs).
 import { relative } from 'node:path';
 
 const SLOW_HINT_MS = 10_000;

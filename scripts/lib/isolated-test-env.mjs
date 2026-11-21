@@ -1,7 +1,4 @@
-// Side-effect import for tests that touch Mixdog user data. Import it FIRST (ESM
-// evaluates imports in order) so the data/home dirs resolve to a scratch dir
-// before any module under test reads them, even under plain `node --test` from a
-// shell that exports the signed-in profile's MIXDOG_DATA_DIR.
+// Side-effect import: must come first so the data/home dirs resolve to a scratch dir before any module under test reads them.
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

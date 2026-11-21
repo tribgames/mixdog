@@ -14,16 +14,9 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { runProcessOffThread } from '../../../shared/process-runner.mjs';
 import { detachedSpawnOpts } from '../../../shared/spawn-flags.mjs';
+import { sleep } from '../../../shared/sleep.mjs';
 
 const isWin = process.platform === 'win32';
-
-// The SIGTERM → SIGKILL escalation wait. Kept ref'd: it runs right after the
-// tree was signalled, when the dying children may be the only handles left,
-// and an unref'd timer would then never fire, leaving the awaited kill (and
-// every close awaiting it) pending forever. It is short and bounded.
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 // Best-effort signal: a pid that already exited (or cannot be signalled) is skipped.
 function signalQuietly(pid, signal) {
@@ -52,19 +45,10 @@ export const ENUMERATION_DEADLINE_MS = 20_000;
 // Output bound of one helper command: a process table is tens of KB.
 const HELPER_MAX_BYTES = 64 * 1024 * 1024;
 
-// Run a helper command (a process-table read or a tree kill) off the event
-// loop (process-runner.mjs: under load one PowerShell start blocked the
-// daemon's loop for seconds). Past `timeoutMs` the helper itself is killed
-// directly: it starts nothing worth walking, and a tree kill of it would be
-// one more pass on the same stuck table read, with a deadline of its own.
 function runHelper(cmd, args, timeoutMs) {
   return runProcessOffThread(cmd, args, { timeoutMs, maxBytes: HELPER_MAX_BYTES, killTree: false });
 }
 
-// A process-table helper's stdout. Past `timeoutMs` (default
-// ENUMERATION_DEADLINE_MS) the helper is killed and the call settles. Strict:
-// a failed, non-zero or timed-out run rejects; otherwise it resolves ''
-// (non-zero exits keep their stdout).
 function run(cmd, args, { strict = false, timeoutMs = ENUMERATION_DEADLINE_MS } = {}) {
   return runHelper(cmd, args, timeoutMs).then(
     ({ code, stdout }) => {
@@ -79,12 +63,7 @@ function run(cmd, args, { strict = false, timeoutMs = ENUMERATION_DEADLINE_MS } 
   );
 }
 
-// Snapshot the whole process table once: parent map + a per-pid identity
-// token (Windows CreationDate as a UTC FILETIME, POSIX lstart) so a later kill
-// can prove a pid number was not recycled onto a different process before
-// signalling it. The FILETIME form orders against the spawn server's root
-// creation time and carries no local-time offset.
-// POSIX rows also carry the process group id (Windows has none).
+// Identity token: Windows CreationDate as a UTC FILETIME, POSIX lstart. POSIX rows also carry the process group id.
 async function enumerate({ strict = false } = {}) {
   const childrenOf = new Map();
   const tokenOf = new Map();
@@ -361,7 +340,7 @@ export async function killProcessTrees(pids, { aliveAt = Date.now() } = {}) {
     );
   }
   for (const pid of targets) signalQuietly(pid, 'SIGTERM');
-  await delay(300);
+  await sleep(300);
   for (const pid of targets) {
     if (isAlive(pid)) signalQuietly(pid, 'SIGKILL');
   }
@@ -401,8 +380,6 @@ export function killStdioChildTreeFast(transport) {
     spawnTreeKill([pid], { root: proc, detached: true });
     return true;
   }
-  // POSIX: cheap ps enumerate, then SIGKILL descendants + root. Best-effort
-  // and un-awaited; a straggler orphan is reparented to init, not leaked by us.
   void collectDescendants(pid)
     .then((pids) => {
       for (const p of [...pids, pid]) signalQuietly(p, 'SIGKILL');
@@ -448,30 +425,21 @@ function waitExit(proc, ms) {
   });
 }
 
-// A pid is safe to signal only if its CURRENT identity token equals the one
-// recorded at snapshot time. Both must be present; a gone/recycled pid has a
-// missing or mismatched token and is skipped. Tokens come from batched table
-// reads (Map), so verification is O(1) with zero extra process spawns.
 function stillSame(pid, snapshotToken, currentTokens) {
   const want = snapshotToken.get(pid);
   const cur = currentTokens.get(pid);
   return Boolean(want && cur && want === cur);
 }
 
-// Force-kill the given pids, identity-checked against a batched current-token
-// table captured immediately before signalling so a recycled pid is never hit.
 async function killVerified(pids, snapshotToken, currentTokens) {
   const verified = pids.filter((pid) => stillSame(pid, snapshotToken, currentTokens));
   if (verified.length === 0) return;
   if (isWin) {
-    // Every listed pid was identity-checked just above.
     await killProcessTrees(verified);
     return;
   }
-  // POSIX: terminate, brief wait, then hard-kill survivors. Re-verify with a
-  // single fresh batched table read (not per-pid) before the SIGKILL pass.
   for (const p of verified) signalQuietly(p, 'SIGTERM');
-  await delay(500);
+  await sleep(500);
   const { tokenOf: fresh } = await enumerate().catch(() => ({ tokenOf: new Map() }));
   for (const p of verified) {
     if (isAlive(p) && stillSame(p, snapshotToken, fresh)) signalQuietly(p, 'SIGKILL');
@@ -489,35 +457,25 @@ export async function shutdownStdioChild(transport, { graceMs = 2000 } = {}) {
   if (!pid) return false;
   const empty = { childrenOf: new Map(), tokenOf: new Map() };
   const snapshotToken = new Map();
-  // Snapshot #1: tree + identity tokens while it is still fully intact.
-  // Covers children that later get re-parented/orphaned during shutdown.
   const before = await enumerate().catch(() => empty);
   const initial = descendantsOf(before.childrenOf, pid, before.tokenOf);
   snapshotToken.set(pid, before.tokenOf.get(pid) ?? null);
   for (const d of initial) snapshotToken.set(d, before.tokenOf.get(d) ?? null);
-  // 1. Close stdin to request a voluntary shutdown.
   try {
     proc?.stdin?.end();
   } catch {
     /* ignore */
   }
-  // 2. Grace period for the server to exit on its own.
   const exited = await waitExit(proc, graceMs);
-  // 3. Snapshot #2 after the grace: catches children spawned late during
-  //    shutdown that were absent from the first snapshot.
   const after = await enumerate().catch(() => empty);
   const fresh = descendantsOf(after.childrenOf, pid, after.tokenOf);
   for (const d of fresh) {
     if (!snapshotToken.has(d)) snapshotToken.set(d, after.tokenOf.get(d) ?? null);
   }
-  // 4. Candidate set = union of both snapshots' descendants; add the root
-  //    only when it did NOT exit on its own (skip stale-root kill per spec).
   const candidates = new Set(initial);
   for (const d of fresh) candidates.add(d);
   if (!exited) candidates.add(pid);
   if (candidates.size === 0) return true;
-  // 5. Force-kill. Snapshot #2 is the pre-kill verify table (captured just
-  //    now, immediately before signalling) — no per-pid queries.
   await killVerified([...candidates], snapshotToken, after.tokenOf);
   return true;
 }

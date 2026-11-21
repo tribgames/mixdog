@@ -55,21 +55,12 @@ if (
   console.warn('[gate:local] warning: model recommendations stale or invalid (not blocking)');
 }
 
-// Each run owns its log directory, so concurrent runs never touch each other's
-// logs and the paths the summary prints stay valid after any outcome. Log
-// directories are kept until they go stale; a resources directory a killed
-// run left behind goes the same way. Both are swept at start.
 const LOG_PREFIX = 'mixdog-gate-local-';
 const RESOURCE_PREFIX = 'mixdog-gate-resources-';
 pruneStaleTempDirs([LOG_PREFIX, RESOURCE_PREFIX]);
 const logDir = fs.mkdtempSync(path.join(os.tmpdir(), LOG_PREFIX));
 const resourceDir = fs.mkdtempSync(path.join(os.tmpdir(), RESOURCE_PREFIX));
 
-// Measured times live in the repository's common git dir, so every worktree
-// and snapshot of the repo plans from the same history. Keys: a test file's
-// repo-relative path, or `cmd:` + a command unit's commands. Timings only
-// plan the run: without them (no git dir, unreadable or invalid history) the
-// gate plans from default estimates.
 const commonDir = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
   cwd: root,
   encoding: 'utf8',
@@ -142,11 +133,6 @@ function run(command, args, options, fd) {
 const passed = (exit) => exit.code === 0;
 const ending = (exit) => (exit.signal ? `signal ${exit.signal}` : `exit code ${exit.code}`);
 
-// A shard's runner ends every run with its failure summary
-// (scripts/lib/run-node-tests.mjs). One killed from outside (TerminateProcess,
-// SIGKILL) or crashed prints nothing more, and Windows ends its node --test
-// batch and test processes with it, so no reporter flushes either: name how it
-// ended and what its full test log last recorded.
 const DEAD_TAIL_LINES = 12;
 function deadShardReport(unit, exit, output) {
   if (passed(exit) || output.includes(SUMMARY_TAG)) return '';

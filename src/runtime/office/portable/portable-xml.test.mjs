@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { containerInner, elementSpans, textNodes, topLevelElements } from './portable-xml.mjs';
+import JSZip from 'jszip';
+import { fillTemplateParts } from './portable-opc.mjs';
+import { containerInner, elementSpans, replaceInParagraphs, textNodes, topLevelElements } from './portable-xml.mjs';
+import { reviewVerticalBalance } from './text-metrics.mjs';
 
 test('text nodes preserve source spans, attributes, escaping, and empty runs', () => {
   const first = '<w:t xml:space="preserve"> A&amp;B </w:t>';
@@ -47,4 +50,80 @@ test('element spans preserve attributes and both empty and paired elements witho
     { start: first.length, end: first.length + second.length, attrs: ' r="B1"', xml: second },
   ]);
   assert.deepEqual(elementSpans('<c>unclosed', 'c'), []);
+});
+
+test('replaceInParagraphs reads a soft break as the space it stands for and never crosses paragraphs', () => {
+  const xml =
+    '<a:p><a:r><a:t>올해</a:t></a:r><a:br/><a:r><a:t>상반기에도</a:t></a:r></a:p><a:p><a:r><a:t>상반기에도</a:t></a:r></a:p>';
+  assert.deepEqual(replaceInParagraphs(xml, '올해 상반기에도', '내년 하반기에도'), {
+    xml: '<a:p><a:r><a:t>내년 하반기에도</a:t></a:r><a:r><a:t></a:t></a:r></a:p><a:p><a:r><a:t>상반기에도</a:t></a:r></a:p>',
+    count: 1,
+  });
+});
+
+test('replaceInParagraphs preserves edge spaces and escapes the replacement text', () => {
+  const result = replaceInParagraphs('<a:p><a:r><a:t>a b</a:t></a:r></a:p>', 'b', '& ');
+  assert.deepEqual(result, { xml: '<a:p><a:r><a:t xml:space="preserve">a &amp; </a:t></a:r></a:p>', count: 1 });
+});
+
+test('fillTemplateParts fills tokens across runs with Korean particles and reports unfilled ones', async () => {
+  const zip = new JSZip();
+  zip.file(
+    'word/document.xml',
+    '<w:p><w:r><w:t>{{company}}은 {{na</w:t></w:r><w:r><w:t>me}} {{missing}}</w:t></w:r></w:p>'
+  );
+  const result = await fillTemplateParts(zip, ['word/document.xml'], 'w:t', {
+    tokens: { company: '모아페이', name: 'Kim' },
+  });
+  assert.deepEqual(result, {
+    op: 'fill_template',
+    changed: true,
+    filled: { company: 1, name: 1 },
+    unfilledTokens: ['missing'],
+    strict: false,
+  });
+  assert.equal(
+    await zip.file('word/document.xml').async('string'),
+    '<w:p><w:r><w:t>모아페이는 Kim</w:t></w:r><w:r><w:t xml:space="preserve"> {{missing}}</w:t></w:r></w:p>'
+  );
+});
+
+test('fillTemplateParts rejects strict fills with leftovers and fills that change nothing', async () => {
+  const build = () => {
+    const zip = new JSZip();
+    zip.file('word/document.xml', '<w:p><w:r><w:t>{{a}}</w:t></w:r></w:p>');
+    return zip;
+  };
+  await assert.rejects(
+    fillTemplateParts(build(), ['word/document.xml'], 'w:t', { tokens: { b: '1' } }),
+    /fill_template changed nothing: the document carries \{\{a\}\} and tokens named b/
+  );
+  await assert.rejects(
+    fillTemplateParts(build(), ['word/document.xml'], 'w:t', { tokens: {}, strict: true }),
+    /Unfilled template tokens: a/
+  );
+});
+
+test('reviewVerticalBalance reports a hollow band and edge-heavy slides but not balanced ones', () => {
+  const shape = (slide, top, height) => ({ slide, top, height, left: 0, width: 400 });
+  const bounds = [shape(1, 0, 100), shape(1, 300, 100), shape(2, 0, 100), shape(3, 20, 200), shape(3, 240, 280)];
+  assert.deepEqual(reviewVerticalBalance(bounds, { slideWidth: 960, slideHeight: 540 }), [
+    {
+      code: 'vertical_imbalance',
+      path: '/slide[1]',
+      message:
+        'An empty band 200pt deep (2.78in) runs from 100pt to 300pt with content above and below it; extend a region into the band or move the lower block up.',
+      hollowBand: 200,
+      hollowTop: 100,
+    },
+    {
+      code: 'vertical_imbalance',
+      path: '/slide[2]',
+      message:
+        'Content ends 440pt above the slide bottom while starting 0pt from the top; rebalance the layout or extend content regions downward.',
+      emptyTop: 0,
+      emptyBottom: 440,
+    },
+  ]);
+  assert.deepEqual(reviewVerticalBalance(bounds, { slideWidth: 0, slideHeight: 540 }), []);
 });

@@ -1,8 +1,3 @@
-// The shared config-change subscription: it survives a failing directory
-// watch, and a keychain write in another process reaches it although
-// mixdog-config.json never changes. Keys live in the owner-only fallback file
-// (a Linux host with no keychain provider: only process.platform is faked and
-// PATH is empty), so no OS keychain is touched.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';

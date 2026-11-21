@@ -1,14 +1,3 @@
-/**
- * src/tui/spinner-meta.mjs — the spinner BYLINE contract, shared by the TUI
- * spinner row and the desktop live-activity band.
- *
- * The verb pool already lives in spinner-verbs.mjs so both surfaces say the
- * same word at the same second. Everything AFTER the verb (elapsed gate, token
- * label, thinking / "thought for Ns") used to be assembled twice, which is how
- * the desktop ended up showing tokens from second one while the TUI hid them
- * for 30s. One builder, one answer.
- */
-
 import { quietProgressLabel, quietProgressParts } from '../../packages/protocol-client/src/rows/quiet-progress.mjs';
 
 const compactNumberFormatter = new Intl.NumberFormat('en-US', {

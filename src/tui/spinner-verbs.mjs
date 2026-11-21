@@ -1,13 +1,3 @@
-/**
- * src/tui/spinner-verbs.mjs — playful "thinking" verbs for the spinner.
- *
- * Playful spinner verbs. Shown as `<Verb>… (Ns · ↑ N tokens)` while a turn runs.
- *
- * ONE common pool, never a per-mode pool: the stream flips
- * thinking → tool-use → responding many times inside a single turn, so a
- * mode-keyed phrase rewrites itself every few seconds and reads as flicker.
- * The phrase is drawn from this list and held for a fixed window instead.
- */
 export const SPINNER_VERBS = [
   'Accomplishing',
   'Actioning',
@@ -201,23 +191,9 @@ export const SPINNER_VERBS = [
 /** How long one phrase holds before the pool advances. */
 const SPINNER_VERB_ROTATE_MS = 30_000;
 
-/** Odds that a 30s boundary actually swaps the phrase (user: 바꿀지 말지만
- *  랜덤 돌리면 되잖아). Below 1 the window stretches: ~half the boundaries
- *  hold, so a phrase lives 30s, 60s, 90s… and the rhythm stops being a
- *  metronome. */
 const SPINNER_VERB_CHANGE_ODDS = 0.5;
 
-/**
- * Deterministic coin for ONE (turn, boundary) pair.
- *
- * Math.random() is not an option here: spinnerVerbFor runs on every render
- * tick (~1/s) and the TUI and the desktop each call it for themselves, so a
- * real RNG would reroll the word every second AND let the two surfaces
- * disagree. An integer hash keeps each boundary's answer fixed forever while
- * making the SEQUENCE of answers unpredictable — which is the part that reads
- * as random.
- */
-function boundarySwaps(anchor, boundary) {
+function deterministicBoundarySwaps(anchor, boundary) {
   let h = (Math.floor(anchor / 1000) + Math.imul(boundary, 0x9e3779b1)) | 0;
   h = Math.imul(h ^ (h >>> 16), 0x21f0aaad);
   h = Math.imul(h ^ (h >>> 15), 0x735a2d97);
@@ -229,10 +205,6 @@ function boundarySwaps(anchor, boundary) {
  *  re-counted each render and must not grow without bound. */
 const MAX_COUNTED_BOUNDARIES = 4096;
 
-/** A coin streak can hold a phrase for a very long time (measured: up to 9
- *  minutes over 300 turns). After this many consecutive holds the next
- *  boundary swaps regardless of its coin, capping one phrase at 4 windows
- *  (~2 min) while leaving the 30/60/90/120s variety intact. */
 const MAX_HELD_BOUNDARIES = 3;
 
 /**
@@ -269,7 +241,7 @@ export function spinnerVerbFor(startedAt = 0, now = 0, pool = SPINNER_VERBS) {
   let swaps = boundaries - counted;
   let held = 0;
   for (let boundary = 1; boundary <= counted; boundary += 1) {
-    if (held >= MAX_HELD_BOUNDARIES || boundarySwaps(anchor, boundary)) {
+    if (held >= MAX_HELD_BOUNDARIES || deterministicBoundarySwaps(anchor, boundary)) {
       swaps += 1;
       held = 0;
     } else {

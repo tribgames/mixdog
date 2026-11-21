@@ -109,11 +109,6 @@ function countNonEmptyLines(text) {
     .filter((line) => line.trim()).length;
 }
 
-// Zero-result recognizer (audit HIGH): result text that SAYS "nothing found"
-// must summarize as an explicit zero, not be line-counted into "1 match".
-// Matches the shapes emitted by grep/glob/find/list/recall providers:
-//   "(no matches)", "no matches found", "(no results)", "No results",
-//   "(no fuzzy match for \"...\")", "0 matches", "(empty)", "(no entries)".
 function looksLikeZeroResultText(text) {
   const trimmed = String(text ?? '').trim();
   if (!trimmed) return false;
@@ -248,10 +243,6 @@ export function textBetweenTag(text, tag) {
   return match ? match[1].trim() : '';
 }
 
-// Strip the most common inline-markdown markers so a one-line card summary
-// reads as plain prose ("**not clean**" → "not clean", "`x`" → "x"). Block
-// markers (#, >, -, 1.) at line start are dropped too. Whitespace is collapsed
-// by the caller's truncateSingleLine.
 function stripInlineMarkdown(value) {
   return String(value ?? '')
     .replace(/^\s{0,3}(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)/, '')
@@ -351,11 +342,7 @@ function summarizeGenericResult(text, translate = keepOriginal) {
   return truncateSingleLine(line, AGENT_SURFACE_BRIEF_MAX);
 }
 
-// Error-cause extractor (audit HIGH): when a tool result is an error, surface
-// the actual cause line instead of a bare "Failed"/raw first line. Handles
-// JSON error envelopes ({error|message|cause|detail}) and plain-text bodies
-// (first line that carries error-ish signal, else first non-empty line).
-// Exported for ToolExecution's collapsed detail row.
+/** The cause line of an error result: a JSON envelope's error|message|cause|detail, else the first error-like line. */
 export function extractErrorCause(resultText) {
   const text = String(resultText ?? '').trim();
   if (!text) return '';

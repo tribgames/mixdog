@@ -1,9 +1,4 @@
-// Verifies changelog/<lang>.md against CHANGELOG.md: same releases, same
-// structure, and every machine-checkable token (code, links, issue refs,
-// versions) preserved. Used by the desktop fast-lane test and, with
-// --unreleased, by the Deploy release gate.
-//
-//   node scripts/check-changelog-locales.mjs [--unreleased]
+// node scripts/check-changelog-locales.mjs [--unreleased]
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';

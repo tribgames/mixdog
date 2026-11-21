@@ -1,10 +1,4 @@
-/**
- * Shared terminal-status parsing for tool result surfaces.
- *
- * A terminal result status describes the tool's reported outcome; it is not
- * evidence that the tool invocation itself failed. Call-failure accounting is
- * owned by the TUI engine's isError/toolKind envelope fields.
- */
+/** A terminal status is the tool's reported outcome, not evidence that the invocation failed (that is the engine's isError). */
 export function normalizeToolTerminalStatus(value) {
   const raw = String(value || '')
     .trim()
@@ -13,10 +7,7 @@ export function normalizeToolTerminalStatus(value) {
   if (/^(running|pending|queued|in_progress|in-progress)$/.test(raw)) return 'running';
   if (/^(completed|complete|done|success|succeeded|ok)$/.test(raw)) return 'completed';
   if (/^(failed|fail|error|errored|timeout|timed_out|killed)$/.test(raw)) return 'failed';
-  // `cancel-unconfirmed` is task control's honest answer when a cancel was
-  // delivered but the process exit could not be confirmed. It is terminal for
-  // the tool call (the detail lives in the body), so it renders as cancelled
-  // rather than falling through to '' and leaving the surface with no status.
+  // task control reports `cancel-unconfirmed` when a cancel was delivered but the exit was not confirmed.
   if (/^(cancelled|canceled|cancel|cancel[-_ ]unconfirmed|cancel[-_ ]pending|cancelling|canceling)$/.test(raw))
     return 'cancelled';
   if (/^(denied|deny|refused|rejected)$/.test(raw)) return 'denied';

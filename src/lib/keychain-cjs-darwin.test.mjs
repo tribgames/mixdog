@@ -1,10 +1,3 @@
-// macOS reads: each account is asked of the keychain by `find-generic-password`
-// for that account alone (the only read command ever spawned). An answer, key or
-// "not found", is cached for the life of the process (unless an explicit finite
-// MIXDOG_KEYCHAIN_CACHE_TTL_MS bounds every platform's cache); it is replaced
-// only by this process's own set/delete, an invalidation, or the first read of
-// an account. Nothing is ever read in the background: only the awaited
-// warm-up spawns an async `security`.
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { EventEmitter } from 'node:events';

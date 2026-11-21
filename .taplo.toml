@@ -1,0 +1,37 @@
+exclude = [
+    "native/core/vendor/**",
+    "benchmarks/terminal-bench-2.1/**",
+    "native/mixdog-graph/tests/fixtures/**",
+]
+
+[formatting]
+inline_table_expand = false
+array_auto_expand = false
+array_auto_collapse = false
+compact_arrays = true
+reorder_keys = false
+reorder_arrays = false
+reorder_inline_tables = false
+align_entries = false
+align_comments = false
+allowed_blank_lines = 2
+indent_string = "    "
+
+# These files already indent two spaces; the rest of the repository uses four.
+[[rule]]
+include = [
+    "native/core/.config/hakari.toml",
+    "native/core/clippy.toml",
+    "native/core/crates/mixdog-askpass/clippy.toml",
+    "native/core/crates/mixdog-fsio/clippy.toml",
+    "native/core/crates/mixdog-office-com/Cargo.toml",
+    "native/core/crates/mixdog-rt/clippy.toml",
+    "native/core/crates/mixdog-secure-desktop/Cargo.toml",
+    "native/core/crates/mixdog-testkit/clippy.toml",
+    "native/mixdog-browser-import/Cargo.toml",
+    "native/mixdog-computer/Cargo.toml",
+    "native/mixdog-secure-desktop/Cargo.toml",
+]
+
+[rule.formatting]
+indent_string = "  "

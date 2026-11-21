@@ -7,9 +7,7 @@
 // descendant that made its own session) is never looked up by number: on Linux the helper is a child subreaper, so it
 // becomes the helper's own child and is ended through that; macOS cannot adopt it, and the result says so
 // (`escapes: 'undetectable'`). See process-probe.mjs for how a run proves it left nothing inside its own directory.
-// Windows PowerShell as the owner cost 275 ms per spawn (a C# type compiled each time); the helper costs the process
-// start. The helper must be built before this module
-// spawns anything: `cargo build --release --manifest-path scripts/rust-core/tree-helper/Cargo.toml` (the rust-core job
+// The helper must be built before this module spawns anything: `cargo build --release --manifest-path scripts/rust-core/tree-helper/Cargo.toml` (the rust-core job
 // does it in its own step; MIXDOG_TREE_HELPER names a binary built elsewhere, e.g. under another CARGO_TARGET_DIR).
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -156,11 +154,6 @@ const gone = (child) => child.exitCode !== null || child.signalCode !== null;
 // The byte that asks a POSIX helper to end its tree (any byte does; end-of-file without one is this process's death).
 const ASK = 'e';
 
-/**
- * Why the end of a gone helper's tree is not established, or null when it is: the helper exited by itself (no signal)
- * with this run's complete record and no failure in it. A helper that died of a signal, or left no record, did not finish
- * ending its tree (POSIX: nothing else ends it), whatever its exit code says.
- */
 function unestablished(child) {
   if (child.signalCode !== null)
     return `the tree helper of pid ${child.pid} died of ${child.signalCode}, so the end of its tree cannot be established`;

@@ -1,11 +1,3 @@
-/**
- * figures.mjs — TUI glyph constants.
- *
- * Unicode markers are used heavily in the TUI. Each glyph is declared with its
- * `\uXXXX` escape (encoding-safe across editors/transports) and the literal
- * glyph + usage is kept in the trailing comment for readability.
- */
-
 // Turn marker. \u23fa (⏺) aligns better but is poorly supported off macOS, so
 // other platforms use \u25cf (●).
 export const BLACK_CIRCLE = process.platform === 'darwin' ? '\u23fa' : '\u25cf'; // ⏺ / ● - turn marker

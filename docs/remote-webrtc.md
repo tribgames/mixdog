@@ -9,13 +9,13 @@ this page explains how its pieces fit.
 
 ## Roles and files
 
-| Part | Owns | Files |
-| --- | --- | --- |
-| Service (daemon) | Validates phone signals, checks the client streams the source, resolves ICE servers, mirrors the input-ownership gate in decode order, withholds JPEG images while WebRTC owns a client's view. | `main/remote-webrtc/relay.ts`, `main/remote-browser-streams.ts` |
-| Window main | Capture, geometry lock, the per-viewer transport state machine, input dispatch through the relay path's own guard. | `main/remote-webrtc/viewer.ts`, `main/remote-webrtc/host.ts`, `main/browser/remote-geometry.ts`, `main/browser/remote-stream-engine.ts` |
-| Sender renderer (hidden, trusted) | Every `RTCPeerConnection`, one canvas-generated track per source, encoder settings, sender stats. | `main/remote-webrtc/sender-window.ts`, `preload/remote-webrtc-sender.ts`, `renderer/remote-webrtc-sender/main.ts`, `shared/remote-webrtc-sender.ts` |
-| Phone (projected renderer) | The receiving `RTCPeerConnection`, presentation (zoom, pan, keyboard), input routing per epoch, receiver stats. | phone-side work |
-| `native/core/crates/mixdog-remote/src/ice/mod.rs` | STUN + TURN servers with short-lived credentials from the relay. | |
+| Part                                              | Owns                                                                                                                                                                                            | Files                                                                                                                                               |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Service (daemon)                                  | Validates phone signals, checks the client streams the source, resolves ICE servers, mirrors the input-ownership gate in decode order, withholds JPEG images while WebRTC owns a client's view. | `main/remote-webrtc/relay.ts`, `main/remote-browser-streams.ts`                                                                                     |
+| Window main                                       | Capture, geometry lock, the per-viewer transport state machine, input dispatch through the relay path's own guard.                                                                              | `main/remote-webrtc/viewer.ts`, `main/remote-webrtc/host.ts`, `main/browser/remote-geometry.ts`, `main/browser/remote-stream-engine.ts`             |
+| Sender renderer (hidden, trusted)                 | Every `RTCPeerConnection`, one canvas-generated track per source, encoder settings, sender stats.                                                                                               | `main/remote-webrtc/sender-window.ts`, `preload/remote-webrtc-sender.ts`, `renderer/remote-webrtc-sender/main.ts`, `shared/remote-webrtc-sender.ts` |
+| Phone (projected renderer)                        | The receiving `RTCPeerConnection`, presentation (zoom, pan, keyboard), input routing per epoch, receiver stats.                                                                                 | phone-side work                                                                                                                                     |
+| `native/core/crates/mixdog-remote/src/ice/mod.rs` | STUN + TURN servers with short-lived credentials from the relay.                                                                                                                                |                                                                                                                                                     |
 
 A host advertises the contract with `browserWebrtc: 1` in its E2EE challenge.
 A phone without it, or a host without it, stays on JPEG.
@@ -110,14 +110,14 @@ behaviour on Wi-Fi and LTE, with the costs acknowledged at the time (VPS
 bandwidth for every view, extra delay even on one Wi-Fi). It also had a side
 effect of **not exposing addresses** to the phone. Now:
 
-- *Predictability* is kept where it matters: the protocol, security checks,
+- _Predictability_ is kept where it matters: the protocol, security checks,
   state machine and fallback are identical on every path, and the path taken is
   recorded on every measurement (below). Only latency differs — which is the
   point: through the Los Angeles VPS (~152 ms RTT from Korea) the relay adds
   about 300 ms of input-to-photon delay that a direct path avoids, and the VPS
   carries only the views that need it.
-- *Address exposure* is accepted for paired devices; see the next section.
-- *VPS bandwidth* drops because most views now go direct; the relayed ones are
+- _Address exposure_ is accepted for paired devices; see the next section.
+- _VPS bandwidth_ drops because most views now go direct; the relayed ones are
   bounded per stream by libwebrtc's default ~2.5 Mbit/s ceiling, and the VPS ran
   loss-free to ~100 Mbit/s (about 40 such streams) in a capacity run. No coturn
   bandwidth or allocation cap is set: a refused view would fall back to the JPEG

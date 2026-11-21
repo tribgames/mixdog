@@ -1,14 +1,5 @@
 #!/usr/bin/env node
-// Fails when a tracked file carries a developer-machine path (a build checkout, a project checkout or a user
-// profile of the machines this repository was developed on). Such paths leak the author's layout into the public
-// repository and the npm package, and make a fixture or note mean something only on one disk.
-//
-// Text and binary files are both scanned, as bytes: an ASCII path inside a binary (or a UTF-16 text, whose NULs are
-// dropped for the comparison) is found. A tracked file that cannot be read fails the check; one deleted from the
-// working tree but still in the index is read from the index, because that is what would be published.
-//
 // Usage: node scripts/check-machine-paths.mjs        (from anywhere inside the repository)
-// CI: run it in the release gate next to the other `scripts/check-*.mjs` steps, on a full checkout.
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

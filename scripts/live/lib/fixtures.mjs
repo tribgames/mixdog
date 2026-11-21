@@ -12,47 +12,48 @@ function listen(server, host) {
   });
 }
 
-export async function startFixtures() {
-  let framePort = 0;
-  const main = createServer((req, res) => {
-    const url = new URL(req.url, 'http://127.0.0.1');
-    const send = (status, body, type = 'text/html; charset=utf-8') => {
-      res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store' });
-      res.end(body);
-    };
-    if (url.pathname === '/form') {
-      return send(
-        200,
-        html(
-          'lat form',
-          `<h1>Latency form</h1>
+const PLAIN_BUTTON = `<button id="plain" type="button" onclick="document.getElementById('out').textContent='clicked '+Date.now()">Plain button</button>
+<p id="out"></p>`;
+
+const formPage = () =>
+  html(
+    'lat form',
+    `<h1>Latency form</h1>
 <form id="f" action="/submitted" method="get">
   <label>Query <input id="q" name="q" type="text" autocomplete="off"></label>
   <label>Notes <textarea id="t" name="t" rows="3"></textarea></label>
   <button id="go" type="submit">Search</button>
 </form>
-<button id="plain" type="button" onclick="document.getElementById('out').textContent='clicked '+Date.now()">Plain button</button>
-<p id="out"></p>`
-        )
-      );
-    }
-    if (url.pathname === '/frames') {
-      return send(
-        200,
-        html(
-          'lat frames',
-          `<h1>Frames</h1>
-<button id="plain" type="button" onclick="document.getElementById('out').textContent='clicked '+Date.now()">Plain button</button>
-<p id="out"></p>
+${PLAIN_BUTTON}`
+  );
+
+const framesPage = (framePort) =>
+  html(
+    'lat frames',
+    `<h1>Frames</h1>
+${PLAIN_BUTTON}
 <iframe title="cross origin" src="http://127.0.0.2:${framePort}/inner" width="400" height="160"></iframe>`
-        )
-      );
-    }
-    if (url.pathname === '/submitted')
-      return send(
-        200,
-        html('lat submitted', `<h1>Submitted</h1><p id="q">${encodeURIComponent(url.searchParams.get('q') ?? '')}</p>`)
-      );
+  );
+
+const submittedPage = (query) =>
+  html('lat submitted', `<h1>Submitted</h1><p id="q">${encodeURIComponent(query ?? '')}</p>`);
+
+const innerPage = () =>
+  html(
+    'lat inner',
+    `<button id="inner" type="button" onclick="this.textContent='inner clicked'">Inner button</button>`
+  );
+
+function mainHandler(framePort) {
+  return (req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    const send = (status, body, type = 'text/html; charset=utf-8') => {
+      res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store' });
+      res.end(body);
+    };
+    if (url.pathname === '/form') return send(200, formPage());
+    if (url.pathname === '/frames') return send(200, framesPage(framePort()));
+    if (url.pathname === '/submitted') return send(200, submittedPage(url.searchParams.get('q')));
     if (url.pathname === '/slow') {
       // The cancel case: a page whose load takes `ms`.
       const ms = Number(url.searchParams.get('ms') ?? 30000);
@@ -62,15 +63,15 @@ export async function startFixtures() {
     if (url.pathname === '/root')
       return send(200, JSON.stringify({ q: url.searchParams.get('q') }), 'application/json');
     return send(200, html('lat blank', '<p>blank</p>'));
-  });
+  };
+}
+
+export async function startFixtures() {
+  let framePort = 0;
+  const main = createServer(mainHandler(() => framePort));
   const frame = createServer((_req, res) => {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-    res.end(
-      html(
-        'lat inner',
-        `<button id="inner" type="button" onclick="this.textContent='inner clicked'">Inner button</button>`
-      )
-    );
+    res.end(innerPage());
   });
   const port = await listen(main, '127.0.0.1');
   framePort = await listen(frame, '127.0.0.2');

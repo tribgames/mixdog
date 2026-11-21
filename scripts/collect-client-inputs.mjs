@@ -247,40 +247,46 @@ const SAMPLE_ARGS = {
   startLocalProviderModelMaintenance: { operation: 'verify' },
 };
 
-async function sessionActionRows() {
-  const { SESSION_ACTIONS, resolveAction } = await import(
-    pathToFileURL(path.join(ROOT, ACTION_ROUTE, 'action-route.mjs')).href
-  );
-  const { ACTION_OVERRIDES } = await import(pathToFileURL(path.join(ROOT, ACTION_ROUTE, 'action-overrides.mjs')).href);
-  const { METHOD_ARGS } = await import(pathToFileURL(path.join(ROOT, ACTION_ROUTE, 'method-args.generated.mjs')).href);
-  const { ACTION_NAMESPACES } = await import(
-    pathToFileURL(path.join(ROOT, ACTION_ROUTE, 'action-namespaces.mjs')).href
-  );
+async function loadActionRoute() {
+  const load = (file) => import(pathToFileURL(path.join(ROOT, ACTION_ROUTE, file)).href);
+  const { SESSION_ACTIONS, resolveAction } = await load('action-route.mjs');
+  const { ACTION_OVERRIDES } = await load('action-overrides.mjs');
+  const { METHOD_ARGS } = await load('method-args.generated.mjs');
+  const { ACTION_NAMESPACES } = await load('action-namespaces.mjs');
   const namespaceOf = new Map(
     Object.entries(ACTION_NAMESPACES).flatMap(([ns, actions]) => actions.map((a) => [a, ns]))
   );
+  return { SESSION_ACTIONS, resolveAction, ACTION_OVERRIDES, METHOD_ARGS, namespaceOf };
+}
+
+function sampleArgs(action, route) {
+  const { ACTION_OVERRIDES, METHOD_ARGS, namespaceOf } = route;
+  if (ACTION_OVERRIDES[action]) return { args: OVERRIDE_ARGS[action] };
+  const method = `${namespaceOf.get(action)}/${action}`;
+  const spec = METHOD_ARGS[method];
+  const m = METHODS.get(method);
+  if (!spec || !m) return { unrouted: true };
+  const props = deref(m.defs, m.params).properties ?? {};
+  const args = spec.args.map((a) => {
+    if (SAMPLE_ARGS[action] && a in SAMPLE_ARGS[action]) return SAMPLE_ARGS[action][a];
+    const v = props[a] ? example(m.defs, props[a], true, a) : undefined;
+    return v === CYCLE ? undefined : v;
+  });
+  return { args };
+}
+
+async function sessionActionRows() {
+  const route = await loadActionRoute();
+  const { SESSION_ACTIONS, resolveAction, ACTION_OVERRIDES } = route;
   const ctx = { threadId: 'thread-1' };
   const out = [];
   const problems = [];
   const unrouted = [];
   for (const action of SESSION_ACTIONS) {
-    let args;
-    if (ACTION_OVERRIDES[action]) args = OVERRIDE_ARGS[action];
-    else {
-      const method = `${namespaceOf.get(action)}/${action}`;
-      const spec = METHOD_ARGS[method];
-      const m = METHODS.get(method);
-      if (!spec || !m) {
-        // the client itself answers this action with `unknownMethod` before anything is sent: no input to accept
-        unrouted.push(action);
-        continue;
-      }
-      const props = deref(m.defs, m.params).properties ?? {};
-      args = spec.args.map((a) => {
-        if (SAMPLE_ARGS[action] && a in SAMPLE_ARGS[action]) return SAMPLE_ARGS[action][a];
-        const v = props[a] ? example(m.defs, props[a], true, a) : undefined;
-        return v === CYCLE ? undefined : v;
-      });
+    const { args, unrouted: noRoute } = sampleArgs(action, route);
+    if (noRoute) {
+      unrouted.push(action);
+      continue;
     }
     if (args === undefined) {
       problems.push(`session action ${action}: no sample arguments (OVERRIDE_ARGS)`);

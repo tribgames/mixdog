@@ -54,12 +54,7 @@ const firstData = (stream, what) =>
 // How long a fixture lives when nothing ends it (the leak guard; see leakGuard: a guard that fires fails the test).
 const LIFE_MS = 90_000;
 
-// A script that starts a hung grandchild with the output given ('ignore' or 'inherit'), records both processes with their
-// start times as first seen, then runs `after`. The grandchild is `detached` on Windows (it would otherwise end with its
-// Node parent, which hides a tree that is not ended) and in the parent's group on POSIX, where the group is what the helper
-// owns. It depends on its starter in no way: no pipe to it, stdin ignored, nothing it waits for from it, so only the end of
-// the tree removes it. Both carry the leak guard: what a failing run leaves behind goes away by itself (a hung program would
-// otherwise hold the test runner's pipes open for good), and leaves a marker that fails the test's check of the tree.
+// On Windows the grandchild is `detached`: otherwise it would end with its Node parent, which hides a tree that is not ended.
 const treeScript = (dir, { out, after }) => `import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { startTimeOf } from ${JSON.stringify(PROBE)};
@@ -170,10 +165,6 @@ test('a process outside the tree is not touched by ending it', () =>
 
 test('when the Node process that started the tree is killed abruptly, nothing of the tree is left', () =>
   withTree(async (dir, members, remember) => {
-    // parent.mjs starts the tree and reports; this test then kills it with no chance to clean up. The program's stdout, and
-    // the grandchild's, is the pipe this test reads from: that pipe reaches end-of-file only when every process holding it
-    // (parent.mjs, the helper, the program, the grandchild) is gone, which is the event that the helper saw its parent die
-    // and finished ending the tree. Nothing is waited for by time.
     const middle = join(dir, 'middle.mjs');
     writeFileSync(
       middle,

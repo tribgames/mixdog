@@ -22,13 +22,13 @@ device by hand is outside it.
 
 Read the mode's procedure before acting.
 
-| Request | Mode | Procedure |
-|---|---|---|
-| Add a test, fix a bug test-first | Write | `references/write.md`; adding a new test area also `references/case-management.md` |
-| Check a change while editing | Run | below |
-| A test fails sometimes, only in a full run, only in CI, only on this machine | Diagnose | `references/diagnose.md` |
-| Duplicate, dead, obsolete or worthless tests; any change that edits an existing test file | Prune | `references/prune.md` |
-| Review the suite's health or a whole area | Audit | `references/case-management.md` |
+| Request                                                                                   | Mode     | Procedure                                                                          |
+| ----------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------- |
+| Add a test, fix a bug test-first                                                          | Write    | `references/write.md`; adding a new test area also `references/case-management.md` |
+| Check a change while editing                                                              | Run      | below                                                                              |
+| A test fails sometimes, only in a full run, only in CI, only on this machine              | Diagnose | `references/diagnose.md`                                                           |
+| Duplicate, dead, obsolete or worthless tests; any change that edits an existing test file | Prune    | `references/prune.md`                                                              |
+| Review the suite's health or a whole area                                                 | Audit    | `references/case-management.md`                                                    |
 
 ## Prerequisites: find the project's own way
 

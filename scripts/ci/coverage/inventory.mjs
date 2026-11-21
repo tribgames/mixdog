@@ -1,7 +1,3 @@
-// The release inventory: every tracked test file and every Rust test target of the exact release commit, from `git ls-files` and the
-// manifests, and nothing else (docs/testing.md, "Release coverage"). It names no case: the cases a file or target holds are what its
-// runner reports at run time. It never reads a test command's arguments, a workflow or a run. A test file the plan neither routes nor
-// classifies is an error, not an ignore.
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
@@ -83,20 +79,10 @@ function workspaceMembers(tracked, read) {
   return roots;
 }
 
-/**
- * @returns {{ manifest: object, errors: {code: string, path: string, line: number, message: string}[], stats: object }}
- */
-export function buildInventory({
-  root,
-  tracked,
-  plan,
-  sha = null,
-  read = (path) => readFileSync(join(root, path), 'utf8'),
-}) {
+function newCollector(plan) {
   const errors = [];
   const units = [];
   const classified = new Map();
-  const note = (path, rule) => classified.set(path, rule);
   /** Routes a test file (a family's runner reports its cases) to the legs the plan names, or reports it unrouted. */
   const assign = (family, path) => {
     const { requires } = clausesFor(plan, family, path);
@@ -119,12 +105,14 @@ export function buildInventory({
         line: 0,
         message: `${rules.length} reviewed classes match this path (${rules.map((rule) => rule.glob).join(', ')})`,
       });
-    if (rules.length) note(path, rules[0]);
+    if (rules.length) classified.set(path, rules[0]);
     return rules.length > 0;
   };
+  return { errors, units, classified, assign, classify };
+}
 
-  // --- Node, shell and Python. One convention: a test file is one named the way its runner discovers tests; any other tracked source
-  // file that loads a test runner is an error unless the plan classifies it.
+/** One convention: a test file is one named the way its runner discovers tests; any other tracked source file that loads a test runner is an error unless the plan classifies it. */
+function discoverScriptTests({ errors, classify, assign }, tracked, read) {
   const loadsRunner = (family, text) =>
     LOADS_RUNNER[family].loads.test(text.replace(LOADS_RUNNER[family].comments, ''));
   const unnamed = (path) =>
@@ -142,8 +130,10 @@ export function buildInventory({
     if (named && !classify(path)) assign(family, path);
     else if (!named && family !== 'shell' && loadsRunner(family, read(path)) && !classify(path)) unnamed(path);
   }
+}
 
-  // --- Rust: the packages, the files their targets reach, the doctests
+/** The packages, the files their targets reach, the doctests. */
+function collectRustUnits({ plan, errors, units, classify }, tracked, read) {
   const rust = scanRust(tracked, read);
   const members = workspaceMembers(tracked, read);
   const obligations = (clauses) =>
@@ -192,8 +182,10 @@ export function buildInventory({
           'holds rustdoc blocks that rustdoc would run as doctests; nextest does not run them, so the plan needs a doctest leg for the package or a reviewed class',
       });
   }
+}
 
-  // --- everything else that looks like a test and is none of the above
+/** Everything else that looks like a test and is none of the above. */
+function flagStrayTests({ errors, classify }, tracked) {
   for (const path of tracked) {
     if (path.endsWith('.rs') || path.endsWith('.py') || JS.test(path) || SHELL_TEST.test(path)) continue;
     const looking =
@@ -208,11 +200,9 @@ export function buildInventory({
         message: 'looks like a test of a framework no adapter reads and no reviewed class names it',
       });
   }
+}
 
-  units.sort((a, b) => compareKeys(idKey(a.id), idKey(b.id)));
-  errors.sort((a, b) =>
-    compareKeys(`${a.code} ${a.path} ${a.line} ${a.message}`, `${b.code} ${b.path} ${b.line} ${b.message}`)
-  );
+function manifestOf(plan, sha, units, classified) {
   const legs = plan.legs.map((leg) => leg.id).sort();
   const slots = plan.legs
     .flatMap((leg) =>
@@ -236,8 +226,30 @@ export function buildInventory({
       .sort((a, b) => compareKeys(a.path, b.path)),
   };
   manifest.digest = digestOf(manifest);
+  return manifest;
+}
+
+/**
+ * @returns {{ manifest: object, errors: {code: string, path: string, line: number, message: string}[], stats: object }}
+ */
+export function buildInventory({
+  root,
+  tracked,
+  plan,
+  sha = null,
+  read = (path) => readFileSync(join(root, path), 'utf8'),
+}) {
+  const collector = newCollector(plan);
+  discoverScriptTests(collector, tracked, read);
+  collectRustUnits({ ...collector, plan }, tracked, read);
+  flagStrayTests(collector, tracked);
+  const { errors, units, classified } = collector;
+  units.sort((a, b) => compareKeys(idKey(a.id), idKey(b.id)));
+  errors.sort((a, b) =>
+    compareKeys(`${a.code} ${a.path} ${a.line} ${a.message}`, `${b.code} ${b.path} ${b.line} ${b.message}`)
+  );
   return {
-    manifest,
+    manifest: manifestOf(plan, sha, units, classified),
     errors,
     stats: { files: tracked.length, units: units.length, errors: errors.length, classified: classified.size },
   };

@@ -39,6 +39,58 @@ function closing(tokens, open) {
   return tokens.length - 1;
 }
 
+function bodyStart(tokens, from, end) {
+  for (let j = from; j < end; j += 1) {
+    if (
+      (tokens[j].value === '=' && tokens[j + 1]?.value === '>') ||
+      (tokens[j].kind === 'word' && tokens[j].value === 'function')
+    )
+      return tokens.findIndex((candidate, index) => index > j && index < end && candidate.value === '{');
+  }
+  return -1;
+}
+
+function guardHits(tokens, at, bodyEnd) {
+  const hits = [];
+  for (let j = at + 1; j < bodyEnd; j += 1) {
+    const t = tokens[j];
+    if (!(t.kind === 'word' && t.value === 'if' && tokens[j + 1]?.value === '(')) continue;
+    const close = closing(tokens, j + 1);
+    const condition = tokens.slice(j + 2, close);
+    const guarded = condition[0]?.value === '!' && condition.some((c) => c.kind === 'word' && GUARDS.has(c.value));
+    const next = tokens[close + 1];
+    const returns = next?.value === 'return' || (next?.value === '{' && tokens[close + 2]?.value === 'return');
+    if (guarded && returns) hits.push({ line: t.line, kind: 'guard' });
+  }
+  return hits;
+}
+
+function earlyReturnHits(tokens, at, bodyEnd, seen) {
+  const hits = [];
+  let asserted = false;
+  for (let j = at + 1; j < bodyEnd; j += 1) {
+    const t = tokens[j];
+    if ((t.value === '=' && tokens[j + 1]?.value === '>') || (t.kind === 'word' && t.value === 'function')) {
+      const open = tokens.findIndex((candidate, index) => index > j && index < bodyEnd && candidate.value === '{');
+      const arrowExpression = t.value === '=' && tokens[j + 2]?.value !== '{';
+      if (open >= 0 && !arrowExpression) {
+        for (let k = j; k < closing(tokens, open); k += 1)
+          if (tokens[k].kind === 'word' && isAssertion(tokens[k].value) && tokens[k + 1]?.value === '(')
+            asserted = true;
+        j = closing(tokens, open);
+      }
+      continue;
+    }
+    if (t.kind === 'word' && isAssertion(t.value) && tokens[j + 1]?.value === '(') asserted = true;
+    if (t.kind === 'word' && t.value === 'return' && ['', ';', '}'].includes(tokens[j + 1]?.value ?? '') && !asserted) {
+      const reported = tokens.slice(Math.max(at + 1, j - 12), j).some((c) => c.kind === 'word' && c.value === 'skip');
+      if (!reported && ![...seen, ...hits].some((hit) => hit.line === t.line))
+        hits.push({ line: t.line, kind: 'early' });
+    }
+  }
+  return hits;
+}
+
 /** `[{ line, kind }]` of the silent-return shapes in the test bodies of `source`. */
 export function silentReturns(source) {
   const tokens = tokenize(source);
@@ -48,56 +100,11 @@ export function silentReturns(source) {
     const callee = token.kind === 'word' && CALLS.has(token.value) && tokens[i - 1]?.value !== '.';
     if (!callee || tokens[i + 1].value !== '(') continue;
     const end = closing(tokens, i + 1);
-    // the body: the first `{` after the first `=>` or `function (...)` among the arguments
-    let at = -1;
-    for (let j = i + 2; j < end; j += 1) {
-      if (
-        (tokens[j].value === '=' && tokens[j + 1]?.value === '>') ||
-        (tokens[j].kind === 'word' && tokens[j].value === 'function')
-      ) {
-        at = tokens.findIndex((candidate, index) => index > j && index < end && candidate.value === '{');
-        break;
-      }
-    }
+    const at = bodyStart(tokens, i + 2, end);
     if (at < 0) continue;
     const bodyEnd = closing(tokens, at);
-    // A guard anywhere in the body, nested callbacks and helpers included.
-    for (let j = at + 1; j < bodyEnd; j += 1) {
-      const t = tokens[j];
-      if (!(t.kind === 'word' && t.value === 'if' && tokens[j + 1]?.value === '(')) continue;
-      const close = closing(tokens, j + 1);
-      const condition = tokens.slice(j + 2, close);
-      const guarded = condition[0]?.value === '!' && condition.some((c) => c.kind === 'word' && GUARDS.has(c.value));
-      const next = tokens[close + 1];
-      const returns = next?.value === 'return' || (next?.value === '{' && tokens[close + 2]?.value === 'return');
-      if (guarded && returns) hits.push({ line: t.line, kind: 'guard' });
-    }
-    let asserted = false;
-    for (let j = at + 1; j < bodyEnd; j += 1) {
-      const t = tokens[j];
-      // A nested function (a callback, a helper) is not the test: its returns are its own, its assertions still count.
-      if ((t.value === '=' && tokens[j + 1]?.value === '>') || (t.kind === 'word' && t.value === 'function')) {
-        const open = tokens.findIndex((candidate, index) => index > j && index < bodyEnd && candidate.value === '{');
-        const arrowExpression = t.value === '=' && tokens[j + 2]?.value !== '{';
-        if (open >= 0 && !arrowExpression) {
-          for (let k = j; k < closing(tokens, open); k += 1)
-            if (tokens[k].kind === 'word' && isAssertion(tokens[k].value) && tokens[k + 1]?.value === '(')
-              asserted = true;
-          j = closing(tokens, open);
-        }
-        continue;
-      }
-      if (t.kind === 'word' && isAssertion(t.value) && tokens[j + 1]?.value === '(') asserted = true;
-      if (
-        t.kind === 'word' &&
-        t.value === 'return' &&
-        ['', ';', '}'].includes(tokens[j + 1]?.value ?? '') &&
-        !asserted
-      ) {
-        const reported = tokens.slice(Math.max(at + 1, j - 12), j).some((c) => c.kind === 'word' && c.value === 'skip');
-        if (!reported && !hits.some((hit) => hit.line === t.line)) hits.push({ line: t.line, kind: 'early' });
-      }
-    }
+    hits.push(...guardHits(tokens, at, bodyEnd));
+    hits.push(...earlyReturnHits(tokens, at, bodyEnd, hits));
     i = end;
   }
   return hits;

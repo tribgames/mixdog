@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// The `mixdog` command of the npm package: starts the native program of the platform package npm installed for this
-// machine (`mixdog-<platform>-<arch>`, an optional dependency of this package) with the same arguments and the same
-// terminal, and ends with its exit code. Nothing of the product runs in this process, except the one step of the update:
-// a version the core staged (npm, in the background) is swapped in here at the next clean start (bin/staged-swap.mjs).
 import { spawn } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';

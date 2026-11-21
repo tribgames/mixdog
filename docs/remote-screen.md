@@ -14,22 +14,22 @@ displays, picks one, and streams it the same way it streams a browser page.
 
 ## Files
 
-| File | Role |
-| --- | --- |
-| `apps/desktop/src/shared/remote-screen.ts` | Screen-only helpers on top of the contract: the `KeyboardEvent.code` → virtual-key/scan-code table (`remoteScreenKeyForCode`) and `openRemoteScreenCaptureTrack` (opens the sender's track from a capture plan). |
-| `apps/desktop/src/main/remote-screen/screen-geometry.ts` | Display enumeration (`summarizeScreenDisplay` → the contract's `RemoteScreenDisplaySummary`), the locked video geometry (native pixels, capped and even), the video-pixel → desktop-pixel pointer map (multi-monitor, DPI), and fitting a helper frame onto that geometry. |
-| `apps/desktop/src/main/remote-screen/screen-input-host.ts` | The Windows input/UAC-watcher helper process. It injects desktop input through Computer Use's own checked `SendInput` transport and watches the input desktop and `consent.exe`/`LogonUI`. It also holds the temp-file sweep. |
-| `apps/desktop/src/main/remote-screen/screen-input-dispatch.ts` | A pure mapper. It turns a viewer's `RemoteScreenInput` into host commands at the acknowledged geometry generation (`screenInputCommands`) and defines each press's identity and its release (`holdKeyOf`, `isHoldDown`, `releaseCommandFor`). It keeps no state. |
-| `apps/desktop/src/main/remote-screen/screen-input-router.ts` | `ScreenInputRouter`: the single serialized, cancellable path for input, backend switches and releases of one session. It tracks held presses per backend + origin + key and releases them at the session's defined points. |
-| `apps/desktop/src/main/remote-screen/secure-desktop-switch.ts` | The pure decision: ordinary capture, an elevation prompt that can't take remote input, the installed helper, or a blocked secure desktop. Also builds the status pushed to the phone. |
-| `apps/desktop/src/main/remote-screen/screen-source.ts` | `RemoteScreenSource`, one per viewer: start/stop, geometry, capture plan, frames, input, live re-authorization, the secure-desktop switch, the indicator and the log. |
-| `apps/desktop/src/main/remote-screen/screen-webrtc-source.ts` | `createScreenWebrtcSource`: adapts a `RemoteScreenSource` to the WebRTC host's `RemoteWebrtcVideoSource` (`main/remote-webrtc/source.ts`). |
-| `apps/desktop/src/main/remote-screen/screen-webrtc-sources.ts` | The window process's screen sessions for the WebRTC host: per-connection access, resolve, close (see "Main wiring"). |
-| `apps/desktop/src/main/remote-screen/screen-access-publisher.ts` | Service side: sends each relay connection's access (grant / deny) to the window. |
-| `apps/desktop/src/main/remote-screen/screen-electron.ts` | Electron pieces: displays with capture ids, the input host factory, the on-PC indicator (the remote-control pill). |
-| `apps/desktop/src/main/remote-screen/secure-desktop-adapter.ts` | Adapts the real secure-desktop client (`main/secure-desktop/`, protocol v4) to the switch's `SecureDesktopClient` interface, plus the grant, lock-state and issue surface. |
-| `apps/desktop/src/main/remote-screen/secure-desktop-helper.ts` | `SecureDesktopHelper`: the adapter every session shares, rebuilt after an install, plus the install state and the phone's install request (see "Helper install and control grants"). |
-| `apps/desktop/src/main/remote-screen/screen-selfcheck.mjs` | A local self-check that needs no phone and doesn't touch the cursor. It runs no capture and injects nothing; input goes through a recording backend. |
+| File                                                             | Role                                                                                                                                                                                                                                                                       |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/desktop/src/shared/remote-screen.ts`                       | Screen-only helpers on top of the contract: the `KeyboardEvent.code` → virtual-key/scan-code table (`remoteScreenKeyForCode`) and `openRemoteScreenCaptureTrack` (opens the sender's track from a capture plan).                                                           |
+| `apps/desktop/src/main/remote-screen/screen-geometry.ts`         | Display enumeration (`summarizeScreenDisplay` → the contract's `RemoteScreenDisplaySummary`), the locked video geometry (native pixels, capped and even), the video-pixel → desktop-pixel pointer map (multi-monitor, DPI), and fitting a helper frame onto that geometry. |
+| `apps/desktop/src/main/remote-screen/screen-input-host.ts`       | The Windows input/UAC-watcher helper process. It injects desktop input through Computer Use's own checked `SendInput` transport and watches the input desktop and `consent.exe`/`LogonUI`. It also holds the temp-file sweep.                                              |
+| `apps/desktop/src/main/remote-screen/screen-input-dispatch.ts`   | A pure mapper. It turns a viewer's `RemoteScreenInput` into host commands at the acknowledged geometry generation (`screenInputCommands`) and defines each press's identity and its release (`holdKeyOf`, `isHoldDown`, `releaseCommandFor`). It keeps no state.           |
+| `apps/desktop/src/main/remote-screen/screen-input-router.ts`     | `ScreenInputRouter`: the single serialized, cancellable path for input, backend switches and releases of one session. It tracks held presses per backend + origin + key and releases them at the session's defined points.                                                 |
+| `apps/desktop/src/main/remote-screen/secure-desktop-switch.ts`   | The pure decision: ordinary capture, an elevation prompt that can't take remote input, the installed helper, or a blocked secure desktop. Also builds the status pushed to the phone.                                                                                      |
+| `apps/desktop/src/main/remote-screen/screen-source.ts`           | `RemoteScreenSource`, one per viewer: start/stop, geometry, capture plan, frames, input, live re-authorization, the secure-desktop switch, the indicator and the log.                                                                                                      |
+| `apps/desktop/src/main/remote-screen/screen-webrtc-source.ts`    | `createScreenWebrtcSource`: adapts a `RemoteScreenSource` to the WebRTC host's `RemoteWebrtcVideoSource` (`main/remote-webrtc/source.ts`).                                                                                                                                 |
+| `apps/desktop/src/main/remote-screen/screen-webrtc-sources.ts`   | The window process's screen sessions for the WebRTC host: per-connection access, resolve, close (see "Main wiring").                                                                                                                                                       |
+| `apps/desktop/src/main/remote-screen/screen-access-publisher.ts` | Service side: sends each relay connection's access (grant / deny) to the window.                                                                                                                                                                                           |
+| `apps/desktop/src/main/remote-screen/screen-electron.ts`         | Electron pieces: displays with capture ids, the input host factory, the on-PC indicator (the remote-control pill).                                                                                                                                                         |
+| `apps/desktop/src/main/remote-screen/secure-desktop-adapter.ts`  | Adapts the real secure-desktop client (`main/secure-desktop/`, protocol v4) to the switch's `SecureDesktopClient` interface, plus the grant, lock-state and issue surface.                                                                                                 |
+| `apps/desktop/src/main/remote-screen/secure-desktop-helper.ts`   | `SecureDesktopHelper`: the adapter every session shares, rebuilt after an install, plus the install state and the phone's install request (see "Helper install and control grants").                                                                                       |
+| `apps/desktop/src/main/remote-screen/screen-selfcheck.mjs`       | A local self-check that needs no phone and doesn't touch the cursor. It runs no capture and injects nothing; input goes through a recording backend.                                                                                                                       |
 
 ## Contract fold-in
 
@@ -478,11 +478,11 @@ prompt, joining a request already running; nothing is single-flighted here).
   restart clears it (the helper lives with the main window); it stands in
   for the local action on the PC that should clear it, without a settings
   UI for now.
-The result lands in the status: `outcome`, `detail` (cut to 256 characters),
-and the offer from its install state, which is relative to the phone's key.
-A request that rejects (the bridge could not be run) reports `failed` with
-its message. An answer to a request (or check) after a later one of the
-session started counts for nothing.
+  The result lands in the status: `outcome`, `detail` (cut to 256 characters),
+  and the offer from its install state, which is relative to the phone's key.
+  A request that rejects (the bridge could not be run) reports `failed` with
+  its message. An answer to a request (or check) after a later one of the
+  session started counts for nothing.
 
 - **Offer.** Each session start checks the install state without a key
   (the phone names its key only when it asks) and maps it with
@@ -620,7 +620,7 @@ moment when someone can approve it:
   `remote-controller-key-delivered` event, which enrolls it (below).
 - **Computer Use setup on the PC** (`main/pc-access.ts`, the Windows row of
   `renderer/settings/computer-readiness.ts`). The Readiness section's last
-  row, *PC access for admin prompts and the lock screen*, is optional and
+  row, _PC access for admin prompts and the lock screen_, is optional and
   never blocks Computer Use. Each of its actions is one ordinary UAC prompt
   (the person is at the PC), through the one shared
   `secureDesktopInstallerFor` installer:

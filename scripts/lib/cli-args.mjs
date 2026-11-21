@@ -1,7 +1,5 @@
-// Argv reading shared by the scripts/ CLIs (bench, diag and smoke runners).
-// `--name value` and `--name=value` are equivalent; a missing option yields
-// the caller's fallback. `argv` is a seam for tests only — callers keep
-// reading the live process arguments.
+// `--name value` and `--name=value` are equivalent; a missing option yields the caller's fallback.
+// `argv` is a test seam.
 export function argValue(name, fallback = null, argv = process.argv) {
   const index = argv.indexOf(name);
   if (index >= 0 && index + 1 < argv.length) return argv[index + 1];

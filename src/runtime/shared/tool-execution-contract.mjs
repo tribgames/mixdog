@@ -169,13 +169,6 @@ export function isModelVisibleToolCompletionWrapper(text) {
   return isInternalRuntimeNotificationText(unquoted);
 }
 
-// Lenient companion to isModelVisibleToolCompletionWrapper: the strict check
-// additionally requires the quoted body to pass isInternalRuntimeNotificationText,
-// which can miss legitimate completion wrappers whose internal body shape
-// drifts (e.g. new async surfaces/status text). This shape-only variant just
-// confirms "looks like an instruction preamble + Result: + quoted body" so a
-// TUI transcript never leaks a raw wrapper as a plain user message when the
-// strict detector misses — display-only, never used to gate persistence.
 function isLikelyToolCompletionWrapper(text) {
   const quotedLines = completionWrapperQuotedLines(text);
   if (!quotedLines) return false;
@@ -200,11 +193,6 @@ const TRANSCRIPT_HIDDEN_CONTROL_TOOL_NAMES = new Set([
   // A bot's reaction shows as its emoji under the user's message, not as a card.
   'react',
 ]);
-// Skill loads are visible cards EXCEPT for built-in skills: those ride a
-// built-in feature whose own card (Browser Use, Document work, ...) follows
-// immediately, so the skill card would only repeat it. The runtime marks a
-// built-in load in the tool_result stub (collect.mjs buildSkillStub); live
-// turns decide earlier from the skill source so no card flashes first.
 const TRANSCRIPT_SKILL_TOOL_RE = /^(?:skill|skill_view|use_skill|skill_execute)$/;
 const BUILTIN_SKILL_RESULT_RE = /^Loaded built-in skill:/i;
 
@@ -233,29 +221,11 @@ export function isTranscriptHiddenToolItem(item) {
   return isTranscriptSkillToolName(item.name) && isBuiltinSkillToolResult(item.result);
 }
 
-// Persisted USER cancellation control rows ("[Request interrupted by user]"
-// and its tool-use variant) exist for the next model step, not for humans:
-// the human already saw the cancel they typed. The live engine path already
-// withholds them; history/lane snapshots deliver them as plain user rows,
-// which flashed in unfocused panes until focus swapped the source (user
-// report). Full-row match only — never hide real prose around them.
-// "[Request interrupted by process restart]" is deliberately NOT matched: it
-// is a user-visible crash-recovery marker showing where a force-killed turn
-// stopped, and the restored transcript must keep that row
-// (scripts/turn-checkpoint-crash-test.mjs).
 const INTERNAL_TRANSCRIPT_INTERRUPT_RE = /^\[request interrupted by user(?: for tool use)?\]$/i;
-// Every runtime control row written as a user turn when a turn is cut short
-// (including the bare "[Request interrupted]" a kept Stop prompt gets). One
-// pattern for "not real conversation": realTurnCount and the preview/title
-// noise filter both use it.
 export const CONTROL_MARKER_RE =
   /^\[(?:truncated|request interrupted(?: by user(?: for tool use)?| by process restart)?)\]$/i;
 const TRANSCRIPT_CANCELLED_STATUS_RE = /^\[request interrupted(?: by process restart)?\]$/i;
 
-// Crash/implicit interruption markers remain in model-visible history for
-// recovery, but every human transcript renders them as a Cancelled status row.
-// Explicit user-cancel markers stay on the hidden-control-row path above
-// because the live surface already emitted its cancellation status.
 export function isTranscriptCancelledStatusText(text) {
   return TRANSCRIPT_CANCELLED_STATUS_RE.test(String(text ?? '').trim());
 }
@@ -265,15 +235,7 @@ export function isProcessRestartStatusText(text) {
   return /^\[request interrupted by process restart\]$/i.test(String(text ?? '').trim());
 }
 
-// One display-only policy for every transcript surface. Runtime control rows
-// may be persisted as ordinary role:user messages so the next model step can
-// consume them; they are never human-authored chat and must not be rendered.
-// The flexible Result separator covers legacy rows and command bodies whose
-// embedded newlines lost their quote prefix during persistence.
-// `lenientWrapper: false` drops the shape-only wrapper guess, matching the TUI
-// rule in local-session-runtime.mjs: a directly typed or pasted prompt that merely
-// LOOKS like "instruction + Result: + quoted body" is real chat and must stay
-// visible. Only runtime-injected rows may be hidden on the loose shape.
+/** Display-only: true for runtime control rows persisted as role:user. `lenientWrapper: false` drops the shape-only wrapper guess, so a typed prompt that merely looks like a wrapper stays visible. */
 export function isInternalTranscriptDisplayText(text, { lenientWrapper = true } = {}) {
   const value = String(text ?? '').trim();
   if (!value) return false;
@@ -354,10 +316,6 @@ export function modelVisibleToolCompletionMessage(text, meta = {}) {
   });
 }
 
-// Shared enqueue-fallback helper used by both the synchronous fallback path and
-// the asynchronous notifyFn reject/false-resolve rescue path. Only enqueues when
-// a caller session and fallback fn are present. Returns true only on a non-false,
-// non-zero fallback result; logs and returns false on throw.
 function tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id) {
   if (!ctx.callerSessionId || typeof enqueueFallback !== 'function') return false;
   try {
@@ -393,11 +351,6 @@ export function notifyToolCompletion({
     context: ctx,
   });
 
-  // Try the upstream owner notifyFn first. A `false` return means the owner
-  // *declined* delivery and a throw means it failed outright — in both cases we
-  // do NOT return early but fall through to the enqueueFallback path so the
-  // completion can still reach the caller session. Only a successful (non-false)
-  // notifyFn short-circuits as delivered.
   const delivery = { ctx, message, meta, enqueueFallback, logPrefix, id, onSettled };
   if (typeof ctx.notifyFn === 'function') {
     try {
@@ -413,10 +366,6 @@ export function notifyToolCompletion({
     }
   }
 
-  // Fallback enqueue (used when notifyFn is absent, declined, or threw). Respect
-  // the fallback's own success signal: an explicit false/0 return means the
-  // enqueue failed, so report failure and leave room for a retry rather than
-  // marking the task notified.
   return tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id);
 }
 
@@ -428,14 +377,6 @@ function logNotifyFailure(logPrefix, id, err, stage = 'notify') {
   } catch {}
 }
 
-// A Promise notifyFn has NOT delivered yet — settlement decides the real
-// outcome. The caller already answered `true` synchronously; the FINAL
-// delivered state travels through onSettled so the caller only *marks* the
-// completion delivered after settlement. On a reject or explicit false/0
-// resolve, rescue via enqueueFallback; onSettled then reports whether that
-// rescue (or the notifyFn itself) actually delivered, so a caller can un-mark
-// and retry when nothing landed. The truthy resolve path never enqueues,
-// preserving exact-once delivery.
 function settleAsyncNotify(notifyResult, { ctx, message, meta, enqueueFallback, logPrefix, id, onSettled }) {
   const report = (delivered) => {
     if (typeof onSettled === 'function') onSettled(delivered);

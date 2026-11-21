@@ -1,15 +1,3 @@
-// The process's empty async context, for long-lived handles.
-//
-// A handle (socket, timer, worker port) keeps the async context it was created
-// in for its whole life: every AsyncLocalStorage store active at creation stays
-// reachable from it. A pooled connection or shared worker first opened inside
-// one request would otherwise pin that request's session, transcript and tools
-// until the handle dies, long after the session is deleted.
-//
-// Process entries (src/standalone/daemon.mjs, src/cli.mjs) capture the root
-// with initRootAsyncContext() before any request exists. Where nothing did
-// (another host, a test, a module first loaded inside a request), every
-// runtime store is left instead, so no load order can capture a request.
 import { AsyncLocalStorage, AsyncResource } from 'node:async_hooks';
 
 // Shared by every copy of this module in the process, so a second copy (a late

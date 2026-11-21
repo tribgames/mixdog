@@ -1,7 +1,3 @@
-// The Rust sources of the tracked tree (docs/testing.md, "Release coverage"): the packages and their targets from the manifests, the
-// source files each target reaches through `mod`, `#[path]` and `include!`, and the rustdoc blocks of the lib targets. No test is
-// named here: which tests exist is what nextest lists and reports at run time. A `.rs` file no target reaches is an orphan, and a
-// doctest nextest does not run is unassigned, unless the plan classifies the file.
 import { posix } from 'node:path';
 
 import { parseToml } from './toml-lite.mjs';
@@ -354,7 +350,17 @@ export function scanCrateRoot(root, files, read) {
   return out;
 }
 
-// A fenced block of a doc comment that rustdoc compiles (no language, rust, or a rustdoc attribute) is a doctest; nextest does not run it.
+// https://doc.rust-lang.org/rustdoc/write-documentation/documentation-tests.html#attributes; an error code (compile_fail,E0277) is
+// part of rustdoc's LangString, https://doc.rust-lang.org/stable/nightly-rustc/rustdoc/html/markdown/struct.LangString.html
+const RUSTDOC_ATTRIBUTE =
+  /^(?:ignore(?:-.*)?|should_panic|no_run|compile_fail|edition(?:2015|2018|2021|2024)|standalone_crate|test_harness|E\d{4})$/;
+
+function isRustdocDoctest(info) {
+  const tags = info.replace(/\([^)]*\)|\{[^}]*\}/g, ' ').match(/"[^"]*"|[^\s,]+/g) ?? [];
+  return tags.length === 0 || tags.includes('rust') || tags.every((tag) => RUSTDOC_ATTRIBUTE.test(tag));
+}
+
+// A fenced block of a doc comment that rustdoc compiles is a doctest; nextest does not run it.
 function doctestsOf(file, docs) {
   const found = [];
   let open = null;
@@ -365,16 +371,75 @@ function doctestsOf(file, docs) {
       open = null;
       continue;
     }
-    const tags = fence[2].split(/[\s,]+/).filter(Boolean);
-    const foreign = tags.some((tag) =>
-      /^(text|txt|toml|json|sh|bash|shell|console|yaml|yml|ini|c|cpp|js|javascript|ts|typescript|python|py|diff|html|xml|markdown|md|ignore|powershell|ps1|plain|plaintext|sql|csv|log|ebnf|asm)$/.test(
-        tag
-      )
-    );
+    const isDoctest = isRustdocDoctest(fence[2]);
     open = { line: doc.line };
-    if (!foreign) found.push({ file, line: doc.line, info: fence[2].trim() });
+    if (isDoctest) found.push({ file, line: doc.line, info: fence[2].trim() });
   }
   return found;
+}
+
+const BIN_DIR = (rel) => [`src/bin/`, rel];
+
+function autoTargets(tracked, rel, dirName, kind, declared) {
+  const targets = [];
+  for (const file of tracked) {
+    const hit =
+      new RegExp(`^${escapeRegExp(rel(`${dirName}/`))}([^/]+)\\.rs$`).exec(file) ??
+      new RegExp(`^${escapeRegExp(rel(`${dirName}/`))}([^/]+)/main\\.rs$`).exec(file);
+    if (hit && !declared.has(file)) targets.push({ kind, name: hit[1], root: file });
+  }
+  return targets;
+}
+
+function packageTargets(toml, rel, set, tracked) {
+  const name = toml.package.name;
+  const targets = [];
+  const lib = toml.lib ?? {};
+  const libPath = rel(lib.path ?? 'src/lib.rs');
+  if (set.has(libPath) && lib.test !== false) {
+    targets.push({
+      kind: 'lib',
+      name: lib.name ?? name.replaceAll('-', '_'),
+      root: libPath,
+      doctest: lib.doctest !== false,
+    });
+  }
+  const declared = new Set();
+  for (const bin of toml.bin ?? []) {
+    const root = rel(
+      bin.path ?? (bin.name === name && set.has(rel('src/main.rs')) ? 'src/main.rs' : `src/bin/${bin.name}.rs`)
+    );
+    declared.add(root);
+    if (bin.test !== false) targets.push({ kind: 'bin', name: bin.name, root });
+  }
+  if (toml.package.autobins !== false) {
+    if (
+      set.has(rel('src/main.rs')) &&
+      !declared.has(rel('src/main.rs')) &&
+      !(toml.bin ?? []).some((bin) => bin.name === name)
+    )
+      targets.push({ kind: 'bin', name, root: rel('src/main.rs') });
+    targets.push(...autoTargets(tracked, rel, 'src/bin', 'bin', declared));
+  }
+  for (const test of toml.test ?? []) {
+    const root = rel(test.path ?? `tests/${test.name}.rs`);
+    declared.add(root);
+    if (test.test !== false) targets.push({ kind: 'test', name: test.name, root });
+  }
+  if (toml.package.autotests !== false) targets.push(...autoTargets(tracked, rel, 'tests', 'test', declared));
+  return targets;
+}
+
+/** Examples and benches are compiled by `cargo test` but their tests do not run (test = false) unless a manifest entry says so. */
+function nonTestTargetErrors(toml, path) {
+  return [...(toml.example ?? []), ...(toml.bench ?? [])]
+    .filter((entry) => entry.test === true)
+    .map((entry) => ({
+      code: 'example-or-bench-tests',
+      path,
+      line: 0,
+      message: `${entry.name} sets test = true: no adapter runs it`,
+    }));
 }
 
 /**
@@ -397,67 +462,18 @@ export function readPackages(tracked, read) {
     if (!toml.package) continue;
     const dir = posix.dirname(path) === '.' ? '' : posix.dirname(path);
     const rel = (file) => (dir ? posix.join(dir, file) : file);
-    const name = toml.package.name;
-    const targets = [];
-    const lib = toml.lib ?? {};
-    const libPath = rel(lib.path ?? 'src/lib.rs');
-    if (set.has(libPath) && lib.test !== false) {
-      targets.push({
-        kind: 'lib',
-        name: lib.name ?? name.replaceAll('-', '_'),
-        root: libPath,
-        doctest: lib.doctest !== false,
-      });
-    }
-    const declared = new Set();
-    for (const bin of toml.bin ?? []) {
-      const root = rel(
-        bin.path ?? (bin.name === name && set.has(rel('src/main.rs')) ? 'src/main.rs' : `src/bin/${bin.name}.rs`)
-      );
-      declared.add(root);
-      if (bin.test !== false) targets.push({ kind: 'bin', name: bin.name, root });
-    }
-    if (toml.package.autobins !== false) {
-      if (
-        set.has(rel('src/main.rs')) &&
-        !declared.has(rel('src/main.rs')) &&
-        !(toml.bin ?? []).some((bin) => bin.name === name)
-      )
-        targets.push({ kind: 'bin', name, root: rel('src/main.rs') });
-      for (const file of tracked) {
-        const hit =
-          new RegExp(`^${escapeRegExp(rel('src/bin/'))}([^/]+)\\.rs$`).exec(file) ??
-          new RegExp(`^${escapeRegExp(rel('src/bin/'))}([^/]+)/main\\.rs$`).exec(file);
-        if (hit && !declared.has(file)) targets.push({ kind: 'bin', name: hit[1], root: file });
-      }
-    }
-    for (const test of toml.test ?? []) {
-      const root = rel(test.path ?? `tests/${test.name}.rs`);
-      declared.add(root);
-      if (test.test !== false) targets.push({ kind: 'test', name: test.name, root });
-    }
-    if (toml.package.autotests !== false) {
-      for (const file of tracked) {
-        const hit =
-          new RegExp(`^${escapeRegExp(rel('tests/'))}([^/]+)\\.rs$`).exec(file) ??
-          new RegExp(`^${escapeRegExp(rel('tests/'))}([^/]+)/main\\.rs$`).exec(file);
-        if (hit && !declared.has(file)) targets.push({ kind: 'test', name: hit[1], root: file });
-      }
-    }
-    // examples and benches: compiled by `cargo test` but their tests do not run (test = false) unless a manifest entry says so
-    const nonTest = [...(toml.example ?? []), ...(toml.bench ?? [])].filter((entry) => entry.test === true);
-    for (const entry of nonTest)
-      errors.push({
-        code: 'example-or-bench-tests',
-        path,
-        line: 0,
-        message: `${entry.name} sets test = true: no adapter runs it`,
-      });
-    packages.push({ name, manifest: path, dir, targets, features: toml.features ?? {}, toml });
+    errors.push(...nonTestTargetErrors(toml, path));
+    packages.push({
+      name: toml.package.name,
+      manifest: path,
+      dir,
+      targets: packageTargets(toml, rel, set, tracked),
+      features: toml.features ?? {},
+      toml,
+    });
   }
   return { packages, errors };
 }
-
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Packages, the doctest blocks of their lib targets, and the problems of the walk (orphan sources, unresolvable modules). */

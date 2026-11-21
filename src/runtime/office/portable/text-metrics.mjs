@@ -461,10 +461,6 @@ export function reviewTextContrast(boxes = []) {
   return issues;
 }
 
-// Hangul and CJK are written without letter gaps: tracking pulls the syllables
-// of one word apart, so the reader sees characters instead of words. Latin small
-// caps are the opposite — a kicker is set with tracking on purpose — which is why
-// the script of the run decides, not the value alone.
 const CJK_TEXT = /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF\u3040-\u30FF\u4E00-\u9FFF]/;
 const CJK_TRACKING_RATIO = 0.05;
 
@@ -498,10 +494,6 @@ function largestFontSize(paragraphs) {
   return Math.max(0, ...paragraphs.map((paragraph) => Number(paragraph.fontSize) || 0));
 }
 
-// Two readings of the same fault: a box narrower than its longest word
-// breaks mid-word, and a box only a little wider still leaves a ragged
-// column of one or two words a line. Both are answered by widening the
-// measure, so they share one code and report once.
 function narrowBoxIssue(box, paragraphs, measured, usableWidth, path) {
   if (box.wrap === false) return null;
   const bodySize = largestFontSize(paragraphs);
@@ -640,18 +632,8 @@ function statementSlides(boxes = []) {
 // page, not as air: the eye crosses it looking for the missing region.
 const HOLLOW_BAND = 108; // 1.5in at 72pt per inch
 
-// A table, chart, picture or group is the page's carrier, and the few text
-// boxes around it are its labels rather than its body. Such a page reads as a
-// statement to the text-only heuristic above — few boxes, little text, a large
-// title — so without this the exemption hides exactly the pages whose body
-// stops halfway down the canvas. A full-bleed background is already filtered
-// out of the content, so a statement over a picture stays exempt.
 const CARRIER_KINDS = new Set(['p:graphicFrame', 'p:pic', 'p:grpSp']);
-// A device the kit drew — the deck's motif, the cover's orb, an icon — is decoration placed as a picture, not the
-// object a page is balanced around. Counting it as a carrier took the exemption away from exactly the pages the
-// recipes ask for: a claim at poster scale with its device and half the canvas deliberately empty.
-// The same signature the composition receipt reads: the writer names a drawn vector `mixdog-svg:<svg>` and a drawn
-// raster `mixdog-device:<kind>`, and the normalizer renames the vector "Icon" once its SVG is attached.
+// The writer names a drawn vector `mixdog-svg:<svg>` and a drawn raster `mixdog-device:<kind>`; the normalizer renames the vector "Icon" once its SVG is attached.
 const DEVICE_NAME = /^(?:mixdog-svg:|mixdog-device:|Icon$)/;
 
 function carriesObject(content = []) {
@@ -677,10 +659,6 @@ function hollowBand(content = []) {
   return { depth, top };
 }
 
-// A page the statement exemption covers that is no statement: a title in the top quarter, nothing at poster size,
-// and a line of 14 pt or more (the takeaway) with a hollow band between them. A statement is one claim set large in
-// its air; a title over an empty middle and a sentence at the foot is a content page whose content never came.
-// The author may mean it, so it is information, not a target.
 function titleLineHollow(slideBoxes, content, slideHeight) {
   const texts = slideBoxes
     .map((box) => ({ box, size: largestFontSize(paragraphsOf(box)) }))
@@ -695,6 +673,48 @@ function titleLineHollow(slideBoxes, content, slideHeight) {
   return hollow;
 }
 
+function statementSlideIssue(slide, slideBoxes, content, slideHeight) {
+  const hollow = titleLineHollow(slideBoxes, content, slideHeight);
+  if (!hollow) return null;
+  return {
+    severity: 'info',
+    code: 'title_line_hollow',
+    path: `/slide[${slide}]`,
+    message: `Only a title and a line under it, with an empty band ${Math.round(hollow.depth)}pt deep between them. A statement page sets its claim large in the air; a content page brings its evidence into the band, or moves the line up under the title.`,
+    hollowBand: Math.round(hollow.depth),
+    hollowTop: Math.round(hollow.top),
+  };
+}
+
+function edgeBalanceIssue(slide, content, slideHeight) {
+  const top = Math.min(...content.map((shape) => shape.top));
+  const bottom = Math.max(...content.map((shape) => shape.top + shape.height));
+  const topEmpty = Math.max(0, top);
+  const bottomEmpty = Math.max(0, slideHeight - bottom);
+  const heavyBottom = bottomEmpty > slideHeight * 0.3 && bottomEmpty - topEmpty > slideHeight * 0.24;
+  const heavyTop = topEmpty > slideHeight * 0.3 && topEmpty - bottomEmpty > slideHeight * 0.24;
+  if (!heavyBottom && !heavyTop) {
+    const hollow = hollowBand(content);
+    if (hollow.depth <= HOLLOW_BAND) return null;
+    return {
+      code: 'vertical_imbalance',
+      path: `/slide[${slide}]`,
+      message: `An empty band ${Math.round(hollow.depth)}pt deep (${(hollow.depth / 72).toFixed(2)}in) runs from ${Math.round(hollow.top)}pt to ${Math.round(hollow.top + hollow.depth)}pt with content above and below it; extend a region into the band or move the lower block up.`,
+      hollowBand: Math.round(hollow.depth),
+      hollowTop: Math.round(hollow.top),
+    };
+  }
+  return {
+    code: 'vertical_imbalance',
+    path: `/slide[${slide}]`,
+    message: heavyBottom
+      ? `Content ends ${Math.round(bottomEmpty)}pt above the slide bottom while starting ${Math.round(topEmpty)}pt from the top; rebalance the layout or extend content regions downward.`
+      : `Content starts ${Math.round(topEmpty)}pt from the slide top while ending ${Math.round(bottomEmpty)}pt above the bottom; rebalance the layout upward.`,
+    emptyTop: Math.round(topEmpty),
+    emptyBottom: Math.round(bottomEmpty),
+  };
+}
+
 export function reviewVerticalBalance(bounds = [], { slideWidth = 0, slideHeight = 0, boxes = [] } = {}) {
   if (!(slideHeight > 0) || !(slideWidth > 0)) return [];
   const issues = [];
@@ -704,55 +724,16 @@ export function reviewVerticalBalance(bounds = [], { slideWidth = 0, slideHeight
       (shape) => Math.max(0, shape.width) * Math.max(0, shape.height) < slideWidth * slideHeight * 0.8
     );
     if (!content.length) continue;
-    if (statements.has(slide) && !carriesObject(content)) {
-      const hollow = titleLineHollow(
-        boxes.filter((box) => box.slide === slide),
-        content,
-        slideHeight
-      );
-      if (hollow) {
-        issues.push({
-          severity: 'info',
-          code: 'title_line_hollow',
-          path: `/slide[${slide}]`,
-          message: `Only a title and a line under it, with an empty band ${Math.round(hollow.depth)}pt deep between them. A statement page sets its claim large in the air; a content page brings its evidence into the band, or moves the line up under the title.`,
-          hollowBand: Math.round(hollow.depth),
-          hollowTop: Math.round(hollow.top),
-        });
-      }
-      continue;
-    }
-    const top = Math.min(...content.map((shape) => shape.top));
-    const bottom = Math.max(...content.map((shape) => shape.top + shape.height));
-    const topEmpty = Math.max(0, top);
-    const bottomEmpty = Math.max(0, slideHeight - bottom);
-    const heavyBottom = bottomEmpty > slideHeight * 0.3 && bottomEmpty - topEmpty > slideHeight * 0.24;
-    const heavyTop = topEmpty > slideHeight * 0.3 && topEmpty - bottomEmpty > slideHeight * 0.24;
-    if (!heavyBottom && !heavyTop) {
-      // The footer line and the page number sit at the bottom of every slide,
-      // so a page whose body stops halfway still measures a full canvas from
-      // its margins alone; the hollow band between them is the real reading.
-      const hollow = hollowBand(content);
-      if (hollow.depth > HOLLOW_BAND) {
-        issues.push({
-          code: 'vertical_imbalance',
-          path: `/slide[${slide}]`,
-          message: `An empty band ${Math.round(hollow.depth)}pt deep (${(hollow.depth / 72).toFixed(2)}in) runs from ${Math.round(hollow.top)}pt to ${Math.round(hollow.top + hollow.depth)}pt with content above and below it; extend a region into the band or move the lower block up.`,
-          hollowBand: Math.round(hollow.depth),
-          hollowTop: Math.round(hollow.top),
-        });
-      }
-      continue;
-    }
-    issues.push({
-      code: 'vertical_imbalance',
-      path: `/slide[${slide}]`,
-      message: heavyBottom
-        ? `Content ends ${Math.round(bottomEmpty)}pt above the slide bottom while starting ${Math.round(topEmpty)}pt from the top; rebalance the layout or extend content regions downward.`
-        : `Content starts ${Math.round(topEmpty)}pt from the slide top while ending ${Math.round(bottomEmpty)}pt above the bottom; rebalance the layout upward.`,
-      emptyTop: Math.round(topEmpty),
-      emptyBottom: Math.round(bottomEmpty),
-    });
+    const issue =
+      statements.has(slide) && !carriesObject(content)
+        ? statementSlideIssue(
+            slide,
+            boxes.filter((box) => box.slide === slide),
+            content,
+            slideHeight
+          )
+        : edgeBalanceIssue(slide, content, slideHeight);
+    if (issue) issues.push(issue);
   }
   return issues;
 }

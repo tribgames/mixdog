@@ -1,31 +1,7 @@
-// One `fs.watch` per directory for the whole process, shared by every
-// subscriber that follows entries in it and closed with the last of them. An
-// event goes only to the subscribers of the entry it names: one map lookup,
-// so a busy directory costs its unrelated events nothing past the native
-// delivery. An event without a name (Node does not promise one) goes to every
-// subscriber of the directory.
-//
-// A watch follows the directory it opened, not its path: renamed away, or
-// deleted and recreated, it hears nothing more. A subscriber that must hear
-// that (`replace`) has the directory's name followed in its parent — one
-// shared watch there too, which itself follows no parent. A rename naming
-// the directory moves the watch onto the live one and tells every subscriber
-// an unnamed event; a directory gone by then ends the watch, as does the
-// directory's own deletion where the watch reports it. A parent's watch that
-// ends leaves its child untrusted until that parent is watched again — by
-// anyone, or on an event naming it in the nearest ancestor that can be
-// watched — when the child follows it again, moves its own watch onto the
-// live directory (a replacement may have gone unheard) and is trusted again.
 import fs from 'node:fs';
 import { basename, dirname } from 'node:path';
 import { writeStderrBestEffort } from './best-effort-stderr.mjs';
 
-// dir -> { dir, removedName, watcher, subscribers, byName, parent, replacing, waiter }
-//
-// Callbacks run while holders come and go (a recovery, a watch that ends):
-// whoever opens or keeps a watch holds it before any callback can run, and
-// lets the old one go only after, so a watch never drops to no holder in
-// between; a subscriber hears nothing until its subscription is returned.
 const watched = new Map();
 // parent dir -> states whose watch of that parent ended, followed again
 // once it is watched again.
@@ -179,11 +155,6 @@ function forgetOrphan(state) {
   leaveOrphans(state)?.close();
 }
 
-// The parent may be watched again: follow it, and if that holds, move the
-// watch onto the live directory (an unnamed event to every subscriber) and
-// tell the subscribers that need it that a replacement is heard again. The
-// waiter is let go last: a parent that still cannot be watched has its new
-// waiter on the same ancestor watch by then.
 function refollow(state) {
   const waiter = leaveOrphans(state);
   if (watched.get(state.dir) === state && state.replacing > 0 && !state.parent) {
@@ -213,6 +184,55 @@ function release(state) {
   closeQuietly(watcher);
 }
 
+function newWatchState(dir) {
+  return {
+    dir,
+    removedName: `\\\\?\\${dir}`,
+    watcher: null,
+    subscribers: new Set(),
+    byName: new Map(),
+    parent: null,
+    replacing: 0,
+    waiter: null,
+  };
+}
+
+function addSubscriber(state, subscriber) {
+  state.subscribers.add(subscriber);
+  for (const name of subscriber.names) {
+    let set = state.byName.get(name);
+    if (!set) {
+      set = new Set();
+      state.byName.set(name, set);
+    }
+    set.add(subscriber);
+  }
+}
+
+function subscription(owner, subscriber) {
+  return {
+    /** True only while a live watch of `dir` backs this subscription and,
+     *  for `replace`, a live watch of its parent (none needed for a root). */
+    get trusted() {
+      if (subscriber.closed || owner.watcher === null) return false;
+      if (!subscriber.replace) return true;
+      return owner.parent ? owner.parent.trusted : dirname(owner.dir) === owner.dir;
+    },
+    close() {
+      if (subscriber.closed) return;
+      subscriber.closed = true;
+      owner.subscribers.delete(subscriber);
+      for (const name of subscriber.names) {
+        const set = owner.byName.get(name);
+        set?.delete(subscriber);
+        if (set?.size === 0) owner.byName.delete(name);
+      }
+      if (subscriber.replace) owner.replacing -= 1;
+      release(owner);
+    },
+  };
+}
+
 /**
  * Follows the entries `names` of `dir`: `onEvent(event, name)` hears every
  * event naming one of them, and every one with no name (`name` null: anything
@@ -233,16 +253,7 @@ export function watchDirectory(
   let state = watched.get(dir);
   const opened = !state;
   if (opened) {
-    state = {
-      dir,
-      removedName: `\\\\?\\${dir}`,
-      watcher: null,
-      subscribers: new Set(),
-      byName: new Map(),
-      parent: null,
-      replacing: 0,
-      waiter: null,
-    };
+    state = newWatchState(dir);
     state.watcher = startWatch(state);
     watched.set(dir, state);
   }
@@ -259,15 +270,7 @@ export function watchDirectory(
     closed: false,
     lostError: null,
   };
-  state.subscribers.add(subscriber);
-  for (const name of subscriber.names) {
-    let set = state.byName.get(name);
-    if (!set) {
-      set = new Set();
-      state.byName.set(name, set);
-    }
-    set.add(subscriber);
-  }
+  addSubscriber(state, subscriber);
   if (replace && state.replacing++ === 0) followParent(state);
   if (opened) {
     // Children whose watch of this directory ended follow it again.
@@ -276,26 +279,5 @@ export function watchDirectory(
   }
   subscriber.joining = false;
   if (subscriber.closed) throw subscriber.lostError;
-  const owner = state;
-  return {
-    /** True only while a live watch of `dir` backs this subscription and,
-     *  for `replace`, a live watch of its parent (none needed for a root). */
-    get trusted() {
-      if (subscriber.closed || owner.watcher === null) return false;
-      if (!replace) return true;
-      return owner.parent ? owner.parent.trusted : dirname(owner.dir) === owner.dir;
-    },
-    close() {
-      if (subscriber.closed) return;
-      subscriber.closed = true;
-      owner.subscribers.delete(subscriber);
-      for (const name of subscriber.names) {
-        const set = owner.byName.get(name);
-        set?.delete(subscriber);
-        if (set?.size === 0) owner.byName.delete(name);
-      }
-      if (replace) owner.replacing -= 1;
-      release(owner);
-    },
-  };
+  return subscription(state, subscriber);
 }

@@ -1051,6 +1051,33 @@ export async function loadKindMap(opts, root, runner = runProcess) {
   }
 }
 
+async function walkManifests(opts, root, allowedSet) {
+  const oldMan = await runProcess(opts.old, [root, '--manifest']);
+  const newMan = await runProcess(opts.new, [root, '--manifest']);
+  const manifestRawIdentical = Buffer.compare(oldMan.stdout, newMan.stdout) === 0;
+  const filtered = manifestRawIdentical
+    ? { identical: true, newDropped: [], oldDropped: [] }
+    : compareManifests(oldMan.stdout, newMan.stdout, allowedSet);
+  return {
+    manifestIdentical: filtered.identical,
+    manifestRawIdentical,
+    oldManifest: oldMan.stdout,
+    newManifest: newMan.stdout,
+    manifestDroppedNew: filtered.newDropped,
+    manifestDroppedOld: filtered.oldDropped,
+  };
+}
+
+async function rewalkFiles(opts, root, oldRecords) {
+  const files = opts.files.map(normalizeRel);
+  const fileSet = new Set(files);
+  const reused = oldRecords.filter((rec) => !fileSet.has(normalizeRel(rec.rel))).map(reusedMetaLine);
+  const stdinText = reused.length ? `${reused.join('\n')}\n` : '';
+  const oldFiles = await runProcess(opts.old, [root, '--files', ...files], { stdinText });
+  const newFiles = await runProcess(opts.new, [root, '--files', ...files], { stdinText });
+  return { oldRecords: parseJsonl(oldFiles.stdout), newRecords: parseJsonl(newFiles.stdout) };
+}
+
 // Runs the old and new binaries against the live tree: timed walks, the
 // manifest comparison and, with --files, the incremental re-walk of those files.
 async function walkBothBinaries(opts, root, allowedSet) {
@@ -1067,42 +1094,24 @@ async function walkBothBinaries(opts, root, allowedSet) {
     oldTimes: oldWalk.times,
     newTimes: newWalk.times,
   };
-  let oldRecords = parseJsonl(oldWalk.stdout);
-  let newRecords = parseJsonl(newWalk.stdout);
+  const manifests = await walkManifests(opts, root, allowedSet);
+  const records = opts.files?.length
+    ? await rewalkFiles(opts, root, parseJsonl(oldWalk.stdout))
+    : { oldRecords: parseJsonl(oldWalk.stdout), newRecords: parseJsonl(newWalk.stdout) };
+  return { ...records, timing, ...manifests };
+}
 
-  const oldMan = await runProcess(opts.old, [root, '--manifest']);
-  const newMan = await runProcess(opts.new, [root, '--manifest']);
-  const manifestRawIdentical = Buffer.compare(oldMan.stdout, newMan.stdout) === 0;
-  let manifestIdentical = true;
-  let manifestDroppedNew = [];
-  let manifestDroppedOld = [];
-  if (!manifestRawIdentical) {
-    const filtered = compareManifests(oldMan.stdout, newMan.stdout, allowedSet);
-    manifestIdentical = filtered.identical;
-    manifestDroppedNew = filtered.newDropped;
-    manifestDroppedOld = filtered.oldDropped;
-  }
-
-  if (opts.files?.length) {
-    const files = opts.files.map(normalizeRel);
-    const fileSet = new Set(files);
-    const reused = oldRecords.filter((rec) => !fileSet.has(normalizeRel(rec.rel))).map(reusedMetaLine);
-    const stdinText = reused.length ? `${reused.join('\n')}\n` : '';
-    const oldFiles = await runProcess(opts.old, [root, '--files', ...files], { stdinText });
-    const newFiles = await runProcess(opts.new, [root, '--files', ...files], { stdinText });
-    oldRecords = parseJsonl(oldFiles.stdout);
-    newRecords = parseJsonl(newFiles.stdout);
-  }
+function readJsonlWalks(opts) {
   return {
-    oldRecords,
-    newRecords,
-    timing,
-    manifestIdentical,
-    manifestRawIdentical,
-    oldManifest: oldMan.stdout,
-    newManifest: newMan.stdout,
-    manifestDroppedNew,
-    manifestDroppedOld,
+    oldRecords: parseJsonl(readFileSync(opts.oldJsonl)),
+    newRecords: parseJsonl(readFileSync(opts.newJsonl)),
+    timing: null,
+    manifestIdentical: null,
+    manifestRawIdentical: null,
+    oldManifest: null,
+    newManifest: null,
+    manifestDroppedNew: [],
+    manifestDroppedOld: [],
   };
 }
 
@@ -1112,31 +1121,9 @@ export async function runParity(opts) {
   const allowNewLanguages = [...new Set(opts.allowNewLanguages || [])];
   const allowedSet = new Set(allowNewLanguages);
   const loadedKinds = await loadKindMap(opts, root);
-  const {
-    oldRecords,
-    newRecords,
-    timing,
-    manifestIdentical,
-    manifestRawIdentical,
-    oldManifest,
-    newManifest,
-    manifestDroppedNew,
-    manifestDroppedOld,
-  } = jsonlMode
-    ? {
-        oldRecords: parseJsonl(readFileSync(opts.oldJsonl)),
-        newRecords: parseJsonl(readFileSync(opts.newJsonl)),
-        timing: null,
-        manifestIdentical: null,
-        manifestRawIdentical: null,
-        oldManifest: null,
-        newManifest: null,
-        manifestDroppedNew: [],
-        manifestDroppedOld: [],
-      }
-    : await walkBothBinaries(opts, root, allowedSet);
+  const walk = jsonlMode ? readJsonlWalks(opts) : await walkBothBinaries(opts, root, allowedSet);
 
-  const compared = compareWalks(oldRecords, newRecords, {
+  const compared = compareWalks(walk.oldRecords, walk.newRecords, {
     kindMap: loadedKinds.map,
     tokens: Boolean(opts.tokens),
   });
@@ -1150,18 +1137,18 @@ export async function runParity(opts) {
     kindMapPath: loadedKinds.path,
     kindMapSource: loadedKinds.source,
     kindMap: loadedKinds.map,
-    manifestIdentical,
-    manifestRawIdentical,
-    manifestDroppedNew,
-    manifestDroppedOld,
-    timing,
+    manifestIdentical: walk.manifestIdentical,
+    manifestRawIdentical: walk.manifestRawIdentical,
+    manifestDroppedNew: walk.manifestDroppedNew,
+    manifestDroppedOld: walk.manifestDroppedOld,
+    timing: walk.timing,
     ...compared,
   };
   report.kindMapActive = compared.kindMapActive;
   report.reasons = evaluateGate(report, opts);
   report.ok = report.reasons.length === 0;
-  if (oldManifest) report.oldManifestBytes = oldManifest.length;
-  if (newManifest) report.newManifestBytes = newManifest.length;
+  if (walk.oldManifest) report.oldManifestBytes = walk.oldManifest.length;
+  if (walk.newManifest) report.newManifestBytes = walk.newManifest.length;
   const markdown = formatMarkdown(report);
   return { report, markdown, exitCode: report.ok ? 0 : 1 };
 }

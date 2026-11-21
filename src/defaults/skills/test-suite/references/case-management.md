@@ -16,12 +16,12 @@ reports it.
 
 ## What the inventory reads
 
-| Ecosystem | Test files found by | Skip records |
-|---|---|---|
-| JS/TS (`node:test`, Vitest, Jest) | `*.test.*`, `*.spec.*`, `*-test.mjs`, `__tests__/` | `skip:` option, `it.skip`, `xit`, `skipIf` |
-| Python (pytest, unittest) | `test_*.py`, `*_test.py` | `pytest.mark.skip/skipif/xfail`, `unittest.skip*`, `pytest.skip` |
-| Go | `*_test.go` | `t.Skip`, `t.Skipf`, `t.SkipNow` |
-| Rust | `tests/` directories, files with `#[test]` or `#[cfg(test)]` | `#[ignore]`, `#[ignore = "…"]`, `cfg_attr(…, ignore)` |
+| Ecosystem                         | Test files found by                                          | Skip records                                                     |
+| --------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------- |
+| JS/TS (`node:test`, Vitest, Jest) | `*.test.*`, `*.spec.*`, `*-test.mjs`, `__tests__/`           | `skip:` option, `it.skip`, `xit`, `skipIf`                       |
+| Python (pytest, unittest)         | `test_*.py`, `*_test.py`                                     | `pytest.mark.skip/skipif/xfail`, `unittest.skip*`, `pytest.skip` |
+| Go                                | `*_test.go`                                                  | `t.Skip`, `t.Skipf`, `t.SkipNow`                                 |
+| Rust                              | `tests/` directories, files with `#[test]` or `#[cfg(test)]` | `#[ignore]`, `#[ignore = "…"]`, `cfg_attr(…, ignore)`            |
 
 Lane comes from a `.slow.`, `.live.`, `.e2e.`, `.integration.` or `.electron.`
 name tag (JS/TS); everything else counts as fast. Vendored, build and cache
@@ -35,13 +35,13 @@ needs a fix; an issue number does not make it acceptable.
 
 ## Risk markers
 
-| Marker | Meaning | Expected action |
-|---|---|---|
-| `timer` | Sleep, timeout or ticker in a test | Replace with a signal or fake clock unless time is the subject |
-| `spawn` | Real child process | Keep only when the process is the subject; await exit |
-| `port` | Listener on a fixed port | Bind port 0 |
-| `clock` | Real clock read without a fake clock | Inject or fake the clock when the verdict depends on it |
-| `source-text` | Reads source and matches its text | Rewrite at a runnable interface, or justify in the test |
+| Marker        | Meaning                              | Expected action                                                |
+| ------------- | ------------------------------------ | -------------------------------------------------------------- |
+| `timer`       | Sleep, timeout or ticker in a test   | Replace with a signal or fake clock unless time is the subject |
+| `spawn`       | Real child process                   | Keep only when the process is the subject; await exit          |
+| `port`        | Listener on a fixed port             | Bind port 0                                                    |
+| `clock`       | Real clock read without a fake clock | Inject or fake the clock when the verdict depends on it        |
+| `source-text` | Reads source and matches its text    | Rewrite at a runnable interface, or justify in the test        |
 
 A fake-clock library in the file clears `timer` and `clock`. Markers are
 leads, not verdicts: a timer in a test about timers is correct.

@@ -17,6 +17,7 @@ This file owns when to draw, how a mockup is built and iterated, and how
 results are shown; the tool schema owns action fields.
 
 ## 1. Which job
+
 **Hard rule — seeing beats reading, or it is not this skill**: draw when the
 answer is a layout, a state, a flow, a spatial relation, or a look. Scope,
 tradeoffs, and wording decisions stay in chat even when the topic is UI.
@@ -25,14 +26,15 @@ title, at most one lead line, a one-line caption per frame, and the copy of
 the drawn UI itself. Structure walkthroughs, rationale, specs (px, coordinates,
 asset sources) and change lists never go on the page as paragraphs; what the
 user must confirm goes briefly in the chat report.
-- *Show* — any artifact you produced or changed (HTML, deck, document, sheet,
+
+- _Show_ — any artifact you produced or changed (HTML, deck, document, sheet,
   PDF, image, video, local dev page): `open` it once when ready. Edits reload
   the tab; never reopen to refresh.
-- *Mockup* — the user asks for a mockup or preview, or a UI change whose look
+- _Mockup_ — the user asks for a mockup or preview, or a UI change whose look
   the user still has to decide (a settled look is built directly). §2.
-- *Options* — the direction is genuinely open (the user is unsure, or two
+- _Options_ — the direction is genuinely open (the user is unsure, or two
   readings lead to different layouts). §3.
-- *Explain* — a flow, state machine, architecture, or data path to grasp: one
+- _Explain_ — a flow, state machine, architecture, or data path to grasp: one
   HTML diagram page, no option machinery.
 
 **Hard rule — not this tool**: authoring Office files, images, or video
@@ -43,7 +45,9 @@ for your own check); `browser` is for web URLs.
 (`python -m http.server`, `npx serve`, …): open it here and operate it with `act`.
 
 ## 2. Mockup loop
+
 Read `references/craft.md` before the first mockup of a session.
+
 1. **Ground in the real product.** Read the files that define the touched
    surface — tokens, theme, the component and its neighbours — before drawing.
    For an existing app screen, prefer a capture of the running app with only
@@ -89,11 +93,13 @@ Read `references/craft.md` before the first mockup of a session.
    say so.
 
 ## 3. Options
+
 **Default — one strong mockup.** Options only when the direction is open.
 **Hard rule — options differ in stance, not in pixels**: pick one axis that
 matters for this decision (density, layout model, emphasis, interaction model)
 and pull the 2–3 options apart on it. Two options that differ by accent colour
 or radius are one option.
+
 - Name each by its stance ("1 · one menu", "2 · inline chips") and give its
   cost in one line.
 - `open` 2–3 targets in one call to show them side by side.
@@ -108,6 +114,7 @@ or radius are one option.
   pile of options is not a result.
 
 ## 4. Showing results
+
 - Open a result once, when ready to look at, not at every intermediate write.
   Long multi-step work shows the first reviewable state, then lets reloads
   carry the rest.
@@ -132,6 +139,7 @@ or radius are one option.
   block format and baking rules.
 
 ## 5. Reporting
+
 Short: what is on screen, the path, the decision you need. Do not narrate the
 HTML. Uncertain or unverified rendering is stated, not glossed.
 The panel and the chat card already show the content: never repeat its source

@@ -2,27 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 
-// The local gate runs every lane from one shared pool of workers: each lane's
-// files are cut into shards, and whichever worker is free takes the longest
-// shard left, whatever its lane. Shard sizes come from the previous run's
-// measured per-file times, so the split stays balanced without hand-kept
-// weights, and no worker idles while another lane still has work.
-
-// The gate runs its whole process tree at below-normal priority, so a
-// foreground app always wins the CPU. Priority does not bound what the
-// desktop shell shares with every process (handles, desktop heap, work
-// queues; explorer.exe has failed with "no work queue available" under many
-// concurrent test processes), so the default also caps the worker count:
-// half the cores, leaving the other half for what the budget does not count
-// (each shard's runner, the processes tests spawn, the desktop build's own
-// threads), and never more than DEFAULT_MAX_WORKERS. Each worker is three
-// node processes (shard runner, its node --test batch, the test file) plus
-// whatever the test spawns. Measured on a 20-core Windows PC with other work
-// running: at 10 workers, test-file processes began dying within ~20 ms with
-// no output (every remaining file of a shard, in 2 of 2 runs); at 8 and 6
-// they did not.
-// An explicit budget still wins: --test-concurrency (gate argument), then
-// MIXDOG_TEST_CONCURRENCY.
+// Measured on a 20-core Windows PC with other work running: at 10 workers test-file processes began dying within
+// ~20 ms with no output (2 of 2 runs); at 8 and 6 they did not. explorer.exe has failed with
+// "no work queue available" under many concurrent test processes.
 const DEFAULT_MAX_WORKERS = 8;
 export function gateTestBudget(argv = [], env = process.env, parallelism = availableParallelism()) {
   const index = argv.findIndex((arg) => arg === '--test-concurrency' || arg.startsWith('--test-concurrency='));

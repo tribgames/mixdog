@@ -231,10 +231,6 @@ test('explicit runs get module mocks and force-exit, also when the caller alread
 
 test('a process a test leaves running is killed, while one that only names the scratch root survives', async (t) => {
   const cwd = await fixture(t, {
-    // Like the memory runtime's postgres: a detached, long-lived process that
-    // sits several directories deep in the data dir, so it outlives its test
-    // and holds the scratch root the runner removes. The test then waits for
-    // a bystander outside the run that names the same root on its command line.
     'leak.test.mjs': `
       import { spawn } from 'node:child_process';
       import { existsSync, mkdirSync, writeFileSync } from 'node:fs';

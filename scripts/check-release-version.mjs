@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-// One release version: the root package.json `version` is the source. The desktop package.json and the
-// Rust workspace (`native/core/Cargo.toml` [workspace.package] version, which `mixdogd --version` prints
-// and `server-manifest.json` carries) must equal it, so they cannot diverge. The server manifest's `build`
-// is a digest of the staged binaries (apps/desktop/src/main/ssh/server-manifest.mjs), derived at staging
-// time from binaries whose version stage-core verifies against this same value.
 import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';

@@ -1,22 +1,6 @@
 #!/usr/bin/env node
-// What the Rust core's CI runs for a change (release-gate.yml, job `changes`).
-//
-// Reads the paths a change touched and the workspace of native/core (`cargo metadata --no-deps`, no build; Cargo may populate its registry index) and decides:
-//   scope   all       the whole workspace: a push to main, a manual run, the release gate, or a change that reaches every crate
-//           packages  the crates the change can affect: the crates whose files changed, the crates that read a changed file
-//                     (a fixture, a recording, a script, a source file of the product they open by path) and every crate that
-//                     depends on one of those, including test module readers (the closure over the
-//                     reverse dependencies, dev-dependencies included)
-//           none      nothing a Rust test can see changed
-// and prints, as `name=value` lines (GitHub's output file format), what the build and test jobs take:
-//   core, core_scope, core_packages, core_archive_args (`--workspace` or `-p a -p b`), core_filter (a nextest filter),
-//   core_pg, core_pg_matrix (the legs of the `core-pg` job: a nextest profile of #[ignore]d Postgres tests per system, for each crate the archive holds),
-//   core_tests (the number of test attributes selected), core_legs (partitions per OS), core_build (a build job is needed: tests, or the
-//   mixdogd the desktop replays drive), build_matrix, test_matrix.
-//
-// Soundness rule: shared/unowned paths (including deleted files) select all.
-// Owned test paths also propagate: a test filename does not prevent another crate
-// from compiling it with #[path]. Dynamic external readers are not narrowed by guesses.
+// Prints, as `name=value` lines (GitHub's output file format): core, core_scope (all | packages | none), core_packages,
+// core_archive_args, core_filter, core_features, core_pg, core_pg_matrix, core_tests, core_legs, core_build, build_matrix, test_matrix.
 //
 // Usage: node scripts/ci/core-select.mjs --changed <file with one path per line> [--all] [--mixdogd-dev true|false] [--mixdogd-windows true|false]
 //          [--metadata <cargo metadata json>] [--root <repository root>]
@@ -105,10 +89,10 @@ export function readWorkspace({ root, metadata }) {
   }));
 }
 
-function crateReaders(root, crates) {
-  // One read of each crate's sources, split into what its tests alone compile and the rest.
+// One read of each crate's sources, split into what its tests alone compile and the rest.
+function crateTexts(root) {
   const texts = new Map();
-  const textOf = (crate) => {
+  return (crate) => {
     if (!texts.has(crate.name)) {
       const product = [];
       const tests = [];
@@ -123,29 +107,33 @@ function crateReaders(root, crates) {
     }
     return texts.get(crate.name);
   };
+}
 
-  // A crate names a path when its sources spell a prefix of it two or more segments deep (`fixtures/agent`) or join its first
-  // two segments one after the other (`.join("fixtures").join("agent")`).
-  const names = (path) => {
-    const parts = path.split('/');
-    const forms = [parts];
-    if (path.startsWith('native/core/')) forms.push(parts.slice(2));
-    if (path.startsWith('native/core/crates/')) forms.push(parts.slice(3));
-    const plain = new Set();
-    const joined = [];
-    for (const form of forms) {
-      const minimum = form[0] === 'native' && form[1] === 'core' ? 4 : 2;
-      for (let end = form.length; end >= minimum; end -= 1) plain.add(form.slice(0, end).join('/'));
-      if (form.length === 1) plain.add(form[0]);
-      if (form.length >= 2 && minimum === 2)
-        joined.push(new RegExp(`"${escapeRegExp(form[0])}"[\\s\\S]{0,160}?"${escapeRegExp(form[1])}"`));
-    }
-    return { plain: [...plain], joined };
-  };
+// A crate names a path when its sources spell a prefix of it two or more segments deep (`fixtures/agent`) or join its first
+// two segments one after the other (`.join("fixtures").join("agent")`).
+function pathNames(path) {
+  const parts = path.split('/');
+  const forms = [parts];
+  if (path.startsWith('native/core/')) forms.push(parts.slice(2));
+  if (path.startsWith('native/core/crates/')) forms.push(parts.slice(3));
+  const plain = new Set();
+  const joined = [];
+  for (const form of forms) {
+    const minimum = form[0] === 'native' && form[1] === 'core' ? 4 : 2;
+    for (let end = form.length; end >= minimum; end -= 1) plain.add(form.slice(0, end).join('/'));
+    if (form.length === 1) plain.add(form[0]);
+    if (form.length >= 2 && minimum === 2)
+      joined.push(new RegExp(`"${escapeRegExp(form[0])}"[\\s\\S]{0,160}?"${escapeRegExp(form[1])}"`));
+  }
+  return { plain: [...plain], joined };
+}
+
+function crateReaders(root, crates) {
+  const textOf = crateTexts(root);
   const readerCache = new Map();
   const readers = (path) => {
     if (readerCache.has(path)) return readerCache.get(path);
-    const { plain, joined } = names(path);
+    const { plain, joined } = pathNames(path);
     const hit = (text) => plain.some((key) => text.includes(key)) || joined.some((re) => re.test(text));
     const product = [];
     const testOnly = [];
@@ -161,7 +149,6 @@ function crateReaders(root, crates) {
   };
   return { textOf, readers };
 }
-
 function classifyChanges({ changed, all, owner, readers }) {
   let whole = all;
   const direct = new Set();
@@ -203,10 +190,6 @@ function classifyChanges({ changed, all, owner, readers }) {
       }
       continue;
     }
-    // Paths outside a package can be constructed dynamically, scanned by a
-    // directory reader, or deleted by this change. Literal hits are not an
-    // exhaustive reader inventory, so narrowing here would silently omit tests.
-    // Keep PR narrowing for package-owned sources; shared/unknown inputs run all.
     whole = true;
     reasons.push(`${path}: shared or unowned input; reader inventory is not provably complete`);
   }
@@ -244,6 +227,35 @@ function affectedPackages({ crates, byName, direct, propagate, readers }) {
   return [...affected].filter((name) => byName.has(name)).sort();
 }
 
+// The #[ignore]d tests that need a Postgres runtime run from the same archive, one leg per nextest profile and system; a
+// profile whose package is not in the archive has nothing to run, and `--no-tests=fail` would fail it. Linux always, macOS
+// when the run is not a pull request (`all`: a push to main or a manual run), where the runner minutes are the release's.
+function pgMatrixOf(selected, all) {
+  const systems = SYSTEMS.filter((system) => system.os === 'linux' || (all && system.os === 'macos'));
+  return PG_PROFILES.filter((profile) => selected.some((crate) => crate.name === profile.package)).flatMap((profile) =>
+    systems.map((system) => ({ ...system, profile: profile.name }))
+  );
+}
+
+function jobMatrices({ scope, legs, selected, mixdogdDev, mixdogdWindows }) {
+  // The Linux entry scenarios run from the archive and drive the dev daemon even when no Node lane needs it.
+  const needsMixdogdDev = mixdogdDev || selected.some((crate) => crate.name === 'mixdog-entry');
+  // The Windows hidden-window app boot (desktop-computer) starts the app against this run's Windows dev daemon.
+  const wantsDaemon = (system) =>
+    (needsMixdogdDev && system.os === 'linux') || (mixdogdWindows && system.os === 'windows');
+  const build = SYSTEMS.filter((system) => scope !== 'none' || wantsDaemon(system)).map((system) => ({
+    ...system,
+    tests: scope !== 'none',
+    mixdogd: wantsDaemon(system),
+  }));
+  const test = [];
+  if (scope !== 'none') {
+    for (const system of SYSTEMS) {
+      for (let part = 1; part <= legs; part += 1) test.push({ ...system, part, of: legs });
+    }
+  }
+  return { build, test };
+}
 export function selectCore({ root, changed, all = false, mixdogdDev = false, mixdogdWindows = false, metadata }) {
   const crates = readWorkspace({ root, metadata });
   const byName = new Map(crates.map((crate) => [crate.name, crate]));
@@ -277,30 +289,8 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
   const features = selected
     .flatMap((crate) => crate.requiredFeatures.map((feature) => `${crate.name}/${feature}`))
     .join(',');
-  // The #[ignore]d tests that need a Postgres runtime run from the same archive, one leg per nextest profile and system; a
-  // profile whose package is not in the archive has nothing to run, and `--no-tests=fail` would fail it. Linux always, macOS
-  // when the run is not a pull request (`all`: a push to main or a manual run), where the runner minutes are the release's.
-  const pgSystems = SYSTEMS.filter((system) => system.os === 'linux' || (all && system.os === 'macos'));
-  const pgMatrix = PG_PROFILES.filter((profile) => selected.some((crate) => crate.name === profile.package)).flatMap(
-    (profile) => pgSystems.map((system) => ({ ...system, profile: profile.name }))
-  );
-
-  // The Linux entry scenarios run from the archive and drive the dev daemon even when no Node lane needs it.
-  const needsMixdogdDev = mixdogdDev || selected.some((crate) => crate.name === 'mixdog-entry');
-  // The Windows hidden-window app boot (desktop-computer) starts the app against this run's Windows dev daemon.
-  const wantsDaemon = (system) =>
-    (needsMixdogdDev && system.os === 'linux') || (mixdogdWindows && system.os === 'windows');
-  const build = SYSTEMS.filter((system) => scope !== 'none' || wantsDaemon(system)).map((system) => ({
-    ...system,
-    tests: scope !== 'none',
-    mixdogd: wantsDaemon(system),
-  }));
-  const test = [];
-  if (scope !== 'none') {
-    for (const system of SYSTEMS) {
-      for (let part = 1; part <= legs; part += 1) test.push({ ...system, part, of: legs });
-    }
-  }
+  const pgMatrix = pgMatrixOf(selected, all);
+  const { build, test } = jobMatrices({ scope, legs, selected, mixdogdDev, mixdogdWindows });
   return {
     core: scope !== 'none',
     core_scope: scope,

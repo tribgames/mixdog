@@ -41,14 +41,14 @@ Useful environment variables:
 
 ## Core technology
 
-| Layer | Stack |
-| --- | --- |
-| Shared agent runtime | Rust core (`mixdogd`), shared by headless exec and Desktop |
-| Desktop workspace | Electron, React, TypeScript, Monaco, and xterm.js |
-| Native code tools | Rust, tree-sitter, and embedded ast-grep for parsing, structural queries, and rule-based checks |
-| Browser automation | Chromium and the Chrome DevTools Protocol (CDP) |
-| Long-term memory | Managed local PostgreSQL with pgvector and full-text search |
-| Documents | Portable OOXML and PDF tooling, plus Microsoft Office automation on Windows |
+| Layer                | Stack                                                                                           |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| Shared agent runtime | Rust core (`mixdogd`), shared by headless exec and Desktop                                      |
+| Desktop workspace    | Electron, React, TypeScript, Monaco, and xterm.js                                               |
+| Native code tools    | Rust, tree-sitter, and embedded ast-grep for parsing, structural queries, and rule-based checks |
+| Browser automation   | Chromium and the Chrome DevTools Protocol (CDP)                                                 |
+| Long-term memory     | Managed local PostgreSQL with pgvector and full-text search                                     |
+| Documents            | Portable OOXML and PDF tooling, plus Microsoft Office automation on Windows                     |
 
 These components serve different roles: native tools analyze code, database
 retrieval keeps historical context selective, and provider-specific caching
@@ -109,13 +109,13 @@ it when all five repository secrets below are set. With none of them the app is
 packaged unsigned; a partial set fails the macOS job rather than shipping a
 signed but un-notarized app.
 
-| Secret | Value |
-| --- | --- |
-| `MAC_CERTIFICATE_P12_BASE64` | Base64 of the exported Developer ID Application `.p12` |
-| `MAC_CERTIFICATE_PASSWORD` | Password of that `.p12` |
-| `APPLE_API_KEY_P8` | Contents of the App Store Connect API key (`AuthKey_*.p8`) |
-| `APPLE_API_KEY_ID` | Key ID of that API key |
-| `APPLE_API_ISSUER` | Issuer ID of the App Store Connect team |
+| Secret                       | Value                                                      |
+| ---------------------------- | ---------------------------------------------------------- |
+| `MAC_CERTIFICATE_P12_BASE64` | Base64 of the exported Developer ID Application `.p12`     |
+| `MAC_CERTIFICATE_PASSWORD`   | Password of that `.p12`                                    |
+| `APPLE_API_KEY_P8`           | Contents of the App Store Connect API key (`AuthKey_*.p8`) |
+| `APPLE_API_KEY_ID`           | Key ID of that API key                                     |
+| `APPLE_API_ISSUER`           | Issuer ID of the App Store Connect team                    |
 
 The hardened-runtime entitlements live in
 `apps/desktop/build/entitlements.mac.plist`.

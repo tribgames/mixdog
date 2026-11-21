@@ -1,11 +1,3 @@
-// One child process run to completion, its output collected — the body of
-// the off-thread runners (git-runner-worker.mjs, process-runner-worker.mjs).
-// Starting a child process is a synchronous native call (CreateProcess on
-// Windows, amplified by on-access scanning and seconds long under load), so
-// those workers spawn here instead of on the host event loop.
-// Resolves to { code, stdout, stderr }; rejects with code ETIMEDOUT after
-// timeoutMs (the child is killed), EMAXBUFFER once stdout+stderr exceed
-// maxBytes, or the spawn error itself.
 import { spawn } from 'node:child_process';
 import { spawnTreeKill } from '../agent/orchestrator/mcp/child-tree.mjs';
 
@@ -79,9 +71,34 @@ const childEnded = (child) => child.exitCode !== null || child.signalCode !== nu
 // what the child wrote before exiting is already in the pipes.
 const EXIT_DRAIN_MS = 1_000;
 
-// Terminates a timed-out child. With waitForExitMs > 0, runs `done` once the child has exited and the kill finished,
-// or after waitForExitMs, in the same promise reaction that clears the bound timer, and returns true; otherwise
-// returns false without calling `done` (the caller need not wait).
+function createOutputCollector({ command, args, maxBytes }) {
+  const chunks = { stdout: [], stderr: [] };
+  let bytes = 0;
+  return {
+    /** Buffers `chunk`; returns the EMAXBUFFER error once the total passes `maxBytes` (the chunk is then dropped). */
+    add(stream, chunk) {
+      const next = Buffer.from(chunk);
+      bytes += next.length;
+      if (bytes > maxBytes) {
+        const error = new Error(`${command} ${args.join(' ')} exceeded ${maxBytes} output bytes`);
+        error.code = 'EMAXBUFFER';
+        return error;
+      }
+      chunks[stream].push(next);
+      return null;
+    },
+    // 'base64' keeps non-UTF-8 bytes (a replayable patch) intact across the thread hop.
+    text(stdoutEncoding) {
+      return {
+        stdout: Buffer.concat(chunks.stdout).toString(stdoutEncoding === 'base64' ? 'base64' : 'utf8'),
+        stderr: Buffer.concat(chunks.stderr).toString('utf8'),
+      };
+    },
+  };
+}
+
+// With waitForExitMs > 0, runs `done` once the child has exited and the kill finished,
+// or after waitForExitMs, and returns true; otherwise returns false without calling `done`.
 function killAndWait(child, { killTree, waitForExitMs, exited }, done) {
   let killed = Promise.resolve();
   if (killTree) killed = killChildTree(child);
@@ -133,9 +150,7 @@ export function runChild({
       windowsHide: true,
       stdio: [hasInput ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     });
-    const stdout = [];
-    const stderr = [];
-    let outputBytes = 0;
+    const output = createOutputCollector({ command, args, maxBytes });
     let stdinError = null;
     let settled = false;
     let timedOut = false;
@@ -164,25 +179,17 @@ export function runChild({
             if (!waiting) finish(error);
           }, timeoutMs)
         : null;
-    const collect = (chunks, chunk) => {
-      // Once a timeout terminates the child, it alone settles: later output
-      // (or an overflow) neither settles early nor grows the buffers.
+    const collect = (stream, chunk) => {
       if (timedOut) return;
-      const next = Buffer.from(chunk);
-      outputBytes += next.length;
-      if (outputBytes > maxBytes) {
-        const error = new Error(`${command} ${args.join(' ')} exceeded ${maxBytes} output bytes`);
-        error.code = 'EMAXBUFFER';
-        try {
-          child.kill();
-        } catch {}
-        finish(error);
-        return;
-      }
-      chunks.push(next);
+      const overflow = output.add(stream, chunk);
+      if (!overflow) return;
+      try {
+        child.kill();
+      } catch {}
+      finish(overflow);
     };
-    child.stdout.on('data', (chunk) => collect(stdout, chunk));
-    child.stderr.on('data', (chunk) => collect(stderr, chunk));
+    child.stdout.on('data', (chunk) => collect('stdout', chunk));
+    child.stderr.on('data', (chunk) => collect('stderr', chunk));
     child.on('error', (error) => {
       // An error while a timeout terminates the child (a failed kill) is the timeout's.
       if (!timedOut) finish(error);
@@ -190,12 +197,7 @@ export function runChild({
     const complete = (code) => {
       // A timed-out child's close is the timeout's to report.
       if (timedOut) return;
-      const result = {
-        code: Number(code ?? 1),
-        // 'base64' keeps non-UTF-8 bytes (a replayable patch) intact across the thread hop.
-        stdout: Buffer.concat(stdout).toString(stdoutEncoding === 'base64' ? 'base64' : 'utf8'),
-        stderr: Buffer.concat(stderr).toString('utf8'),
-      };
+      const result = { code: Number(code ?? 1), ...output.text(stdoutEncoding) };
       // A failed stdin write only matters when the child otherwise reported success.
       if (stdinError && result.code === 0) {
         finish(stdinError);

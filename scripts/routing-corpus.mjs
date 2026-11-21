@@ -193,8 +193,8 @@ function batchSpec(tool, args, forcedField = null) {
   if (!fieldName) return null;
   return { field: fieldName, values: asList(args[fieldName]) };
 }
-function sameIterationBatchObservations(sequence) {
-  let found = false;
+function iterationGroups(sequence) {
+  const groups = [];
   for (let i = 0; i < sequence.length; i += 1) {
     const first = sequence[i];
     if (isMutation(first.tool) || first.it == null) continue;
@@ -205,54 +205,58 @@ function sameIterationBatchObservations(sequence) {
       if (isMutation(next.tool)) break;
       group.push(next);
     }
-    for (const candidate of ['read', 'grep', 'find', 'glob', 'list', 'code_graph']) {
-      if (candidate === 'read') {
-        const calls = group
-          .filter((entry) => entry.tool === 'read' && !entry.failed)
-          .map((entry) => ({ entry, targets: readTargets(entry.rawArgs) }))
-          .filter(({ targets }) => targets?.length);
-        if (
-          calls.some(({ entry, targets }, index) =>
-            calls.some(
-              ({ entry: other, targets: otherTargets }, otherIndex) =>
-                index < otherIndex &&
-                compatibleBatchCalls('read', entry.rawArgs, other.rawArgs) &&
-                targets.some((target) =>
-                  otherTargets.some((otherTarget) => JSON.stringify(target) !== JSON.stringify(otherTarget))
-                )
-            )
-          )
-        )
-          found = true;
-        continue;
-      }
-      const firstArgs = group.find((entry) => entry.tool === candidate && !entry.failed)?.rawArgs;
-      for (const field of batchFields(candidate, firstArgs || {})) {
-        const calls = group
-          .filter((entry) => entry.tool === candidate && !entry.failed)
-          .map((entry) => ({ entry, spec: batchSpec(candidate, entry.rawArgs, field) }))
-          .filter(({ spec }) => spec && spec.values.length === 1);
-        if (calls.length < 2) continue;
-        const distinct = new Set(calls.map(({ spec }) => JSON.stringify(spec.values[0])));
-        const compatiblePair = calls.some(({ entry, spec }, index) =>
-          calls.some(
-            ({ entry: other, spec: otherSpec }, otherIndex) =>
-              index < otherIndex &&
-              JSON.stringify(spec.values[0]) !== JSON.stringify(otherSpec.values[0]) &&
-              compatibleBatchCalls(candidate, entry.rawArgs, other.rawArgs)
-          )
-        );
-        if (distinct.size >= 2 && compatiblePair) found = true;
-      }
-    }
+    groups.push(group);
   }
+  return groups;
+}
+
+function hasBatchableReads(group) {
+  const calls = group
+    .filter((entry) => entry.tool === 'read' && !entry.failed)
+    .map((entry) => ({ entry, targets: readTargets(entry.rawArgs) }))
+    .filter(({ targets }) => targets?.length);
+  return calls.some(({ entry, targets }, index) =>
+    calls.some(
+      ({ entry: other, targets: otherTargets }, otherIndex) =>
+        index < otherIndex &&
+        compatibleBatchCalls('read', entry.rawArgs, other.rawArgs) &&
+        targets.some((target) =>
+          otherTargets.some((otherTarget) => JSON.stringify(target) !== JSON.stringify(otherTarget))
+        )
+    )
+  );
+}
+
+function hasBatchableCalls(group, tool) {
+  const firstArgs = group.find((entry) => entry.tool === tool && !entry.failed)?.rawArgs;
+  return batchFields(tool, firstArgs || {}).some((field) => {
+    const calls = group
+      .filter((entry) => entry.tool === tool && !entry.failed)
+      .map((entry) => ({ entry, spec: batchSpec(tool, entry.rawArgs, field) }))
+      .filter(({ spec }) => spec && spec.values.length === 1);
+    if (calls.length < 2) return false;
+    const distinct = new Set(calls.map(({ spec }) => JSON.stringify(spec.values[0])));
+    const compatiblePair = calls.some(({ entry, spec }, index) =>
+      calls.some(
+        ({ entry: other, spec: otherSpec }, otherIndex) =>
+          index < otherIndex &&
+          JSON.stringify(spec.values[0]) !== JSON.stringify(otherSpec.values[0]) &&
+          compatibleBatchCalls(tool, entry.rawArgs, other.rawArgs)
+      )
+    );
+    return distinct.size >= 2 && compatiblePair;
+  });
+}
+
+function sameIterationBatchObservations(sequence) {
+  const found = iterationGroups(sequence).some(
+    (group) =>
+      hasBatchableReads(group) ||
+      ['grep', 'find', 'glob', 'list', 'code_graph'].some((tool) => hasBatchableCalls(group, tool))
+  );
   return found ? ['same_turn_batch_opportunity'] : [];
 }
 
-// shell used to INSPECT the filesystem (read/list/search/exists) instead of a
-// dedicated tool — the anti-pattern the shell description targets. Concept, not
-// an exhaustive list: a command whose leading verb only reads/lists/searches
-// files and does not change state or run a program (git/node/npm/build/test).
 const SHELL_INSPECT_VERB =
   /(?:^|[\s;|&(]|\bforeach-object\s*\{)\s*(get-content|get-childitem|gci|select-string|cat|type|ls|dir|head|tail|find|findstr|grep|rg|wc|test-path|resolve-path|readlink|realpath|stat)\b/i;
 const SHELL_EXEC_VERB =

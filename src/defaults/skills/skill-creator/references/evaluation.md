@@ -35,14 +35,14 @@ exceptions.
 
 ## Diagnose before revising
 
-| Class | Where the fix goes |
-|---|---|
-| Selection | Trigger or the neighbour's boundary |
+| Class       | Where the fix goes                                              |
+| ----------- | --------------------------------------------------------------- |
+| Selection   | Trigger or the neighbour's boundary                             |
 | Instruction | A missing decision, step order or completion result in the body |
-| Resource | The broken script, reference, asset or path |
-| Integration | The unavailable tool, feature or dependency |
-| Harness | The test setup, not the skill |
-| Capability | The tool or product; the skill cannot deliver it |
+| Resource    | The broken script, reference, asset or path                     |
+| Integration | The unavailable tool, feature or dependency                     |
+| Harness     | The test setup, not the skill                                   |
+| Capability  | The tool or product; the skill cannot deliver it                |
 
 ## Improve without sediment
 

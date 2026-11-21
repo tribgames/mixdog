@@ -56,17 +56,19 @@ export function pruneTarget({ target, profile, packages, cacheRoot }) {
     throw new Error('target must equal the explicitly verified CI cache root');
   target = resolve(target);
   checked(target, target);
+  return deletePlans(planPrune(target, profile, packages), target);
+}
+
+function planPrune(target, profile, packages) {
   const plans = [];
   const planned = new Set();
-  const remove = (path, removed) => {
+  const remove = (path) => {
     if (!planned.has(path)) {
       planned.add(path);
       plans.push(deletionPlan(path, target));
-      removed.entries += 1;
     }
   };
   const names = new Set(packages.map(underscored));
-  const removed = { bytes: 0, entries: 0 };
   const dir = join(target, profile);
   const list = (path) => {
     try {
@@ -85,33 +87,36 @@ export function pruneTarget({ target, profile, packages, cacheRoot }) {
     const stem = (dot > 0 ? entry.slice(0, dot) : entry).replace(/^lib/, '');
     if (extension === '.exe' || extension === '') {
       executables.add(entry.slice(0, dot > 0 ? dot : undefined));
-      remove(join(dir, 'deps', entry), removed);
+      remove(join(dir, 'deps', entry));
     } else if (
       names.has(underscored(stem.replace(HASH, ''))) ||
       names.has(underscored(entry.slice(0, dot).replace(HASH, '')))
     ) {
-      remove(join(dir, 'deps', entry), removed);
+      remove(join(dir, 'deps', entry));
     }
   }
   // The debug information of an executable that was removed (Windows).
   for (const entry of list(join(dir, 'deps'))) {
-    if (entry.endsWith('.pdb') && executables.has(entry.slice(0, -4))) remove(join(dir, 'deps', entry), removed);
+    if (entry.endsWith('.pdb') && executables.has(entry.slice(0, -4))) remove(join(dir, 'deps', entry));
   }
   for (const kind of ['.fingerprint', 'build']) {
     for (const entry of list(join(dir, kind))) {
-      if (names.has(underscored(entry.replace(HASH, '')))) remove(join(dir, kind, entry), removed);
+      if (names.has(underscored(entry.replace(HASH, '')))) remove(join(dir, kind, entry));
     }
   }
   for (const entry of ['incremental', 'examples']) {
-    if (list(dir).includes(entry)) remove(join(dir, entry), removed);
+    if (list(dir).includes(entry)) remove(join(dir, entry));
   }
   for (const entry of list(dir)) {
-    if (entry.endsWith('.exe') || entry.endsWith('.pdb') || entry.endsWith('.d')) remove(join(dir, entry), removed);
-    else if (checked(join(dir, entry), target).isFile() && !entry.includes('.')) remove(join(dir, entry), removed);
+    if (entry.endsWith('.exe') || entry.endsWith('.pdb') || entry.endsWith('.d')) remove(join(dir, entry));
+    else if (checked(join(dir, entry), target).isFile() && !entry.includes('.')) remove(join(dir, entry));
   }
-  if (list(target).includes('nextest')) remove(join(target, 'nextest'), removed);
-  // Validate *every* candidate before deleting any; repeat identity/link checks
-  // just before each non-recursive operation. Junction targets are never entered.
+  if (list(target).includes('nextest')) remove(join(target, 'nextest'));
+  return plans;
+}
+
+function deletePlans(plans, target) {
+  const removed = { bytes: 0, entries: plans.length };
   for (const plan of plans)
     for (const entry of plan) {
       checked(entry.path, target);

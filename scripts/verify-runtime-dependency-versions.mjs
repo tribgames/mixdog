@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-// Verifies that the dependency versions packed into the desktop runtime match
-// the lockfiles: every package.json inside apps/desktop/.runtime/runtime.asar
-// (and its .unpacked sidecar) against the root package-lock.json. A stale install or
-// a reused prepared-runtime cache otherwise ships old versions unnoticed.
-
 import { readdir, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve, sep } from 'node:path';

@@ -1,25 +1,4 @@
 #!/usr/bin/env node
-// Discovery-based test entry (docs/testing.md). A test file joins the suite
-// by existing; its lane comes from its name, never from a hand-kept list:
-//
-//   *.test.mjs           fast     the default lane; every push, every local run
-//   *.slow.test.mjs      slow     files over ~10s; their own CI job
-//   *.live.test.mjs      live     need a built artifact or a live system
-//   *.electron.test.mjs  electron need a real Electron or window-capture
-//                                 surface, so two runs of them cannot overlap
-//
-// The electron lane is not part of the default lane: `--lane electron` runs
-// those files alone, and `--lane all` includes them unless `--exclude-lane
-// electron` lets a second run proceed concurrently.
-//
-// Usage — see USAGE below (`node scripts/test.mjs --help`).
-//
-// Runs from the package that invokes it: `src/`, `scripts/`, `lib/`, `deploy/`
-// and the package root itself are searched under cwd, so the root package,
-// apps/desktop and apps/relay share this one entry. A root a package does not
-// have simply yields nothing. The root package also discovers the workspace
-// packages under `packages/` (their `.test.ts` files too) and the npm launcher
-// under `apps/mixdogd-npm`, so no Node test sits outside every lane.
 import { glob } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,13 +80,9 @@ const inExcludedDir = (path) =>
   String(path)
     .split(/[\\/]/)
     .some((segment) => EXCLUDED_DIRS.has(segment));
-// Directories (relative to the invoking package) whose tests need a built core, its process-tree helper or cargo, so no
-// plain Node lane runs them: they start mixdogd or compile (scripts/rust-core/core-session.test.mjs and
-// smoke-mixdogd.test.mjs fail without MIXDOGD_BIN, the helper's tests need the helper built). The job that has built
-// what they need names them: release-gate.yml `core-real`.
-const EXCLUDED_PATHS = ['scripts/rust-core'];
+const PATHS_NEEDING_BUILT_CORE = ['scripts/rust-core'];
 const matchesPath = (file, paths) => paths.some((path) => file === path || file.startsWith(`${path}/`));
-const underExcludedPath = (file) => matchesPath(file, EXCLUDED_PATHS);
+const underExcludedPath = (file) => matchesPath(file, PATHS_NEEDING_BUILT_CORE);
 
 export function laneOf(file) {
   if (/\.live\.test\.mjs$/.test(file)) return 'live';
@@ -200,12 +175,9 @@ export function selectTestFiles(files, { lane, filters, excludeLanes = [], exclu
     .filter((file) => filters.length === 0 || filters.some((filter) => file.includes(filter)));
 }
 
-// MIXDOG_RECEIPT=<file>: this invocation's receipt (scripts/ci/receipt.mjs): created here before anything runs (an existing file is an
-// error), filled by the skip reporter (tests that ran, every skipped or todo test) and closed when the last test process has ended, for
-// scripts/ci/check-skips.mjs. The reporter is added to this run's test processes only and the file travels in its URL; the variable is
-// dropped from the environment the tests inherit, so a runner a test starts over a fixture does not write the lane's receipt. A runner
-// a test starts for a suite whose result counts (scripts/ci/node-runner.mjs) finds MIXDOG_CHILD_RECEIPTS instead and leaves a receipt of
-// its own there. The warning is off because the runner already pipes three reporters from one stream and this is the fourth.
+// MIXDOG_RECEIPT=<file> (scripts/ci/receipt.mjs): created here before anything runs, filled by the skip reporter, closed when the last
+// test process ends. The variable is removed from the environment the tests inherit and MIXDOG_CHILD_RECEIPTS is set instead, so a runner
+// a test starts writes its own receipt, not the lane's. The reporter is the fourth piped from one stream, so MaxListenersExceededWarning is off.
 const SKIP_REPORTER = new URL('./ci/skip-reporter.mjs', import.meta.url);
 export function skipReportArgs(env = process.env) {
   const file = env.MIXDOG_RECEIPT;
@@ -247,6 +219,37 @@ async function main() {
   }
 }
 
+// Returns the selected files that a change reaches, or null once it has reported that none do.
+function narrowToChanged(changes, changed, discovered, files, options) {
+  // The graph spans every discovered test, so "no test imports it" means none
+  // in this package; the lane and filters then narrow what actually runs.
+  const { selected, unreached: everywhere } = changes.selectChangedTests(discovered, changed);
+  const reaching = new Set(selected);
+  const reached = files.filter((file) => reaching.has(file));
+  // A referenced input can be outside this package. Diagnostics for paths
+  // with no test edge stay local and leave out separately run suites.
+  const unreached = everywhere.filter(
+    (file) =>
+      !inExcludedDir(file) &&
+      !underExcludedPath(file) &&
+      !matchesPath(file, options.excludePaths ?? []) &&
+      ROOTS.some((root) => (root === '.' ? !file.includes('/') : file.startsWith(`${root}/`))) &&
+      (options.filters.length === 0 || options.filters.some((filter) => file.includes(filter)))
+  );
+  if (unreached.length) {
+    console.error(
+      `--changed: no discovered test reaches ${unreached.length} changed file(s); run their tests with a path filter and without --changed:`
+    );
+    for (const file of unreached) console.error(`  ${file}`);
+  }
+  if (!reached.length) {
+    console.error(`--changed: no ${options.lane} test file matching the filters reaches a changed file`);
+    if (unreached.length) process.exitCode = 1;
+    return null;
+  }
+  return reached;
+}
+
 async function run(options) {
   if (options.help) {
     console.log(USAGE);
@@ -258,32 +261,8 @@ async function run(options) {
   const discovered = changed?.length === 0 ? [] : await discoverTestFiles();
   let files = selectTestFiles(discovered, options);
   if (changes) {
-    // The graph spans every discovered test, so "no test imports it" means none
-    // in this package; the lane and filters then narrow what actually runs.
-    const { selected, unreached: everywhere } = changes.selectChangedTests(discovered, changed);
-    const reaching = new Set(selected);
-    files = files.filter((file) => reaching.has(file));
-    // A referenced input can be outside this package. Diagnostics for paths
-    // with no test edge stay local and leave out separately run suites.
-    const unreached = everywhere.filter(
-      (file) =>
-        !inExcludedDir(file) &&
-        !underExcludedPath(file) &&
-        !matchesPath(file, options.excludePaths ?? []) &&
-        ROOTS.some((root) => (root === '.' ? !file.includes('/') : file.startsWith(`${root}/`))) &&
-        (options.filters.length === 0 || options.filters.some((filter) => file.includes(filter)))
-    );
-    if (unreached.length) {
-      console.error(
-        `--changed: no discovered test reaches ${unreached.length} changed file(s); run their tests with a path filter and without --changed:`
-      );
-      for (const file of unreached) console.error(`  ${file}`);
-    }
-    if (!files.length) {
-      console.error(`--changed: no ${options.lane} test file matching the filters reaches a changed file`);
-      if (unreached.length) process.exitCode = 1;
-      return;
-    }
+    files = narrowToChanged(changes, changed, discovered, files, options);
+    if (!files) return;
   }
   if (options.list) {
     for (const file of files) console.log(`${laneOf(file).padEnd(5)} ${file}`);

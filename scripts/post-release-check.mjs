@@ -261,6 +261,24 @@ export function runSections(sections) {
   );
 }
 
+/** The job summary text of the section results, and the `::warning` annotations to print before it. */
+export function renderReport(tag, results) {
+  const lines = [`## Post-release check for ${tag}`, ''];
+  const annotations = [];
+  for (const { name, problems, warnings } of results) {
+    let status = 'ok';
+    if (problems.length) status = 'FAIL';
+    else if (warnings.length) status = 'WARN';
+    lines.push(`- ${status} ${name}`);
+    for (const problem of problems) lines.push(`    - ${problem}`);
+    for (const warning of warnings) {
+      lines.push(`    - warning: ${warning}`);
+      annotations.push(`::warning title=Post-release ${name}::${warning}`);
+    }
+  }
+  return { text: `${lines.join('\n')}\n`, annotations };
+}
+
 async function sha512Base64(url) {
   const response = await fetch(url, { redirect: 'follow' });
   if (!response.ok) throw new Error(`download ${url} answered ${response.status}`);
@@ -320,19 +338,8 @@ async function main() {
   ];
   const results = await runSections(sections);
 
-  const lines = [`## Post-release check for ${tag}`, ''];
-  for (const { name, problems, warnings } of results) {
-    let status = 'ok';
-    if (problems.length) status = 'FAIL';
-    else if (warnings.length) status = 'WARN';
-    lines.push(`- ${status} ${name}`);
-    for (const problem of problems) lines.push(`    - ${problem}`);
-    for (const warning of warnings) {
-      lines.push(`    - warning: ${warning}`);
-      console.log(`::warning title=Post-release ${name}::${warning}`);
-    }
-  }
-  const text = `${lines.join('\n')}\n`;
+  const { text, annotations } = renderReport(tag, results);
+  for (const annotation of annotations) console.log(annotation);
   console.log(text);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
   return results.some(({ problems }) => problems.length) ? 1 : 0;

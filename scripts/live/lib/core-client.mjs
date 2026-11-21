@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { attachCore } from '../../rust-core/lib/core-session.mjs';
 import { CUSTOM } from './paths.mjs';
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+import { sleep } from './sleep.mjs';
 
 /** Resolves to the attached core with `request(method, params)` and `onServerRequest(listener)` added. */
 export async function attach(profile, { clientName = 'live', approve = true, log = () => {} } = {}) {

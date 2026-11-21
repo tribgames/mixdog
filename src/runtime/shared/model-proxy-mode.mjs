@@ -1,8 +1,4 @@
-// Remote (SSH) mode switch. With MIXDOG_MODEL_PROXY=client the daemon runs on
-// a server that must never hold model credentials: every model call is
-// executed by the connected desktop client on the user's PC and streamed back
-// (providers/model-proxy-channel.mjs). Read per call so a test or host can
-// flip the environment without reloading modules.
+// MIXDOG_MODEL_PROXY=client: the server holds no model credentials; the connected desktop client runs every model call.
 export const MODEL_PROXY_ENV = 'MIXDOG_MODEL_PROXY';
 
 export function modelProxyClientMode(env = process.env) {

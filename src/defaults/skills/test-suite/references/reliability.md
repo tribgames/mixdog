@@ -6,14 +6,14 @@ ports, paths, child processes, the clock or the host's language.
 
 ## Cause table
 
-| Cause | Signal | Fix |
-|---|---|---|
-| Timing | Passes alone, fails when other work runs; a sleep or a fixed budget decides the verdict | Wait on the event, promise or state the code produces; fake the clock when time is the subject |
-| Shared resource | Fixed port, fixed temp path, shared data dir, a leftover process | Bind port 0 and read the assigned port; a fresh temp dir per test; per-test data dirs |
-| Unrestored global | Later tests change behaviour; order matters | Restore environment variables, working directory, timers, mocks and locale in a `finally`/fixture teardown right after the change |
-| Platform / locale | Fails on another OS, language or console code page | Query structured sources; never parse localized tool text; remember Windows environment names are case-insensitive |
-| Order | Depends on a previous test's state | Each test creates and removes its own prerequisites |
-| Teardown | Next test sees a live child, open handle or locked file | Await child exit, server close and handle release before the test ends |
+| Cause             | Signal                                                                                  | Fix                                                                                                                               |
+| ----------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Timing            | Passes alone, fails when other work runs; a sleep or a fixed budget decides the verdict | Wait on the event, promise or state the code produces; fake the clock when time is the subject                                    |
+| Shared resource   | Fixed port, fixed temp path, shared data dir, a leftover process                        | Bind port 0 and read the assigned port; a fresh temp dir per test; per-test data dirs                                             |
+| Unrestored global | Later tests change behaviour; order matters                                             | Restore environment variables, working directory, timers, mocks and locale in a `finally`/fixture teardown right after the change |
+| Platform / locale | Fails on another OS, language or console code page                                      | Query structured sources; never parse localized tool text; remember Windows environment names are case-insensitive                |
+| Order             | Depends on a previous test's state                                                      | Each test creates and removes its own prerequisites                                                                               |
+| Teardown          | Next test sees a live child, open handle or locked file                                 | Await child exit, server close and handle release before the test ends                                                            |
 
 ## Time
 

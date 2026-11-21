@@ -1,6 +1,6 @@
 // A minimal CDP client (Node's global WebSocket) for the dev Electron main's V8 inspector (dev-isolated.mjs start
 // --inspect-main=<port>) and for the instance's renderer page (its --remote-debugging-port).
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+import { sleep } from './sleep.mjs';
 
 export async function cdpConnect(wsUrl) {
   const ws = new WebSocket(wsUrl);

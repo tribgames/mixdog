@@ -66,11 +66,7 @@ export function logRoots(env) {
   return [...new Set(roots)].filter((r) => existsSync(r));
 }
 
-/**
- * The log files that sit beside other state rather than in a log folder: the launcher's log, the core's daemon.log and
- * memory proxy log, the trace and tool-failure journals, the desktop's perf log. The instance folder itself is not
- * walked: it also holds the Electron profile, the config home and the app build, which are not logs.
- */
+/** The log files that sit beside other state rather than in a log folder: the launcher's log, the core's daemon.log and memory proxy log, the trace and tool-failure journals, the desktop's perf log. */
 export function logFiles(env) {
   const { info } = env;
   const history = join(info.dataDir, 'history');

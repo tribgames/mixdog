@@ -1,8 +1,3 @@
-// Evidence: what ONE test invocation of a declared leg observed, as an immutable artifact (docs/testing.md, "Release coverage").
-//
-// A receipt (scripts/ci/receipt.mjs) is the artifact. Its envelope names where it was produced (repository, the commit the checkout is
-// at, workflow, run and attempt, leg, slot); its records are terminal observations of cases and suites with the full identity of
-// each; its trailer binds the record count and a content hash. The reconciler never infers anything from what is absent from it.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
@@ -15,10 +10,6 @@ export const KINDS = new Set(['case', 'suite']);
 /** The runners that write receipts (scripts/test.mjs and node-runner.mjs, run-nextest.mjs, run-receipt.mjs, run-shell-suite.mjs, run-doctest.mjs). */
 export const PRODUCERS = new Set(['node', 'nextest', 'unittest', 'shell', 'doctest']);
 
-/**
- * What an identity must carry, by the runner that wrote the record: `[family, file, ...]` with the runner's own case component. A case
- * without it (`['node', file]`) names a file, not a case, and could stand in for one.
- */
 const FAMILIES = {
   node: { families: { case: { name: 'node', min: 3 }, suite: { name: 'node-suite', min: 3 } } },
   shell: { families: { case: { name: 'shell', length: 3 } } },

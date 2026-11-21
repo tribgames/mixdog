@@ -45,10 +45,6 @@ const writePackage = (dir, version) => {
   writeFileSync(join(dir, 'bin', 'native-layout.mjs'), '');
 };
 
-/**
- * An npm global prefix with mixdog at `installed` (its platform package hoisted beside it), a data folder, and the staging of
- * the versions in `staged`, each self-contained with its platform package nested; `damage(version, pkgDir)` spoils one.
- */
 const rig = ({ installed = '1.5.0', staged = [], layout = ['node_modules', 'mixdog'], damage } = {}) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-swap-test-'));
   const packageRoot = join(root, ...layout);
@@ -278,41 +274,42 @@ test('the launcher reads a command line as the native entry does: one table, tes
   for (const { argv, skip } of cases) assert.equal(skipsHostPrelude(argv), skip, JSON.stringify(argv));
 });
 
-test('a rename is retried as 1.4.5 retried it: about 4.2 s of pauses with jitter, and only for the transient refusals', () => {
-  const refuse = (code) => Object.assign(new Error(code), { code });
-  // Every attempt refused: 23 pauses, 25 + 50 + 100 + 20 x 200 ms with no jitter, then the refusal itself.
+const refuse = (code) => Object.assign(new Error(code), { code });
+
+const refusedPauses = (code, random) => {
   const pauses = [];
   assert.throws(
     () =>
       renameWithRetry('a', 'b', {
         rename: () => {
-          throw refuse('EBUSY');
+          throw refuse(code);
         },
         sleep: (ms) => pauses.push(ms),
-        random: () => 0,
+        random,
       }),
-    { code: 'EBUSY' }
+    { code }
   );
+  return pauses;
+};
+
+test('a rename that is refused every time is retried after 23 pauses of about 4.2 s, then the refusal is thrown', () => {
+  const pauses = refusedPauses('EBUSY', () => 0);
   assert.equal(pauses.length, 23);
   assert.equal(
     pauses.reduce((sum, ms) => sum + ms, 0),
     4175
   );
   assert.deepEqual(pauses.slice(0, 4), [25, 50, 100, 200]);
-  // Jitter is under min(50, pause) on top of the pause.
-  const jittered = [];
-  assert.throws(() =>
-    renameWithRetry('a', 'b', {
-      rename: () => {
-        throw refuse('EPERM');
-      },
-      sleep: (ms) => jittered.push(ms),
-      random: () => 0.999,
-    })
-  );
+});
+
+test('each pause of a retried rename carries jitter below min(50, pause)', () => {
+  const plain = refusedPauses('EBUSY', () => 0);
+  const jittered = refusedPauses('EPERM', () => 0.999);
   assert.deepEqual(jittered.slice(0, 3), [25 + 24, 50 + 49, 100 + 49]);
-  assert.ok(jittered.every((ms, i) => ms >= pauses[i] && ms < pauses[i] + 50));
-  // Anything else is not waited for.
+  assert.ok(jittered.every((ms, i) => ms >= plain[i] && ms < plain[i] + 50));
+});
+
+test('only the transient refusals of a rename are waited for', () => {
   for (const code of ['ENOENT', 'ENOTEMPTY', 'EXDEV', undefined]) {
     const slept = [];
     assert.throws(() =>
@@ -325,7 +322,9 @@ test('a rename is retried as 1.4.5 retried it: about 4.2 s of pauses with jitter
     );
     assert.deepEqual(slept, [], String(code));
   }
-  // A transient refusal that clears lands the rename.
+});
+
+test('a transient refusal of a rename that clears lands the rename', () => {
   let calls = 0;
   renameWithRetry('a', 'b', {
     rename: () => {
@@ -334,6 +333,9 @@ test('a rename is retried as 1.4.5 retried it: about 4.2 s of pauses with jitter
     sleep: () => {},
   });
   assert.equal(calls, 3);
+});
+
+test('the last pause of a rename is the 23rd, and no 24th follows', () => {
   assert.equal(
     nextRenameDelayMs(refuse('EEXIST'), 22, 'b', () => 0),
     200

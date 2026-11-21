@@ -1,10 +1,3 @@
-/**
- * src/tui/themes/onedark.mjs — One Dark.
- *
- * One Dark IS the base palette; this theme spreads the full base key set under
- * the `onedarkPalette` name expected by the registry and overrides only the
- * live-state spinner colors and the code-comment grey.
- */
 import { basePalette } from './base.mjs';
 
 /** One Dark — base palette with a hot coral-red spinner (most-emphasized live state). */

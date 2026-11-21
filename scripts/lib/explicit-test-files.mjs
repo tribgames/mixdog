@@ -1,7 +1,4 @@
-// The explicit file arguments of scripts/test-direct.mjs that match nothing.
-// `node --test <glob>` exits 0 on a glob that matches no file, so a suite whose
-// directory was deleted stayed green running zero tests. A run that names a file
-// or a pattern must find at least one file for each.
+// `node --test <glob>` exits 0 when the glob matches no file.
 import { existsSync, globSync } from 'node:fs';
 import { resolve } from 'node:path';
 

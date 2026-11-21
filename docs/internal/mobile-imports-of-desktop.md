@@ -60,9 +60,7 @@ listed and no longer exists. `node scripts/regress-clients.mjs --list-mobile-imp
 - `apps/desktop/src/shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs`
 - `apps/desktop/src/shared/core-src/runtime/agent/orchestrator/session/routine-result.mjs`
 - `apps/desktop/src/shared/core-src/runtime/github/contract.mjs`
-- `apps/desktop/src/shared/core-src/runtime/shared/handoff-artifacts.mjs`
 - `apps/desktop/src/shared/core-src/runtime/shared/routine-trigger.mjs`
-- `apps/desktop/src/shared/core-src/runtime/shared/shell-output-summary.mjs`
 - `apps/desktop/src/shared/core-src/runtime/shared/transcript-metadata.mjs`
 - `apps/desktop/src/shared/desktop-notice.ts`
 - `apps/desktop/src/shared/desktop-pet.ts`

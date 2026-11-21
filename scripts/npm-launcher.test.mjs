@@ -53,13 +53,15 @@ test('a machine runs the program of its own platform; Windows on Arm also the x6
   assert.deepEqual(nativeCandidates('win32', 'arm64'), ['win32-arm64', 'win32-x64']);
 });
 
-test('win32-arm64 with only the x64 package resolves to it; an arm64 package is preferred; linux arm64 never takes x64', () => {
-  const programs = new Set([
-    join('/n', 'mixdog-win32-x64', 'bin', 'mixdog.exe'),
-    join('/n', 'mixdog-win32-arm64', 'bin', 'mixdog.exe'),
-    join('/n', 'mixdog-linux-x64', 'bin', 'mixdog'),
-  ]);
-  const exists = (path) => programs.has(path);
+const programs = new Set([
+  join('/n', 'mixdog-win32-x64', 'bin', 'mixdog.exe'),
+  join('/n', 'mixdog-win32-arm64', 'bin', 'mixdog.exe'),
+  join('/n', 'mixdog-linux-x64', 'bin', 'mixdog'),
+]);
+const programExists = (path) => programs.has(path);
+
+test('win32-arm64 with only the x64 package resolves to it', () => {
+  const exists = programExists;
   const only64 = installed({ 'mixdog-win32-x64': join('/n', 'mixdog-win32-x64') });
   const found = resolveNativeProgram({
     packageRoot: '/p',
@@ -71,6 +73,10 @@ test('win32-arm64 with only the x64 package resolves to it; an arm64 package is 
   assert.equal(found.key, 'win32-x64');
   assert.equal(found.program, join('/n', 'mixdog-win32-x64', 'bin', 'mixdog.exe'));
   assert.equal(found.folder, join('/n', 'mixdog-win32-x64', 'bin'));
+});
+
+test('an arm64 package is preferred on win32-arm64', () => {
+  const exists = programExists;
   const both = installed({
     'mixdog-win32-x64': join('/n', 'mixdog-win32-x64'),
     'mixdog-win32-arm64': join('/n', 'mixdog-win32-arm64'),
@@ -79,6 +85,10 @@ test('win32-arm64 with only the x64 package resolves to it; an arm64 package is 
     resolveNativeProgram({ packageRoot: '/p', platform: 'win32', arch: 'arm64', resolvePackageJson: both, exists }).key,
     'win32-arm64'
   );
+});
+
+test('linux arm64 never takes the x64 package, and a package without a program does not count', () => {
+  const exists = programExists;
   const x64Only = installed({ 'mixdog-linux-x64': join('/n', 'mixdog-linux-x64') });
   assert.equal(
     resolveNativeProgram({ packageRoot: '/p', platform: 'linux', arch: 'arm64', resolvePackageJson: x64Only, exists }),
@@ -153,6 +163,12 @@ test('a child ended by a signal reports 128 plus its number', () => {
 });
 
 test('the manifest names node, the package root relative to the programs (inside the package or beside it) and the ONNX Runtime library only when it is installed', () => {
+  const hoisted = {
+    folder: join('/n', 'mixdog-linux-x64', 'bin'),
+    packageRoot: join('/n', 'mixdog'),
+    platform: 'linux',
+    arch: 'x64',
+  };
   const nested = {
     folder: join('/g', 'mixdog', 'node_modules', 'mixdog-linux-x64', 'bin'),
     packageRoot: join('/g', 'mixdog'),
@@ -161,12 +177,6 @@ test('the manifest names node, the package root relative to the programs (inside
   };
   const none = jsRuntimeManifest({ ...nested, exists: () => false });
   assert.deepEqual(none, { program: 'node', packageRoot: '../../..' });
-  const hoisted = {
-    folder: join('/n', 'mixdog-linux-x64', 'bin'),
-    packageRoot: join('/n', 'mixdog'),
-    platform: 'linux',
-    arch: 'x64',
-  };
   assert.deepEqual(jsRuntimeManifest({ ...hoisted, exists: () => false }), {
     program: 'node',
     packageRoot: '../../mixdog',
@@ -179,6 +189,9 @@ test('the manifest names node, the package root relative to the programs (inside
     packageRoot: '../../mixdog',
     ortLibrary: '../../onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime.so.1',
   });
+});
+
+test('the ONNX Runtime library is found nested in the package, and named only for an architecture it carries', () => {
   const inner = join(
     '/g',
     'mixdog',

@@ -14,9 +14,22 @@
       "apps/desktop/scripts/**",
       "apps/relay/**",
       "scripts/**",
+      "apps/mobile/**",
+      "packages/**",
+      "benchmarks/token-lang/**",
       "!**/vendor",
       "!**/native/mixdog-graph/tests",
-      "!**/benchmarks",
+      "!benchmarks/token-lang/data",
+      "!benchmarks/token-lang/results",
+      "!apps/mobile/ios",
+      "!apps/mobile/android",
+      "!apps/mobile/test-vectors",
+      "!packages/protocol-client/conformance",
+      "!packages/protocol/src/index.ts",
+      "!packages/protocol-client/package-lock.json",
+      "!packages/protocol-client/src/actions/method-args.generated.*",
+      "!packages/protocol-client/test/live-turn-items.json",
+      "!packages/protocol-client/test/rows/tool-card-model.golden.json",
       "!**/deliverables",
       "!**/output*",
       "!!**/dist",
@@ -80,6 +93,29 @@
         "rules": {
           "correctness": {
             "noComponentHookFactories": "off"
+          },
+          "style": {
+            "noNonNullAssertion": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["scripts/ci/**", "scripts/**/*.test.*"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noTemplateCurlyInString": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/desktop/src/renderer/**/*.css"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noImportantStyles": "off"
           }
         }
       }

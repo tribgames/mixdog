@@ -108,12 +108,7 @@ async function writeJson(path, value) {
   await writeFile(path, JSON.stringify(value));
 }
 
-/**
- * Cleanup after the assertions. On Windows an installed Mixdog (Electron) that
- * has touched the fixture's .asar keeps it open until it exits, so the unlink
- * fails with EBUSY; that must not fail (or mask the result of) a test that
- * already verified its behavior. The test runner sweeps its scratch root.
- */
+// Windows keeps a fixture .asar open while an installed Mixdog (Electron) has touched it, so unlink fails with EBUSY; that must not fail a test that already verified.
 async function removeFixture({ base }) {
   try {
     await rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

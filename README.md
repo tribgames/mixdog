@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/tribgames/mixdog/main/apps/desktop/build/mixdog.png" width="80" alt="Mixdog">
+  <img
+    src="https://raw.githubusercontent.com/tribgames/mixdog/main/apps/desktop/build/mixdog.png"
+    width="80"
+    alt="Mixdog"
+  >
 </p>
 
 <h1 align="center">Mixdog</h1>
@@ -62,15 +66,15 @@ https://github.com/user-attachments/assets/af515dc9-b0fb-4b6a-aaa1-1d82db792ed0
 
 Download the desktop app:
 
-| Platform | Download |
-| --- | --- |
-| Windows (x64) | [`mixdog-desktop-win-x64.exe`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe) |
-| macOS (Apple Silicon) | [`mixdog-desktop-mac-arm64.dmg`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-arm64.dmg) |
-| macOS (Intel) | [`mixdog-desktop-mac-x64.dmg`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-x64.dmg) |
-| Linux (x64, AppImage) | [`mixdog-desktop-linux-x86_64.AppImage`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-x86_64.AppImage) |
-| Linux (x64, .deb) | [`mixdog-desktop-linux-amd64.deb`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-amd64.deb) |
-| Linux (ARM64, AppImage) | [`mixdog-desktop-linux-arm64.AppImage`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-arm64.AppImage) |
-| Linux (ARM64, .deb) | [`mixdog-desktop-linux-arm64.deb`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-arm64.deb) |
+| Platform                | Download                                                                                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows (x64)           | [`mixdog-desktop-win-x64.exe`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe)                     |
+| macOS (Apple Silicon)   | [`mixdog-desktop-mac-arm64.dmg`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-arm64.dmg)                 |
+| macOS (Intel)           | [`mixdog-desktop-mac-x64.dmg`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-x64.dmg)                     |
+| Linux (x64, AppImage)   | [`mixdog-desktop-linux-x86_64.AppImage`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-x86_64.AppImage) |
+| Linux (x64, .deb)       | [`mixdog-desktop-linux-amd64.deb`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-amd64.deb)             |
+| Linux (ARM64, AppImage) | [`mixdog-desktop-linux-arm64.AppImage`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-arm64.AppImage)   |
+| Linux (ARM64, .deb)     | [`mixdog-desktop-linux-arm64.deb`](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-arm64.deb)             |
 
 Then sign in with a ChatGPT, Claude, Grok, or Muse Code account, or paste an API key. A
 five-step tutorial walks you through the rest.
@@ -116,9 +120,18 @@ shell networking — headless exec is not an offline sandbox. Run
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/tribgames/mixdog/main/design/promo/tb21-sol-vs-codex-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/tribgames/mixdog/main/design/promo/tb21-sol-vs-codex-light.svg">
-    <img alt="Bar chart: Mixdog vs Codex CLI on Terminal-Bench 2.1" src="https://raw.githubusercontent.com/tribgames/mixdog/main/design/promo/tb21-sol-vs-codex-light.svg">
+    <source
+      media="(prefers-color-scheme: dark)"
+      srcset="https://raw.githubusercontent.com/tribgames/mixdog/main/design/promo/tb21-sol-vs-codex-dark.svg"
+    >
+    <source
+      media="(prefers-color-scheme: light)"
+      srcset="https://raw.githubusercontent.com/tribgames/mixdog/main/design/promo/tb21-sol-vs-codex-light.svg"
+    >
+    <img
+      alt="Bar chart: Mixdog vs Codex CLI on Terminal-Bench 2.1"
+      src="https://raw.githubusercontent.com/tribgames/mixdog/main/design/promo/tb21-sol-vs-codex-light.svg"
+    >
   </picture>
 </p>
 
@@ -137,11 +150,11 @@ savings come from.
 
 Newest first. Each run links to its details, records, and caveats.
 
-| Run | Model · trials | vs | Score | Cost | Final context | Time / trial |
-|---|---|---|---|---|---|---|
-| [2026-10-15](benchmarks/terminal-bench-2.1/#bench-log) | GPT-6.1 Sol xhigh · `k=1` | Codex CLI | 77 vs 78 /89 | **−55%** | **−68%** (10.8K vs 33.6K) | 344s vs 380s |
-| [2026-08-25](benchmarks/terminal-bench-2.1/#gpt-56-sol-xhigh-vs-codex-cli) | GPT-5.6 Sol xhigh · `k=5` | Codex CLI | 385 vs 383 /445 | **−39%** | **−46%** (18.5K vs 34.3K) | 415s vs 437s |
-| [2026-08-25](benchmarks/terminal-bench-2.1/#claude-opus-5-vs-claude-code) | Claude Opus 5 · `k=1` | Claude Code | 79 vs 77 /89 | **−19%** | **−28%** (27.6K vs 38.2K) | 610s vs 708s |
+| Run                                                                        | Model · trials            | vs          | Score           | Cost     | Final context             | Time / trial |
+| -------------------------------------------------------------------------- | ------------------------- | ----------- | --------------- | -------- | ------------------------- | ------------ |
+| [2026-10-15](benchmarks/terminal-bench-2.1/#bench-log)                     | GPT-6.1 Sol xhigh · `k=1` | Codex CLI   | 77 vs 78 /89    | **−55%** | **−68%** (10.8K vs 33.6K) | 344s vs 380s |
+| [2026-08-25](benchmarks/terminal-bench-2.1/#gpt-56-sol-xhigh-vs-codex-cli) | GPT-5.6 Sol xhigh · `k=5` | Codex CLI   | 385 vs 383 /445 | **−39%** | **−46%** (18.5K vs 34.3K) | 415s vs 437s |
+| [2026-08-25](benchmarks/terminal-bench-2.1/#claude-opus-5-vs-claude-code)  | Claude Opus 5 · `k=1`     | Claude Code | 79 vs 77 /89    | **−19%** | **−28%** (27.6K vs 38.2K) | 610s vs 708s |
 
 The 2026-10-15 run is the first full run with the
 [effort judge](docs/auto-reasoning-effort.md) active on OpenAI routes, with web

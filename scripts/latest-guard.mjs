@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-// Keep GitHub's "Latest" release on the newest published app release.
-// Run by .github/workflows/latest-guard.yml. When Latest points elsewhere (or
-// nowhere) the job summary and an issue describe what was wrong and the job
-// fails. It writes no release: the pointer is repaired by hand.
-
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { currentLatestTag, gh, listReleases, selectLatestAppRelease } from './release-guard.mjs';

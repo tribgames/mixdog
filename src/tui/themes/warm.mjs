@@ -1,11 +1,3 @@
-/**
- * src/tui/themes/warm.mjs — Warm (soft sunset / coral on charcoal).
- *
- * Distinct from Basic (amber-gold) and earth-tone themes: neutral charcoal
- * surfaces, readable cool-neutral body text, and coral–peach accents for
- * titles, links, and live state. Spreads `basePalette` first so the full key
- * set is always present.
- */
 import { basePalette } from './base.mjs';
 
 /** Warm — soft sunset dark (coral accent, neutral ink). */

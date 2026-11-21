@@ -201,10 +201,7 @@ export async function fetchGithubRelease(
         throw new Error(`GitHub release lookup failed: HTTP ${response.status}`)
       }
 
-      // GitHub keeps a hidden draft under an `untagged-*` URL and the
-      // releases/tags endpoint returns 404 until publication creates the real
-      // tag. Authenticated release listings still expose its requested
-      // tag_name, which lets interrupted release runs resume and verify it.
+      // A hidden draft answers 404 on releases/tags until publication; authenticated listings still show its tag_name.
       for (let page = 1; page <= 10; page++) {
         const listing = await fetch(
           `https://api.github.com/repos/${repository}/releases?per_page=100&page=${page}`,
@@ -275,6 +272,11 @@ export async function assertVoiceRuntimeManifestIdentity(
   if (manifest?.build_hash !== expectedHash) {
     throw new Error('published voice runtime differs from the current build inputs; bump runtimeVersion')
   }
+  assertVoicePlatformVariants(manifest, repository)
+  assertVoiceFfmpegManifest(manifest, repository)
+}
+
+function assertVoicePlatformVariants(manifest, repository) {
   const platformKeys = Object.keys(manifest?.platforms || {})
   const expectedKeys = VOICE_RUNTIME_CONFIG.platforms.map((platform) => platform.key)
   if (JSON.stringify(platformKeys) !== JSON.stringify(expectedKeys)) {
@@ -300,6 +302,9 @@ export async function assertVoiceRuntimeManifestIdentity(
       throw new Error(`voice runtime manifest ${spec.key} does not match the release config`)
     }
   }
+}
+
+function assertVoiceFfmpegManifest(manifest, repository) {
   const expectedFfmpeg = buildVoiceFfmpegPlatforms(
     VOICE_RUNTIME_CONFIG.platforms.map((spec, index) => ({
       name: ffmpegAssetName(spec),

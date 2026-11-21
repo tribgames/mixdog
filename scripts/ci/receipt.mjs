@@ -24,10 +24,7 @@ export function receiptPath(env = process.env) {
   return null;
 }
 
-/**
- * The invocation whose children folder `dir` is (`<receipt>.children`): its receipt was created before it started the tests, so a child
- * names its actual parent's slot and invocation id, read from that file, never from a variable or a guess.
- */
+/** Slot and invocation id of the receipt whose children folder `dir` (`<receipt>.children`) is, read from that receipt's file. */
 export function parentOf(dir) {
   if (!resolve(dir).endsWith('.children')) throw new Error(`${dir} is not the children folder of a receipt`);
   const parent = JSON.parse(readFileSync(resolve(dir).slice(0, -'.children'.length), 'utf8'));
@@ -93,10 +90,7 @@ export function finishReceipt(path, exitCode, extra = {}) {
   rmSync(dir, { recursive: true, force: true });
 }
 
-/**
- * Every receipt of `paths` and of the children folders below them, as { path, parent, receipt?, problem? }: `parent` is the path of the
- * receipt whose children folder holds it (null for a top-level one). A missing or unreadable file is a problem.
- */
+/** Every receipt of `paths` and their children folders as { path, parent, receipt?, problem? }; `parent` is null for a top-level one. */
 export function readReceipts(paths) {
   const out = [];
   const visit = (path, parent) => {

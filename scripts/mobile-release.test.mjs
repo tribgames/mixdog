@@ -194,12 +194,8 @@ function testFlightRuns(
   return alternatives.some((parts) => parts.every(Boolean));
 }
 
-test('Deploy gates Android and TestFlight publishing and gives the relay the resolved APK link', () => {
+test('Deploy plans the mobile release from its inputs', () => {
   const deploy = workflow('deploy.yml');
-  const release = workflow('release.yml');
-  const android = workflow('mobile-android.yml');
-  const ios = workflow('mobile-ios.yml');
-
   const inputs = deploy.on.workflow_dispatch.inputs;
   assert.deepEqual(inputs.mobile.options, ['auto', 'force', 'skip']);
   assert.equal(inputs.mobile.default, 'auto');
@@ -208,7 +204,10 @@ test('Deploy gates Android and TestFlight publishing and gives the relay the res
   assert.equal(planStep.run, 'node scripts/mobile-release.mjs plan');
   assert.equal(deploy.jobs.plan.outputs.mobile_release, '${{ steps.mobile.outputs.mobile_release }}');
   assert.equal(deploy.jobs.plan.outputs.mobile_version, '${{ steps.mobile.outputs.mobile_version }}');
+});
 
+test('TestFlight uploads only after a successful gated release', () => {
+  const deploy = workflow('deploy.yml');
   // TestFlight mutates external state, so it runs after the gated release.
   const iosJob = deploy.jobs['mobile-ios'];
   assert.equal(iosJob.uses, './.github/workflows/mobile-ios.yml');
@@ -234,7 +233,10 @@ test('Deploy gates Android and TestFlight publishing and gives the relay the res
   ]);
   assert.equal(deploy.jobs.release.with.mobile_version, '${{ needs.plan.outputs.mobile_version }}');
   assert.ok(!(deploy.jobs.release.needs || []).includes('mobile-ios'));
+});
 
+test('Release builds Android behind its gates and gives the relay the resolved APK link', () => {
+  const release = workflow('release.yml');
   const androidJob = release.jobs['mobile-android'];
   assert.equal(androidJob.uses, './.github/workflows/mobile-android.yml');
   for (const job of ['coverage-gate', 'push-release-refs']) assert.ok(androidJob.needs.includes(job));
@@ -263,7 +265,13 @@ test('Deploy gates Android and TestFlight publishing and gives the relay the res
     deployStep.run,
     /deploy-release\.sh' '\$RELAY_DOMAIN' '\$RELEASE_TAG' '\$DESKTOP_VERSION' '\$ANDROID_URL'/
   );
+});
 
+test('the mobile workflows run only when called and publish Android through the Latest guard', () => {
+  const release = workflow('release.yml');
+  const android = workflow('mobile-android.yml');
+  const ios = workflow('mobile-ios.yml');
+  const androidJob = release.jobs['mobile-android'];
   // A tag push or a manual run must not bypass the caller's release gate.
   for (const mobile of [android, ios]) {
     assert.deepEqual(Object.keys(mobile.on), ['workflow_call']);

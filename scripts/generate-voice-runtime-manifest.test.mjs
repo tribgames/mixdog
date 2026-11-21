@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   VOICE_RUNTIME_CONFIG,
+  assertVoiceRuntimeManifestIdentity,
   VOICE_RUNTIME_TAG,
   buildVoiceFfmpegPlatforms,
   buildVoiceRuntimePlatforms,
@@ -183,4 +184,78 @@ test('voice runtime build identity is stable and merge preserves model metadata'
   assert.strictEqual(merged.model, current.model);
   assert.deepEqual(merged.ffmpeg, ffmpeg);
   assert.deepEqual(merged.platforms, platforms);
+});
+
+async function publishedManifest() {
+  const sha = (index) => String(index + 1).padStart(64, '0');
+  return {
+    version: VOICE_RUNTIME_CONFIG.runtimeVersion,
+    source: `ggml-org/whisper.cpp@${VOICE_RUNTIME_CONFIG.whisperCommit}`,
+    release_tag: VOICE_RUNTIME_TAG,
+    build_hash: await voiceRuntimeBuildHash(),
+    ffmpeg: buildVoiceFfmpegPlatforms(
+      ffmpegNames.map((name, index) => ({ name, size: index + 1, digest: `sha256:${sha(index)}` }))
+    ),
+    platforms: Object.fromEntries(
+      VOICE_RUNTIME_CONFIG.platforms.map((platform, index) => [
+        platform.key,
+        {
+          variants: [
+            {
+              id: platform.backend,
+              requires: null,
+              url: `https://github.com/tribgames/mixdog/releases/download/${VOICE_RUNTIME_TAG}/${platform.asset}`,
+              sha256: sha(index),
+              size: index + 1,
+              format: 'zip',
+              executable: platform.executable,
+            },
+          ],
+        },
+      ])
+    ),
+  };
+}
+
+test('a manifest published from the current release config passes the identity check', async () => {
+  await assertVoiceRuntimeManifestIdentity(await publishedManifest());
+});
+
+test('the identity check rejects a manifest whose version, source, tag or build hash differs', async () => {
+  for (const [field, value, message] of [
+    ['version', '0.0.0', /version must be/],
+    ['source', 'elsewhere', /source must be/],
+    ['release_tag', 'voice-runtime-v0.0.0', /release_tag must be/],
+    ['build_hash', '0'.repeat(64), /differs from the current build inputs/],
+  ])
+    await assert.rejects(
+      assertVoiceRuntimeManifestIdentity({ ...(await publishedManifest()), [field]: value }),
+      message
+    );
+});
+
+test('the identity check rejects a platform whose variant differs from the release config', async () => {
+  const manifest = await publishedManifest();
+  const [key] = Object.keys(manifest.platforms);
+  manifest.platforms[key].variants[0].sha256 = 'not-a-digest';
+  await assert.rejects(
+    assertVoiceRuntimeManifestIdentity(manifest),
+    new RegExp(`${key} does not match the release config`)
+  );
+  const extra = await publishedManifest();
+  extra.platforms[key].variants.push(extra.platforms[key].variants[0]);
+  await assert.rejects(assertVoiceRuntimeManifestIdentity(extra), new RegExp(`${key} must have exactly one variant`));
+  const missing = await publishedManifest();
+  delete missing.platforms[key];
+  await assert.rejects(assertVoiceRuntimeManifestIdentity(missing), /platforms must be/);
+});
+
+test('the identity check rejects an FFmpeg entry that differs from the release config', async () => {
+  const manifest = await publishedManifest();
+  const [key] = Object.keys(manifest.ffmpeg.platforms);
+  manifest.ffmpeg.platforms[key].size = 0;
+  await assert.rejects(assertVoiceRuntimeManifestIdentity(manifest), new RegExp(`FFmpeg ${key} does not match`));
+  const other = await publishedManifest();
+  other.ffmpeg.version = 'other';
+  await assert.rejects(assertVoiceRuntimeManifestIdentity(other), /FFmpeg manifest does not match/);
 });

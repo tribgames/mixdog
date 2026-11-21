@@ -1,10 +1,3 @@
-/*
- * model-options.mjs — pure model/route label, ordering, and picker-item helpers.
- *
- * No React, no engine state — every function is a pure transform over model
- * records / route objects. Depends only on the shared theme palette and the
- * displayModelName formatter.
- */
 import { theme } from '../theme.mjs';
 import { displayModelName, effortDisplayLabel } from '../../../packages/protocol-client/src/rows/model-display.mjs';
 import { isRollingModelAlias } from '../lib/model-alias.mjs';

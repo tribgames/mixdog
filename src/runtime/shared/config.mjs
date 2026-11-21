@@ -1,7 +1,3 @@
-/**
- * Unified config reader/writer.
- * Single file: mixdog-config.json with sections such as channels, agent, and memory.
- */
 import { readFileSync, readdirSync, statSync, mkdirSync, existsSync } from 'node:fs';
 import { basename, join, dirname } from 'node:path';
 import { createRequire } from 'node:module';
@@ -83,25 +79,10 @@ function withFreshDefaultsVersion(fresh, root) {
   return root;
 }
 
-// Process-wide short-TTL cache of the RAW utf8 string of configPath() (never
-// the parsed object). Parallel agent spawns each hit the non-RMW read path
-// (readAll → readSection/readConfig/readCapabilities); without this every
-// spawn pays a synchronous readFileSync(configPath()) on the event loop,
-// serializing the whole fanout behind redundant disk I/O. Caching the raw
-// string — not the parsed object — lets each caller re-JSON.parse for an
-// isolated, freely-mutable object (no shared-reference poisoning). Only the
-// non-RMW readAll() consults this; the RMW path (readAllForRmW) always reads
-// disk under the lock. Read errors and malformed JSON are never cached.
 let _configReadCache = null; // { raw, path, stat, atMs } | null
 // While a change notification runs its listeners (runConfigChangeListeners).
 let _inNotificationPass = false;
-// Optional coarse fast-path window (ms). Default 0 => the cached raw string is
-// validated against the file's mtime+size on EVERY read via a cheap statSync
-// (no content read, no whole-file JSON.parse), so a cross-process edit is
-// observed immediately with ZERO time-based staleness while the expensive
-// full read + parse are still skipped on an unchanged file. Set >0 to also
-// skip the statSync within the window, trading a bounded staleness for fewer
-// syscalls under extreme spawn fanout.
+// MIXDOG_CONFIG_READ_TTL_MS > 0 skips the freshness stat within the window; 0 stats on every read.
 const CONFIG_READ_TTL_MS = (() => {
   const n = Number(process.env.MIXDOG_CONFIG_READ_TTL_MS);
   return Number.isFinite(n) && n >= 0 ? n : 0;
@@ -125,43 +106,25 @@ function statKey(st) {
   return `${st.mtimeMs}:${st.ctimeMs}:${st.size}:${st.ino}`;
 }
 
-// While the config directory watch (ensureConfigWatcher) runs, a raw read it
-// has watched since is current until one of its events drops it: no stat per
-// read. Every session open reads sections dozens of times (a missing config
-// also re-checks the user-data marker each time). A read filled before the
-// watch started, or under a lost one, is checked by stat as before.
 const watchTrusted = (entry) => entry.watch !== 0 && entry.watch === configWatchGeneration();
 
-function readConfigRawCached() {
-  const now = Date.now();
-  if (_configReadCache && _configReadCache.path !== configPath()) _configReadCache = null;
-  if (_configReadCache && watchTrusted(_configReadCache)) return _configReadCache.raw;
-  // Taken before the stat and read, so an event during them drops what they fill.
-  const watch = configWatchGeneration();
-  if (_configReadCache) {
-    // Fast path (only when a TTL window is configured): serve without any
-    // syscall until the window lapses.
-    if (CONFIG_READ_TTL_MS > 0 && now - _configReadCache.atMs < CONFIG_READ_TTL_MS) {
-      return _configReadCache.raw;
+// undefined when the cache cannot vouch for the file; null is a vouched-for missing config.
+function cachedRaw(now) {
+  const cached = _configReadCache;
+  if (!cached) return undefined;
+  if (watchTrusted(cached)) return cached.raw;
+  if (CONFIG_READ_TTL_MS > 0 && now - cached.atMs < CONFIG_READ_TTL_MS) return cached.raw;
+  try {
+    if (statKey(statSync(configPath())) === cached.stat) {
+      cached.atMs = now;
+      return cached.raw;
     }
-    // Freshness gate: metadata-only stat. Unchanged mtime+ctime+size+inode => the cached
-    // raw is still current, cross-process writes included — atomic writers land
-    // a new inode with a fresh mtime, so this reliably detects them.
-    try {
-      const st = statSync(configPath());
-      if (statKey(st) === _configReadCache.stat) {
-        _configReadCache.atMs = now;
-        return _configReadCache.raw;
-      }
-    } catch {
-      // stat failed (e.g. transient ENOENT mid-rename); fall through to a fresh
-      // read which re-applies the ENOENT/backup-restore semantics below.
-    }
-  }
-  // Stat BEFORE read: if a write lands between the two we cache newer content
-  // against the older mtime, so the very next call re-reads instead of getting
-  // stuck on stale bytes — the cache always converges toward fresh.
-  let st = null;
+  } catch {}
+  return undefined;
+}
+
+function readRawFromDisk(watch, now) {
+  let st;
   try {
     st = statSync(configPath());
   } catch (err) {
@@ -180,12 +143,20 @@ function readConfigRawCached() {
       _configReadCache = missingConfigEntry(watch, now);
       return null;
     }
-    // Fail closed on unknown read errors (EACCES, EIO, …); do NOT cache.
     process.stderr.write(`[config] readJsonFile: unexpected read error for ${configPath()}: ${err.message}\n`);
     throw err;
   }
   _configReadCache = { raw, path: configPath(), stat: statKey(st), atMs: now, watch };
   return raw;
+}
+
+function readConfigRawCached() {
+  const now = Date.now();
+  if (_configReadCache && _configReadCache.path !== configPath()) _configReadCache = null;
+  // Taken before the stat and read, so an event during them drops what they fill.
+  const watch = configWatchGeneration();
+  const hit = cachedRaw(now);
+  return hit !== undefined ? hit : readRawFromDisk(watch, now);
 }
 
 // A missing config is remembered only under the watch (its creation is an
@@ -210,11 +181,6 @@ export function canonicalizeStoredChannelsConfig(value = {}) {
   return next;
 }
 
-// Scrub retired cross-section keys without touching independent domains
-// (ui/theme, desktop, voice, channels access, memory schedules/embedding, …).
-// No migration: canonical locations are the only ones read, and stale keys
-// from old installs are DROPPED, not folded in. Reads use this shape
-// in-memory; every subsequent locked write persists it.
 function canonicalizeUnifiedConfig(value = {}) {
   const next = isPlainObject(value) ? { ...value } : {};
   const hadAgent = isPlainObject(next.agent);
@@ -274,10 +240,6 @@ function lastGoodConfigOr(error) {
 }
 
 function readConfigFile() {
-  // Non-RMW read path: served from the short-TTL raw-string cache. Returning
-  // {} on a read error here would let a subsequent updateSection() serialize
-  // an empty object over an existing-but-temporarily-unreadable config and
-  // erase every other section, so read errors surface (throw) uncached.
   let raw;
   try {
     raw = readConfigRawCached();
@@ -289,10 +251,6 @@ function readConfigFile() {
   try {
     parsed = parseJsonText(raw);
   } catch (err) {
-    // Quarantine a malformed mixdog-config.json so the next boot starts fresh
-    // instead of looping on a broken file. A cached raw string that fails to
-    // parse must not be re-served; drop it so the post-quarantine/restore read
-    // hits disk fresh (malformed = never cached).
     dropConfigReadCache();
     if (_inNotificationPass) return lastGoodConfigOr(configMidWriteError(err));
     quarantineMalformedConfig(err);
@@ -303,19 +261,8 @@ function readConfigFile() {
 }
 
 function writeConfigFile(data, postBackupReason = 'post-config-write') {
-  // R4 data-at-rest: mixdog-config.json holds provider apiKeys; clamp to
-  // owner-only on POSIX via 0o600/0o700 mode bits, AND fail-closed on
-  // Windows where those bits are advisory — `secret: true` makes the
-  // atomic writer apply an owner-only NTFS ACL (icacls) to the file,
-  // temp, lock, and parent dir, throwing if the ACL cannot be enforced
-  // so the key is never left world-readable. 0o700 on the parent dir
-  // restricts directory traversal in shared-home setups on POSIX.
+  // secret: true gives the config (it holds provider apiKeys) an owner-only ACL on Windows, where mode bits are advisory.
   mkdirSync(dirname(configPath()), { recursive: true, mode: 0o700 });
-  // NOTE: lock:false here — callers that perform read-modify-write
-  // (updateConfig/updateSection and their async twins) hold the lock at
-  // the outer RMW boundary, so the inner write must not try to re-acquire
-  // the same lock file (would self-deadlock on `openSync('wx')`). Direct
-  // whole-config writers go through `writeAll` below.
   try {
     backupUserData(resolvePluginData(), 'pre-config-write');
   } catch {}
@@ -336,12 +283,6 @@ function writeConfigFile(data, postBackupReason = 'post-config-write') {
 // per process instead of on every read.
 const _restorePersistFailed = new Set();
 
-/**
- * Write a config restored on a plain read back to disk through the normal save
- * path (atomic write + backups), so later reads hit the file instead of
- * restoring again. Try-once lock: a contended lock means a writer (possibly
- * this process's own outer RMW) is about to persist, so the next read retries.
- */
 function persistRestoredConfig(restored) {
   const path = configPath();
   if (_restorePersistFailed.has(path)) return;
@@ -379,20 +320,6 @@ function readAll() {
     } catch {}
     return canonicalizeUnifiedConfig(parsed);
   }
-  // Symmetric with readAllForRmW(): a missing/unreadable config on a data
-  // dir that was previously initialized means the file was LOST (deleted,
-  // failed write), not a fresh install. A recreated data dir has no marker
-  // and starts fresh. Self-heal from this data dir's newest
-  // structurally-complete backup instead of silently collapsing to {} —
-  // which callers (readSection/getCapabilities) merge with in-memory
-  // defaults, dropping the user's presets/agent routes/sections. The restore
-  // is persisted under the config lock (only if the file is still missing) so
-  // later reads hit the file instead of restoring and logging again.
-  // An upgraded data dir (legacy marker / matching legacy backup, no in-dir
-  // marker yet) is a recovery case too; without a verifiable backup reads stay
-  // empty and RMW writes refuse (see readAllForRmW).
-  // Under a trusted missing entry an empty answer is reached once: the config
-  // or init marker appearing is an event that drops the entry.
   const missing = trustedMissingConfig();
   if (missing?.empty) return {};
   let lookupFailed = false;
@@ -430,11 +357,6 @@ function quarantineMalformedConfig(parseErr) {
   return keptAside;
 }
 
-// A damaged config that was kept aside (its bytes preserved as
-// mixdog-config.json.corrupt-<ts>) is not a lost config: those bytes are the
-// safety net, so with no backup to restore a save may start from an empty
-// config. Every save also snapshots a backup, so a stale copy from an earlier
-// incident never reaches this point while a backup of a later config exists.
 function hasQuarantinedCopy() {
   const dir = dirname(configPath());
   const prefix = `${basename(configPath())}.corrupt-`;
@@ -475,14 +397,6 @@ function restoreAllForRmWOrThrow(reason, keptAside = false) {
   );
 }
 
-/**
- * Read-modify-write baseline. ENOENT on a never-initialized data dir → {}.
- * Malformed on-disk config (or missing config after prior init) → restore
- * from backup or throw; never silently collapse to a one-section overwrite.
- * The exception is a damaged config whose bytes were kept aside as
- * .corrupt-<ts>: with no backup to restore, the save starts from an empty
- * config. A config that cannot be READ (I/O error) still throws.
- */
 function readAllForRmW() {
   let raw;
   try {
@@ -507,15 +421,6 @@ function readAllForRmW() {
   }
 }
 
-// Secret change marker. Keychain writes never touch mixdog-config.json, so they
-// publish through this file beside it (account -> token of its last change):
-// it rides the same directory watch and notification as a config write. Each
-// process remembers the tokens it has applied and drops exactly the changed
-// accounts from its keychain read cache before listeners reload.
-// A deletion removes the account's entry (the marker holds live accounts only)
-// and moves this token: a process that never saw the account's entry (a secret
-// stored before the marker existed, or set and deleted between two of its
-// syncs) may still cache it, so it drops its whole keychain read cache.
 const SECRETS_MARKER_FILE = 'mixdog-secrets-changed.json';
 const SECRET_DELETED_KEY = '#deleted';
 let _secretsSeen = null;
@@ -567,10 +472,6 @@ function syncSecretsMarker() {
   return changed;
 }
 
-// The read path of a process that may have no config-change subscriber (an
-// injected config, a helper process): one stat, and a re-read only when the
-// marker moved, so a secret changed or forgotten elsewhere is never served
-// from this process's cache.
 function syncSecretsMarkerIfMoved() {
   if (_secretsSeen !== null && _secretsSeenPath === secretsMarkerPath()) {
     if (secretsMarkerStat(_secretsSeenPath) === _secretsMarkerStat) return;
@@ -643,12 +544,6 @@ async function publishSecretChangeAsync(account, deleted = false) {
   finishSecretChange(account, token, deleted);
 }
 
-// Config-change notification. In-process writes notify directly after the file
-// is persisted; writes from other processes arrive through the process's one
-// shared watch of the config directory, lazily subscribed (directory-watch.mjs;
-// the atomic rename replaces the file, which would orphan a file-level watch
-// on POSIX), which also hears that directory replaced. Bursts coalesce into
-// one listener pass.
 const CONFIG_CHANGE_DEBOUNCE_MS = 100;
 const WATCHED_FILES = new Set(['mixdog-config.json', SECRETS_MARKER_FILE]);
 const CONFIG_DIR_FILES = [...WATCHED_FILES, USER_DATA_INIT_MARKER];
@@ -691,13 +586,6 @@ function watchedContent() {
   });
 }
 
-// A config that does not parse while a notification pass runs its listeners
-// is usually a write in progress (a hand edit saved half-typed or torn, maybe
-// landing after the pass began): every read of the pass (readConfigFile,
-// readAllForRmW) then throws instead of quarantining it, so the listeners keep
-// their current config. The write completing changes the file after that
-// read, and its watch event runs the next pass. Only reads outside a pass
-// (boot, explicit reads, writes) quarantine it.
 function configMidWriteError(parseErr) {
   // That next pass runs the listeners even when the completed bytes equal the
   // ones the previous pass recorded (the save completed back to them).
@@ -784,11 +672,6 @@ function watchConfigDir(dir) {
   _configWatcher = watcher;
 }
 
-// `failed` (the config directory or one of its ancestors) is missing or
-// cannot be watched: wait in its parent for an event naming it, or further
-// up while that cannot be watched either. With nothing watchable up to the
-// root, reads are checked by stat (configWatchGeneration) and changes of
-// other processes go unannounced.
 function waitForConfigDir(dir, failed) {
   for (let step = failed; dirname(step) !== step; step = dirname(step)) {
     try {
@@ -881,18 +764,7 @@ function writeAll(data, postBackupReason) {
   notifyConfigChanged();
 }
 
-// Serialize a read-modify-write under the same file lock. Concurrent
-// processes used to race here: each read the old config, each computed
-// `all[section] = …`, each atomic-wrote — the later writer would
-// silently clobber the earlier section update. Holding the lock across
-// read+modify+write keeps RMW linearizable.
 function withConfigLock(fn) {
-  // The lock file itself carries no secret — only `<pid> <ts> <token>`, an
-  // integrity marker. Clamping IT owner-only meant two synchronous icacls
-  // spawns (plus whoami) INSIDE the critical section on every config write:
-  // hundreds of ms with the daemon's event loop parked and every other writer
-  // queued behind it. The CONFIG file keeps secret:true, which is where the
-  // API keys actually live.
   return withFileLockSync(`${configPath()}.lock`, fn);
 }
 
@@ -939,14 +811,6 @@ export function updateSection(section, updater) {
   });
 }
 
-// ── Async write path (non-blocking) ─────────────────────────────────
-// Same as the sync RMW above, but every heavy blocker (cross-process
-// lock wait, owner-only icacls ACL, user-data backup copy tree) is awaited
-// off the event loop. Reuses the SAME lock file (`${configPath()}.lock`) and
-// secret:true ACL protocol, so an async writer and a sync writer are mutually
-// exclusive against one another AND against other processes — cross-process
-// RMW linearizability is preserved. The in-lock read (readAllForRmW) stays
-// synchronous: it is a small local read, not the hitch source.
 async function writeConfigFileAsync(data) {
   mkdirSync(dirname(configPath()), { recursive: true, mode: 0o700 });
   try {
@@ -975,12 +839,6 @@ function withConfigLockAsync(fn) {
   return withFileLock(`${configPath()}.lock`, fn);
 }
 
-// Process-wide registry at the lock-owning layer: every public async RMW path
-// registers before lock acquisition and unregisters on both fulfillment and
-// rejection, so a reader and a process shutdown see direct callers too, not
-// just the debounce queues. A write started inside an owner's context (a
-// session runtime's work: createConfigWriteOwner) is also kept in that
-// owner's set, which is what the owner's close drains.
 const _pendingConfigWrites = new Set();
 const configWriteOwner = runtimeAsyncLocalStorage();
 
@@ -1059,10 +917,6 @@ export function updateSectionAsync(section, updater) {
   );
 }
 
-// ── Secret account names ─────────────────────────────────────────────────────
-// Canonical account strings stored in the OS keychain (or, on a Linux host with
-// no usable keychain provider, in the private secrets file behind the same
-// get/set/delete calls: keychain-cjs.cjs "Linux fallback file").
 export const SECRET_ACCOUNTS = Object.freeze({
   agentApiKey: (provider) => `agent.${provider}.apiKey`,
   openaiUsageSessionKey: 'agent.openai.usageSessionKey',
@@ -1124,12 +978,6 @@ export async function saveSecretAsync(account, value) {
 }
 
 function saveSecretError(account, err) {
-  // Reached for a locked keyring, a non-Linux keychain failure, or a Linux host
-  // with no keychain provider whose fallback secrets file could not be written
-  // (keychain-cjs.cjs). Surface an actionable message that points at the
-  // env-var read path the getters already honor, instead of silently writing
-  // the plaintext secret to mixdog-config.json. The fallback is a separate
-  // owner-only file, never the config.
   const envKey = _envKey(account);
   const agentMatch = String(account || '').match(/^agent\.([^.]+)\.apiKey$/);
   const stdEnv = agentMatch ? AGENT_PROVIDER_ENV[agentMatch[1]] : null;

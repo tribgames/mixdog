@@ -1,24 +1,5 @@
 #!/usr/bin/env node
-// The gate runs on a clean checkout: nothing a tracked file reads or Cargo builds may exist only in one working tree.
-//
-// What this script guarantees, and what it does not (docs/testing.md, "What each layer guarantees"). The guarantee is behavioural: the
-// gate runs every suite on a clean checkout, so a test that reads an absent file FAILS there, and one that skips is caught by
-// scripts/ci/check-skips.mjs. That leaves one thing no layer sees: a test that guards its read and returns early without reporting a
-// skip. `--readers` is an early pointer for the common case, not a proof: it reads source text, so a path assembled at run time
-// (joined from pieces, taken from a variable or the environment) is invisible to it. Two checks:
-//
-//   --readers  (default) a tracked JavaScript or TypeScript file that imports, requires, spawns or names (a string literal) a
-//              tracked file that .gitignore also covers (one waiting to be untracked, so absent from a clean checkout of the
-//              change), or a file that does, followed until nothing new is found. Imports are resolved as Node resolves them (the file, `.js`, `.json`, `.node` and the
-//              repository's own extensions, a directory's package.json `main`, an index file), a `?query` or `#hash` is dropped, and
-//              the source is tokenized, not matched line by line: comments (line and block, shebang included) are dropped without
-//              dropping the code beside them, strings are read as strings (template literals with their interpolations), and an
-//              import split over several lines is one import. Nothing is exempt, the gate's own scripts included. Rust needs no such
-//              check: a `mod`, `include_str!` or `include!` of a missing file fails the build.
-//   --build    the checkout the Rust jobs build has no Cargo test target that is not tracked, ignored or not. Cargo builds every
-//              `tests/<name>.rs` and `tests/<name>/main.rs` of a package it finds, so a test file left on a runner (or restored
-//              with a cache) would be built into the archive the legs run.
-//// Usage: node scripts/ci/check-clean-checkout.mjs [--readers | --build]      (from anywhere inside the repository)
+// Usage: node scripts/ci/check-clean-checkout.mjs [--readers | --build]      (from anywhere inside the repository)
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, posix, resolve } from 'node:path';

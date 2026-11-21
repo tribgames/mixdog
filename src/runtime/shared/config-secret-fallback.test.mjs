@@ -1,7 +1,3 @@
-// A Linux host with no OS keychain provider (no secret-tool, no gdbus, no
-// Secret Service) keeps provider keys in an owner-only file under the data dir,
-// never in mixdog-config.json. Real spawns against an empty PATH simulate the
-// missing tools; only process.platform is faked.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';

@@ -1,20 +1,9 @@
-// Evaluates the needs/if job graph of linux-desktop-verify.yml and the release
-// wiring around it, to prove the required proof jobs still run when the native
-// tools are prebuilt by the caller.
-//
-// Fidelity of the model (what is and is not simulated):
-//  - Implicit `success()` (a job without a status function in its `if`) requires
-//    EVERY ancestor in the needs chain to have succeeded: a skipped, failed or
-//    cancelled ancestor skips the job, even a transitive one whose direct deps
-//    all ran. This is deliberately the conservative reading of GitHub's rule.
-//  - failure() is true only if an ancestor failed (skips do not count);
-//    cancelled() is the run-level cancellation flag; always() is true.
-//  - A reusable-workflow call job (`uses:`) is simulated by running the called
-//    workflow's jobs; its result is failure/cancelled if any inner job failed/
-//    was cancelled, skipped if all inner jobs were skipped, else success (inner
-//    skips do NOT fail the call, so a silently skipped proof is invisible to the caller).
-//  - Not modelled: matrix expansion, step-level behaviour, `[linux-full]` commit
-//    messages and tag refs in the plan job (plan.full mirrors inputs.full).
+// GitHub's needs/if rules as modelled here:
+//  - Implicit `success()` requires every ancestor in the needs chain, transitive ones included, to have succeeded.
+//  - failure() is true only if an ancestor failed (skips do not count); cancelled() is the run-level flag; always() is true.
+//  - A reusable-workflow call job (`uses:`) runs the called workflow's jobs: failure/cancelled if any inner job
+//    failed/was cancelled, skipped if all were skipped, else success.
+//  - Not modelled: matrix expansion, step-level behaviour, `[linux-full]` commit messages and tag refs in the plan job.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';

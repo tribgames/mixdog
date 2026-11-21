@@ -1,6 +1,6 @@
 // The desktop's host role is visible through the core: the `hostState` section holds a row the desktop published, or
 // `notify/state` says the host answered (its `supported` is the desktop host's `host/notification/status`, false with no host).
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+import { sleep } from '../lib/sleep.mjs';
 
 export const name = 'host claim present';
 

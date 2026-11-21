@@ -1,17 +1,7 @@
 #!/usr/bin/env node
-// Import-closure check of the package tree. It walks every static import, dynamic import(), require(), createRequire(...)(),
-// `new URL('./x', import.meta.url)` target and `<script src>` from the entry points that remain, and
-//   1. fails when a reached file imports a path inside the tree that is not there any more (a deleted file still imported);
-//   2. fails when a path of --delete / --delete-list is reached (the deletion would break a remaining entry);
-//   3. reports which files of src/ nothing reaches (candidates for a later deletion) and which only tests reach.
-//
-//   node scripts/check-import-closure.mjs [--tree <root>] [--delete <path>]... [--delete-list <file>] [--json]
-//
-// A delete entry is a path relative to the tree; one ending in `/` names a folder. The entry points are computed, not listed:
-//   production : apps/desktop (everything but node_modules and build output), apps/mobile, apps/relay, apps/mixdogd-npm,
-//                packages/*, scripts/ (the files package.json scripts and the release lanes run), bin/, the skill launcher
-//                src/skill-script-entry.mjs, the pptxgenjs authoring entry, and the skill scripts under src/defaults/skills.
-//   tests      : every src/**/*.test.* file (they only add "reached by a test" to the report; they never keep a file alive).
+// node scripts/check-import-closure.mjs [--tree <root>] [--delete <path>]... [--delete-list <file>] [--json]
+// A delete entry is a path relative to the tree; one ending in `/` names a folder.
+// Exit 1 when a reached file imports a missing path of src/, or when a --delete / --delete-list path is still reached.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -189,6 +179,27 @@ export function walkImports(tree, roots) {
 const matchesDelete = (rel, entry) =>
   entry.endsWith('/') ? rel.startsWith(entry) : rel === entry || rel.startsWith(`${entry}/`);
 
+function reachedDeleteImporters(root, files, doomed) {
+  const importersOf = new Map();
+  for (const file of files) {
+    if (!SOURCE.test(file)) continue;
+    let text;
+    try {
+      text = readFileSync(file, 'utf8');
+    } catch {
+      continue;
+    }
+    for (const { spec, kind } of specifiersOf(text, file)) {
+      if (kind !== 'relative') continue;
+      const target = resolveRelative(file, spec);
+      if (!target || !doomed(target) || doomed(file)) continue;
+      const key = posix(relative(root, target));
+      if (!importersOf.has(key)) importersOf.set(key, new Set());
+      importersOf.get(key).add(posix(relative(root, file)));
+    }
+  }
+  return [...importersOf].sort().map(([file, importers]) => ({ file, importers: [...importers].sort() }));
+}
 export function check(tree, deletes = []) {
   const root = resolve(tree);
   const { production, tests } = entryPoints(root);
@@ -204,30 +215,9 @@ export function check(tree, deletes = []) {
   walk(join(root, 'src'), (f) => {
     if (SOURCE.test(f)) srcFiles.push(posix(relative(root, f)));
   });
-  const reachedDeletes = [];
-  if (deletes.length) {
-    // The doomed files that are on disk and reached: walk once without removing them as roots' targets.
-    const importersOf = new Map();
-    for (const file of [...liveProduction, ...liveTests, ...all.reached]) {
-      if (!SOURCE.test(file)) continue;
-      let text;
-      try {
-        text = readFileSync(file, 'utf8');
-      } catch {
-        continue;
-      }
-      for (const { spec, kind } of specifiersOf(text, file)) {
-        if (kind !== 'relative') continue;
-        const target = resolveRelative(file, spec);
-        if (!target || !doomed(target) || doomed(file)) continue;
-        const key = posix(relative(root, target));
-        if (!importersOf.has(key)) importersOf.set(key, new Set());
-        importersOf.get(key).add(posix(relative(root, file)));
-      }
-    }
-    for (const [file, importers] of [...importersOf].sort())
-      reachedDeletes.push({ file, importers: [...importers].sort() });
-  }
+  const reachedDeletes = deletes.length
+    ? reachedDeleteImporters(root, [...liveProduction, ...liveTests, ...all.reached], doomed)
+    : [];
   const everyMissing = [
     ...prod.missing,
     ...all.missing.filter((m) => !prod.missing.some((p) => p.from === m.from && p.spec === m.spec)),

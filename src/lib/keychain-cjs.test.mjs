@@ -207,78 +207,81 @@ test('linux setSecretAsync without secret-tool stores into the private file, wit
 // { hang: true } (a locked keyring waiting on its unlock prompt) or { enoent }.
 let probeCalls = 0;
 let secretToolCalls = 0;
-function fakeSpawn(behavior) {
-  return (cmd, args) => {
-    if (cmd === 'gdbus') {
-      probeCalls++;
-      const probe = new EventEmitter();
-      probe.stdout = new PassThrough();
-      probe.stderr = new PassThrough();
-      probe.kill = () => {};
-      const p = behavior(['__probe']) || {};
-      const method = args[args.indexOf('--method') + 1];
-      const objectPath = args[args.indexOf('--object-path') + 1];
-      // Mixdog's items as the Secret Service lists them: { account, locked? }.
-      // Default: whatever the fake secret-tool search reports, locked when the
-      // probe says so (other collections never matter — only Mixdog items do).
-      const items =
-        p.items ||
-        [
-          ...String(behavior(['search', '--all', 'service', 'mixdog'])?.stderr || '').matchAll(
-            /attribute\.account = (.+)/g
-          ),
-        ].map((m) => ({ account: m[1], locked: !!p.locked }));
-      const pathOf = (item) =>
-        `/org/freedesktop/secrets/collection/${item.locked ? 'login' : 'default'}/${items.indexOf(item)}`;
-      const fail = (message) => {
-        probe.stdout.end();
-        probe.stderr.end(message);
-        setImmediate(() => probe.emit('close', 1));
-      };
-      setTimeout(() => {
-        if (p.missing) return probe.emit('error', Object.assign(new Error('spawn gdbus ENOENT'), { code: 'ENOENT' }));
-        if (p.unreachable) return fail('Error: no such object');
-        if (method.endsWith('.SearchItems')) {
-          const list = (locked) =>
-            items.filter((item) => !!item.locked === locked).map((item) => `objectpath '${pathOf(item)}'`);
-          const array = (entries) => (entries.length ? `[${entries.join(', ')}]` : '@ao []');
-          probe.stdout.end(`(${array(list(false))}, ${array(list(true))})\n`);
-        } else {
-          const item = items.find((candidate) => pathOf(candidate) === objectPath);
-          if (!item || item.gone)
-            return fail(
-              `Error: GDBus.Error:org.freedesktop.DBus.Error.UnknownMethod: Object does not exist at path “${objectPath}”`
-            );
-          probe.stdout.end(`(<{'account': '${item.account}', 'service': 'mixdog'}>,)\n`);
-        }
-        probe.stderr.end();
-        setImmediate(() => probe.emit('close', 0));
-      }, p.delay || 0);
-      return probe;
-    }
-    assert.equal(cmd, 'secret-tool');
-    // The availability probe never touches the keyring; it is not a keyring call.
-    if (args[0] !== '--version') secretToolCalls++;
-    const child = new EventEmitter();
-    child.stdout = new PassThrough();
-    child.stderr = new PassThrough();
-    child.stdin = new PassThrough();
-    child.kill = () => {
-      child.stdout.end();
-      child.stderr.end();
-      child.emit('close', null);
-    };
-    const result = behavior(args);
-    setTimeout(() => {
-      if (result.enoent)
-        return child.emit('error', Object.assign(new Error('spawn secret-tool ENOENT'), { code: 'ENOENT' }));
-      if (result.hang) return;
-      child.stdout.end(result.stdout || '');
-      child.stderr.end(result.stderr || '');
-      setImmediate(() => child.emit('close', result.code ?? 0));
-    }, result.delay || 0);
-    return child;
+function fakeGdbus(behavior, args) {
+  probeCalls++;
+  const probe = new EventEmitter();
+  probe.stdout = new PassThrough();
+  probe.stderr = new PassThrough();
+  probe.kill = () => {};
+  const p = behavior(['__probe']) || {};
+  const method = args[args.indexOf('--method') + 1];
+  const objectPath = args[args.indexOf('--object-path') + 1];
+  // Mixdog's items as the Secret Service lists them: { account, locked? }.
+  // Default: whatever the fake secret-tool search reports, locked when the
+  // probe says so (other collections never matter — only Mixdog items do).
+  const items =
+    p.items ||
+    [
+      ...String(behavior(['search', '--all', 'service', 'mixdog'])?.stderr || '').matchAll(
+        /attribute\.account = (.+)/g
+      ),
+    ].map((m) => ({ account: m[1], locked: !!p.locked }));
+  const pathOf = (item) =>
+    `/org/freedesktop/secrets/collection/${item.locked ? 'login' : 'default'}/${items.indexOf(item)}`;
+  const fail = (message) => {
+    probe.stdout.end();
+    probe.stderr.end(message);
+    setImmediate(() => probe.emit('close', 1));
   };
+  setTimeout(() => {
+    if (p.missing) return probe.emit('error', Object.assign(new Error('spawn gdbus ENOENT'), { code: 'ENOENT' }));
+    if (p.unreachable) return fail('Error: no such object');
+    if (method.endsWith('.SearchItems')) {
+      const list = (locked) =>
+        items.filter((item) => !!item.locked === locked).map((item) => `objectpath '${pathOf(item)}'`);
+      const array = (entries) => (entries.length ? `[${entries.join(', ')}]` : '@ao []');
+      probe.stdout.end(`(${array(list(false))}, ${array(list(true))})\n`);
+    } else {
+      const item = items.find((candidate) => pathOf(candidate) === objectPath);
+      if (!item || item.gone)
+        return fail(
+          `Error: GDBus.Error:org.freedesktop.DBus.Error.UnknownMethod: Object does not exist at path “${objectPath}”`
+        );
+      probe.stdout.end(`(<{'account': '${item.account}', 'service': 'mixdog'}>,)\n`);
+    }
+    probe.stderr.end();
+    setImmediate(() => probe.emit('close', 0));
+  }, p.delay || 0);
+  return probe;
+}
+
+function fakeSecretTool(behavior, cmd, args) {
+  assert.equal(cmd, 'secret-tool');
+  // The availability probe never touches the keyring; it is not a keyring call.
+  if (args[0] !== '--version') secretToolCalls++;
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.stdin = new PassThrough();
+  child.kill = () => {
+    child.stdout.end();
+    child.stderr.end();
+    child.emit('close', null);
+  };
+  const result = behavior(args);
+  setTimeout(() => {
+    if (result.enoent)
+      return child.emit('error', Object.assign(new Error('spawn secret-tool ENOENT'), { code: 'ENOENT' }));
+    if (result.hang) return;
+    child.stdout.end(result.stdout || '');
+    child.stderr.end(result.stderr || '');
+    setImmediate(() => child.emit('close', result.code ?? 0));
+  }, result.delay || 0);
+  return child;
+}
+
+function fakeSpawn(behavior) {
+  return (cmd, args) => (cmd === 'gdbus' ? fakeGdbus(behavior, args) : fakeSecretTool(behavior, cmd, args));
 }
 
 async function withLinuxKeychain(behavior, env, fn, syncSpawn) {
@@ -601,7 +604,7 @@ test('linux fallback: an unwritable secrets directory fails the save and never r
   });
 });
 
-test('linux fallback: only a recognised missing provider falls back; every unknown error fails closed and writes no file', async () => {
+test('linux fallback: every unknown secret-tool error fails closed and writes no file', async () => {
   const unknown = [
     'secret-tool: database disk image is malformed',
     'secret-tool: No space left on device',
@@ -634,7 +637,9 @@ test('linux fallback: only a recognised missing provider falls back; every unkno
       );
     });
   }
-  // A secret-tool that exists but cannot be started is not a missing provider.
+});
+
+test('linux fallback: a secret-tool that exists but cannot be started is not a missing provider', async () => {
   await withTempDataDir(async (dataDir) => {
     await withLinuxKeychain(
       () => ({ code: 0 }),
@@ -647,7 +652,9 @@ test('linux fallback: only a recognised missing provider falls back; every unkno
       () => ({ error: Object.assign(new Error('spawn secret-tool EACCES'), { code: 'EACCES' }), status: null })
     );
   });
-  // Recognised "no provider" reports do fall back.
+});
+
+test('linux fallback: a recognised missing-provider report falls back to the file store', async () => {
   for (const stderr of [
     'Cannot autolaunch D-Bus without X11 $DISPLAY',
     'GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.secrets was not provided by any .service files',
@@ -949,7 +956,7 @@ test('linux: the configured prewarm deadline (not the 4000 ms default) cuts off 
   );
 });
 
-test('linux: background retry never runs secret-tool (no unlock prompt) while the keyring is locked; unlock then recovers; interactive retry may prompt', async () => {
+test('linux: background retry never runs secret-tool (no unlock prompt) while the keyring is locked; unlock then recovers', async () => {
   let locked = true;
   probeCalls = 0;
   secretToolCalls = 0;
@@ -976,7 +983,9 @@ test('linux: background retry never runs secret-tool (no unlock prompt) while th
       assert.equal(keychain.keychainStatus().state, 'locked');
     }
   );
-  // An explicit user action (Unlock button) is allowed to reach secret-tool.
+});
+
+test('linux: an interactive retry (Unlock button) may reach secret-tool and prompt', async () => {
   secretToolCalls = 0;
   let unlocked = false;
   const searches = [];

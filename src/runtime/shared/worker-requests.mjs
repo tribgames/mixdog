@@ -4,6 +4,24 @@
 import { parentPort, Worker } from 'node:worker_threads';
 import { runInRootAsyncContext } from './root-async-context.mjs';
 
+function encodeWorkerError(error) {
+  return {
+    message: String(error?.message || error),
+    code: error?.code ?? null,
+    ...(typeof error?.childExited === 'boolean' ? { childExited: error.childExited, pid: error.pid ?? null } : {}),
+    ...(error?.timing ? { timing: error.timing } : {}),
+  };
+}
+
+function decodeWorkerError(error) {
+  return Object.assign(
+    new Error(error.message),
+    { code: error.code },
+    typeof error.childExited === 'boolean' ? { childExited: error.childExited, pid: error.pid } : {},
+    error.timing ? { timing: error.timing } : {}
+  );
+}
+
 /**
  * Returns `request(payload) → Promise<result>`. The worker starts on first use,
  * holds the process open only while a request is pending, and is recreated
@@ -98,14 +116,7 @@ export function createWorkerRequestClient(
       settleRef(created);
       if (owned.size === 0 && worker === created) armIdleTimer(created);
       if (error) {
-        entry.reject(
-          Object.assign(
-            new Error(error.message),
-            { code: error.code },
-            typeof error.childExited === 'boolean' ? { childExited: error.childExited, pid: error.pid } : {},
-            error.timing ? { timing: error.timing } : {}
-          )
-        );
+        entry.reject(decodeWorkerError(error));
       } else entry.resolve(result);
     });
     created.on('error', (error) => {
@@ -232,20 +243,7 @@ export function serveWorkerRequests(handler) {
       .then(() => handler(payload))
       .then(
         (result) => parentPort.postMessage({ id, result }),
-        (error) =>
-          parentPort.postMessage({
-            id,
-            error: {
-              message: String(error?.message || error),
-              code: error?.code ?? null,
-              // A timed-out child's fate (run-child.mjs waitForExitMs).
-              ...(typeof error?.childExited === 'boolean'
-                ? { childExited: error.childExited, pid: error.pid ?? null }
-                : {}),
-              // A failed child's account of its time (run-child.mjs runChildTimed).
-              ...(error?.timing ? { timing: error.timing } : {}),
-            },
-          })
+        (error) => parentPort.postMessage({ id, error: encodeWorkerError(error) })
       );
   });
 }

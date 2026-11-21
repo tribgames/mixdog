@@ -32,10 +32,6 @@ import { notePhase } from './slow-span.mjs';
 
 export { withFileLock, withFileLockSync };
 
-// Async atomic writes from many daemon sessions share one disk. Keep enough
-// parallelism for SSD throughput, then use additive-increase/multiplicative-
-// decrease when latency shows the filesystem is saturated. This gate never
-// touches synchronous compatibility paths and never revokes in-flight writes.
 const _ioCeiling = Math.max(1, Math.floor(Number(process.env.MIXDOG_FILE_IO_MAX_CONCURRENCY) || 16));
 const _ioStartLimit = Math.min(4, _ioCeiling);
 // Writes of independent files keep moving however slow the disk reads.
@@ -47,18 +43,6 @@ let _ioActive = 0;
 let _ioFastStreak = 0;
 const _ioQueue = [];
 
-// A write's wall time also holds every wait for the loop: each fs step's
-// completion runs only once the loop is free. The loop's busy (active) time over
-// the same interval is the most that wait can be, so wall time minus it is the
-// least the I/O itself took, and wall time is the most. A sample is evidence
-// only where both bounds agree:
-//   least >= slow    the disk was slow whatever the loop did: back off.
-//   wall  <= fast    the disk was fast: counts toward a higher limit.
-//   least <= fast < wall   the loop's own work may explain all of it, or may
-//                    hide a slow disk; that is no reason to stay below the
-//                    limit the gate starts with, and none to go above it.
-// So a busy daemon is not read as a saturated disk, and a disk hidden behind a
-// busy daemon never gets more than the starting parallelism.
 const _defaultIoClock = {
   now: () => performance.now(),
   loopActiveMs: () => performance.eventLoopUtilization().active,
@@ -194,17 +178,10 @@ export function renameWithRetrySync(src, dst, opts = {}) {
   }
 }
 
-// Windows refuses to rename over a file while any handle on it is open, so
-// this process's own reads of a busy state file (a delivery loop polling it)
-// could fail every attempt of its writer's rename until the retries ran out.
-// Here a rename attempt waits for the reads of its target in flight and holds
-// new ones off only while it runs; other processes are what the retries cover.
-// A read still open after RENAME_READ_WAIT_MS is left behind with its path's
-// entry (a stuck read must not hold the writer, its lock, or later readers),
-// and the attempt goes ahead under those same retries. Likewise a rename not
-// returned by then: readers held off read anyway, as without it. A reader's
-// bound counts from the rename call, not from the attempt's own (bounded)
-// wait for reads, so a rename that just started is never read across.
+// Windows refuses to rename over a file while any handle on it is open. A
+// rename waits for this process's in-flight reads of its target and holds new
+// ones off while it runs; a read or rename still pending after
+// RENAME_READ_WAIT_MS is left behind.
 export const RENAME_READ_WAIT_MS = 1_000;
 const targetUse = new Map();
 const targetKey = (path) => {
@@ -473,12 +450,6 @@ function publishFileSync(filePath, data, opts) {
     if (opts.secret === true) _enforceOwnerOnlyAclWin32(tmp, { fresh: true });
     if (opts.backup === true && opts.createOnly !== true) keepBackupSync(filePath, opts);
     if (opts.createOnly === true) {
-      // Atomic create-if-absent: linkSync fails with EEXIST if the
-      // target already exists at link time, so a concurrent
-      // non-locking writer (user/editor) that creates the file
-      // between any prior existsSync gate and this call still
-      // wins — we drop the temp and report `false` so the caller
-      // can record the path as skipped rather than overwriting.
       try {
         linkSync(tmp, filePath);
       } catch (err) {
@@ -495,16 +466,8 @@ function publishFileSync(filePath, data, opts) {
       try {
         renameWithRetrySync(tmp, filePath, opts);
       } catch (err) {
-        // Opt-in fallback for callers whose target is a rename-lock hot
-        // spot on win32 (e.g. AV/indexer briefly holding the destination
-        // handle open), where rename-over keeps failing with EPERM/EACCES
-        // /EBUSY even after renameWithRetrySync's backoff loop. The write
-        // is already serialized by the caller's own withFileLockSync
-        // (opts.lock / updateJsonAtomicSync's lock), so a direct
-        // truncate+write of the target here is still race-safe against
-        // other writers using the same lock path; it just loses the
-        // rename's fully-atomic-swap guarantee for THIS write. Default
-        // behavior (throw) is unchanged for every other caller.
+        // win32: an AV/indexer holding the destination can refuse rename-over past every
+        // backoff. Under the caller's lock a truncate+write is race-safe, but not an atomic swap.
         if (
           opts.renameFallback === 'truncate' &&
           opts.secret !== true &&
@@ -553,21 +516,6 @@ function isJsonContent(content) {
   }
 }
 
-// ── Damaged JSON state ──────────────────────────────────────────────
-// A state file whose text does not parse, or that the caller's `validate`
-// rejects (throws), is damaged: empty or NUL-filled after a crash, truncated,
-// or broken by hand. Its feature must keep working, so the damaged file is
-// moved aside to `<file>.corrupt-<ts>` (its bytes are kept, never overwritten)
-// and the last good copy `<file>.bak` is restored when there is one. A file
-// that cannot be READ (EACCES, EBUSY…) is not damaged and still throws.
-// `decode` turns the file's bytes into JSON text (e.g. unsealing an encrypted
-// file); throwing there marks the file damaged too.
-// The rename that moves a damaged file aside replaces an existing destination,
-// so the name is the first `<file>.corrupt-<ms>` that does not exist yet: two
-// recoveries in one millisecond (or after a clock rollback) never overwrite a
-// kept copy, and the name is no longer than the original shape. Recovery runs
-// under the file's lock, so nothing else creates a quarantine name between
-// this check and the rename.
 export const quarantinePath = (filePath) => {
   let stamp = Date.now();
   while (existsSync(`${filePath}.corrupt-${stamp}`)) stamp += 1;
@@ -625,12 +573,9 @@ const KEPT_IN_PLACE = 'left in place: no good copy to restore';
 
 const NO_BACKUP = { state: 'absent' };
 
-// Caller holds `${filePath}.lock`. The file is re-read under the lock, so a
-// file another process has repaired meanwhile is kept. `keepWithoutBackup` leaves a
-// damaged file in place when there is no good copy: for a file other readers
-// treat "missing" as permissive (e.g. a deny list), moving it would fail open.
-// `restoreBackup: false` never restores `.bak` — for files where an older copy
-// is worse than none (e.g. permission grants a later revocation removed).
+// `keepWithoutBackup` leaves a damaged file in place when there is no good copy
+// (a file whose absence readers treat as permissive would fail open).
+// `restoreBackup: false` never restores `.bak`.
 function recoverDamagedSync(filePath, parse, opts) {
   const current = parse(readContentOrNullSync(filePath));
   if (current.state !== 'damaged') return current;
@@ -737,11 +682,6 @@ export function updateJsonAtomicSync(filePath, mutator, opts = {}) {
   );
 }
 
-// ── Async atomic file write ─────────────────────────────────────────
-// Mirror of writeFileAtomicSync using promise-based filesystem calls and async
-// ACL enforcement. Large summary/pending-message JSON writes therefore never
-// block the host event loop on read/write/fsync/rename.
-// Async writes retain atomic rename publication; truncate recovery is sync-only.
 export async function writeFileAtomicAsync(filePath, data, opts = {}) {
   assertTestSecretWriteSafe(filePath, opts);
   const run = () => publishFileAsync(filePath, data, opts);
@@ -814,11 +754,6 @@ export function writeJsonAtomicAsync(filePath, value, opts = {}) {
   return writeFileAtomicAsync(filePath, `${JSON.stringify(value, null, opts.compact ? 0 : 2)}\n`, jsonBackupOpts(opts));
 }
 
-// Async read-modify-write. Same lock path (`${filePath}.lock`) and protocol
-// as updateJsonAtomicSync, so it is mutually exclusive with the sync variant.
-// The lock wait and filesystem critical section are both asynchronous. JSON
-// parse/mutation/stringify remain synchronous CPU work, but no disk operation
-// or rename retry sleeps on the host event loop.
 export async function updateJsonAtomic(filePath, mutator, opts = {}) {
   const { lock: _lock, ...writeOpts } = opts;
   return withFileLock(

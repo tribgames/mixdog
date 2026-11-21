@@ -17,21 +17,14 @@ import { createKeyedSerialQueue } from './keyed-serial-queue.mjs';
 import { sleep, sleepSync } from './sleep.mjs';
 
 const LOCK_WAIT_CODES = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
-// Cross-process waits must poll (in-process waiters already queue on
-// lockQueue and wake on release). Each sleep is capped at 200 ms: longer
-// sleeps overshoot a release by up to their full length, and the synchronous
-// paths block the event loop for each sleep. The schedule keeps the earlier
-// ~4.2 s total window for rename retries (Windows AV/indexer file holds).
+// Sleeps are capped at 200 ms (a longer one overshoots a release; sync paths block the loop). The
+// schedule totals ~4.2 s for rename retries against Windows AV/indexer file holds.
 const RETRY_MAX_MS = 200;
 export const DEFAULT_BACKOFFS_MS = Object.freeze([25, 50, 100, ...Array(20).fill(RETRY_MAX_MS)]);
 const configuredLockTimeoutMs = Number(process.env.MIXDOG_LOCK_TIMEOUT_MS);
 const DEFAULT_LOCK_TIMEOUT_MS =
   Number.isFinite(configuredLockTimeoutMs) && configuredLockTimeoutMs >= 0 ? configuredLockTimeoutMs : 2000;
 const OWNER_TOKEN = randomBytes(12).toString('hex');
-// lockPath → number of async acquisitions of this process that are opening or
-// holding the OS lock. The async path yields while it opens, records its owner
-// and releases, so a synchronous waiter must see those windows too: it would
-// otherwise block the only thread that can finish them.
 const osHeldPaths = new Map();
 // In-process waiters queue per lock path before contending for the OS lock.
 const lockQueue = createKeyedSerialQueue();
@@ -55,10 +48,6 @@ function unmarkOsHeld(lockPath) {
   else osHeldPaths.delete(lockPath);
 }
 
-// The lock protocol is written once as generators that yield filesystem
-// operations. withFileLockSync runs them with synchronous calls; withFileLock
-// runs the same steps with promise-based calls, so its open/read/stat/unlink
-// work never runs on the event loop and the two paths cannot drift apart.
 const SYNC_IO = {
   stat: (path) => statSync(path),
   statId: (path) => statSync(path, { bigint: true }),
@@ -238,11 +227,6 @@ function* tryAcquireReclaimGuard(lockPath) {
   return null;
 }
 
-// A pathname re-read cannot authorize deleting a guard another process may
-// have published in the meantime. Revoke only a guard whose owner is proven
-// dead and which is older than any live reclaim, and move it aside first:
-// if the moved file is not the one inspected, a newer guard was displaced and
-// is linked back.
 function* revokeDeadReclaimGuard(guardPath) {
   let before;
   try {
@@ -336,12 +320,6 @@ function* releaseLock(lockPath) {
   } catch {}
 }
 
-// Publish the lock together with its owner record. The record is staged in a
-// private file and hard-linked to the lock path, so the lock never exists
-// without a readable owner: an `open(wx)` followed by a separate write left an
-// empty lock file for as long as that write waited behind other I/O (or forever
-// if the process died in between), and a waiter could only treat such a lock as
-// ownerless (pid=?) until the stale window passed.
 function* publishLock(lockPath) {
   const stagedPath = `${lockPath}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
   try {
@@ -376,17 +354,8 @@ function lockStaleMs(opts) {
   return Number.isFinite(opts.staleMs) ? opts.staleMs : 30000;
 }
 
-// Acquire the OS lock with its owner record already published.
-// `markHeld` (async runs only) publishes each publish window in
-// osHeldPaths; on success the mark stays until the caller has released.
-// A staged owner record lives for one link call; a process killed between its
-// create and unlink leaves `<lock>.<pid>.<hex>.tmp` behind. Each lock path is
-// swept once per process for staged files older than this whose pid is dead.
-// The sweep is cleanup only — no lock decision depends on it — so it runs
-// beside the acquisition instead of in front of it: listing a crowded
-// directory synchronously blocked every lock taker for seconds. A file it
-// removes belongs to a dead pid and is past any link call, so it cannot race
-// a live acquisition.
+// A process killed between creating a staged owner record and unlinking it leaves `<lock>.<pid>.<hex>.tmp`.
+// Each lock path is swept once per process, beside the acquisition: a synchronous listing blocked lock takers.
 const STAGED_LOCK_FILE_STALE_MS = 60_000;
 const sweptLockPaths = new Set();
 

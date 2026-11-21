@@ -23,10 +23,6 @@ import { pathToFileURL } from 'node:url';
 
 const TAG_RE = /^mobile-v(\d+)\.(\d+)\.(\d+)$/;
 
-// Everything the APK and the iOS build are made from. The app bundles one
-// desktop module (apps/mobile/src/main.ts imports shared/native-app.ts, which
-// imports nothing). Relay changes are not listed: the relay deploys on its
-// own with every release and the app binary does not embed it.
 export const MOBILE_RELEASE_PATHS = [
   'apps/mobile',
   ':(exclude,glob)apps/mobile/**/*.md',

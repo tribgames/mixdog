@@ -1,7 +1,3 @@
-// Live-bench plumbing shared by bench-run, internal-comms-bench and
-// output-style-bench: where the real data dir lives, the OAuth artifacts a
-// sandboxed data dir needs to reach a provider, and the session id a headless
-// run prints.
 import { copyFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';

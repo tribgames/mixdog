@@ -1,11 +1,3 @@
-// Per-page layout QC. Each selected slide gets one fresh model session that
-// sees only that page — its rendered image when a renderer is available, its
-// element inventory, and its measured defects — with the office tool alone and
-// a fix-only mandate. The fixer edits a working copy; the runner, not the
-// model, decides whether that copy becomes the deck: it is adopted only when
-// the page's measured defects did not grow and no other slide changed, and
-// discarded otherwise. The author closes the deck's session before this runs
-// and reopens it after.
 import { access, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { basename, dirname, extname, join, resolve } from 'node:path';
@@ -401,10 +393,6 @@ async function qcPage(ctx, page) {
 async function applyPageDecision({ deck, report }, entry, copy, decision) {
   entry.kept = decision.keep;
   entry.reason = decision.reason;
-  // A page whose run never produced a reply was not reviewed. Counting it
-  // as kept made an unreviewed page read exactly like a clean one, so a
-  // report on which most pages had failed still said ok, and the deck went
-  // out with the defects the first measurement had already named.
   if (decision.reason === 'execution_failed') {
     report.failed += 1;
     report.ok = false;

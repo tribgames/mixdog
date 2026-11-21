@@ -1,11 +1,3 @@
-// slow-span.mjs
-// Passive per-request timing spans. Every traced call is timed on the same
-// monotonic clock the owner heartbeat uses (performance.now), completed spans
-// over `minMs` land in a bounded ring, and spans over `slowMs` are logged as
-// `[slow-op] <label> <ms>`. When the event loop stalls, `describe(from, to)`
-// names the spans that overlapped the stall window. Spans carry labels and
-// phase durations only — never payloads.
-
 import { performance } from 'node:perf_hooks';
 import { runtimeAsyncLocalStorage } from './root-async-context.mjs';
 
