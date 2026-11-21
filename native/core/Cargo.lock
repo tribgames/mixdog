@@ -5933,6 +5933,7 @@ dependencies = [
 name = "mixdog-office-base"
 version = "1.5.0"
 dependencies = [
+ "libc",
  "mixdog-fsio",
  "mixdog-js",
  "mixdog-rt",

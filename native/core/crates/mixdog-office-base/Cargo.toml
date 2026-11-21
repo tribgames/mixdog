@@ -17,6 +17,10 @@ mixdog-rt = { workspace = true }
 mixdog-statefile = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
+# `pathconf(_PC_CASE_SENSITIVE)`: whether a folder ignores case (the write ledger's receipt key).
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }

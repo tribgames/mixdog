@@ -49,6 +49,9 @@ struct Call {
     verb: &'static str,
     path: String,
     bound: Bound,
+    /// How many bytes of the reply the call has read: a test orders its clock against the reads that restart the silence bound.
+    #[cfg(test)]
+    read: tokio::sync::watch::Sender<usize>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -237,6 +240,9 @@ struct RefusalBody {
 #[derive(Debug, Clone)]
 pub struct CtlClient {
     endpoint: Endpoint,
+    /// [`Call::read`] of this client's calls.
+    #[cfg(test)]
+    read: tokio::sync::watch::Sender<usize>,
 }
 
 struct Reply {
@@ -255,7 +261,7 @@ async fn read_reply(call: &Call, stream: &mut TcpStream) -> Result<Reply, CtlErr
         if buf.len() > MAX_REPLY_BYTES {
             return Err(CtlError::BadReply("header too large".into()));
         }
-        if call.idle(stream.read_buf(&mut buf)).await? == 0 {
+        if call.read(stream, &mut buf).await? == 0 {
             return Err(CtlError::BadReply("closed inside the header".into()));
         }
     };
@@ -281,14 +287,14 @@ async fn read_reply(call: &Call, stream: &mut TcpStream) -> Result<Reply, CtlErr
         Some(n) if n > MAX_REPLY_BYTES => return Err(CtlError::BadReply("body too large".into())),
         Some(n) => {
             while body.len() < n {
-                if call.idle(stream.read_buf(&mut body)).await? == 0 {
+                if call.read(stream, &mut body).await? == 0 {
                     return Err(CtlError::BadReply("closed inside the body".into()));
                 }
             }
             body.truncate(n);
         }
         None => {
-            while call.idle(stream.read_buf(&mut body)).await? != 0 {
+            while call.read(stream, &mut body).await? != 0 {
                 if body.len() > MAX_REPLY_BYTES {
                     return Err(CtlError::BadReply("body too large".into()));
                 }
@@ -313,6 +319,14 @@ impl Call {
         mixdog_rt::time::timeout(self.bound.inactivity, op).await.map_err(|_| self.timed_out())?.map_err(CtlError::Io)
     }
 
+    /// One read of the reply under the silence bound; how many bytes it added to `buf` (none: the peer closed).
+    async fn read(&self, stream: &mut TcpStream, buf: &mut Vec<u8>) -> Result<usize, CtlError> {
+        let moved = self.idle(stream.read_buf(buf)).await?;
+        #[cfg(test)]
+        self.read.send_modify(|read| *read += moved);
+        Ok(moved)
+    }
+
     /// `write_all` with the silence bound restarted by every write that moves bytes, as Node's socket timer is.
     async fn write_all<W: AsyncWrite + Unpin>(&self, stream: &mut W, mut bytes: &[u8]) -> Result<(), CtlError> {
         while !bytes.is_empty() {
@@ -327,7 +341,11 @@ impl Call {
 }
 impl CtlClient {
     pub fn new(endpoint: Endpoint) -> Self {
-        Self { endpoint }
+        Self {
+            endpoint,
+            #[cfg(test)]
+            read: tokio::sync::watch::Sender::new(0),
+        }
     }
 
     /// Resolves the control listener from the discovery file at `path` (read now; build a new client after a core restart). A file
@@ -412,7 +430,13 @@ impl CtlClient {
     }
 
     async fn request<R: DeserializeOwned>(&self, verb: &'static str, name: &str, body: Option<Vec<u8>>, bound: Bound) -> Result<R, CtlError> {
-        let call = Call { verb, path: format!("/mgmt/{name}"), bound };
+        let call = Call {
+            verb,
+            path: format!("/mgmt/{name}"),
+            bound,
+            #[cfg(test)]
+            read: self.read.clone(),
+        };
         let reply = match bound.total {
             Some(total) => mixdog_rt::time::timeout(total, self.exchange(&call, body)).await.map_err(|_| call.timed_out())??,
             None => self.exchange(&call, body).await?,
@@ -655,15 +679,60 @@ mod tests {
         assert_eq!(running.endpoint, Endpoint { port: 4100, token: "tok".into() });
     }
 
+    /// Keeps the paused clock still while loopback bytes are on their way: the kernel delivers them on its own schedule (macOS
+    /// hands them to its network thread), and a paused runtime with nothing ready meanwhile jumps the clock to its next timer,
+    /// the client's bound. A running blocking task keeps tokio from auto-advancing; a hold left by a run is ended after 60 s of
+    /// wall time.
+    #[derive(Clone, Default)]
+    struct Clock(std::sync::Arc<std::sync::Mutex<(Option<std::sync::mpsc::Sender<()>>, bool)>>);
+
+    impl Clock {
+        /// Held from the start: the connection and the request are on their way.
+        fn held() -> Self {
+            let clock = Self::default();
+            clock.hold_until_the_run_ends();
+            clock
+        }
+
+        fn hold_until_the_run_ends(&self) {
+            let mut state = self.0.lock().unwrap();
+            if state.1 {
+                return;
+            }
+            let (release, held) = std::sync::mpsc::channel::<()>();
+            tokio::task::spawn_blocking(move || {
+                let _ = held.recv_timeout(Duration::from_secs(60));
+            });
+            state.0 = Some(release);
+        }
+
+        fn release(&self) {
+            self.0.lock().unwrap().0 = None;
+        }
+
+        fn end_run(&self) {
+            *self.0.lock().unwrap() = (None, true);
+        }
+    }
+
     /// A stub core that plays one recorded reply script: accepts, then stays silent, answers after `ms`, or trickles
     /// (headers and the first piece of the body at once, one more piece every `everyMs`, `chunks` times). The pieces
-    /// are scheduled on the paused clock, so the order against the client's own timers is the clock's, not the host's.
-    async fn scripted_listener(reply: &serde_json::Value, body: String) -> u16 {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
+    /// are scheduled on the paused clock, so the order against the client's own timers is the clock's, not the host's:
+    /// after each piece of a trickle the clock is held until `read`, the client's count of the reply bytes it has read,
+    /// covers the piece, so the read that restarts the client's silence bound happens at the instant the piece was sent.
+    fn scripted_listener(listener: TcpListener, reply: &serde_json::Value, body: String, clock: Clock, mut read: tokio::sync::watch::Receiver<usize>) {
         let reply = reply.clone();
         tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
+            // The request has arrived: the client is connected and waits for the reply, and the clock may move.
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 1024];
+            while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                let read = stream.read(&mut chunk).await.unwrap();
+                assert!(read > 0, "the client closed before its request was complete");
+                request.extend_from_slice(&chunk[..read]);
+            }
+            clock.release();
             let begun = tokio::time::Instant::now();
             let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
             let at = |ms: u64| begun + Duration::from_millis(ms);
@@ -672,6 +741,7 @@ mod tests {
                 "after" => {
                     mixdog_rt::time::sleep_until(at(reply["ms"].as_u64().unwrap())).await;
                     let _ = stream.write_all(format!("{head}{body}").as_bytes()).await;
+                    clock.hold_until_the_run_ends();
                 }
                 "trickle" => {
                     let every = reply["everyMs"].as_u64().unwrap();
@@ -679,12 +749,17 @@ mod tests {
                     let bytes = body.as_bytes();
                     let piece = bytes.len().div_ceil(chunks + 1);
                     let mut pieces = bytes.chunks(piece);
-                    let first = pieces.next().unwrap();
-                    let _ = stream.write_all(&[head.as_bytes(), first].concat()).await;
-                    for (k, rest) in pieces.enumerate() {
-                        mixdog_rt::time::sleep_until(at(every * (k as u64 + 1))).await;
-                        if stream.write_all(rest).await.is_err() {
-                            return;
+                    let first = [head.as_bytes(), pieces.next().unwrap()].concat();
+                    let mut sent = 0;
+                    for (k, piece) in std::iter::once(first.as_slice()).chain(pieces).enumerate() {
+                        mixdog_rt::time::sleep_until(at(every * k as u64)).await;
+                        clock.hold_until_the_run_ends();
+                        sent += piece.len();
+                        // A client that gave up (its total bound) reads no more: its run has ended, which holds no clock.
+                        let taken = stream.write_all(piece).await.is_ok() && read.wait_for(|read| *read >= sent).await.is_ok();
+                        clock.release();
+                        if !taken {
+                            break;
                         }
                     }
                 }
@@ -693,7 +768,6 @@ mod tests {
             // The stream stays open: the peer must see silence, not a close.
             std::future::pending::<()>().await;
         });
-        port
     }
 
     #[tokio::test(start_paused = true)]
@@ -701,11 +775,15 @@ mod tests {
         for (_, ctl_path, call) in COUNTERPARTS {
             let (verb, bound) = if call == "status" { ("GET", 800) } else { ("POST", 3000) };
             let run = |reply: serde_json::Value| async move {
-                let port = scripted_listener(&reply, draining_status().to_string()).await;
+                let clock = Clock::held();
+                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let client = client(listener.local_addr().unwrap().port());
+                scripted_listener(listener, &reply, draining_status().to_string(), clock.clone(), client.read.subscribe());
                 let started = tokio::time::Instant::now();
-                let outcome =
-                    mixdog_rt::time::timeout(Duration::from_secs(60), invoke(call, &client(port))).await.unwrap_or_else(|_| panic!("{call}: never ended"));
-                (outcome, started.elapsed())
+                let outcome = mixdog_rt::time::timeout(Duration::from_secs(60), invoke(call, &client)).await.unwrap_or_else(|_| panic!("{call}: never ended"));
+                let elapsed = started.elapsed();
+                clock.end_run();
+                (outcome, elapsed)
             };
 
             let (silent, elapsed) = run(json!({"kind": "silent"})).await;
@@ -739,7 +817,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_write_that_keeps_moving_outlasts_the_silence_bound_and_a_stalled_one_ends_at_it() {
         let silence = Duration::from_millis(3000);
-        let call = Call { verb: "POST", path: "/mgmt/stop".into(), bound: LIFECYCLE };
+        let call = Call { verb: "POST", path: "/mgmt/stop".into(), bound: LIFECYCLE, read: tokio::sync::watch::Sender::new(0) };
         assert_eq!(call.bound.inactivity, silence);
 
         let (mut near, mut far) = tokio::io::duplex(16);
