@@ -178,6 +178,13 @@ impl DraftJournal {
         self.written_reasoning.clear();
     }
 
+    /// The row of the call `call_id`'s result is on disk (its write was acknowledged): the draft holds the result no
+    /// longer. Not before: a row accepted and not yet written can still fail, and a rewrite of the file meanwhile would
+    /// leave the result in neither place. Kept past that, every result of a turn stayed here until the turn ended.
+    pub fn result_landed(&mut self, call_id: &str) {
+        self.results.retain(|row| row.get("toolCallId").and_then(Value::as_str) != Some(call_id));
+    }
+
     /// The body to write for the chunk `body` the run drafted, and whether it is the whole draft (it replaces the file);
     /// `None` when nothing of it can be written yet.
     pub fn chunk(&mut self, body: &Value, marks: &dyn super::seams::SensitiveMarks, thread: &ThreadId) -> Option<(Value, bool)> {
@@ -282,5 +289,23 @@ mod tests {
         let mut recovered = RunDraft::default();
         recovered.apply_file(&[journal.reset(&marks, &thread)], |_| false);
         assert_eq!(recovered.context_tokens, Some(None));
+    }
+
+    #[test]
+    fn a_result_that_became_a_row_leaves_the_draft_and_one_still_waiting_stays() {
+        let marks = super::super::store::SensitiveMarksOf::new(std::sync::Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default()));
+        let thread = ThreadId::from("draft-results-test");
+        let mut journal = DraftJournal::default();
+        let result = |call: &str| json!({ "role": "tool", "toolCallId": call, "content": format!("result of {call}") });
+        for call in ["c1", "c2", "c3"] {
+            let (append, whole) = journal.chunk(&json!({ "results": [result(call)] }), &marks, &thread).unwrap();
+            assert_eq!((append["results"].clone(), whole), (json!([result(call)]), false));
+        }
+        journal.result_landed("c1");
+        journal.result_landed("c3");
+        journal.result_landed("unknown");
+        assert_eq!(journal.reset(&marks, &thread)["results"], json!([result("c2")]), "the whole draft holds the results no row holds yet");
+        journal.result_landed("c2");
+        assert_eq!(journal.reset(&marks, &thread)["results"], json!([]));
     }
 }

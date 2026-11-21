@@ -467,6 +467,36 @@ fn a_feed_nobody_watched_keeps_no_frame_its_view_describes() {
     assert_eq!((decision.mode, decision.start_seq), (AttachMode::Replay, 41));
 }
 
+/// A watched feed whose producer rests holds none of the frames its view describes: the subscriber still attached hears the
+/// next frame, one that comes back at the head is told it missed nothing, and one from before is served the view.
+#[test]
+fn a_resting_feed_keeps_no_frame_its_view_describes_and_serves_the_view_to_an_older_position() {
+    let encodes = Arc::new(Encodes::default());
+    let mut actor = Actor::new("resting", KEYS, FeedLimits { ring_bytes: 64 << 10, max_snapshot_bytes: 4096 }, &encodes);
+    let conn = MockConnection::new(ConnectionId(79), MockLimits::default());
+    attach(&actor.feed, &conn, "a", Window::Fixed, None);
+    actor.run_to(40);
+    assert!(actor.feed.ring_held() > 0);
+    actor.feed.rest();
+    assert_eq!(actor.feed.ring_held(), 0);
+    let epoch = actor.feed.position().epoch;
+    let at = |seq| ResumeFrom { position: FeedPosition { epoch: epoch.clone(), seq }, window: Window::Fixed };
+    let decision = attach(&actor.feed, &conn, "head", Window::Fixed, Some(at(40)));
+    assert_eq!((decision.mode, decision.start_seq), (AttachMode::Replay, 41));
+    let decision = attach(&actor.feed, &conn, "older", Window::Fixed, Some(at(30)));
+    assert_eq!((decision.mode, decision.start_seq), (AttachMode::Snapshot, 41));
+    actor.run_to(45);
+    let mut clients = HashMap::from([
+        (SubscriptionId::from("a"), Client::default()),
+        (SubscriptionId::from("head"), Client::at(40, KEYS)),
+        (SubscriptionId::from("older"), Client::default()),
+    ]);
+    fold(&conn, &mut clients);
+    for client in clients.values() {
+        assert_eq!(client.state, actor.state());
+    }
+}
+
 fn cpu() -> CpuInteractive {
     mixdog_rt::testing::tokens().cpu_interactive
 }

@@ -1448,6 +1448,8 @@ impl RunFactory for ScriptRuns {
 pub struct RecFeed {
     inner: MockFeed,
     pub frames: Mutex<Vec<(u64, Value)>>,
+    /// How many times the producer told the feed it rests ([`Feed::rest`]).
+    pub rested: std::sync::atomic::AtomicUsize,
     published: Arc<tokio::sync::Notify>,
     gate: PublishGate,
     /// This feed's place among the thread's feed instances (one per incarnation), and the shared event log it tells each new toast to.
@@ -1522,6 +1524,10 @@ impl Feed for RecFeed {
         let published = self.inner.publish(frames, view);
         self.published.notify_waiters();
         published
+    }
+
+    fn rest(&self) {
+        self.rested.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -1617,6 +1623,7 @@ impl FeedFactory for RecFeeds {
             shown: Mutex::default(),
             inner: MockFeed::new(id.clone(), epoch, view, MockLimits::default()),
             frames: Mutex::new(Vec::new()),
+            rested: Default::default(),
             published: self.published.clone(),
             gate: self.publish_gate.clone(),
         });

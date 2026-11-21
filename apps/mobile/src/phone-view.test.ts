@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
 import type { ClientEvent, ConnectionStatus, StoreChange } from '../../../packages/protocol-client/src/index.ts';
-import { createViewManager, type ViewClient } from './phone-view.ts';
+import { createViewManager, STRAY_FOLLOW_RELEASE_MS, type ViewClient } from './phone-view.ts';
 import { createLaneFeeds, type LaneClient } from './phone-lanes.ts';
 
 const READY = { state: 'ready' } as unknown as ConnectionStatus;
@@ -133,6 +133,30 @@ test('a reconnect whose re-attachment was refused keeps the gate shut and retrie
     'the retry re-subscribes what the refusal dropped, not what was restored'
   );
   assert.equal(events.synced, 2);
+});
+
+test('a thread followed outside the view is let go once it stayed unwanted, and one a pane names or the client holds is kept', async () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  const { calls, client, manager } = rig();
+  mock.timers.tick(0);
+  await manager.synced();
+  // What the client follows: the pane's thread, two the list prefetched, and the control thread it holds.
+  const folds = new Set(['t1', 'hovered', 'opened', 'control']);
+  const library = client as unknown as {
+    store: { threads: { keys(): Iterable<string> } };
+    threadSubscription(id: string): { followed: boolean; held: boolean };
+  };
+  library.store.threads = { keys: () => folds.keys() };
+  library.threadSubscription = (id) => ({ followed: folds.has(id), held: id === 'control' });
+  const drops = () => calls.filter((call) => call.startsWith('drop:'));
+  mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
+  assert.deepEqual(drops(), [], 'a thread just prefetched is not let go');
+  await manager.set(['t1', 'opened']);
+  mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
+  mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
+  assert.deepEqual(drops(), ['drop:hovered']);
+  manager.stop();
+  mock.timers.reset();
 });
 
 test('a refused re-attachment three times in a row recycles the connection and rejects the waiting call', async () => {

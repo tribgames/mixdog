@@ -174,6 +174,100 @@ async fn a_value_marked_while_a_failed_turn_is_held_is_redacted_from_its_draft()
     assert!(!rig.store.draft_files(&handle.id).is_empty(), "the draft stays, redacted: {:?}", rig.store.draft_files(&handle.id));
 }
 
+/// An early tool result stays in its run's draft until its own row is on disk. The schedule: two calls' row and both early
+/// results' drafts land; the first result's row lands; the second's fails its write and is kept for a retry while the turn
+/// goes on; a value the second result holds is marked, which rewrites the draft whole; the process ends before the retry.
+/// The rewritten draft holds the second result (redacted) and not the first, the next open recovers the second from it once,
+/// and the marked value is in no file.
+#[tokio::test(start_paused = true)]
+async fn a_result_leaves_the_draft_when_its_row_is_on_disk_and_one_whose_write_failed_is_recovered_from_a_rewritten_draft() {
+    use super::turn_draft::RunDraft;
+    const CODE: &str = "482913";
+    let result = |call: &str, content: &str| json!({ "role": "tool", "toolCallId": call, "content": content });
+    let unsaved = format!("the code is {CODE}");
+    let rig = Rig::new();
+    let failing = rig.store.failing.clone();
+    let held = Arc::new(tokio::sync::Notify::new());
+    let (signal, results) = (held.clone(), [result("c1", "listing"), result("c2", &unsaved)]);
+    rig.set_script(Arc::new(move |run| {
+        let (signal, failing, results) = (signal.clone(), failing.clone(), results.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let row = |iid: &str, role: &str, body: serde_json::Value| ItemCommit {
+                iid: ItemId::from(iid.to_owned()),
+                role: Some(role.into()),
+                model: true,
+                visible: true,
+                body,
+                prompt: None,
+            };
+            let calls = json!([{ "id": "c1", "name": "list", "arguments": {} }, { "id": "c2", "name": "read", "arguments": {} }]);
+            run.port.commit_item(row("calls", "assistant", json!({ "role": "assistant", "content": "", "toolCalls": calls }))).await.expect("the calls land");
+            run.port.draft(json!({ "results": results, "tools": true })).await.expect("drafted");
+            run.port.commit_item(row("r1", "tool", results[0].clone())).await.expect("the first result lands");
+            *failing.lock().unwrap() = Some("EIO: injected".into());
+            run.port.commit_item(row("r2", "tool", results[1].clone())).await.expect("the failed write is kept in memory");
+            signal.notify_one();
+            std::future::pending::<RunOutcome>().await
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    crate::session::testing::awaiting(|| "the second result's row held unsaved".to_owned(), held.notified()).await;
+    let on_disk = |text: &str| {
+        rig.store.draft_files(&handle.id).iter().any(|(_, bodies)| bodies.iter().any(|body| body.to_string().contains(text)))
+            || rig.store.records(&handle.id).iter().any(|(_, record)| format!("{record:?}").contains(text))
+    };
+    assert!(on_disk(CODE), "the unsaved result is in the draft: {:?}", rig.store.draft_files(&handle.id));
+
+    let fill = json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
+    assert!(rig.sensitive.remember(handle.id.as_str(), &[fill]));
+    crate::eventually_on!(&[&rig.store.committed, &handle.cell.stepped], || (!on_disk(CODE)).then_some(())).await;
+    let drafted = |rig: &Rig| {
+        let files = rig.store.draft_files(&handle.id);
+        assert_eq!(files.len(), 1, "one run, one draft file: {files:?}");
+        let mut draft = RunDraft::default();
+        draft.apply_file(&files[0].1, |_| true);
+        draft.results
+    };
+    let kept = drafted(&rig);
+    assert_eq!(
+        kept.iter().map(|row| row["toolCallId"].clone()).collect::<Vec<_>>(),
+        [json!("c2")],
+        "the draft holds the result no row holds, and not the one on disk"
+    );
+    assert!(kept[0]["content"].as_str().is_some_and(|content| content.starts_with("the code is ")), "redacted, not removed: {kept:?}");
+
+    // The process ends here: what the next one finds is the log and the draft file.
+    let next = Rig::new();
+    next.set_script(super::tests::echo());
+    for (_, record) in rig.store.records(&handle.id) {
+        next.store.append_record(&handle.id, record);
+    }
+    for (rid, bodies) in rig.store.draft_files(&handle.id) {
+        next.store.drafts.lock().unwrap().insert((handle.id.as_str().to_owned(), rid), bodies);
+    }
+    let restarted = SessionDirectory::new(next.deps());
+    let reopened = restarted.open_handle(&handle.id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("reopen");
+    crate::eventually_on!(&[&reopened.cell.stepped], || (reopened.recovered() && !next.runs.crashed_drafts.lock().unwrap().is_empty()).then_some(())).await;
+    let recovered = next.runs.crashed_drafts.lock().unwrap()[0].results.clone();
+    assert_eq!(recovered, kept, "the unsaved result is recovered once, as the draft held it");
+    let stored_calls: Vec<_> = rig
+        .store
+        .records(&handle.id)
+        .into_iter()
+        .filter_map(|(_, record)| match record {
+            Record::Item(item) => match item.body {
+                Slot::Inline(body) => body.get("toolCallId").cloned(),
+                Slot::Blob(_) => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(stored_calls, [json!("c1")], "the first result is the log's, the second never reached it");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_failed_save_keeps_the_turn_and_holds_the_next_until_it_lands() {
     let rig = Rig::new();

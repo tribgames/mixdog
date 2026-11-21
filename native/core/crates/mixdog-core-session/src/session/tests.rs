@@ -5817,6 +5817,26 @@ async fn an_idle_thread_unloads_one_idle_delay_after_its_last_subscriber_left_an
     assert!(!Arc::ptr_eq(&reopened.cell, &handle.cell));
 }
 
+/// A watched thread never unloads, so what it holds for nobody goes while it stays: once its turn is over and it does nothing,
+/// its feed is told to rest (the frames kept for a resume go).
+#[tokio::test(start_paused = true)]
+async fn a_watched_thread_gone_quiet_rests_its_feed_and_stays_loaded() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    subscribe(&handle);
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
+    caught_up(&handle).await;
+    let feed = lock(&rig.feeds.feeds).values().flatten().last().cloned().expect("the thread's feed");
+    tokio::time::advance(super::actor::WORKER_IDLE_EVICT + Duration::from_secs(1)).await;
+    caught_up(&handle).await;
+    assert!(feed.rested.load(SeqCst) > 0, "the quiet thread's feed rests");
+    assert!(directory.handle(&handle.id).is_some(), "and the thread stays loaded for its subscriber");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_refused_last_attach_restarts_idle_eviction() {
     let rig = Rig::new();

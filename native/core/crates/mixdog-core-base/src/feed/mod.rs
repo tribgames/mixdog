@@ -376,6 +376,12 @@ impl Feed for CoreFeed {
         // The view and its cached snapshots stay those of `view_seq`: an attach serves them and replays these frames.
         Shared::append(&mut guard, frames)
     }
+
+    fn rest(&self) {
+        let mut guard = self.shared.lock();
+        let state = &mut *guard;
+        state.ring.rest(state.view_seq);
+    }
 }
 
 impl Shared {
